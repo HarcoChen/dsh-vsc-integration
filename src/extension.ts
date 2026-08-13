@@ -3,6 +3,8 @@ import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider } from "./chatView";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
+import { TracePanelManager } from "./tracePanel";
+import { parseTraceLocation } from "./traceProtocol";
 
 export function activate(context: vscode.ExtensionContext): void {
     const output = vscode.window.createOutputChannel("DeepSeek Harness");
@@ -17,11 +19,13 @@ export function activate(context: vscode.ExtensionContext): void {
         output,
         balanceService,
     );
+    const tracePanels = new TracePanelManager(runtime, output, workspaceRoot);
 
     context.subscriptions.push(
         output,
         balanceService,
         chatView,
+        tracePanels,
         new vscode.Disposable(() => {
             void runtime.dispose();
         }),
@@ -30,7 +34,40 @@ export function activate(context: vscode.ExtensionContext): void {
                 retainContextWhenHidden: true,
             },
         }),
+        vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
         vscode.commands.registerCommand("dsh.open", () => chatView.reveal()),
+        vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
+            try {
+                const supplied = value === undefined ? undefined : parseTraceLocation(value);
+                if (value !== undefined && !supplied) {
+                    throw new Error("Trace 定位参数无效。");
+                }
+                const sessionId = supplied?.sessionId ?? chatView.getCurrentSessionId();
+                if (!sessionId) throw new Error("当前没有可打开的会话。");
+                await tracePanels.open(supplied ?? { sessionId });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                void vscode.window.showErrorMessage(`DSH: 打开 Trace 失败：${message}`);
+            }
+        }),
+        vscode.commands.registerCommand("dsh.newSession", () =>
+            runCommand("新建会话", () => chatView.newSession()),
+        ),
+        vscode.commands.registerCommand("dsh.switchSession", () =>
+            runCommand("切换会话", () => chatView.chooseSession()),
+        ),
+        vscode.commands.registerCommand("dsh.searchSession", () =>
+            runCommand("搜索会话", () => chatView.searchSession()),
+        ),
+        vscode.commands.registerCommand("dsh.renameSession", () =>
+            runCommand("重命名会话", () => chatView.renameSession()),
+        ),
+        vscode.commands.registerCommand("dsh.forkSession", () =>
+            runCommand("Fork 会话", () => chatView.forkSession()),
+        ),
+        vscode.commands.registerCommand("dsh.archiveSession", () =>
+            runCommand("归档会话", () => chatView.archiveSession()),
+        ),
         vscode.commands.registerCommand("dsh.start", async () => {
             await runCommand("启动 dsh web", async () => {
                 await runtime.start(workspaceRoot());

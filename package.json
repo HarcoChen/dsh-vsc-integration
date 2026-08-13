@@ -43,6 +43,14 @@
         "onStartupFinished",
         "onView:dsh.chatView",
         "onCommand:dsh.open",
+        "onCommand:dsh.openTrace",
+        "onWebviewPanel:dsh.traceEditor",
+        "onCommand:dsh.newSession",
+        "onCommand:dsh.switchSession",
+        "onCommand:dsh.searchSession",
+        "onCommand:dsh.renameSession",
+        "onCommand:dsh.forkSession",
+        "onCommand:dsh.archiveSession",
         "onCommand:dsh.start",
         "onCommand:dsh.stop",
         "onCommand:dsh.restart",
@@ -80,6 +88,48 @@
                 "title": "DSH: Open Chat",
                 "category": "DSH",
                 "icon": "$(comment-discussion)"
+            },
+            {
+                "command": "dsh.openTrace",
+                "title": "DSH: Open Session Trace",
+                "category": "DSH",
+                "icon": "$(pulse)"
+            },
+            {
+                "command": "dsh.newSession",
+                "title": "DSH: New Session",
+                "category": "DSH",
+                "icon": "$(add)"
+            },
+            {
+                "command": "dsh.switchSession",
+                "title": "DSH: Switch Session",
+                "category": "DSH",
+                "icon": "$(list-selection)"
+            },
+            {
+                "command": "dsh.searchSession",
+                "title": "DSH: Search Sessions",
+                "category": "DSH",
+                "icon": "$(search)"
+            },
+            {
+                "command": "dsh.renameSession",
+                "title": "DSH: Rename Session",
+                "category": "DSH",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "dsh.forkSession",
+                "title": "DSH: Fork Session",
+                "category": "DSH",
+                "icon": "$(repo-forked)"
+            },
+            {
+                "command": "dsh.archiveSession",
+                "title": "DSH: Archive Session",
+                "category": "DSH",
+                "icon": "$(archive)"
             },
             {
                 "command": "dsh.start",
@@ -152,9 +202,24 @@
         "menus": {
             "view/title": [
                 {
+                    "command": "dsh.newSession",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh0"
+                },
+                {
+                    "command": "dsh.switchSession",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh0.1"
+                },
+                {
                     "command": "dsh.openInBrowser",
                     "when": "view == dsh.chatView",
                     "group": "navigation@dsh1"
+                },
+                {
+                    "command": "dsh.openTrace",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh0.2"
                 },
                 {
                     "command": "dsh.openLogs",
@@ -222,14 +287,7 @@
                     "default": 600000,
                     "minimum": 10000,
                     "maximum": 3600000,
-                    "description": "Maximum time to wait for one agent turn while polling committed session history."
-                },
-                "dsh.pollIntervalMs": {
-                    "type": "number",
-                    "default": 500,
-                    "minimum": 100,
-                    "maximum": 5000,
-                    "description": "Interval used to poll dsh session.history for a new or changed assistant message."
+                    "description": "Maximum time for one Harness RPC, including reconnect history rebaselines. Live assistant output is delivered over SSE and is not polled."
                 },
                 "dsh.maxContextBytes": {
                     "type": "number",

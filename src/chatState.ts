@@ -1,0 +1,329 @@
+import { ChatMessage, DshQueuedInboxItem } from "./types";
+import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
+
+export interface OptimisticPrompt {
+    id: string;
+    sessionId: string;
+    displayText: string;
+    wireText: string;
+    afterSeq: number;
+    createdAt: number;
+    error?: string;
+}
+
+export interface QueueDockItem {
+    id: string;
+    placement: "queued" | "steering";
+    preview: string;
+    editableText?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function contentText(value: unknown): string {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (!Array.isArray(value)) {
+        const object = isRecord(value) ? value : undefined;
+        return typeof object?.text === "string" ? object.text : "";
+    }
+    return value
+        .map((part) => {
+            if (!isRecord(part)) return "";
+            if (part.type === "text" || part.type === "reasoning") {
+                return typeof part.text === "string" ? part.text : "";
+            }
+            return "";
+        })
+        .join("");
+}
+
+export function promptDisplayText(wireText: string): string {
+    const marker = "\n\n<ide_context>\n";
+    const index = wireText.indexOf(marker);
+    return index < 0 ? wireText : wireText.slice(0, index);
+}
+
+function messageRecord(event: StoredSessionEvent): Record<string, unknown> | undefined {
+    const data = isRecord(event.event.data) ? event.event.data : undefined;
+    if (!data) return undefined;
+    if (event.event.type === "assistant/message") {
+        return isRecord(data.message) ? data.message : undefined;
+    }
+    return data;
+}
+
+function directUser(event: StoredSessionEvent): boolean {
+    if (event.event.type !== "user/message") return false;
+    const message = messageRecord(event);
+    return isRecord(message?.source) && message.source.kind === "user";
+}
+
+function eventText(event: StoredSessionEvent): string {
+    const message = messageRecord(event);
+    return contentText(message?.content ?? message?.text);
+}
+
+function assistantLocation(event: StoredSessionEvent): string | undefined {
+    if (event.event.type !== "assistant/message" || !isRecord(event.event.data)) return undefined;
+    const turn = event.event.data.turn;
+    const step = event.event.data.step;
+    return typeof turn === "number" && typeof step === "number" ? `${turn}:${step}` : undefined;
+}
+
+interface PartialBlock {
+    kind: "text" | "reasoning" | "other";
+    text: string;
+}
+
+interface PartialMessage {
+    key: string;
+    turn: number;
+    step: number;
+    firstSeq: number;
+    lastTime: number;
+    blocks: Map<number, PartialBlock>;
+}
+
+function foldPartialChunk(partial: PartialMessage, chunk: Record<string, unknown>): void {
+    const index = typeof chunk.index === "number" ? chunk.index : -1;
+    if (index < 0) return;
+    const previous = partial.blocks.get(index);
+    switch (chunk.type) {
+        case "block-start": {
+            const kind = chunk.blockType === "text" || chunk.blockType === "reasoning"
+                ? chunk.blockType
+                : "other";
+            partial.blocks.set(index, { kind, text: "" });
+            return;
+        }
+        case "text-delta":
+            partial.blocks.set(index, {
+                kind: "text",
+                text: (previous?.kind === "text" ? previous.text : "") +
+                    (typeof chunk.text === "string" ? chunk.text : ""),
+            });
+            return;
+        case "reasoning-delta":
+            partial.blocks.set(index, {
+                kind: "reasoning",
+                text: (previous?.kind === "reasoning" ? previous.text : "") +
+                    (typeof chunk.text === "string" ? chunk.text : ""),
+            });
+            return;
+        case "block-end": {
+            const block = isRecord(chunk.block) ? chunk.block : undefined;
+            const kind = block?.type === "text" || block?.type === "reasoning"
+                ? block.type
+                : "other";
+            partial.blocks.set(index, {
+                kind,
+                text: typeof block?.text === "string" ? block.text : "",
+            });
+            return;
+        }
+        default:
+            return;
+    }
+}
+
+/**
+ * Derive the visible chat from the current surface plus raw in-flight chunks. Finalized
+ * assistant messages consume their source chunk seqs, so the partial disappears atomically
+ * instead of rendering a duplicate assistant reply.
+ */
+export function projectChatMessages(
+    snapshot: SessionStateSnapshot | undefined,
+    optimistic: readonly OptimisticPrompt[],
+): ChatMessage[] {
+    if (!snapshot) {
+        return optimistic.map((item) => ({
+            id: item.id,
+            role: item.error ? "system" : "user",
+            text: item.error ? `发送失败：${item.error}` : item.displayText,
+            createdAt: item.createdAt,
+            state: item.error ? "failed" : "pending",
+        }));
+    }
+
+    const optimisticForSession = optimistic
+        .filter((item) => item.sessionId === snapshot.sessionId)
+        .sort((left, right) => left.createdAt - right.createdAt);
+    const matchBySeq = new Map<number, OptimisticPrompt>();
+    const matched = new Set<string>();
+    for (const item of optimisticForSession) {
+        const candidate = snapshot.events.find(
+            (stored) =>
+                !matched.has(`event:${stored.event.seq}`) &&
+                stored.event.seq > item.afterSeq &&
+                directUser(stored) &&
+                eventText(stored) === item.wireText,
+        );
+        if (candidate) {
+            matchBySeq.set(candidate.event.seq, item);
+            matched.add(item.id);
+            matched.add(`event:${candidate.event.seq}`);
+        }
+    }
+
+    const rows: Array<ChatMessage & { order: number }> = [];
+    const finalizedChunkSeqs = new Set<number>();
+    const finalizedLocations = new Set<string>();
+    for (const stored of snapshot.events) {
+        if (stored.event.type !== "assistant/message") continue;
+        for (const seq of stored.event.sourceEventSeqs ?? []) finalizedChunkSeqs.add(seq);
+        const location = assistantLocation(stored);
+        if (location) finalizedLocations.add(location);
+    }
+    for (const node of snapshot.surface.nodes) {
+        if (directUser(node)) {
+            const optimisticMatch = matchBySeq.get(node.event.seq);
+            rows.push({
+                id: `event:${node.event.seq}`,
+                role: "user",
+                text: optimisticMatch?.displayText ?? promptDisplayText(eventText(node)),
+                createdAt: node.event.time,
+                seq: node.event.seq,
+                state: "committed",
+                order: node.event.seq,
+            });
+        } else if (node.event.type === "assistant/message") {
+            const text = eventText(node);
+            if (text) {
+                rows.push({
+                    id: `event:${node.event.seq}`,
+                    role: "assistant",
+                    text,
+                    createdAt: node.event.time,
+                    seq: node.event.seq,
+                    state: "committed",
+                    order: node.event.seq,
+                });
+            }
+        }
+    }
+
+    const partials = new Map<string, PartialMessage>();
+    const endedTurns = new Set<number>();
+    for (const stored of snapshot.events) {
+        if (stored.event.type !== "turn/end" || !isRecord(stored.event.data)) continue;
+        if (typeof stored.event.data.turn === "number") endedTurns.add(stored.event.data.turn);
+    }
+    for (const stored of snapshot.events) {
+        const event = stored.event;
+        if (event.type !== "assistant/chunk" || finalizedChunkSeqs.has(event.seq) || !isRecord(event.data)) {
+            continue;
+        }
+        const turn = event.data.turn;
+        const step = event.data.step;
+        const chunk = isRecord(event.data.chunk) ? event.data.chunk : undefined;
+        if (typeof turn !== "number" || typeof step !== "number" || !chunk) continue;
+        const key = `${turn}:${step}`;
+        if (finalizedLocations.has(key)) continue;
+        let partial = partials.get(key);
+        if (!partial) {
+            partial = {
+                key,
+                turn,
+                step,
+                firstSeq: event.seq,
+                lastTime: event.time,
+                blocks: new Map(),
+            };
+            partials.set(key, partial);
+        }
+        partial.lastTime = event.time;
+        foldPartialChunk(partial, chunk);
+    }
+    for (const partial of partials.values()) {
+        const blocks = [...partial.blocks.entries()].sort(([left], [right]) => left - right);
+        const text = blocks
+            .filter(([, block]) => block.kind === "text")
+            .map(([, block]) => block.text)
+            .join("");
+        const reasoning = blocks.some(([, block]) => block.kind === "reasoning" && block.text);
+        if (!text && !reasoning) continue;
+        rows.push({
+            id: `partial:${partial.key}`,
+            role: "assistant",
+            text: text || "思考中…",
+            createdAt: partial.lastTime,
+            state: endedTurns.has(partial.turn) ? "committed" : "streaming",
+            order: partial.firstSeq + 0.5,
+        });
+    }
+
+    for (const stored of snapshot.events) {
+        const event = stored.event;
+        if (event.type !== "turn/end" || !isRecord(event.data) || !isRecord(event.data.reason)) {
+            continue;
+        }
+        const reason = event.data.reason;
+        if (reason.kind !== "error" && reason.kind !== "blocked") continue;
+        const failure = isRecord(reason.error) ? reason.error : reason;
+        const message = typeof failure.message === "string"
+            ? failure.message
+            : "dsh agent 在生成回复前结束了本轮任务。";
+        const code = typeof failure.code === "string" ? failure.code : undefined;
+        rows.push({
+            id: `turn-error:${event.seq}`,
+            role: "system",
+            text: code ? `[${code}] ${message}` : message,
+            createdAt: event.time,
+            seq: event.seq,
+            state: "committed",
+            order: event.seq + 0.75,
+        });
+    }
+
+    rows.sort((left, right) => left.order - right.order);
+    const projected = rows.map(({ order: _order, ...message }) => message);
+    for (const item of optimisticForSession) {
+        if (matched.has(item.id)) continue;
+        projected.push({
+            id: item.id,
+            role: item.error ? "system" : "user",
+            text: item.error ? `发送失败：${item.error}` : item.displayText,
+            createdAt: item.createdAt,
+            state: item.error ? "failed" : "pending",
+        });
+    }
+    return projected;
+}
+
+export function queueDockItems(items: readonly DshQueuedInboxItem[]): QueueDockItem[] {
+    return items.flatMap((item) => {
+        if (item.placement === "context") return [];
+        const message = isRecord(item.message) ? item.message : undefined;
+        const content = Array.isArray(message?.content) ? message.content : [];
+        const preview = content
+            .map((block) => {
+                if (!isRecord(block)) return "";
+                return block.type === "text" && typeof block.text === "string"
+                    ? block.text
+                    : `[${String(block.type ?? "内容")}]`;
+            })
+            .join(" ")
+            .replace(/\s+/gu, " ")
+            .trim();
+        const editable = content.every((block) => isRecord(block) && block.type === "text");
+        return [{
+            id: item.id,
+            placement: item.placement,
+            preview: Array.from(preview).length > 200
+                ? `${Array.from(preview).slice(0, 200).join("")}…`
+                : preview,
+            ...(editable ? { editableText: contentText(content) } : {}),
+        }];
+    });
+}
+
+export function highestKnownSeq(snapshot: SessionStateSnapshot | undefined): number {
+    return snapshot?.events.reduce(
+        (maximum, stored) => Math.max(maximum, stored.event.seq),
+        -1,
+    ) ?? -1;
+}

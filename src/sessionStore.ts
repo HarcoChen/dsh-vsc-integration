@@ -3,9 +3,15 @@ import {
     DshHistoryEntry,
     DshHistoryEvent,
     DshHistoryResult,
+    DshApprovalRequested,
+    DshApprovalResolved,
     DshJobView,
     DshMuxFrame,
+    DshQuestionItem,
+    DshQuestionRequested,
+    DshQuestionResolved,
     DshQueuedInboxItem,
+    DshRpcReceipt,
     DshSessionEvent,
     DshSessionProjectionsBlock,
 } from "./types";
@@ -82,9 +88,44 @@ export interface SessionStateSnapshot {
     projections: readonly ProjectionCell[];
     queue: AuthoritativeSnapshot<DshQueuedInboxItem>;
     jobs: AuthoritativeSnapshot<DshJobView>;
+    interactions: readonly SessionInteractionSnapshot[];
     subscribedLastSeq?: number;
     needsHistoryBaseline: boolean;
 }
+
+export type SessionInteractionStatus =
+    | "pending"
+    | "submitting"
+    | "resolved"
+    | "failed"
+    | "unavailable";
+
+interface SessionInteractionBase {
+    key: string;
+    rpcId: string;
+    sessionId: string;
+    status: SessionInteractionStatus;
+    outcome?: string;
+    error?: string;
+    receivedAt: number;
+}
+
+export interface SessionApprovalInteraction extends SessionInteractionBase {
+    kind: "approval";
+    approvalId: string;
+    toolName: string;
+    callId?: string;
+    reason?: string;
+}
+
+export interface SessionQuestionInteraction extends SessionInteractionBase {
+    kind: "question";
+    questions: readonly DshQuestionItem[];
+}
+
+export type SessionInteractionSnapshot =
+    | SessionApprovalInteraction
+    | SessionQuestionInteraction;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -96,6 +137,64 @@ function isSeq(value: unknown, allowEmpty = false): value is number {
         Number.isSafeInteger(value) &&
         value >= (allowEmpty ? -1 : 0)
     );
+}
+
+function normalizeQuestionItems(value: unknown): DshQuestionItem[] | undefined {
+    if (!Array.isArray(value) || value.length === 0) return undefined;
+    const result: DshQuestionItem[] = [];
+    for (const candidate of value) {
+        if (
+            !isRecord(candidate) ||
+            typeof candidate.id !== "string" ||
+            typeof candidate.question !== "string" ||
+            (candidate.header !== undefined && typeof candidate.header !== "string") ||
+            (candidate.detail !== undefined && typeof candidate.detail !== "string") ||
+            (candidate.multiSelect !== undefined && typeof candidate.multiSelect !== "boolean")
+        ) {
+            return undefined;
+        }
+        let options: DshQuestionItem["options"];
+        if (candidate.options !== undefined) {
+            if (!Array.isArray(candidate.options)) return undefined;
+            options = [];
+            for (const option of candidate.options) {
+                if (
+                    !isRecord(option) ||
+                    typeof option.label !== "string" ||
+                    (option.description !== undefined && typeof option.description !== "string")
+                ) {
+                    return undefined;
+                }
+                options.push({
+                    label: option.label,
+                    ...(option.description === undefined
+                        ? {}
+                        : { description: option.description }),
+                });
+            }
+        }
+        if (
+            candidate.intent !== undefined &&
+            (!isRecord(candidate.intent) || typeof candidate.intent.kind !== "string")
+        ) {
+            return undefined;
+        }
+        const intent = isRecord(candidate.intent) && typeof candidate.intent.kind === "string"
+            ? { ...candidate.intent, kind: candidate.intent.kind }
+            : undefined;
+        result.push({
+            id: candidate.id,
+            question: candidate.question,
+            ...(candidate.header === undefined ? {} : { header: candidate.header }),
+            ...(candidate.detail === undefined ? {} : { detail: candidate.detail }),
+            ...(options === undefined ? {} : { options }),
+            ...(candidate.multiSelect === undefined
+                ? {}
+                : { multiSelect: candidate.multiSelect }),
+            ...(intent === undefined ? {} : { intent }),
+        });
+    }
+    return result;
 }
 
 function normalizeEvent(value: DshHistoryEvent | DshSessionEvent): DshSessionEvent | undefined {
@@ -422,6 +521,7 @@ class SessionState {
         revision: 0,
         source: "initial",
     };
+    private readonly interactions = new Map<string, SessionInteractionSnapshot>();
 
     public constructor(
         public readonly sessionId: string,
@@ -445,6 +545,124 @@ class SessionState {
             receivedAt,
             source: "subscribed-clear",
         };
+        // The mux open contract emits subscribed first, then replays every still-pending
+        // request with its stable rpcId. Clearing here makes absence authoritative without
+        // racing a replay that may have arrived before the connection callback.
+        this.interactions.clear();
+    }
+
+    public requestApproval(
+        frame: DshApprovalRequested,
+        rpcId: string,
+        receivedAt: number,
+    ): void {
+        const key = `a:${rpcId}`;
+        const current = this.interactions.get(key);
+        this.interactions.set(key, {
+            kind: "approval",
+            key,
+            rpcId,
+            sessionId: frame.sessionId,
+            approvalId: frame.approvalId,
+            toolName: frame.toolName,
+            ...(frame.callId === undefined ? {} : { callId: frame.callId }),
+            ...(frame.reason === undefined ? {} : { reason: frame.reason }),
+            status: current?.status ?? "pending",
+            ...(current?.outcome === undefined ? {} : { outcome: current.outcome }),
+            ...(current?.error === undefined ? {} : { error: current.error }),
+            receivedAt,
+        });
+    }
+
+    public resolveApproval(frame: DshApprovalResolved): void {
+        for (const [key, interaction] of this.interactions) {
+            if (interaction.kind !== "approval" || interaction.approvalId !== frame.approvalId) {
+                continue;
+            }
+            this.interactions.set(key, {
+                ...interaction,
+                status: "resolved",
+                outcome: frame.outcome,
+                error: undefined,
+            });
+        }
+    }
+
+    public requestQuestion(
+        frame: DshQuestionRequested,
+        rpcId: string,
+        receivedAt: number,
+    ): void {
+        const key = `q:${rpcId}`;
+        const current = this.interactions.get(key);
+        this.interactions.set(key, {
+            kind: "question",
+            key,
+            rpcId,
+            sessionId: frame.sessionId,
+            questions: frame.questions.map((question) => ({ ...question })),
+            status: current?.status ?? "pending",
+            ...(current?.outcome === undefined ? {} : { outcome: current.outcome }),
+            ...(current?.error === undefined ? {} : { error: current.error }),
+            receivedAt,
+        });
+    }
+
+    public resolveQuestion(frame: DshQuestionResolved): void {
+        const key = `q:${frame.questionRpcId}`;
+        const interaction = this.interactions.get(key);
+        if (!interaction || interaction.kind !== "question") {
+            return;
+        }
+        this.interactions.set(key, {
+            ...interaction,
+            status: "resolved",
+            outcome: frame.outcome,
+            error: undefined,
+        });
+    }
+
+    public claimInteraction(key: string): SessionInteractionSnapshot | undefined {
+        const interaction = this.interactions.get(key);
+        if (!interaction || interaction.status !== "pending") {
+            return undefined;
+        }
+        const claimed: SessionInteractionSnapshot = {
+            ...interaction,
+            status: "submitting",
+            error: undefined,
+        };
+        this.interactions.set(key, claimed);
+        return { ...claimed };
+    }
+
+    public settleInteractionReceipt(key: string, receipt: DshRpcReceipt): void {
+        const interaction = this.interactions.get(key);
+        if (!interaction || interaction.status !== "submitting" || receipt.accepted) {
+            return;
+        }
+        this.interactions.set(key, {
+            ...interaction,
+            status: receipt.reason === "not-pending" ? "unavailable" : "failed",
+            error:
+                receipt.reason === "not-pending"
+                    ? "请求已不再等待回答。"
+                    : `回答被 Harness 拒绝：${receipt.reason}`,
+        });
+    }
+
+    public failInteraction(key: string, message: string): void {
+        const interaction = this.interactions.get(key);
+        if (!interaction || interaction.status !== "submitting") {
+            return;
+        }
+        // A transport failure is ambiguous: the host may have accepted the response. Keep
+        // the card inert until an authoritative resolved frame or reconnect replay arrives.
+        this.interactions.set(key, {
+            ...interaction,
+            status: "failed",
+            error: message,
+        });
     }
 
     public replaceQueue(items: readonly DshQueuedInboxItem[], receivedAt: number, rpcId: string): void {
@@ -475,6 +693,9 @@ class SessionState {
             projections: this.projections.snapshot(),
             queue: cloneSnapshot(this.queueState),
             jobs: cloneSnapshot(this.jobsState),
+            interactions: [...this.interactions.values()]
+                .sort((left, right) => left.receivedAt - right.receivedAt)
+                .map((interaction) => ({ ...interaction })),
             subscribedLastSeq: this.events.subscribedWatermark,
             needsHistoryBaseline: this.events.needsHistoryBaseline,
         };
@@ -581,12 +802,87 @@ export class HarnessSessionStore {
                 this.publish(state);
                 return;
             }
-            case "approval/requested":
-            case "approval/resolved":
-            case "question/requested":
-            case "question/resolved":
+            case "approval/requested": {
+                if (
+                    !sessionId ||
+                    typeof frame.approvalId !== "string" ||
+                    typeof frame.toolName !== "string" ||
+                    (frame.callId !== undefined && typeof frame.callId !== "string") ||
+                    (frame.reason !== undefined && typeof frame.reason !== "string")
+                ) {
+                    this.diagnostic("invalid-frame", "approval/requested frame is malformed", frame);
+                    return;
+                }
+                const state = this.state(sessionId);
+                state.requestApproval(
+                    {
+                        type: "approval/requested",
+                        sessionId,
+                        approvalId: frame.approvalId,
+                        toolName: frame.toolName,
+                        ...(frame.callId === undefined ? {} : { callId: frame.callId }),
+                        ...(frame.reason === undefined ? {} : { reason: frame.reason }),
+                    },
+                    envelope.rpcId,
+                    this.now(),
+                );
+                this.publish(state);
+                return;
+            }
+            case "approval/resolved": {
+                if (
+                    !sessionId ||
+                    typeof frame.approvalId !== "string" ||
+                    typeof frame.outcome !== "string"
+                ) {
+                    this.diagnostic("invalid-frame", "approval/resolved frame is malformed", frame);
+                    return;
+                }
+                const state = this.state(sessionId);
+                state.resolveApproval({
+                    type: "approval/resolved",
+                    sessionId,
+                    approvalId: frame.approvalId,
+                    outcome: frame.outcome,
+                });
+                this.publish(state);
+                return;
+            }
+            case "question/requested": {
+                const questions = normalizeQuestionItems(frame.questions);
+                if (!sessionId || !questions) {
+                    this.diagnostic("invalid-frame", "question/requested frame is malformed", frame);
+                    return;
+                }
+                const state = this.state(sessionId);
+                state.requestQuestion(
+                    { type: "question/requested", sessionId, questions },
+                    envelope.rpcId,
+                    this.now(),
+                );
+                this.publish(state);
+                return;
+            }
+            case "question/resolved": {
+                if (
+                    !sessionId ||
+                    typeof frame.questionRpcId !== "string" ||
+                    typeof frame.outcome !== "string"
+                ) {
+                    this.diagnostic("invalid-frame", "question/resolved frame is malformed", frame);
+                    return;
+                }
+                const state = this.state(sessionId);
+                state.resolveQuestion({
+                    type: "question/resolved",
+                    sessionId,
+                    questionRpcId: frame.questionRpcId,
+                    outcome: frame.outcome,
+                });
+                this.publish(state);
+                return;
+            }
             case "stream/error":
-                // These have their own interaction/transport stores in the next phase.
                 return;
             default:
                 this.diagnostic("unknown-frame", `Unknown mux frame ${frame.type}`, frame);
@@ -599,6 +895,44 @@ export class HarnessSessionStore {
 
     public list(): SessionStateSnapshot[] {
         return [...this.sessions.values()].map((state) => state.snapshot());
+    }
+
+    /** Atomically claims an answerable request; a second click receives undefined. */
+    public claimInteraction(
+        sessionId: string,
+        key: string,
+    ): SessionInteractionSnapshot | undefined {
+        const state = this.sessions.get(sessionId);
+        if (!state) {
+            return undefined;
+        }
+        const interaction = state.claimInteraction(key);
+        if (interaction) {
+            this.publish(state);
+        }
+        return interaction;
+    }
+
+    public settleInteractionReceipt(
+        sessionId: string,
+        key: string,
+        receipt: DshRpcReceipt,
+    ): void {
+        const state = this.sessions.get(sessionId);
+        if (!state) {
+            return;
+        }
+        state.settleInteractionReceipt(key, receipt);
+        this.publish(state);
+    }
+
+    public failInteraction(sessionId: string, key: string, message: string): void {
+        const state = this.sessions.get(sessionId);
+        if (!state) {
+            return;
+        }
+        state.failInteraction(key, message);
+        this.publish(state);
     }
 
     private state(sessionId: string): SessionState {

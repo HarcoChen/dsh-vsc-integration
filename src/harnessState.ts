@@ -5,6 +5,7 @@ import {
     HarnessConnectionState,
 } from "./harnessConnection";
 import { HarnessHostDescription } from "./harnessProtocol";
+import { HarnessCatalogStore } from "./sessionCatalog";
 import {
     HarnessSessionStore,
     SessionStateSnapshot,
@@ -33,6 +34,7 @@ export interface HarnessStateCoordinatorOptions {
  */
 export class HarnessStateCoordinator implements AsyncDisposable {
     public readonly sessions: HarnessSessionStore;
+    public readonly catalog: HarnessCatalogStore;
     private readonly connection: HarnessConnectionController;
     private readonly syncing = new Map<string, Promise<void>>();
     private readonly historyPageSize: number;
@@ -44,10 +46,23 @@ export class HarnessStateCoordinator implements AsyncDisposable {
         options: HarnessStateCoordinatorOptions = {},
     ) {
         this.historyPageSize = Math.max(1, options.historyPageSize ?? 100);
+        this.catalog = new HarnessCatalogStore();
         this.sessions = new HarnessSessionStore((diagnostic) =>
             this.sinks.onDiagnostic?.(diagnostic),
         );
         this.sessions.onDidChange((sessionId, snapshot) => {
+            const active = snapshot.interactions.filter(
+                (interaction) =>
+                    interaction.status === "pending" || interaction.status === "submitting",
+            );
+            this.catalog.setPendingInteraction(
+                sessionId,
+                active.some((interaction) => interaction.kind === "approval")
+                    ? "approval"
+                    : active.some((interaction) => interaction.kind === "question")
+                      ? "question"
+                      : undefined,
+            );
             this.sinks.onSessionChange?.(sessionId, snapshot);
             if (snapshot.needsHistoryBaseline) {
                 void this.syncHistory(sessionId);
@@ -58,6 +73,7 @@ export class HarnessStateCoordinator implements AsyncDisposable {
             {
                 onMuxEnvelope: (envelope) => {
                     this.sessions.applyMuxEnvelope(envelope);
+                    this.catalog.applyMuxEnvelope(envelope);
                     if (
                         envelope.payload.type === "session/subscribed" &&
                         typeof envelope.payload.sessionId === "string"
@@ -67,16 +83,20 @@ export class HarnessStateCoordinator implements AsyncDisposable {
                         void this.syncHistory(envelope.payload.sessionId);
                     }
                 },
-                onHostEnvelope: (envelope) => this.sinks.onHostFrame?.(envelope.payload),
+                onHostEnvelope: (envelope) => {
+                    this.catalog.applyHostEnvelope(envelope);
+                    this.sinks.onHostFrame?.(envelope.payload);
+                },
                 onConnected: async (description) => {
                     this.sinks.onHostDescription?.(description);
                     // Mux subscribed frames normally schedule these repairs. Re-check every
                     // known session to close the stream-open/handshake delivery race.
-                    await Promise.all(
-                        this.sessions
+                    await Promise.all([
+                        this.refreshCatalog(),
+                        ...this.sessions
                             .list()
                             .map((session) => this.syncHistory(session.sessionId)),
-                    );
+                    ]);
                 },
                 onStateChange: (state) => this.sinks.onConnectionState?.(state),
                 onDiagnostic: (diagnostic) => this.sinks.onDiagnostic?.(diagnostic),
@@ -125,6 +145,29 @@ export class HarnessStateCoordinator implements AsyncDisposable {
             });
         this.syncing.set(sessionId, sync);
         return sync;
+    }
+
+    public async refreshCatalog(): Promise<void> {
+        const baselineRevision = this.catalog.baselineRevision();
+        const [sessions, workspaces] = await Promise.all([
+            this.api.call("session.list", {}, this.historyAbort.signal)
+                .then((value) => ({ ok: true as const, value }))
+                .catch((error: unknown) => ({ ok: false as const, error })),
+            this.api.call("workspace.list", {}, this.historyAbort.signal)
+                .then((value) => ({ ok: true as const, value }))
+                .catch((error: unknown) => ({ ok: false as const, error })),
+        ]);
+        if (sessions.ok) this.catalog.seedSessions(sessions.value, baselineRevision);
+        if (workspaces.ok) this.catalog.seedWorkspaces(workspaces.value, baselineRevision);
+        const failures = [sessions, workspaces].filter(
+            (result): result is { ok: false; error: unknown } => !result.ok,
+        );
+        if (failures.length > 0) {
+            throw new AggregateError(
+                failures.map((failure) => failure.error),
+                "Harness session/workspace catalog rebaseline failed",
+            );
+        }
     }
 
     private async readCompleteHistory(sessionId: string): Promise<void> {

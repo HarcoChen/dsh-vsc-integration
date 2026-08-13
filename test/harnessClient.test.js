@@ -109,3 +109,77 @@ test("typed unary carrier validates echoed rpcId", async () => {
     assert.equal((await client.describe()).version, "0.1.0");
 });
 
+test("respond posts the original requested rpcId without minting a client request", async () => {
+    const client = new HarnessApiClient({
+        baseUrl: "http://harness.test",
+        mintRpcId: () => {
+            throw new Error("respond must not mint a replacement rpcId");
+        },
+        fetch: async (url, init) => {
+            assert.equal(url, "http://harness.test/api/respond");
+            assert.deepEqual(JSON.parse(init.body), {
+                type: "client-response",
+                rpcId: "pending-question-rpc",
+                result: {
+                    ok: true,
+                    value: {
+                        sessionId: "s1",
+                        answer: { answers: [{ id: "q1", selected: ["yes"] }] },
+                    },
+                },
+            });
+            return Response.json({ accepted: true });
+        },
+    });
+
+    assert.deepEqual(await client.respond({
+        type: "client-response",
+        rpcId: "pending-question-rpc",
+        result: {
+            ok: true,
+            value: {
+                sessionId: "s1",
+                answer: { answers: [{ id: "q1", selected: ["yes"] }] },
+            },
+        },
+    }), { accepted: true });
+});
+
+test("typed carrier preserves the official goal and subagent RPC payload shapes", async () => {
+    const expected = [
+        ["goal.create", { sessionId: "s1", objective: "ship", maxGoalRounds: 4 }, { ref: { id: "g1", revision: 1 } }],
+        ["goal.edit", { sessionId: "s1", ref: { id: "g1", revision: 1 }, objective: "ship well" }, { ref: { id: "g1", revision: 2 } }],
+        ["goal.pause", { sessionId: "s1", ref: { id: "g1", revision: 2 } }, { ref: { id: "g1", revision: 3 } }],
+        ["goal.resume", { sessionId: "s1", ref: { id: "g1", revision: 3 } }, { ref: { id: "g1", revision: 4 } }],
+        ["goal.complete", { sessionId: "s1", ref: { id: "g1", revision: 4 } }, { ref: { id: "g1", revision: 5 } }],
+        ["goal.clear", { sessionId: "s1", ref: { id: "g1", revision: 5 } }, { cleared: true }],
+        ["subagent.list", { parentSessionId: "s1" }, { entries: [], parentAvailable: true }],
+        ["subagent.history", { parentSessionId: "s1", childSessionId: "c1", mode: "one-shot", maxMessages: 50 }, { events: [], hasMore: false }],
+        ["subagent.prompt", { parentSessionId: "s1", childSessionId: "c2", mode: "continuable", content: [{ type: "text", text: "continue" }] }, { messageId: "m1" }],
+        ["subagent.interrupt", { parentSessionId: "s1", childSessionId: "c2", mode: "continuable" }, { accepted: true }],
+    ];
+    let index = 0;
+    const client = new HarnessApiClient({
+        baseUrl: "http://harness.test",
+        mintRpcId: () => `rpc-${index}`,
+        fetch: async (url, init) => {
+            const [method, payload, value] = expected[index];
+            const body = JSON.parse(init.body);
+            assert.equal(url, `http://harness.test/api/${method}`);
+            assert.equal(body.method, method);
+            assert.deepEqual(body.payload, payload);
+            const rpcId = body.rpcId;
+            index += 1;
+            return Response.json({
+                type: "server-response",
+                rpcId,
+                result: { ok: true, value },
+            });
+        },
+    });
+
+    for (const [method, payload] of expected) {
+        await client.call(method, payload);
+    }
+    assert.equal(index, expected.length);
+});

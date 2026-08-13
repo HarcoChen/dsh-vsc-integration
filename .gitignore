@@ -3,3 +3,5 @@ dist/
 *.vsix
 .vscode-test/
 npm-debug.log*
+deepseek-harness/
+.DS_Store

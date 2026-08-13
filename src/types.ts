@@ -26,6 +26,8 @@ export interface ChatMessage {
     role: ChatRole;
     text: string;
     createdAt: number;
+    seq?: number;
+    state?: "committed" | "streaming" | "pending" | "failed";
 }
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
@@ -153,6 +155,16 @@ export interface DshSessionListPayload {
     cursor?: string;
 }
 
+export interface DshSessionSearchItem {
+    sessionId: string;
+    snippet: string;
+}
+
+export interface DshSessionSearchResult {
+    items: DshSessionSearchItem[];
+    hasMore: boolean;
+}
+
 export interface DshModelSelection {
     provider: string;
     model: string;
@@ -202,6 +214,72 @@ export interface DshSessionRenameResult {
 export interface DshSessionForkResult {
     sessionId: string;
     [key: string]: unknown;
+}
+
+export interface DshGoalRef {
+    id: string;
+    revision: number;
+}
+
+export type DshGoalPhase = "active" | "paused" | "blocked" | "complete";
+
+export interface DshGoalBlockReason {
+    code: string;
+    message: string;
+}
+
+export interface DshGoalSnapshot extends DshGoalRef {
+    objective: string;
+    phase: DshGoalPhase;
+    blockedReason?: DshGoalBlockReason;
+    maxGoalRounds: number;
+}
+
+/** Exact whole value carried by the public `goal` session projection. */
+export interface DshGoalProjection {
+    goal: DshGoalSnapshot;
+    roundsStarted: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface DshGoalRefResult {
+    ref: DshGoalRef;
+}
+
+export type DshSubagentListEntry =
+    | ({
+          kind: "child";
+          id: string;
+          activity: "running" | "inactive";
+          hasChildren: boolean;
+      } &
+          (
+              | { mode: "one-shot"; label?: string }
+              | { mode: "continuable"; label: string }
+          ))
+    | {
+          kind: "diagnostic";
+          id: string;
+          reason: "corrupt" | "unsupported" | "unavailable";
+      };
+
+export interface DshSubagentCatalog {
+    entries: DshSubagentListEntry[];
+    parentAvailable: boolean;
+}
+
+export type DshSubagentAddress = {
+    parentSessionId: string;
+    childSessionId: string;
+} & ({ mode: "one-shot" } | { mode: "continuable" });
+
+export interface DshSubagentHistoryResult extends DshHistoryResult {
+    hasMore: boolean;
+}
+
+export interface DshSubagentPromptResult {
+    messageId: string;
 }
 
 export interface DshSkillEntry {
@@ -392,7 +470,17 @@ export interface DshHostAgentErrorFrame {
 
 export interface DshWorkspaceView {
     workspaceId: string;
+    path: string;
+    title: string;
+    sessionIds: string[];
+    createdAt: string;
+    updatedAt: string;
     [key: string]: unknown;
+}
+
+export interface DshWorkspaceListResult {
+    items: DshWorkspaceView[];
+    archivedSessionIds: string[];
 }
 
 export interface DshHostWorkspaceChangedFrame {
@@ -459,5 +547,100 @@ export interface ChatViewState {
     selectionEnabled: boolean;
     status: RuntimeStatus;
     busy: boolean;
+    submitting: boolean;
     workspaceName?: string;
+    sessionId?: string;
+    sessions: Array<{
+        sessionId: string;
+        title: string;
+        running: boolean;
+        attention: boolean;
+        archived: boolean;
+    }>;
+    sessionStatus?: {
+        running: boolean;
+        attention: boolean;
+        error?: string;
+    };
+    interactions: Array<{
+        key: string;
+        kind: "approval" | "question";
+        status: "pending" | "submitting" | "resolved" | "failed" | "unavailable";
+        toolName?: string;
+        reason?: string;
+        questions?: DshQuestionItem[];
+        outcome?: string;
+        error?: string;
+    }>;
+    queue: Array<{
+        id: string;
+        placement: "queued" | "steering";
+        preview: string;
+        editableText?: string;
+    }>;
+    goal?: GoalHudView;
+    subagents?: SubagentTreeView;
+    subagentPreview?: SubagentHistoryPreview;
+    jobs: JobCenterItem[];
+}
+
+export interface GoalHudView {
+    state: "empty" | "present" | "invalid";
+    goal?: DshGoalSnapshot;
+    roundsStarted?: number;
+    createdAt?: number;
+    updatedAt?: number;
+    pending?: boolean;
+    pendingOperation?:
+        | "create"
+        | "edit"
+        | "pause"
+        | "resume"
+        | "complete"
+        | "clear";
+    error?: string;
+}
+
+export interface SubagentTreeNodeView {
+    kind: "child" | "diagnostic";
+    id: string;
+    parentSessionId: string;
+    depth: number;
+    parentAvailable: boolean;
+    label?: string;
+    mode?: "one-shot" | "continuable";
+    activity?: "running" | "inactive";
+    hasChildren?: boolean;
+    reason?: "corrupt" | "unsupported" | "unavailable";
+}
+
+export interface SubagentTreeView {
+    rootSessionId: string;
+    state: "loading" | "ready" | "error";
+    nodes: SubagentTreeNodeView[];
+    error?: string;
+}
+
+export interface SubagentHistoryPreview {
+    rootSessionId: string;
+    childSessionId: string;
+    label: string;
+    mode: "one-shot" | "continuable";
+    parentAvailable: boolean;
+    activity: "running" | "inactive";
+    state: "loading" | "ready" | "error";
+    messages: ChatMessage[];
+    pendingAction?: "follow-up" | "interrupt";
+    error?: string;
+}
+
+export interface JobCenterItem {
+    id: string;
+    kind: string;
+    label: string;
+    ownerSessionId: string;
+    status: DshJobView["status"];
+    outputSummary?: string;
+    startedAt: number;
+    finishedAt?: number;
 }

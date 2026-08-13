@@ -4,18 +4,34 @@ import { access } from "node:fs/promises";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import * as vscode from "vscode";
 import { HarnessApiClient } from "./harnessClient";
-import { HarnessHostDescription } from "./harnessProtocol";
+import {
+    HarnessClientResponse,
+    HarnessHostDescription,
+    HarnessGoalEditChanges,
+    HarnessQueueAction,
+} from "./harnessProtocol";
 import { HarnessStateCoordinator } from "./harnessState";
 import {
+    DshGoalRef,
+    DshGoalRefResult,
     DshHistoryResult,
     DshSessionCreateResult,
+    DshSessionForkResult,
     DshSessionPromptResult,
+    DshSessionRenameResult,
+    DshSessionSearchResult,
     DshSkillEntry,
     DshSkillListResult,
+    DshSubagentAddress,
+    DshSubagentCatalog,
+    DshSubagentHistoryResult,
+    DshSubagentPromptResult,
+    DshRpcReceipt,
     RuntimeStatus,
 } from "./types";
 
 type RuntimeListener = (status: RuntimeStatus) => void;
+type HarnessConnectedListener = () => void;
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -82,6 +98,7 @@ async function executableExists(command: string): Promise<boolean> {
 
 export class DshRuntime implements vscode.Disposable {
     private readonly listeners = new Set<RuntimeListener>();
+    private readonly harnessConnectedListeners = new Set<HarnessConnectedListener>();
     private readonly apiClient: HarnessApiClient;
     private readonly harnessState: HarnessStateCoordinator;
     private child: ChildProcess | undefined;
@@ -104,6 +121,9 @@ export class DshRuntime implements vscode.Disposable {
         this.harnessState = new HarnessStateCoordinator(this.apiClient, {
             onConnectionState: (state) =>
                 this.output.appendLine(`[dsh:events] connection ${state}`),
+            onHostDescription: () => {
+                for (const listener of this.harnessConnectedListeners) listener();
+            },
             onDiagnostic: (diagnostic) => {
                 let prefix: string;
                 let cause: unknown;
@@ -125,6 +145,12 @@ export class DshRuntime implements vscode.Disposable {
         return new vscode.Disposable(() => this.listeners.delete(listener));
     }
 
+    /** Fires once for every fully connected mux/host stream generation. */
+    public onDidHarnessConnect(listener: HarnessConnectedListener): vscode.Disposable {
+        this.harnessConnectedListeners.add(listener);
+        return new vscode.Disposable(() => this.harnessConnectedListeners.delete(listener));
+    }
+
     public getStatus(): RuntimeStatus {
         return { ...this.status };
     }
@@ -139,6 +165,14 @@ export class DshRuntime implements vscode.Disposable {
 
     public getSessionStore(): HarnessStateCoordinator["sessions"] {
         return this.harnessState.sessions;
+    }
+
+    public getSessionCatalog(): HarnessStateCoordinator["catalog"] {
+        return this.harnessState.catalog;
+    }
+
+    public syncSession(sessionId: string): Promise<void> {
+        return this.harnessState.syncHistory(sessionId);
     }
 
     public async start(workspaceRoot?: string): Promise<string> {
@@ -178,7 +212,40 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async createSession(cwd: string): Promise<DshSessionCreateResult> {
-        return this.apiClient.call("session.create", { cwd });
+        const result = await this.apiClient.call("session.create", { cwd });
+        this.harnessState.catalog.upsertCreated(result.sessionId, cwd);
+        return result;
+    }
+
+    public searchSessions(query: string, signal?: AbortSignal): Promise<DshSessionSearchResult> {
+        return this.apiClient.call("session.search", { query }, signal);
+    }
+
+    public async renameSession(
+        sessionId: string,
+        title: string,
+    ): Promise<DshSessionRenameResult> {
+        const result = await this.apiClient.call("session.rename", { sessionId, title });
+        this.harnessState.catalog.applyRename(sessionId, result.title, result.seq);
+        return result;
+    }
+
+    public async forkSession(sessionId: string, atSeq?: number): Promise<DshSessionForkResult> {
+        const result = await this.apiClient.call("session.fork", {
+            sessionId,
+            ...(atSeq === undefined ? {} : { atSeq }),
+        });
+        this.harnessState.catalog.upsertCreated(result.sessionId);
+        return result;
+    }
+
+    public async archiveSession(sessionId: string): Promise<void> {
+        const result = await this.apiClient.call("workspace.archiveSession", { sessionId });
+        this.harnessState.catalog.replaceArchived(result.archivedSessionIds);
+    }
+
+    public async refreshSessions(): Promise<void> {
+        await this.harnessState.refreshCatalog();
     }
 
     public async history(sessionId: string, maxMessages = 100): Promise<DshHistoryResult> {
@@ -202,6 +269,94 @@ export class DshRuntime implements vscode.Disposable {
 
     public async cancel(sessionId: string): Promise<void> {
         await this.apiClient.call("session.cancel", { sessionId });
+    }
+
+    public async updateQueue(
+        sessionId: string,
+        itemId: string,
+        action: HarnessQueueAction,
+    ): Promise<void> {
+        await this.apiClient.call("session.updateQueue", { sessionId, itemId, action });
+    }
+
+    public createGoal(
+        sessionId: string,
+        objective: string,
+        maxGoalRounds?: number,
+    ): Promise<DshGoalRefResult> {
+        return this.apiClient.call("goal.create", {
+            sessionId,
+            objective,
+            ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }),
+        });
+    }
+
+    public editGoal(
+        sessionId: string,
+        ref: DshGoalRef,
+        changes: HarnessGoalEditChanges,
+    ): Promise<DshGoalRefResult> {
+        return this.apiClient.call("goal.edit", { sessionId, ref, ...changes });
+    }
+
+    public pauseGoal(sessionId: string, ref: DshGoalRef): Promise<DshGoalRefResult> {
+        return this.apiClient.call("goal.pause", { sessionId, ref });
+    }
+
+    public resumeGoal(sessionId: string, ref: DshGoalRef): Promise<DshGoalRefResult> {
+        return this.apiClient.call("goal.resume", { sessionId, ref });
+    }
+
+    public completeGoal(sessionId: string, ref: DshGoalRef): Promise<DshGoalRefResult> {
+        return this.apiClient.call("goal.complete", { sessionId, ref });
+    }
+
+    public clearGoal(sessionId: string, ref: DshGoalRef): Promise<{ cleared: true }> {
+        return this.apiClient.call("goal.clear", { sessionId, ref });
+    }
+
+    public listSubagents(
+        parentSessionId: string,
+        signal?: AbortSignal,
+    ): Promise<DshSubagentCatalog> {
+        return this.apiClient.call("subagent.list", { parentSessionId }, signal);
+    }
+
+    public subagentHistory(
+        address: DshSubagentAddress,
+        beforeSeq?: number,
+        maxMessages?: number,
+        signal?: AbortSignal,
+    ): Promise<DshSubagentHistoryResult> {
+        return this.apiClient.call("subagent.history", {
+            ...address,
+            ...(beforeSeq === undefined ? {} : { beforeSeq }),
+            ...(maxMessages === undefined ? {} : { maxMessages }),
+        }, signal);
+    }
+
+    public promptSubagent(
+        address: Extract<DshSubagentAddress, { mode: "continuable" }>,
+        text: string,
+        signal?: AbortSignal,
+    ): Promise<DshSubagentPromptResult> {
+        const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        return this.apiClient.call("subagent.prompt", {
+            ...address,
+            content: [{ type: "text", text }],
+            ...(clientTimeZone ? { clientTimeZone } : {}),
+        }, signal);
+    }
+
+    public interruptSubagent(
+        address: Extract<DshSubagentAddress, { mode: "continuable" }>,
+        signal?: AbortSignal,
+    ): Promise<{ accepted: true }> {
+        return this.apiClient.call("subagent.interrupt", address, signal);
+    }
+
+    public respond<T>(response: HarnessClientResponse<T>): Promise<DshRpcReceipt> {
+        return this.apiClient.respond(response);
     }
 
     /** Stores a credential in the runtime-owned credential provider. */
