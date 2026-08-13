@@ -70,13 +70,24 @@ export type DshRpcReceipt =
     | { accepted: true }
     | { accepted: false; reason: "not-pending" | "bad-response" | string };
 
+export interface DshSurfaceReplaceOp {
+    op: "replace";
+    /** Inclusive seq of the first surface node being replaced. */
+    start: number;
+    /** Inclusive seq of the last surface node being replaced. */
+    end: number;
+}
+
+export type DshSurfaceOp = "append" | DshSurfaceReplaceOp;
+
 export interface DshSessionEvent {
     type: string;
     seq: number;
     time: number;
     data: unknown;
     sourceEventSeqs?: number[];
-    surfaceOp?: unknown;
+    surfaceOp?: DshSurfaceOp;
+    ignorable?: true;
 }
 
 export interface DshHistoryEvent {
@@ -85,7 +96,8 @@ export interface DshHistoryEvent {
     time?: number;
     data?: unknown;
     sourceEventSeqs?: number[];
-    surfaceOp?: unknown;
+    surfaceOp?: DshSurfaceOp;
+    ignorable?: true;
 }
 
 export interface DshHistoryEntry {
@@ -96,13 +108,14 @@ export interface DshHistoryEntry {
 export interface DshHistoryResult {
     events: DshHistoryEntry[];
     hasMore?: boolean;
-    projections?: Record<string, unknown>;
+    projections?: DshSessionProjectionsBlock;
 }
 
-export interface DshRpcEnvelope<T> {
-    type?: string;
-    rpcId?: string;
-    result?: DshRpcResult<T>;
+export interface DshSessionProjectionsBlock {
+    /** Last committed event reflected by every value; -1 for an empty log. */
+    asOfSeq: number;
+    /** Complete current value for every projection registered by the host. */
+    values: Record<string, unknown>;
 }
 
 export interface DshSessionCreateResult {
@@ -121,6 +134,12 @@ export interface DshSessionSummary {
     cwd?: string;
     createdAt?: number;
     updatedAt?: number;
+    running?: boolean;
+    blank?: boolean;
+    parentSessionId?: string;
+    origin?: "subagent";
+    agentPreset?: string;
+    projections?: DshSessionProjectionsBlock;
     [key: string]: unknown;
 }
 
@@ -184,25 +203,6 @@ export interface DshSessionForkResult {
     sessionId: string;
     [key: string]: unknown;
 }
-
-export interface DshCommandInput {
-    hint: string;
-    [key: string]: unknown;
-}
-
-export interface DshCommandDescriptor {
-    name: string;
-    description: string;
-    input?: DshCommandInput;
-    [key: string]: unknown;
-}
-
-export type DshCommandListResult =
-    | DshCommandDescriptor[]
-    | {
-          commands: DshCommandDescriptor[];
-          [key: string]: unknown;
-      };
 
 export interface DshSkillEntry {
     name: string;
@@ -300,16 +300,34 @@ export interface DshSessionSubscribedFrame {
     lastSeq: number;
 }
 
+export interface DshQueuedInboxItem {
+    id: string;
+    placement: "queued" | "steering" | "context";
+    /** Message is merge-extensible in Harness, so clients retain it losslessly. */
+    message: unknown;
+}
+
 export interface DshSessionQueueFrame {
     type: "session/queue";
     sessionId: string;
-    items: unknown[];
+    items: DshQueuedInboxItem[];
+}
+
+export interface DshJobView {
+    id: string;
+    /** Producer kinds are plugin-extensible and intentionally not enumerated. */
+    kind: string;
+    label: string;
+    status: "running" | "stopping" | "completed" | "killed" | "failed";
+    detail?: string;
+    startedAt: number;
+    finishedAt?: number;
 }
 
 export interface DshSessionJobsFrame {
     type: "session/jobs";
     sessionId: string;
-    jobs: unknown[];
+    jobs: DshJobView[];
 }
 
 export interface DshSessionProjectionFrame {
@@ -345,6 +363,82 @@ export type DshMuxFrame =
 
 export type DshEvent = DshMuxFrame;
 
+export interface DshHostSessionAddedFrame {
+    type: "host/session-added";
+    sessionId: string;
+    blank: boolean;
+    parentSessionId?: string;
+    origin?: "subagent";
+    cwd?: string;
+    agentPreset?: string;
+}
+
+export interface DshHostSessionRemovedFrame {
+    type: "host/session-removed";
+    sessionId: string;
+}
+
+export interface DshHostSessionStatusFrame {
+    type: "host/session-status";
+    sessionId: string;
+    running: boolean;
+}
+
+export interface DshHostAgentErrorFrame {
+    type: "host/agent-error";
+    sessionId: string;
+    message: string;
+}
+
+export interface DshWorkspaceView {
+    workspaceId: string;
+    [key: string]: unknown;
+}
+
+export interface DshHostWorkspaceChangedFrame {
+    type: "host/workspace-changed";
+    workspace: DshWorkspaceView;
+}
+
+export interface DshHostWorkspaceRemovedFrame {
+    type: "host/workspace-removed";
+    workspaceId: string;
+}
+
+export interface DshHostWorkspaceOrderChangedFrame {
+    type: "host/workspace-order-changed";
+    workspaceIds: string[];
+}
+
+export interface DshHostArchivedSessionsChangedFrame {
+    type: "host/archived-sessions-changed";
+    archivedSessionIds: string[];
+}
+
+export interface DshHostRemoteEventFrame {
+    type: "host/remote-event";
+    event: string;
+    args: unknown[];
+}
+
+export interface DshUnknownHostFrame {
+    type: string;
+    [key: string]: unknown;
+}
+
+export type DshHostFrame =
+    | DshHostSessionAddedFrame
+    | DshHostSessionRemovedFrame
+    | DshHostSessionStatusFrame
+    | DshHostAgentErrorFrame
+    | DshHostWorkspaceChangedFrame
+    | DshHostWorkspaceRemovedFrame
+    | DshHostWorkspaceOrderChangedFrame
+    | DshHostArchivedSessionsChangedFrame
+    | DshHostRemoteEventFrame
+    | DshStreamErrorFrame
+    | DshUnknownHostFrame;
+
 export type DshReceivedEvent = DshMuxFrame & {
     rpcId: string;
     method: string;
@@ -361,6 +455,8 @@ export interface DshAssistantMessage {
 export interface ChatViewState {
     messages: ChatMessage[];
     context: DshContextItem[];
+    selection?: DshContextItem;
+    selectionEnabled: boolean;
     status: RuntimeStatus;
     busy: boolean;
     workspaceName?: string;

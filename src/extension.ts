@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider } from "./chatView";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
@@ -6,6 +7,7 @@ import { DshRuntime } from "./dshRuntime";
 export function activate(context: vscode.ExtensionContext): void {
     const output = vscode.window.createOutputChannel("DeepSeek Harness");
     const runtime = new DshRuntime(output);
+    const balanceService = new DeepSeekBalanceService(context, output);
     const contextStore = new ContextStore();
     const chatView = new ChatViewProvider(
         context,
@@ -13,10 +15,12 @@ export function activate(context: vscode.ExtensionContext): void {
         runtime,
         contextStore,
         output,
+        balanceService,
     );
 
     context.subscriptions.push(
         output,
+        balanceService,
         chatView,
         new vscode.Disposable(() => {
             void runtime.dispose();
@@ -46,28 +50,21 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.openInBrowser", async () => {
             await runCommand("打开 dsh Web UI", () => chatView.openBrowser());
         }),
-        vscode.commands.registerCommand("dsh.addActiveEditorToContext", () =>
-            chatView.addActiveEditorToContext(),
+        vscode.commands.registerCommand("dsh.insertEditorReference", () =>
+            chatView.insertEditorReference(),
         ),
-        vscode.commands.registerCommand("dsh.addSelectionToContext", () =>
-            chatView.addSelectionToContext(),
+        vscode.commands.registerCommand("dsh.openIdeContextPicker", () =>
+            chatView.openIdeContextPicker(),
         ),
-        vscode.commands.registerCommand("dsh.addFileToContext", (uri?: vscode.Uri) =>
-            chatView.addFileToContext(uri),
+        vscode.commands.registerCommand("dsh.configureApiKey", () =>
+            chatView.configureApiKey().catch((error) => {
+                const message = error instanceof Error ? error.message : String(error);
+                void vscode.window.showErrorMessage(`DSH: 配置 API Key 失败：${message}`);
+            }),
         ),
-        vscode.commands.registerCommand("dsh.addFolderToContext", (uri?: vscode.Uri) =>
-            chatView.addFolderToContext(uri),
-        ),
-        vscode.commands.registerCommand("dsh.addDiagnosticsToContext", () =>
-            chatView.addDiagnosticsToContext(),
-        ),
-        vscode.commands.registerCommand("dsh.addGitDiffToContext", () =>
-            chatView.addGitDiffToContext(),
-        ),
-        vscode.commands.registerCommand("dsh.clearContext", () => chatView.clearContext()),
-        vscode.commands.registerCommand("dsh.showContext", () => chatView.showContext()),
-        vscode.commands.registerCommand("dsh.copyContext", () => chatView.copyContext()),
+        vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
     );
+    balanceService.start();
 }
 
 export function deactivate(): void {

@@ -1,7 +1,7 @@
 {
     "name": "dsh-ide",
     "displayName": "DSH IDE (Community)",
-    "description": "A community VS Code chat client for a dsh-compatible web runtime with explicit IDE context attachment.",
+    "description": "A community VS Code client for DeepSeek Harness with transient editor context and native slash-command routing.",
     "version": "0.1.0",
     "publisher": "dsh-community",
     "license": "MIT",
@@ -40,21 +40,17 @@
     ],
     "main": "./dist/extension.js",
     "activationEvents": [
+        "onStartupFinished",
         "onView:dsh.chatView",
         "onCommand:dsh.open",
         "onCommand:dsh.start",
         "onCommand:dsh.stop",
         "onCommand:dsh.restart",
-        "onCommand:dsh.addActiveEditorToContext",
-        "onCommand:dsh.addSelectionToContext",
-        "onCommand:dsh.addFileToContext",
-        "onCommand:dsh.addFolderToContext",
-        "onCommand:dsh.addDiagnosticsToContext",
-        "onCommand:dsh.addGitDiffToContext",
+        "onCommand:dsh.insertEditorReference",
+        "onCommand:dsh.openIdeContextPicker",
+        "onCommand:dsh.configureApiKey",
+        "onCommand:dsh.refreshBalance",
         "onCommand:dsh.openLogs",
-        "onCommand:dsh.clearContext",
-        "onCommand:dsh.showContext",
-        "onCommand:dsh.copyContext",
         "onCommand:dsh.openInBrowser"
     ],
     "contributes": {
@@ -116,58 +112,28 @@
                 "icon": "$(link-external)"
             },
             {
-                "command": "dsh.addActiveEditorToContext",
-                "title": "DSH: Attach Current File or Selection to Context",
+                "command": "dsh.insertEditorReference",
+                "title": "DSH: Insert Current Editor Reference",
                 "category": "DSH",
-                "icon": "$(file-code)"
+                "icon": "$(references)"
             },
             {
-                "command": "dsh.addSelectionToContext",
-                "title": "DSH: Attach Selection to Context",
+                "command": "dsh.openIdeContextPicker",
+                "title": "DSH: Manage IDE Context (/ide)",
                 "category": "DSH",
-                "icon": "$(selection)"
+                "icon": "$(settings)"
             },
             {
-                "command": "dsh.addFileToContext",
-                "title": "DSH: Attach File to Context",
+                "command": "dsh.configureApiKey",
+                "title": "DSH: Configure API Key",
                 "category": "DSH",
-                "icon": "$(file)"
+                "icon": "$(key)"
             },
             {
-                "command": "dsh.addFolderToContext",
-                "title": "DSH: Attach Folder Path to Context",
+                "command": "dsh.refreshBalance",
+                "title": "DSH: Refresh DeepSeek Balance",
                 "category": "DSH",
-                "icon": "$(folder)"
-            },
-            {
-                "command": "dsh.addDiagnosticsToContext",
-                "title": "DSH: Attach Current File Diagnostics",
-                "category": "DSH",
-                "icon": "$(warning)"
-            },
-            {
-                "command": "dsh.addGitDiffToContext",
-                "title": "DSH: Attach Unstaged Git Diff",
-                "category": "DSH",
-                "icon": "$(git-compare)"
-            },
-            {
-                "command": "dsh.clearContext",
-                "title": "DSH: Clear Attached IDE Context",
-                "category": "DSH",
-                "icon": "$(clear-all)"
-            },
-            {
-                "command": "dsh.showContext",
-                "title": "DSH: Preview Prompt Context",
-                "category": "DSH",
-                "icon": "$(eye)"
-            },
-            {
-                "command": "dsh.copyContext",
-                "title": "DSH: Copy Prompt Context",
-                "category": "DSH",
-                "icon": "$(copy)"
+                "icon": "$(dashboard)"
             }
         ],
         "keybindings": [
@@ -175,40 +141,15 @@
                 "command": "dsh.open",
                 "key": "ctrl+shift+alt+d",
                 "mac": "cmd+shift+alt+d"
+            },
+            {
+                "command": "dsh.insertEditorReference",
+                "key": "alt+k",
+                "mac": "alt+k",
+                "when": "editorTextFocus"
             }
         ],
         "menus": {
-            "editor/context": [
-                {
-                    "command": "dsh.addSelectionToContext",
-                    "when": "editorHasSelection",
-                    "group": "dsh@1"
-                },
-                {
-                    "command": "dsh.addActiveEditorToContext",
-                    "when": "editorTextFocus",
-                    "group": "dsh@2"
-                }
-            ],
-            "editor/title": [
-                {
-                    "command": "dsh.addActiveEditorToContext",
-                    "when": "editorTextFocus",
-                    "group": "navigation@dsh"
-                }
-            ],
-            "explorer/context": [
-                {
-                    "command": "dsh.addFileToContext",
-                    "when": "resourceScheme == file && resourceFilename",
-                    "group": "dsh@1"
-                },
-                {
-                    "command": "dsh.addFolderToContext",
-                    "when": "resourceScheme == file && resourceFilename",
-                    "group": "dsh@2"
-                }
-            ],
             "view/title": [
                 {
                     "command": "dsh.openInBrowser",
@@ -301,6 +242,18 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Reuse the last dsh session ID for the current workspace when possible. Chat messages and attached context are not persisted."
+                },
+                "dsh.apiKeyEnv": {
+                    "type": "string",
+                    "default": "DEEPSEEK_API_KEY",
+                    "description": "Credential reference passed to dsh.credentials.set when using DSH: Configure API Key. The key is also encrypted in VS Code SecretStorage when balance display is enabled."
+                },
+                "dsh.balanceRefreshIntervalMs": {
+                    "type": "number",
+                    "default": 30000,
+                    "minimum": 10000,
+                    "maximum": 3600000,
+                    "description": "Interval for refreshing the DeepSeek balance status bar item."
                 }
             }
         }
@@ -309,6 +262,7 @@
         "compile": "tsc -p ./tsconfig.json",
         "watch": "tsc -watch -p ./tsconfig.json",
         "check": "tsc --noEmit -p ./tsconfig.json",
+        "test": "npm run compile && node --test test/*.test.js",
         "package": "npm run compile && vsce package"
     },
     "devDependencies": {

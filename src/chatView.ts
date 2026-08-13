@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
+import { DeepSeekBalanceService } from "./balanceService";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
 import {
@@ -86,6 +87,52 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+function referencesSelection(text: string): boolean {
+    return /(^|\s)@selection(?=$|\s|[,.;:!?])/u.test(text);
+}
+
+function maxEventSeq(entries: DshHistoryEntry[]): number {
+    return entries.reduce(
+        (maximum, entry) =>
+            typeof entry.event.seq === "number" ? Math.max(maximum, entry.event.seq) : maximum,
+        -1,
+    );
+}
+
+function terminalTurnFailure(
+    entries: DshHistoryEntry[],
+    afterSeq: number,
+): Error | undefined {
+    for (const entry of entries) {
+        const event = entry.event;
+        if (event.type !== "turn/end" || typeof event.seq !== "number" || event.seq <= afterSeq) {
+            continue;
+        }
+
+        const data = record(event.data);
+        const reason = record(data?.reason);
+        if (!reason || (reason.kind !== "error" && reason.kind !== "blocked")) {
+            continue;
+        }
+
+        const failure = record(reason.error) ?? reason;
+        const code = typeof failure?.code === "string" ? failure.code : undefined;
+        const message =
+            typeof failure?.message === "string"
+                ? failure.message
+                : "dsh agent 在生成回复前结束了本轮任务。";
+        return new Error(code ? `[${code}] ${message}` : message);
+    }
+    return undefined;
+}
+
+function isCredentialIssue(error: unknown): boolean {
+    const message = errorMessage(error).toLowerCase();
+    return /missing[_ -]?credential|api[ _-]?key|\bauth\b|authentication|unauthori[sz]ed|\b401\b|credential.*(unset|missing|not configured)/u.test(
+        message,
+    );
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
     public static readonly viewType = "dsh.chatView";
 
@@ -97,6 +144,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private sessionCwd: string | undefined;
     private busy = false;
     private cancelRequested = false;
+    private selectionEnabled = true;
+    private pendingInsertText: string | undefined;
 
     public constructor(
         private readonly extensionContext: vscode.ExtensionContext,
@@ -104,10 +153,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly runtime: DshRuntime,
         private readonly contextStore: ContextStore,
         private readonly output: vscode.OutputChannel,
+        private readonly balanceService?: DeepSeekBalanceService,
     ) {
         this.disposables.push(
             runtime.onDidChange((status) => this.postState(status)),
             contextStore.onDidChange(() => this.postState()),
+            vscode.window.onDidChangeActiveTextEditor(() => this.postState()),
+            vscode.window.onDidChangeTextEditorSelection(() => this.postState()),
         );
     }
 
@@ -136,70 +188,84 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
     }
 
-    public async addActiveEditorToContext(): Promise<void> {
-        await this.runContextAction(async () => {
-            const item = await this.contextStore.addActiveEditor();
-            if (!item) {
-                throw new Error("没有可添加的编辑器内容。");
-            }
-            return item;
-        });
-    }
-
-    public async addSelectionToContext(): Promise<void> {
-        await this.runContextAction(() => this.contextStore.addSelection());
-    }
-
-    public async addFileToContext(uri?: vscode.Uri): Promise<void> {
-        const target = uri ?? vscode.window.activeTextEditor?.document.uri;
-        if (!target) {
-            throw new Error("当前没有可添加的文件。");
+    public insertEditorReference(): void {
+        const reference = this.contextStore.getActiveEditorReference();
+        if (!reference) {
+            this.reportError(new Error("当前没有可引用的编辑器。"));
+            return;
         }
-        await this.runContextAction(() => this.contextStore.addFile(target));
+
+        this.insertComposerText(reference);
     }
 
-    public async addFolderToContext(uri?: vscode.Uri): Promise<void> {
-        const target = uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
-        if (!target) {
-            throw new Error("当前没有可添加的文件夹。");
+    public async configureApiKey(): Promise<void> {
+        const configuration = vscode.workspace.getConfiguration("dsh");
+        const ref = configuration.get<string>("apiKeyEnv", "DEEPSEEK_API_KEY").trim();
+        if (!ref) {
+            throw new Error("dsh.apiKeyEnv 不能为空，请先配置凭据引用名。");
         }
-        await this.runContextAction(async () => {
-            const stat = await vscode.workspace.fs.stat(target);
-            if ((stat.type & vscode.FileType.Directory) === 0) {
-                throw new Error("选择的资源不是文件夹，请使用“Add File to Context”。");
-            }
-            return this.contextStore.addFolder(target);
+
+        const key = await vscode.window.showInputBox({
+            title: `配置 ${ref}`,
+            prompt: "API Key 会交给 dsh runtime，并以 VS Code SecretStorage 加密保存一份供余额查询；不会写入扩展状态或日志。",
+            password: true,
+            ignoreFocusOut: true,
+            validateInput: (value) => (value.trim() ? undefined : "请输入 API Key。"),
         });
-    }
+        if (key === undefined) {
+            return;
+        }
 
-    public async addDiagnosticsToContext(): Promise<void> {
-        await this.runContextAction(() => this.contextStore.addDiagnostics());
-    }
-
-    public async addGitDiffToContext(): Promise<void> {
-        await this.runContextAction(() => this.contextStore.addGitDiff());
-    }
-
-    public clearContext(): void {
-        this.contextStore.clear();
+        await this.runtime.start(this.workspaceRoot());
+        await this.runtime.setCredential(ref, key.trim());
+        try {
+            await this.balanceService?.storeApiKey(key.trim());
+        } catch (error) {
+            const message = errorMessage(error);
+            void vscode.window.showWarningMessage(`DSH：聊天 Key 已保存，但余额缓存失败：${message}`);
+        }
+        void vscode.window.showInformationMessage(`DSH：${ref} 已保存，可重新发送任务。`);
         this.reveal();
     }
 
-    public async showContext(): Promise<void> {
-        const content = this.contextStore.buildPromptContext() || "No IDE context is attached.";
-        const document = await vscode.workspace.openTextDocument({
-            language: "markdown",
-            content,
-        });
-        await vscode.window.showTextDocument(document, { preview: true });
-    }
-
-    public async copyContext(): Promise<void> {
-        const content = this.contextStore.buildPromptContext();
-        await vscode.env.clipboard.writeText(content);
-        void vscode.window.showInformationMessage(
-            content ? "DSH prompt context 已复制。" : "当前没有 IDE context。",
+    public async openIdeContextPicker(): Promise<void> {
+        const hasSelection = Boolean(this.contextStore.getCurrentSelectionMetadata());
+        const choice = await vscode.window.showQuickPick(
+            [
+                ...(hasSelection
+                    ? [{ label: "$(selection) Selection", detail: "启用当前选区，发送时重新读取" }]
+                    : []),
+                { label: "$(file-code) Current file", detail: "插入 @文件引用，不复制正文" },
+                { label: "$(warning) Diagnostics", detail: "作为本轮一次性附件" },
+                { label: "$(git-compare) Git diff", detail: "作为本轮一次性附件" },
+                {
+                    label: this.selectionEnabled
+                        ? "$(eye-closed) Disable selection"
+                        : "$(eye) Enable selection",
+                    detail: this.selectionEnabled ? "不自动附加当前选区" : "自动附加当前选区",
+                },
+            ],
+            { placeHolder: "选择本轮 IDE context 或调整选区策略" },
         );
+        if (!choice) {
+            return;
+        }
+
+        if (choice.label.includes("Selection")) {
+            this.selectionEnabled = true;
+        } else if (choice.label.includes("Current file")) {
+            this.insertEditorReference();
+            return;
+        } else if (choice.label.includes("Diagnostics")) {
+            await this.runContextAction(() => this.contextStore.addDiagnostics());
+            return;
+        } else if (choice.label.includes("Git diff")) {
+            await this.runContextAction(() => this.contextStore.addGitDiff());
+            return;
+        } else {
+            this.selectionEnabled = !this.selectionEnabled;
+        }
+        this.reveal();
     }
 
     public reveal(): void {
@@ -225,6 +291,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             switch (message.type) {
                 case "ready":
                     this.postState();
+                    this.flushPendingInsert();
                     break;
                 case "sendPrompt":
                     await this.sendPrompt(message.text ?? "");
@@ -232,25 +299,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "cancel":
                     await this.cancel();
                     break;
-                case "addActiveEditor":
-                    await this.addActiveEditorToContext();
+                case "configureApiKey":
+                    await this.configureApiKey();
                     break;
-                case "addSelection":
-                    await this.addSelectionToContext();
-                    break;
-                case "addDiagnostics":
-                    await this.addDiagnosticsToContext();
-                    break;
-                case "addGitDiff":
-                    await this.addGitDiffToContext();
+                case "openIdeContextPicker":
+                    await this.openIdeContextPicker();
                     break;
                 case "removeContext":
                     if (message.id) {
                         this.contextStore.remove(message.id);
                     }
                     break;
-                case "clearContext":
-                    this.clearContext();
+                case "toggleSelection":
+                    this.selectionEnabled = !this.selectionEnabled;
+                    this.postState();
                     break;
                 case "start":
                     await this.runtime.start(this.workspaceRoot());
@@ -288,13 +350,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         this.busy = true;
         this.cancelRequested = false;
-        const userMessage: ChatMessage = {
-            id: randomUUID(),
-            role: "user",
-            text,
-            createdAt: Date.now(),
-        };
-        this.messages.push(userMessage);
         this.postState();
 
         try {
@@ -306,9 +361,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const session = await this.getOrCreateSession(workspaceRoot);
-            const prompt = this.withIdeContext(text);
+            if (/^\/ide(?:$|[\t\n\r ])/u.test(text)) {
+                await this.openIdeContextPicker();
+                return;
+            }
+
+            this.messages.push({
+                id: randomUUID(),
+                role: "user",
+                text,
+                createdAt: Date.now(),
+            });
+            const explicitlyReferencesSelection = referencesSelection(text);
+            const capture = this.contextStore.capturePromptContext({
+                includeCurrentSelection:
+                    this.selectionEnabled || explicitlyReferencesSelection,
+            });
+            if (explicitlyReferencesSelection && !capture.items.some((item) => item.kind === "selection")) {
+                throw new Error("@selection 没有可用的当前选区。请先在活动编辑器中选择文本。");
+            }
+            const prompt = capture.text ? `${text}\n\n${capture.text}` : text;
             const before = await this.runtime.history(session, 100);
-            await this.runtime.prompt(session, prompt);
+            const promptResult = await this.runtime.prompt(session, prompt);
+            if (promptResult.accepted === false) {
+                throw new Error("dsh runtime 拒绝了本次 prompt。请检查当前模型和 API Key 配置。");
+            }
+            this.contextStore.consumeCapturedOneShots(capture.capturedOneShotIds);
             const reply = await this.waitForReply(session, before);
             this.messages.push({
                 id: randomUUID(),
@@ -379,6 +457,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private async waitForReply(sessionId: string, before: { events: DshHistoryEntry[] }): Promise<string> {
         const beforeMessages = extractAssistantMessages(before.events);
+        const beforeSeq = maxEventSeq(before.events);
         const beforeCount = beforeMessages.length;
         const beforeLast = beforeMessages.at(-1);
         const pollInterval = vscode.workspace.getConfiguration("dsh").get<number>("pollIntervalMs", 500);
@@ -391,6 +470,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const history = await this.runtime.history(sessionId, 100);
+            const failure = terminalTurnFailure(history.events, beforeSeq);
+            if (failure) {
+                throw failure;
+            }
             const currentMessages = extractAssistantMessages(history.events);
             const latest = currentMessages.at(-1);
             const hasNewMessage = currentMessages.length > beforeCount;
@@ -412,12 +495,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         throw new Error("等待 dsh agent 回复超时。");
     }
 
-    private withIdeContext(text: string): string {
-        const context = this.contextStore.buildPromptContext();
-        return context ? `${text}\n\n${context}` : text;
-    }
-
-    private async runContextAction(action: () => Promise<DshContextItem>): Promise<void> {
+    private async runContextAction(
+        action: () => DshContextItem | Promise<DshContextItem>,
+    ): Promise<void> {
         try {
             await action();
             this.reveal();
@@ -429,12 +509,41 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private reportError(error: unknown): void {
         const message = errorMessage(error);
         this.output.appendLine(`[dsh] ${message}`);
-        void vscode.window.showErrorMessage(`DSH: ${message}`);
+        if (isCredentialIssue(error)) {
+            void vscode.window
+                .showErrorMessage(`DSH: ${message}`, "配置 API Key", "打开 dsh Web UI")
+                .then((action) => {
+                    if (action === "配置 API Key") {
+                        void this.configureApiKey().catch((configureError) =>
+                            this.reportError(configureError),
+                        );
+                    } else if (action === "打开 dsh Web UI") {
+                        void this.openBrowser().catch((openError) => this.reportError(openError));
+                    }
+                });
+        } else {
+            void vscode.window.showErrorMessage(`DSH: ${message}`);
+        }
         this.postState();
     }
 
     private workspaceRoot(): string | undefined {
         return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    }
+
+    private insertComposerText(text: string): void {
+        this.pendingInsertText = text;
+        this.reveal();
+        this.flushPendingInsert();
+    }
+
+    private flushPendingInsert(): void {
+        if (!this.view || !this.pendingInsertText) {
+            return;
+        }
+        const text = this.pendingInsertText;
+        this.pendingInsertText = undefined;
+        void this.view.webview.postMessage({ type: "insertText", text });
     }
 
     private postState(status?: RuntimeStatus): void {
@@ -446,6 +555,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const state: ChatViewState = {
             messages: [...this.messages],
             context: this.contextStore.snapshot(),
+            selection: this.contextStore.getCurrentSelectionMetadata(),
+            selectionEnabled: this.selectionEnabled,
             status: status ?? this.runtime.getStatus(),
             busy: this.busy,
             workspaceName: workspaceFolder?.name,
@@ -484,20 +595,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .message-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
         .message.user .message-body { padding: 8px 9px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); border: 1px solid var(--vscode-textBlockQuote-border); }
         .message.system .message-body { color: var(--vscode-errorForeground); }
-        .context { padding: 8px 10px; border-top: 1px solid var(--vscode-panel-border); }
-        .section-title { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; color: var(--vscode-descriptionForeground); font-size: 11px; }
-        .section-title span { flex: 1; }
-        .context-items { display: flex; flex-wrap: wrap; gap: 5px; }
+        .composer-shell { padding: 7px 10px 10px; border-top: 1px solid var(--vscode-panel-border); }
+        .context-items { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
         .chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 6px; border: 1px solid var(--vscode-input-border); border-radius: 10px; background: var(--vscode-input-background); font-size: 11px; }
+        .chip.selection-disabled { opacity: .58; }
         .chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .chip-remove { padding: 0 2px; color: var(--vscode-descriptionForeground); background: transparent; }
-        .quick-actions { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 10px 5px; }
-        .quick-actions button { font-size: 11px; }
-        .composer { display: flex; gap: 6px; align-items: flex-end; padding: 5px 10px 10px; }
+        .composer { display: flex; gap: 6px; align-items: flex-end; }
+        .add-context { min-width: 30px; min-height: 34px; padding: 5px; font-size: 17px; }
         textarea { flex: 1; min-height: 68px; max-height: 180px; resize: vertical; padding: 8px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; font: inherit; }
         textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
         .send { min-width: 54px; min-height: 34px; }
-        .hint { padding: 0 10px 8px; color: var(--vscode-descriptionForeground); font-size: 10px; }
+        .hint { padding-top: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; }
         .runtime-actions { display: flex; gap: 4px; }
         .runtime-actions button { padding: 3px 6px; font-size: 10px; }
         .hidden { display: none; }
@@ -510,30 +619,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">未启动</span></div>
             <div class="runtime-actions">
                 <button id="runtimeButton" class="secondary" title="启动或停止 dsh web">启动</button>
+                <button id="keyButton" class="secondary" title="配置 dsh API Key">Key</button>
                 <button id="logsButton" class="secondary" title="打开运行日志">日志</button>
             </div>
         </div>
         <div id="messages" class="messages"></div>
-        <div class="context">
-            <div class="section-title"><span>IDE context</span><button id="clearContext" class="secondary">清空</button></div>
+        <div class="composer-shell">
             <div id="contextItems" class="context-items"></div>
+            <div class="composer">
+                <button id="addContext" class="add-context secondary" title="添加一次性 IDE context（/ide）">+</button>
+                <textarea id="prompt" placeholder="描述任务，使用 @ 引用文件或选区…"></textarea>
+                <button id="send" class="send">发送</button>
+                <button id="cancel" class="send secondary hidden">停止</button>
+            </div>
+            <div class="hint">Ctrl/Cmd + Enter 发送 · 当前选区会在发送时重新读取</div>
         </div>
-        <div class="quick-actions">
-            <button id="addEditor" class="secondary">当前文件</button>
-            <button id="addSelection" class="secondary">选区</button>
-            <button id="addDiagnostics" class="secondary">诊断</button>
-            <button id="addDiff" class="secondary">Git diff</button>
-        </div>
-        <div class="composer">
-            <textarea id="prompt" placeholder="让 dsh 处理当前工作区…"></textarea>
-            <button id="send" class="send">发送</button>
-            <button id="cancel" class="send secondary hidden">停止</button>
-        </div>
-        <div class="hint">Ctrl/Cmd + Enter 发送 · 内容会在发送前附加到当前会话</div>
     </div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        let state = { messages: [], context: [], status: { state: 'stopped' }, busy: false };
+        let state = { messages: [], context: [], selectionEnabled: true, status: { state: 'stopped' }, busy: false };
 
         function escapeHtml(value) {
             return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
@@ -557,7 +661,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
             const messages = document.getElementById('messages');
             if (!state.messages || state.messages.length === 0) {
-                messages.innerHTML = '<div class="empty">先把代码、选区或 Git diff 加入 context，<br>然后直接描述你想让 dsh 完成的任务。</div>';
+                messages.innerHTML = '<div class="empty">直接描述任务。<br>当前选区会自动附加，也可以用 @ 引用文件。</div>';
             } else {
                 messages.innerHTML = state.messages.map((message) => {
                     const label = message.role === 'user' ? '你' : (message.role === 'assistant' ? 'dsh' : '系统');
@@ -567,10 +671,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const contextItems = document.getElementById('contextItems');
-            contextItems.innerHTML = (state.context || []).map((item) => {
-                const preview = item.kind === 'folder' ? '📁 ' : '';
-                return '<div class="chip" title="' + escapeHtml(item.content || item.label) + '"><span class="chip-label">' + preview + escapeHtml(item.label) + '</span><button class="chip-remove" data-id="' + escapeHtml(item.id) + '">×</button></div>';
-            }).join('') || '<span class="hint">未附加内容</span>';
+            const chips = [];
+            if (state.selection) {
+                const range = state.selection.range || {};
+                const lineCount = Math.max(1, (range.endLine || 1) - (range.startLine || 1) + 1);
+                const selectionClass = state.selectionEnabled ? '' : ' selection-disabled';
+                const eye = state.selectionEnabled ? '◉' : '○';
+                chips.push('<div class="chip' + selectionClass + '" title="发送时重新读取当前选区"><span class="chip-label">Selection · ' + escapeHtml(state.selection.label) + ' · ' + lineCount + ' lines</span><button class="chip-remove selection-toggle" title="启用或关闭自动选区">' + eye + '</button></div>');
+            }
+            for (const item of (state.context || [])) {
+                chips.push('<div class="chip" title="本轮一次性附件"><span class="chip-label">' + escapeHtml(item.label) + '</span><button class="chip-remove" data-id="' + escapeHtml(item.id) + '">×</button></div>');
+            }
+            contextItems.innerHTML = chips.join('');
 
             document.getElementById('send').classList.toggle('hidden', Boolean(state.busy));
             document.getElementById('cancel').classList.toggle('hidden', !state.busy);
@@ -591,13 +703,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
         document.getElementById('cancel').addEventListener('click', () => post('cancel'));
         document.getElementById('runtimeButton').addEventListener('click', () => post(state.status.state === 'running' ? 'stop' : 'start'));
+        document.getElementById('keyButton').addEventListener('click', () => post('configureApiKey'));
         document.getElementById('logsButton').addEventListener('click', () => post('openLogs'));
-        document.getElementById('clearContext').addEventListener('click', () => post('clearContext'));
-        document.getElementById('addEditor').addEventListener('click', () => post('addActiveEditor'));
-        document.getElementById('addSelection').addEventListener('click', () => post('addSelection'));
-        document.getElementById('addDiagnostics').addEventListener('click', () => post('addDiagnostics'));
-        document.getElementById('addDiff').addEventListener('click', () => post('addGitDiff'));
+        document.getElementById('addContext').addEventListener('click', () => post('openIdeContextPicker'));
         document.getElementById('contextItems').addEventListener('click', (event) => {
+            if (event.target.closest('.selection-toggle')) {
+                post('toggleSelection');
+                return;
+            }
             const target = event.target.closest('.chip-remove');
             if (target) post('removeContext', { id: target.dataset.id });
         });
@@ -611,6 +724,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (event.data && event.data.type === 'state') {
                 state = event.data.state;
                 render();
+            } else if (event.data && event.data.type === 'insertText') {
+                const prompt = document.getElementById('prompt');
+                const insertion = event.data.text || '';
+                const start = prompt.selectionStart;
+                const end = prompt.selectionEnd;
+                const before = prompt.value.slice(0, start);
+                const separator = before && !/\s$/.test(before) ? ' ' : '';
+                prompt.value = before + separator + insertion + prompt.value.slice(end);
+                const cursor = start + separator.length + insertion.length;
+                prompt.setSelectionRange(cursor, cursor);
+                prompt.focus();
             }
         });
         render();

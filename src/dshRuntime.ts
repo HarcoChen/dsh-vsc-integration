@@ -1,14 +1,17 @@
 import { ChildProcess, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import * as vscode from "vscode";
+import { HarnessApiClient } from "./harnessClient";
+import { HarnessHostDescription } from "./harnessProtocol";
+import { HarnessStateCoordinator } from "./harnessState";
 import {
     DshHistoryResult,
-    DshRpcEnvelope,
     DshSessionCreateResult,
     DshSessionPromptResult,
+    DshSkillEntry,
+    DshSkillListResult,
     RuntimeStatus,
 } from "./types";
 
@@ -79,6 +82,8 @@ async function executableExists(command: string): Promise<boolean> {
 
 export class DshRuntime implements vscode.Disposable {
     private readonly listeners = new Set<RuntimeListener>();
+    private readonly apiClient: HarnessApiClient;
+    private readonly harnessState: HarnessStateCoordinator;
     private child: ChildProcess | undefined;
     private baseUrl: string | undefined;
     private startPromise: Promise<string> | undefined;
@@ -86,7 +91,34 @@ export class DshRuntime implements vscode.Disposable {
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
 
-    public constructor(private readonly output: vscode.OutputChannel) {}
+    public constructor(private readonly output: vscode.OutputChannel) {
+        this.apiClient = new HarnessApiClient({
+            baseUrl: () => this.baseUrl,
+            timeoutMs: () =>
+                this.configuration().get<number>("requestTimeoutMs", 600_000),
+            onDiagnostic: ({ channel, message, cause }) => {
+                const suffix = cause === undefined ? "" : `: ${String(cause)}`;
+                this.output.appendLine(`[dsh:${channel}] ${message}${suffix}`);
+            },
+        });
+        this.harnessState = new HarnessStateCoordinator(this.apiClient, {
+            onConnectionState: (state) =>
+                this.output.appendLine(`[dsh:events] connection ${state}`),
+            onDiagnostic: (diagnostic) => {
+                let prefix: string;
+                let cause: unknown;
+                if ("channel" in diagnostic) {
+                    prefix = diagnostic.channel;
+                    cause = diagnostic.cause;
+                } else {
+                    prefix = diagnostic.code;
+                    cause = diagnostic.value;
+                }
+                const suffix = cause === undefined ? "" : `: ${String(cause)}`;
+                this.output.appendLine(`[dsh:${prefix}] ${diagnostic.message}${suffix}`);
+            },
+        });
+    }
 
     public onDidChange(listener: RuntimeListener): vscode.Disposable {
         this.listeners.add(listener);
@@ -99,6 +131,14 @@ export class DshRuntime implements vscode.Disposable {
 
     public getUrl(): string | undefined {
         return this.baseUrl;
+    }
+
+    public getApiClient(): HarnessApiClient {
+        return this.apiClient;
+    }
+
+    public getSessionStore(): HarnessStateCoordinator["sessions"] {
+        return this.harnessState.sessions;
     }
 
     public async start(workspaceRoot?: string): Promise<string> {
@@ -124,6 +164,7 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async stop(): Promise<void> {
+        await this.harnessState.stop();
         const child = this.child;
         this.child = undefined;
         this.baseUrl = undefined;
@@ -137,11 +178,11 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async createSession(cwd: string): Promise<DshSessionCreateResult> {
-        return this.request<DshSessionCreateResult>("session.create", { cwd });
+        return this.apiClient.call("session.create", { cwd });
     }
 
     public async history(sessionId: string, maxMessages = 100): Promise<DshHistoryResult> {
-        return this.request<DshHistoryResult>("session.history", {
+        return this.apiClient.call("session.history", {
             sessionId,
             maxMessages,
         });
@@ -152,7 +193,7 @@ export class DshRuntime implements vscode.Disposable {
         text: string,
         mode: "queue" | "steer" = "queue",
     ): Promise<DshSessionPromptResult> {
-        return this.request<DshSessionPromptResult>("session.prompt", {
+        return this.apiClient.call("session.prompt", {
             sessionId,
             mode,
             content: [{ type: "text", text }],
@@ -160,52 +201,23 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async cancel(sessionId: string): Promise<void> {
-        await this.request("session.cancel", { sessionId });
+        await this.apiClient.call("session.cancel", { sessionId });
     }
 
-    public async request<T>(method: string, payload: unknown): Promise<T> {
-        const baseUrl = this.baseUrl;
-        if (!baseUrl) {
-            throw new Error("dsh web 尚未启动。");
-        }
+    /** Stores a credential in the runtime-owned credential provider. */
+    public async setCredential(ref: string, value: string): Promise<void> {
+        await this.apiClient.call("credentials.set", { ref, value });
+    }
 
-        const requestTimeout = this.configuration().get<number>("requestTimeoutMs", 600_000);
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), requestTimeout);
+    public async describeHost(): Promise<HarnessHostDescription> {
+        return this.apiClient.describe();
+    }
 
-        try {
-            const response = await fetch(`${baseUrl}/api/${method}`, {
-                method: "POST",
-                headers: {
-                    "content-type": "application/json",
-                },
-                body: JSON.stringify({
-                    type: "client-request",
-                    rpcId: randomUUID(),
-                    method,
-                    payload,
-                }),
-                signal: controller.signal,
-            });
-
-            const body = (await response.json()) as DshRpcEnvelope<T>;
-            if (!response.ok) {
-                throw new Error(`dsh API ${method} 返回 HTTP ${response.status}。`);
-            }
-
-            if (!body.result?.ok) {
-                throw new Error(this.formatRpcError(method, body.result?.error));
-            }
-
-            return body.result.value as T;
-        } catch (error) {
-            if (error instanceof DOMException && error.name === "AbortError") {
-                throw new Error(`dsh API ${method} 请求超时。`);
-            }
-            throw error;
-        } finally {
-            clearTimeout(timeout);
-        }
+    public async listSkills(sessionId: string): Promise<DshSkillEntry[]> {
+        const result = await this.apiClient.call("skill.list", {
+            sessionId,
+        });
+        return result.skills;
     }
 
     public async dispose(): Promise<void> {
@@ -235,11 +247,13 @@ export class DshRuntime implements vscode.Disposable {
             this.baseUrl = url;
             this.startedByExtension = false;
             this.setStatus({ state: "running", url });
+            this.harnessState.start();
             return url;
         }
 
         if (this.baseUrl && (await this.isHealthy(this.baseUrl))) {
             this.setStatus({ state: "running", url: this.baseUrl });
+            this.harnessState.start();
             return this.baseUrl;
         }
 
@@ -337,6 +351,7 @@ export class DshRuntime implements vscode.Disposable {
             );
             this.baseUrl = url;
             this.setStatus({ state: "running", url });
+            this.harnessState.start();
             return url;
         } catch (error) {
             await this.terminate(child);
@@ -432,20 +447,6 @@ export class DshRuntime implements vscode.Disposable {
 
     private configuration(): vscode.WorkspaceConfiguration {
         return vscode.workspace.getConfiguration("dsh");
-    }
-
-    private formatRpcError(method: string, error: unknown): string {
-        if (typeof error === "string") {
-            return `dsh API ${method} 失败：${error}`;
-        }
-
-        if (error && typeof error === "object") {
-            const record = error as Record<string, unknown>;
-            const message = record.message ?? record.code ?? JSON.stringify(error);
-            return `dsh API ${method} 失败：${String(message)}`;
-        }
-
-        return `dsh API ${method} 失败。`;
     }
 
     private setStatus(status: RuntimeStatus): void {
