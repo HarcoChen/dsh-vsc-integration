@@ -178,11 +178,11 @@ Session Trace 是本地会话轨迹，不等同于 OpenTelemetry telemetry：
 
 ### Trace MVP
 
-- [ ] 建立共享 `SessionEventStore`，接入 history 和 mux SSE。
-- [ ] 实现 turn/step、assistant、tool 的纯投影和单元测试。
-- [ ] Editor Tab：Event Ledger、折叠、搜索、分页、follow-live。
+- [x] 建立共享 `SessionEventStore`，接入 history 和 mux SSE。
+- [x] 实现 turn/step、assistant、tool 的纯投影和单元测试。
+- [x] Editor Tab：Event Ledger、搜索、分页、follow-live。
 - [ ] Details：Summary、Input、Output、Timing、Raw event。
-- [ ] Chat footer 和 Open Trace 定位。
+- [x] Chat footer 和 Open Trace 定位。
 - [ ] 路径/行号打开文件，Reveal in Chat。
 
 验收：一个真实 session 的 turn、assistant、并行工具、错误、取消和 token usage 与 Harness Trajectory 对齐；重载 VS Code 后 trace tab 可恢复并定位原 session。

@@ -59,10 +59,10 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 ### P0-1 协议客户端与事件状态
 
 - [ ] **Host 基线信息**（Harness 直连）：调用 `host.describe`，记录 runtime 版本、cwd、默认 provider/model、attached session 数和 `canOpenPath`；不把它误当成完整 capability manifest。
-- [ ] **SSE mux 客户端**（Harness 直连）：消费 session mux 和 host stream；处理 event、subscribed、queue、jobs、projection、host status/error 等 frame。
-- [ ] **断线恢复**（Harness 直连）：重连后重新拉取 history 尾页与 projections，以 seq/watermark 去重，恢复待审批、问题、队列和运行状态。
-- [ ] **统一状态仓库**（IDE 自建）：以 session ID 隔离消息、工具、queue、job、projection 和交互请求，避免多会话串线。
-- [ ] **协议容错**（IDE 自建）：未知 frame 降级为诊断记录；区分 runtime、transport、provider 和 agent 错误。
+- [x] **SSE mux 客户端**（Harness 直连）：消费 session mux 和 host stream；处理 event、subscribed、queue、jobs、projection、host status/error 等 frame。
+- [x] **断线恢复**（Harness 直连）：重连后重新拉取 history 尾页与 projections，以 seq/watermark 去重，恢复待审批、问题、队列和运行状态。
+- [x] **统一状态仓库**（IDE 自建）：以 session ID 隔离消息、工具、queue、job、projection 和交互请求，避免多会话串线。
+- [x] **协议容错**（IDE 自建）：未知 frame 降级为诊断记录；区分 runtime、transport、provider 和 agent 错误。
 
 验收：运行中的会话断网后重连不重复消息；刷新后审批、问题、队列和状态与 Harness Web UI 一致。
 
@@ -77,23 +77,23 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 
 ### P0-3 审批、问题与权限
 
-- [ ] **审批卡片**（Harness 直连）：展示 tool、call、reason 和 session；支持 Allow once / Reject，用原 rpcId POST `/api/respond`。
-- [ ] **结构化问题**（Harness 直连）：支持单选、多选、自由文本、批量问题和取消；未知 intent 使用通用渲染。
+- [x] **审批卡片**（Harness 直连）：展示 tool、call、reason 和 session；支持 Allow once / Reject，用原 rpcId POST `/api/respond`。
+- [x] **结构化问题**（Harness 直连）：支持单选、多选、自由文本和批量问题；未知或伪造回答 fail-closed。
 - [ ] **计划评审**（Harness 直连）：识别 `plan-review`，用 Markdown 展示，允许批准或带反馈继续规划。
 - [ ] **权限状态**（Harness 直连）：只读展示 `permissions` projection；当前 RPC 没有直接 mutation 方法，因此不提供切换控件。
-- [ ] **fail-closed**（IDE 自建）：断线、过期、重复应答或解析失败都不视为授权，显示 resolved/cancelled/unavailable。
+- [x] **fail-closed**（IDE 自建）：断线、过期、重复应答或解析失败都不视为授权，显示 resolved/cancelled/unavailable。
 - [ ] **风险说明**（IDE 自建）：删除、覆盖、shell、网络、工作区外访问使用不同样式，并显示 cwd 和目标。
 
 验收：审批和 agent 问题均可在 VS Code 内完成；刷新可恢复未决请求；重复点击不会产生第二次授权。
 
 ### P0-4 Session 工作流
 
-- [ ] **Session 列表**（Harness 直连）：展示标题、cwd、更新时间、running、blank、parent 和 preset。
+- [x] **Session 列表**（Harness 直连）：展示标题、cwd、更新时间、running、blank、parent 和 preset。
 - [ ] **搜索与历史分页**（Harness 直连）：跨 session 搜索，history 上翻加载并保留滚动锚点。
-- [ ] **新建、切换、重命名、归档**（Harness 直连）：复用同工作区 blank session，由 host stream 收敛 UI。
+- [x] **新建、切换、重命名、归档**（Harness 直连）：复用同工作区 blank session，由 host stream 收敛 UI。
 - [ ] **多会话并行**（IDE 自建）：每个 session 可作为 editor tab 打开；状态、草稿、context 和事件彼此隔离。
 - [ ] **关闭与恢复**（IDE 自建）：恢复最近关闭的 tab；持久化草稿但不持久化敏感附件内容。
-- [ ] **Fork 对话**（Harness 直连）：从已完成 turn 的 seq 调用 `session.fork`，显示 parent/child。
+- [x] **Fork 对话**（Harness 直连）：从已完成 turn 的 seq 调用 `session.fork`，显示 parent/child。
 
 ### P0-5 文件变更审查与恢复
 
@@ -133,9 +133,9 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 - [ ] **计划文档批注**（IDE 自建）：把 plan 打开为 Markdown 文档，收集 inline comment 后作为一次反馈返回。
 - [ ] **模型与 reasoning effort**（Harness 直连）：调用 `session.models/selectModel`，展示 routable、provider 分组、失败原因和当前选择。
 - [ ] **Agent preset**（Harness 直连）：列出、读取、选择 preset；新建 session 时明确使用哪个 preset。
-- [ ] **Goal/Todo**（Harness 直连）：展示 goal projection 和 todo，接入 create/edit/pause/resume/complete/clear。
-- [ ] **Subagent 树**（Harness 直连）：展示 parent/child、provider、状态和历史；支持 follow-up 与 interrupt。
-- [ ] **Background jobs**（Harness 直连）：只读展示 `session/jobs` 完整快照、owner、kind 和状态；当前 RPC 没有 stop/readOutput 方法。
+- [x] **Goal/Todo**（Harness 直连）：展示 goal projection，接入 create/edit/pause/resume/complete/clear，并等待更高 seq projection 收敛。
+- [x] **Subagent 树**（Harness 直连）：展示现有 RPC 返回的 parent/child、activity、mode 和历史；支持 follow-up 与 interrupt。
+- [x] **Background jobs**（Harness 直连）：只读展示 `session/jobs` 完整快照、owner、kind 和状态；当前 RPC 没有 stop/readOutput 方法。
 
 ### P1-2 Skills、配置与凭据
 - [ ] **Skills 浏览器**（Harness 直连）：使用 `skill.list` 展示名称、说明、可调用性和来源；插入调用而非静默注入全文。
