@@ -1,22 +1,30 @@
 {
     "name": "dsh-ide",
-    "displayName": "DeepSeek Harness for VS Code",
-    "description": "A native VS Code chat surface for DeepSeek Harness with IDE context bridging.",
+    "displayName": "DSH IDE (Community)",
+    "description": "A community VS Code chat client for a dsh-compatible web runtime with explicit IDE context attachment.",
     "version": "0.1.0",
     "publisher": "dsh-community",
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/deepseek-ai/deepseek-harness"
+        "url": "https://github.com/HarcoChen/dsh-vsc-integration.git"
     },
+    "bugs": {
+        "url": "https://github.com/HarcoChen/dsh-vsc-integration/issues"
+    },
+    "homepage": "https://github.com/HarcoChen/dsh-vsc-integration#readme",
     "engines": {
-        "vscode": "^1.85.0"
+        "vscode": "^1.106.0"
     },
     "extensionKind": [
         "workspace"
     ],
     "capabilities": {
-        "virtualWorkspaces": false
+        "virtualWorkspaces": false,
+        "untrustedWorkspaces": {
+            "supported": false,
+            "description": "DSH IDE requires a trusted workspace before it can start an agent runtime."
+        }
     },
     "categories": [
         "Other",
@@ -51,7 +59,7 @@
     ],
     "contributes": {
         "viewsContainers": {
-            "activitybar": [
+            "secondarySidebar": [
                 {
                     "id": "dsh",
                     "title": "DSH",
@@ -74,83 +82,99 @@
             {
                 "command": "dsh.open",
                 "title": "DSH: Open Chat",
-                "category": "DSH"
+                "category": "DSH",
+                "icon": "$(comment-discussion)"
             },
             {
                 "command": "dsh.start",
-                "title": "DSH: Start Web Runtime",
-                "category": "DSH"
+                "title": "DSH: Start dsh Web Runtime",
+                "category": "DSH",
+                "icon": "$(play)"
             },
             {
                 "command": "dsh.stop",
-                "title": "DSH: Stop Web Runtime",
-                "category": "DSH"
+                "title": "DSH: Stop dsh Web Runtime",
+                "category": "DSH",
+                "icon": "$(debug-stop)"
             },
             {
                 "command": "dsh.restart",
-                "title": "DSH: Restart Web Runtime",
-                "category": "DSH"
+                "title": "DSH: Restart dsh Web Runtime",
+                "category": "DSH",
+                "icon": "$(refresh)"
             },
             {
                 "command": "dsh.openLogs",
-                "title": "DSH: Show Runtime Logs",
-                "category": "DSH"
+                "title": "DSH: Show dsh Runtime Logs",
+                "category": "DSH",
+                "icon": "$(output)"
             },
             {
                 "command": "dsh.openInBrowser",
                 "title": "DSH: Open dsh Web UI in Browser",
-                "category": "DSH"
+                "category": "DSH",
+                "icon": "$(link-external)"
             },
             {
                 "command": "dsh.addActiveEditorToContext",
-                "title": "DSH: Add Current Editor to Context",
+                "title": "DSH: Attach Current File or Selection to Context",
                 "category": "DSH",
                 "icon": "$(file-code)"
             },
             {
                 "command": "dsh.addSelectionToContext",
-                "title": "DSH: Add Selection to Context",
+                "title": "DSH: Attach Selection to Context",
                 "category": "DSH",
                 "icon": "$(selection)"
             },
             {
                 "command": "dsh.addFileToContext",
-                "title": "DSH: Add File to Context",
+                "title": "DSH: Attach File to Context",
                 "category": "DSH",
                 "icon": "$(file)"
             },
             {
                 "command": "dsh.addFolderToContext",
-                "title": "DSH: Add Folder to Context",
+                "title": "DSH: Attach Folder Path to Context",
                 "category": "DSH",
                 "icon": "$(folder)"
             },
             {
                 "command": "dsh.addDiagnosticsToContext",
-                "title": "DSH: Add Current Diagnostics to Context",
+                "title": "DSH: Attach Current File Diagnostics",
                 "category": "DSH",
                 "icon": "$(warning)"
             },
             {
                 "command": "dsh.addGitDiffToContext",
-                "title": "DSH: Add Git Diff to Context",
+                "title": "DSH: Attach Unstaged Git Diff",
                 "category": "DSH",
                 "icon": "$(git-compare)"
             },
             {
                 "command": "dsh.clearContext",
-                "title": "DSH: Clear IDE Context",
-                "category": "DSH"
+                "title": "DSH: Clear Attached IDE Context",
+                "category": "DSH",
+                "icon": "$(clear-all)"
             },
             {
                 "command": "dsh.showContext",
-                "title": "DSH: Show Prompt Context",
-                "category": "DSH"
+                "title": "DSH: Preview Prompt Context",
+                "category": "DSH",
+                "icon": "$(eye)"
             },
             {
                 "command": "dsh.copyContext",
                 "title": "DSH: Copy Prompt Context",
-                "category": "DSH"
+                "category": "DSH",
+                "icon": "$(copy)"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "dsh.open",
+                "key": "ctrl+shift+alt+d",
+                "mac": "cmd+shift+alt+d"
             }
         ],
         "menus": {
@@ -162,37 +186,54 @@
                 },
                 {
                     "command": "dsh.addActiveEditorToContext",
-                    "when": "editorLangId",
+                    "when": "editorTextFocus",
                     "group": "dsh@2"
                 }
             ],
             "editor/title": [
                 {
                     "command": "dsh.addActiveEditorToContext",
-                    "when": "editorLangId",
+                    "when": "editorTextFocus",
                     "group": "navigation@dsh"
                 }
             ],
             "explorer/context": [
                 {
                     "command": "dsh.addFileToContext",
-                    "when": "resourceLangId",
+                    "when": "resourceScheme == file && resourceFilename",
                     "group": "dsh@1"
                 },
                 {
                     "command": "dsh.addFolderToContext",
-                    "when": "resourceFilename",
+                    "when": "resourceScheme == file && resourceFilename",
                     "group": "dsh@2"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "dsh.openInBrowser",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh1"
+                },
+                {
+                    "command": "dsh.openLogs",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh2"
+                },
+                {
+                    "command": "dsh.restart",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh3"
                 }
             ]
         },
         "configuration": {
-            "title": "DeepSeek Harness",
+            "title": "DSH IDE",
             "properties": {
                 "dsh.command": {
                     "type": "string",
-                    "default": "dsh",
-                    "description": "Command used to start the DeepSeek Harness web runtime. Use npx for a package-based install."
+                    "default": "npx",
+                    "description": "Executable used to start dsh web when dsh.serverUrl is empty. The default uses the official npm entry point; use dsh or an absolute path if the CLI is installed locally. Arguments are configured separately and no shell is used."
                 },
                 "dsh.commandArgs": {
                     "type": "array",
@@ -200,59 +241,66 @@
                         "type": "string"
                     },
                     "default": [
+                        "-y",
+                        "@deepseek-ai/dsh",
                         "web"
                     ],
-                    "description": "Arguments passed to dsh.command. A dynamic --port argument is appended when no port is present."
+                    "description": "Arguments passed to dsh.command when dsh.serverUrl is empty. The default runs npx -y @deepseek-ai/dsh web. A --port argument is appended when no port is present."
                 },
                 "dsh.serverUrl": {
                     "type": "string",
                     "default": "",
-                    "description": "Optional existing dsh web URL, such as http://127.0.0.1:3080. When set, the extension attaches to it instead of spawning a process."
+                    "description": "Optional HTTP(S) URL for an already running, trusted dsh web runtime. When set, the extension attaches to it instead of spawning dsh.command."
                 },
                 "dsh.serverPort": {
                     "type": "number",
                     "default": 0,
                     "minimum": 0,
                     "maximum": 65535,
-                    "description": "Port passed to dsh web when dsh.serverUrl is empty. Zero asks dsh to choose a free port."
+                    "description": "Port passed to dsh web when dsh.serverUrl is empty and dsh.commandArgs has no port. Zero asks dsh to choose a free port."
                 },
                 "dsh.autoStart": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Start dsh web automatically when the chat view first sends a prompt."
+                    "description": "Start or attach to dsh web automatically when the chat view sends a prompt. If false, start it with a command first."
+                },
+                "dsh.installWhenMissing": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When dsh.command is set to the bare dsh executable and it is missing, try the official @deepseek-ai/dsh package through npx. Other custom commands are never replaced."
                 },
                 "dsh.startupTimeoutMs": {
                     "type": "number",
                     "default": 30000,
                     "minimum": 1000,
                     "maximum": 120000,
-                    "description": "Maximum time to wait for dsh web to become ready."
+                    "description": "Maximum time to wait for the dsh web HTTP health check after starting or attaching."
                 },
                 "dsh.requestTimeoutMs": {
                     "type": "number",
                     "default": 600000,
                     "minimum": 10000,
                     "maximum": 3600000,
-                    "description": "Maximum time to wait for one agent turn to complete."
+                    "description": "Maximum time to wait for one agent turn while polling committed session history."
                 },
                 "dsh.pollIntervalMs": {
                     "type": "number",
                     "default": 500,
                     "minimum": 100,
                     "maximum": 5000,
-                    "description": "Polling interval used to read committed session history while a turn is running."
+                    "description": "Interval used to poll dsh session.history for a new or changed assistant message."
                 },
                 "dsh.maxContextBytes": {
                     "type": "number",
                     "default": 120000,
                     "minimum": 1000,
                     "maximum": 1000000,
-                    "description": "Maximum UTF-8 bytes of IDE context included in one prompt."
+                    "description": "Maximum UTF-8 bytes of the assembled <ide_context> block included in one prompt."
                 },
                 "dsh.persistSession": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Reuse the last dsh session for the current workspace when possible."
+                    "description": "Reuse the last dsh session ID for the current workspace when possible. Chat messages and attached context are not persisted."
                 }
             }
         }
@@ -265,7 +313,7 @@
     },
     "devDependencies": {
         "@types/node": "^22.10.2",
-        "@types/vscode": "^1.85.0",
+        "@types/vscode": "^1.106.0",
         "@vscode/vsce": "^3.6.0",
         "typescript": "^5.7.2"
     }

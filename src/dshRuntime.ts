@@ -1,5 +1,8 @@
 import { ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { access } from "node:fs/promises";
+import { delimiter, extname, isAbsolute, join } from "node:path";
 import * as vscode from "vscode";
 import {
     DshHistoryResult,
@@ -40,6 +43,38 @@ function portFromArgs(args: string[]): number | undefined {
 
     const value = Number(args[index + 1]);
     return Number.isInteger(value) && value > 0 && value <= 65_535 ? value : undefined;
+}
+
+async function executableExists(command: string): Promise<boolean> {
+    const mode = process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK;
+    const candidates: string[] = [];
+
+    if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
+        candidates.push(command);
+    } else {
+        const pathEntries = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+        const extensions =
+            process.platform === "win32"
+                ? extname(command)
+                    ? [""]
+                    : (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
+                : [""];
+        for (const directory of pathEntries) {
+            for (const extension of extensions) {
+                candidates.push(join(directory, `${command}${extension}`));
+            }
+        }
+    }
+
+    for (const candidate of candidates) {
+        try {
+            await access(candidate, mode);
+            return true;
+        } catch {
+            // Try the next PATH entry.
+        }
+    }
+    return false;
 }
 
 export class DshRuntime implements vscode.Disposable {
@@ -219,10 +254,30 @@ export class DshRuntime implements vscode.Disposable {
             this.setStatus({ state: "starting", message: "正在启动 dsh web…" });
         }
 
-        const command = this.configuration().get<string>("command", "dsh").trim() || "dsh";
+        let command = this.configuration().get<string>("command", "dsh").trim() || "dsh";
         const configuredArgs = this.configuration().get<string[]>("commandArgs", ["web"]);
-        const args = [...configuredArgs];
+        let args = [...configuredArgs];
         const configuredPort = this.configuration().get<number>("serverPort", 0);
+
+        if (!(await executableExists(command))) {
+            const installWhenMissing = this.configuration().get<boolean>("installWhenMissing", true);
+            if (command !== "dsh" || !installWhenMissing) {
+                const message = `找不到启动命令“${command}”。请安装 Node.js/npm、配置 dsh.command 的绝对路径，或手动安装 dsh CLI。官方 npm 入口是 npx @deepseek-ai/dsh web。`;
+                this.setStatus({ state: "error", message });
+                throw new Error(message);
+            }
+            if (!(await executableExists("npx"))) {
+                const message =
+                    "未找到 dsh，也未找到可用于安装回退的 npx。请先安装 Node.js/npm，或配置 dsh.command 的绝对路径。";
+                this.setStatus({ state: "error", message });
+                throw new Error(message);
+            }
+
+            command = "npx";
+            args = ["-y", "@deepseek-ai/dsh", ...args];
+            this.setStatus({ state: "starting", message: "未找到 dsh，正在通过 npx 获取并启动…" });
+            this.output.appendLine("[dsh] executable not found; falling back to npx -y @deepseek-ai/dsh");
+        }
 
         if (!args.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
             args.push("--port", String(configuredPort));
