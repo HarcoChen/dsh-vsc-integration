@@ -17,6 +17,11 @@ import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
 import { presentHostBaseline } from "./hostState";
 import {
+    isCopyableCode,
+    parseSafeHttpUrl,
+    renderMarkdownMessage,
+} from "./safeMarkdown";
+import {
     GoalMutationGate,
     normalizeGoalRef,
     normalizeSubagentCatalog,
@@ -28,6 +33,7 @@ import {
 } from "./sessionFeatures";
 import {
     ChatViewState,
+    ChatMessage,
     DshApprovalResponse,
     DshContextItem,
     DshHistoryEntry,
@@ -77,6 +83,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private viewMessageDisposable: vscode.Disposable | undefined;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly optimisticPrompts: OptimisticPrompt[] = [];
+    private readonly markdownCache = new Map<string, {
+        source: string;
+        html: string;
+        renderId: string;
+        codeBlocks: ReadonlyMap<string, string>;
+    }>();
+    private readonly copyableCodeByRenderId = new Map<string, ReadonlyMap<string, string>>();
     private readonly goalMutations = new GoalMutationGate();
     private readonly subagentTrees = new SubagentTreeStore();
     private readonly subagentTreeAborts = new Map<string, AbortController>();
@@ -302,6 +315,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (this.runtime.getUrl()) {
                         await vscode.env.openExternal(vscode.Uri.parse(this.runtime.getUrl() as string));
                     }
+                    break;
+                case "openExternalLink": {
+                    const url = parseSafeHttpUrl(message.url);
+                    if (!url) throw new Error("仅允许打开明确的 HTTP(S) 链接。");
+                    const opened = await vscode.env.openExternal(vscode.Uri.parse(url, true));
+                    if (!opened) throw new Error("VS Code 未能打开该链接。");
+                    break;
+                }
+                case "copyCode":
+                    await this.copyCodeBlock(message.renderId, message.codeBlockId);
                     break;
                 case "openTrace":
                     if (this.sessionId) {
@@ -1171,7 +1194,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 interaction.status === "resolved",
         ) ?? [];
         const state: ChatViewState = {
-            messages: projectChatMessages(session, this.optimisticPrompts),
+            messages: this.renderMessages(
+                projectChatMessages(session, this.optimisticPrompts),
+                `session:${this.sessionId ?? "none"}`,
+            ),
             context: this.contextStore.snapshot(),
             selection: this.contextStore.getCurrentSelectionMetadata(),
             selectionEnabled: this.selectionEnabled,
@@ -1240,13 +1266,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             subagents: this.sessionId ? this.subagentTrees.get(this.sessionId) : undefined,
             subagentPreview:
                 this.sessionId && this.subagentPreview?.rootSessionId === this.sessionId
-                    ? { ...this.subagentPreview, messages: [...this.subagentPreview.messages] }
+                    ? {
+                          ...this.subagentPreview,
+                          messages: this.renderMessages(
+                              this.subagentPreview.messages,
+                              `subagent:${this.subagentPreview.childSessionId}`,
+                          ),
+                      }
                     : undefined,
             jobs: this.sessionId
                 ? presentJobCenter(this.sessionId, session?.jobs.items ?? [])
                 : [],
         };
         void this.view.webview.postMessage({ type: "state", state });
+    }
+
+    private renderMessages(messages: readonly ChatMessage[], scope: string): ChatMessage[] {
+        return messages.map((message) => {
+            const key = `${scope}:${message.role}:${message.id}`;
+            const cached = this.markdownCache.get(key);
+            if (cached?.source === message.text) {
+                return { ...message, renderedHtml: cached.html, renderId: cached.renderId };
+            }
+            const rendered = renderMarkdownMessage(message.text);
+            const html = rendered.html;
+            if (!cached && this.markdownCache.size >= 2_000) {
+                const oldest = this.markdownCache.keys().next().value as string | undefined;
+                if (oldest !== undefined) {
+                    const evicted = this.markdownCache.get(oldest);
+                    if (evicted) this.copyableCodeByRenderId.delete(evicted.renderId);
+                    this.markdownCache.delete(oldest);
+                }
+            }
+            if (cached) this.copyableCodeByRenderId.delete(cached.renderId);
+            const renderId = randomUUID().replace(/-/gu, "");
+            const codeBlocks = new Map(rendered.codeBlocks.map((block) => [block.id, block.text]));
+            this.markdownCache.set(key, {
+                source: message.text,
+                html,
+                renderId,
+                codeBlocks,
+            });
+            this.copyableCodeByRenderId.set(renderId, codeBlocks);
+            return { ...message, renderedHtml: html, renderId };
+        });
+    }
+
+    private async copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
+        const text = this.copyableCodeByRenderId.get(renderId)?.get(codeBlockId);
+        if (text === undefined || !isCopyableCode(text)) {
+            throw new Error("代码块不存在或超过允许复制的大小。");
+        }
+        await vscode.env.clipboard.writeText(text);
     }
 
     private schedulePostState(): void {
@@ -1294,7 +1365,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .message { margin: 0 0 12px; }
         .message-label { color: var(--vscode-descriptionForeground); font-size: 11px; margin-bottom: 3px; }
         .message-trace { float: right; padding: 0 3px; color: var(--vscode-descriptionForeground); background: transparent; font-size: 10px; }
-        .message-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+        .message-body { overflow-wrap: anywhere; line-height: 1.45; }
+        .message-body p { margin: 0 0 8px; white-space: pre-wrap; }
+        .message-body p:last-child { margin-bottom: 0; }
+        .message-body h1, .message-body h2, .message-body h3, .message-body h4, .message-body h5, .message-body h6 { margin: 10px 0 6px; line-height: 1.25; }
+        .message-body h1 { font-size: 1.35em; }
+        .message-body h2 { font-size: 1.25em; }
+        .message-body h3 { font-size: 1.15em; }
+        .message-body ul, .message-body ol { margin: 6px 0; padding-left: 22px; }
+        .message-body blockquote { margin: 7px 0; padding: 2px 8px; color: var(--vscode-descriptionForeground); border-left: 3px solid var(--vscode-textBlockQuote-border); background: var(--vscode-textBlockQuote-background); }
+        .message-body code { padding: 1px 3px; border-radius: 3px; font-family: var(--vscode-editor-font-family); background: var(--vscode-textCodeBlock-background); }
+        .message-body .markdown-link { color: var(--vscode-textLink-foreground); text-decoration: underline; cursor: pointer; }
+        .message-body .markdown-link:hover { color: var(--vscode-textLink-activeForeground); }
+        .markdown-code-block { margin: 8px 0; border: 1px solid var(--vscode-panel-border); border-radius: 4px; overflow: hidden; background: var(--vscode-textCodeBlock-background); }
+        .markdown-code-head { display: flex; align-items: center; justify-content: space-between; min-height: 27px; padding: 3px 6px 3px 9px; color: var(--vscode-descriptionForeground); font-size: 10px; background: var(--vscode-editorWidget-background); }
+        .markdown-code-copy { padding: 2px 6px; font-size: 10px; }
+        .markdown-code-block pre { margin: 0; padding: 9px; max-height: 360px; overflow: auto; white-space: pre; }
+        .markdown-code-block pre code { padding: 0; background: transparent; font: 11px/1.45 var(--vscode-editor-font-family); }
         .message.user .message-body { padding: 8px 9px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); border: 1px solid var(--vscode-textBlockQuote-border); }
         .message.system .message-body { color: var(--vscode-errorForeground); }
         .composer-shell { padding: 7px 10px 10px; border-top: 1px solid var(--vscode-panel-border); }
@@ -1471,7 +1558,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     const stateClass = message.state === 'streaming' ? ' streaming' : (message.state === 'pending' ? ' pending' : '');
                     const stateLabel = message.state === 'pending' ? ' · 等待接收' : (message.state === 'streaming' ? ' · 流式生成' : '');
                     const trace = Number.isSafeInteger(message.seq) && message.seq >= 0 ? '<button class="message-trace" data-trace-seq="' + message.seq + '" title="在 Trace 中定位">trace</button>' : '';
-                    return '<div class="message ' + message.role + stateClass + '"><div class="message-label">' + label + stateLabel + trace + '</div><div class="message-body">' + escapeHtml(message.text) + '</div></div>';
+                    const body = typeof message.renderedHtml === 'string' ? message.renderedHtml : '<p>' + escapeHtml(message.text) + '</p>';
+                    const renderId = typeof message.renderId === 'string' ? ' data-render-id="' + escapeHtml(message.renderId) + '"' : '';
+                    return '<div class="message ' + message.role + stateClass + '"' + renderId + '><div class="message-label">' + label + stateLabel + trace + '</div><div class="message-body">' + body + '</div></div>';
                 }).join('');
                 messages.scrollTop = messages.scrollHeight;
             }
@@ -1512,7 +1601,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 const preview = state.subagentPreview && state.subagentPreview.rootSessionId === state.sessionId ? state.subagentPreview : undefined;
                 let previewHtml = '';
                 if (preview) {
-                    const transcript = (preview.messages || []).map((message) => '<div class="message ' + escapeHtml(message.role) + '"><div class="message-label">' + (message.role === 'assistant' ? 'subagent' : (message.role === 'user' ? '你' : '系统')) + '</div><div class="message-body">' + escapeHtml(message.text) + '</div></div>').join('');
+                    const transcript = (preview.messages || []).map((message) => {
+                        const body = typeof message.renderedHtml === 'string' ? message.renderedHtml : '<p>' + escapeHtml(message.text) + '</p>';
+                        const renderId = typeof message.renderId === 'string' ? ' data-render-id="' + escapeHtml(message.renderId) + '"' : '';
+                        return '<div class="message ' + escapeHtml(message.role) + '"' + renderId + '><div class="message-label">' + (message.role === 'assistant' ? 'subagent' : (message.role === 'user' ? '你' : '系统')) + '</div><div class="message-body">' + body + '</div></div>';
+                    }).join('');
                     const pendingAction = preview.pendingAction ? '正在执行 ' + preview.pendingAction + '…' : '';
                     const followUp = preview.mode === 'continuable' ? '<div class="follow-up"><input id="subagentFollowUp" placeholder="给 continuable subagent 追加任务"' + (!preview.parentAvailable || preview.pendingAction ? ' disabled' : '') + '><button data-subagent-follow="' + escapeHtml(preview.childSessionId) + '"' + (!preview.parentAvailable || preview.pendingAction ? ' disabled' : '') + '>发送</button></div>' : '';
                     const interrupt = preview.mode === 'continuable' && preview.activity === 'running' ? '<button class="secondary" data-subagent-interrupt="' + escapeHtml(preview.childSessionId) + '"' + (preview.pendingAction ? ' disabled' : '') + '>中断</button>' : '';
@@ -1583,7 +1676,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         document.getElementById('openTrace').addEventListener('click', () => post('openTrace'));
         document.getElementById('messages').addEventListener('click', (event) => {
             const button = event.target.closest('[data-trace-seq]');
-            if (button) post('openTrace', { seq: Number(button.dataset.traceSeq) });
+            if (button) {
+                post('openTrace', { seq: Number(button.dataset.traceSeq) });
+                return;
+            }
+            handleMarkdownAction(event);
         });
         document.getElementById('goal').addEventListener('click', (event) => {
             const button = event.target.closest('[data-goal-action]');
@@ -1654,6 +1751,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             post('updateQueue', { itemId: row.dataset.itemId, action: button.dataset.action, text });
         });
         document.getElementById('subagents').addEventListener('click', (event) => {
+            if (handleMarkdownAction(event)) return;
             const refresh = event.target.closest('[data-subagent-refresh]');
             if (refresh && !refresh.disabled) {
                 refresh.disabled = true;
@@ -1686,6 +1784,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 post('interruptSubagent', { childSessionId: interrupt.dataset.subagentInterrupt });
             }
         });
+        function handleMarkdownAction(event) {
+            const link = event.target.closest('[data-external-url]');
+            if (link) {
+                post('openExternalLink', { url: link.dataset.externalUrl });
+                return true;
+            }
+            const copy = event.target.closest('[data-copy-code-id]');
+            const message = copy && copy.closest('[data-render-id]');
+            if (copy && message && !copy.disabled) {
+                copy.disabled = true;
+                post('copyCode', {
+                    renderId: message.dataset.renderId,
+                    codeBlockId: copy.dataset.copyCodeId,
+                });
+                window.setTimeout(() => { copy.disabled = false; }, 750);
+                return true;
+            }
+            return false;
+        }
+        function handleMarkdownKeydown(event) {
+            if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[data-external-url]')) {
+                event.preventDefault();
+                post('openExternalLink', { url: event.target.dataset.externalUrl });
+            }
+        }
+        document.getElementById('messages').addEventListener('keydown', handleMarkdownKeydown);
+        document.getElementById('subagents').addEventListener('keydown', handleMarkdownKeydown);
         document.getElementById('prompt').addEventListener('keydown', (event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                 event.preventDefault();

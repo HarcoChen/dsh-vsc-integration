@@ -25,6 +25,10 @@ export interface ChatMessage {
     id: string;
     role: ChatRole;
     text: string;
+    /** Fixed-vocabulary HTML produced by the extension-host safe Markdown renderer. */
+    renderedHtml?: string;
+    /** Opaque per-render nonce used to address host-retained code payloads. */
+    renderId?: string;
     createdAt: number;
     seq?: number;
     state?: "committed" | "streaming" | "pending" | "failed";

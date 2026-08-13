@@ -1,4 +1,5 @@
 import { DshApprovalOutcome, DshQuestionAnswerItem, DshQuestionItem } from "./types";
+import { parseSafeHttpUrl } from "./safeMarkdown";
 
 export type ChatViewAction =
     | { type: "ready" }
@@ -12,6 +13,8 @@ export type ChatViewAction =
     | { type: "stop" }
     | { type: "openLogs" }
     | { type: "openBrowser" }
+    | { type: "openExternalLink"; url: string }
+    | { type: "copyCode"; renderId: string; codeBlockId: string }
     | { type: "openTrace"; seq?: number }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
@@ -57,6 +60,11 @@ function nonNegativeInteger(value: unknown): value is number {
 
 function hasAny(value: Record<string, unknown>, keys: readonly string[]): boolean {
     return keys.some((key) => key in value);
+}
+
+function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boolean {
+    const allowed = new Set(keys);
+    return Object.keys(value).every((key) => allowed.has(key));
 }
 
 function questionAnswers(value: unknown): DshQuestionAnswerItem[] | undefined {
@@ -121,6 +129,21 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 type: "openTrace",
                 ...(value.seq === undefined ? {} : { seq: value.seq }),
             };
+        case "openExternalLink": {
+            if (!hasOnly(value, ["type", "url"])) return undefined;
+            const url = parseSafeHttpUrl(value.url);
+            return url ? { type: "openExternalLink", url } : undefined;
+        }
+        case "copyCode":
+            return hasOnly(value, ["type", "renderId", "codeBlockId"]) &&
+                typeof value.renderId === "string" && /^[a-f0-9]{32}$/u.test(value.renderId) &&
+                nonEmptyString(value.codeBlockId) && /^code-\d{1,6}$/u.test(value.codeBlockId)
+                ? {
+                      type: "copyCode",
+                      renderId: value.renderId,
+                      codeBlockId: value.codeBlockId,
+                  }
+                : undefined;
         case "sendPrompt":
             return typeof value.text === "string"
                 ? { type: "sendPrompt", text: value.text }

@@ -107,3 +107,53 @@ test("chat trace action can locate a committed message but cannot forge session 
         sessionId: "forged",
     }), undefined);
 });
+
+test("Markdown actions are revalidated at the extension-host trust boundary", () => {
+    assert.deepEqual(parseChatViewAction({
+        type: "openExternalLink",
+        url: "https://example.com/docs?q=1",
+    }), {
+        type: "openExternalLink",
+        url: "https://example.com/docs?q=1",
+    });
+    assert.equal(parseChatViewAction({
+        type: "openExternalLink",
+        url: "javascript:alert(1)",
+    }), undefined);
+    assert.equal(parseChatViewAction({
+        type: "openExternalLink",
+        url: "command:dsh.stop",
+    }), undefined);
+    assert.equal(parseChatViewAction({
+        type: "openExternalLink",
+        url: "file:///etc/passwd",
+    }), undefined);
+    assert.equal(parseChatViewAction({
+        type: "openExternalLink",
+        url: "https://example.com/",
+        command: "dsh.stop",
+    }), undefined);
+
+    const renderId = "a".repeat(32);
+    assert.deepEqual(parseChatViewAction({
+        type: "copyCode",
+        renderId,
+        codeBlockId: "code-12",
+    }), { type: "copyCode", renderId, codeBlockId: "code-12" });
+    assert.equal(parseChatViewAction({
+        type: "copyCode",
+        renderId: "not-a-render-id",
+        codeBlockId: "code-0",
+    }), undefined);
+    assert.equal(parseChatViewAction({
+        type: "copyCode",
+        renderId,
+        codeBlockId: "../../secret",
+    }), undefined);
+    assert.equal(parseChatViewAction({
+        type: "copyCode",
+        renderId,
+        codeBlockId: "code-0",
+        text: "forged clipboard payload",
+    }), undefined);
+});
