@@ -58,7 +58,7 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 
 ### P0-1 协议客户端与事件状态
 
-- [ ] **Host 基线信息**（Harness 直连）：调用 `host.describe`，记录 runtime 版本、cwd、默认 provider/model、attached session 数和 `canOpenPath`；不把它误当成完整 capability manifest。
+- [x] **Host 基线信息**（Harness 直连）：调用 `host.describe`，记录 runtime 版本、cwd、默认 provider/model、attached session 数和 `canOpenPath`；不把它误当成完整 capability manifest。
 - [x] **SSE mux 客户端**（Harness 直连）：消费 session mux 和 host stream；处理 event、subscribed、queue、jobs、projection、host status/error 等 frame。
 - [x] **断线恢复**（Harness 直连）：重连后重新拉取 history 尾页与 projections，以 seq/watermark 去重，恢复待审批、问题、队列和运行状态。
 - [x] **统一状态仓库**（IDE 自建）：以 session ID 隔离消息、工具、queue、job、projection 和交互请求，避免多会话串线。

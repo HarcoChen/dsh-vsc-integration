@@ -549,6 +549,7 @@ export interface ChatViewState {
     busy: boolean;
     submitting: boolean;
     workspaceName?: string;
+    host?: HostBaselineView;
     sessionId?: string;
     sessions: Array<{
         sessionId: string;
@@ -582,6 +583,15 @@ export interface ChatViewState {
     subagents?: SubagentTreeView;
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
+}
+
+export interface HostBaselineView {
+    version: string;
+    cwd: string;
+    provider?: string;
+    model?: string;
+    attachedSessions: number;
+    canOpenPath: boolean;
 }
 
 export interface GoalHudView {
