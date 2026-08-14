@@ -20,6 +20,12 @@
 - 修复 Windows 下启动 `.cmd`、`.ps1` 和 `npx.cmd` 可能触发 `EINVAL` 的问题。
 - 增强 `@` 文件引用候选：支持路径模糊匹配，当前活动文件置顶，过滤常见构建和元数据目录。
 
+## [0.3.2] - 2026-08-14
+
+- 新增资源管理器入口：文件和目录右键可将目标路径与 workspace root 预填到 DSH Chat，不会自动发送或读取文件内容。
+- 新增 `DSH: Diagnose Environment`：输出脱敏的 VS Code、Node、平台、工作区信任、命令发现、npm 全局目录、Runtime 健康状态和 API Key 引用诊断。
+- 修复 Windows 下 npm 全局前缀查询无法通过 `.cmd` 启动器执行的问题，并保留 `.cmd`/`.ps1` Runtime 启动兼容性。
+
 ## [未发布]
 
 ## [0.2.2] - 2026-08-14
@@ -46,7 +52,8 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
-[未发布]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...HEAD
+[未发布]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.1.0-alpha...v0.2.1

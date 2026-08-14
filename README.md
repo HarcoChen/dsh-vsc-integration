@@ -57,6 +57,8 @@ Install the generated `.vsix` via `Extensions: Install from VSIX...`.
 3. Type `@` to search and reference workspace files, attach selections, diagnostics or unstaged Git diffs, or type `/` to open the local command menu.
 4. Send a prompt and handle tool approvals, questions and plan reviews directly in the chat view.
 
+The Explorer context menu includes `DSH: Ask About This Resource`, which pre-fills the selected file or directory and its workspace root without sending automatically. Use `DSH: Diagnose Environment` to write a redacted runtime and command-discovery report to the DSH output channel.
+
 If dsh reports a missing or invalid API key, click `Key` in the chat header or run `DSH: Configure API Key`. The key is passed to dsh's credential service, and an encrypted copy is stored in VS Code SecretStorage for the balance indicator. It is not written to prompts, extension state or logs.
 
 ## Configuration

@@ -2,7 +2,7 @@
     "name": "dsh-vsc-integration",
     "displayName": "%extension.displayName%",
     "description": "%extension.description%",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "publisher": "harcochen",
     "license": "MIT",
     "repository": {
@@ -58,6 +58,7 @@
         "onCommand:dsh.stop",
         "onCommand:dsh.restart",
         "onCommand:dsh.insertEditorReference",
+        "onCommand:dsh.askAboutResource",
         "onCommand:dsh.editorTask.explain",
         "onCommand:dsh.editorTask.fix",
         "onCommand:dsh.editorTask.review",
@@ -69,6 +70,7 @@
         "onCommand:dsh.openIdeContextPicker",
         "onCommand:dsh.configureApiKey",
         "onCommand:dsh.refreshBalance",
+        "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
         "onCommand:dsh.openInBrowser"
     ],
@@ -185,6 +187,12 @@
                 "icon": "$(references)"
             },
             {
+                "command": "dsh.askAboutResource",
+                "title": "%command.askAboutResource.title%",
+                "category": "DSH",
+                "icon": "$(comment-discussion)"
+            },
+            {
                 "command": "dsh.editorTask.explain",
                 "title": "%dsh.editorTask.explain.title%",
                 "category": "DSH"
@@ -241,6 +249,12 @@
                 "title": "%command.refreshBalance.title%",
                 "category": "DSH",
                 "icon": "$(dashboard)"
+            },
+            {
+                "command": "dsh.diagnoseEnvironment",
+                "title": "%command.diagnoseEnvironment.title%",
+                "category": "DSH",
+                "icon": "$(tools)"
             }
         ],
         "submenus": [
@@ -270,6 +284,12 @@
             "editor/context": [
                 {
                     "submenu": "dsh.editorTasks",
+                    "group": "navigation@dsh"
+                }
+            ],
+            "explorer/context": [
+                {
+                    "command": "dsh.askAboutResource",
                     "group": "navigation@dsh"
                 }
             ],

@@ -76,7 +76,7 @@ function launcherNeedsShell(command: string): boolean {
     return !/\.exe$/iu.test(command);
 }
 
-async function executableExists(command: string): Promise<boolean> {
+async function findExecutable(command: string): Promise<string | undefined> {
     const mode = process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK;
     const candidates: string[] = [];
 
@@ -100,12 +100,59 @@ async function executableExists(command: string): Promise<boolean> {
     for (const candidate of candidates) {
         try {
             await access(candidate, mode);
-            return true;
+            return candidate;
         } catch {
             // Try the next PATH entry.
         }
     }
-    return false;
+    return undefined;
+}
+
+async function executableExists(command: string): Promise<boolean> {
+    return (await findExecutable(command)) !== undefined;
+}
+
+function redactArgument(argument: string, previous?: string): string {
+    const sensitive = /(?:api[-_]?key|auth|credential|password|secret|token)/iu;
+    if (previous && sensitive.test(previous)) return "<redacted>";
+    const inline = argument.match(/^([^=]+)=/u);
+    return inline && sensitive.test(inline[1] as string)
+        ? `${inline[1]}=<redacted>`
+        : argument;
+}
+
+function redactArguments(args: string[]): string {
+    return args
+        .map((argument, index) => redactArgument(argument, args[index - 1]))
+        .join(" ");
+}
+
+function redactUrl(value: string): string {
+    try {
+        const url = new URL(value);
+        url.username = "";
+        url.password = "";
+        url.search = "";
+        url.hash = "";
+        return url.toString().replace(/\/$/u, "");
+    } catch {
+        return "<invalid URL>";
+    }
+}
+
+async function globalNpmPrefix(): Promise<string | undefined> {
+    if (!(await executableExists("npm"))) return undefined;
+    try {
+        const result = await execFileAsync("npm", ["prefix", "-g"], {
+            timeout: 10_000,
+            windowsHide: true,
+            shell: process.platform === "win32",
+        });
+        const prefix = result.stdout.trim();
+        return prefix || undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 type DshLauncherSource = "configured" | "path" | "npm-prefix" | "npx";
@@ -128,7 +175,11 @@ async function discoverDsh(command: string): Promise<DshLauncher> {
     }
 
     try {
-        const result = await execFileAsync("npm", ["prefix", "-g"], { timeout: 10_000, windowsHide: true });
+        const result = await execFileAsync("npm", ["prefix", "-g"], {
+            timeout: 10_000,
+            windowsHide: true,
+            shell: process.platform === "win32",
+        });
         const prefix = result.stdout.trim();
         const binDir = process.platform === "win32" ? prefix : join(prefix, "bin");
         for (const name of process.platform === "win32" ? ["dsh.cmd", "dsh.exe", "dsh.ps1", "dsh"] : ["dsh"]) {
@@ -214,6 +265,82 @@ export class DshRuntime implements vscode.Disposable {
 
     public getHostDescription(): HarnessHostDescription | undefined {
         return this.hostDescription ? { ...this.hostDescription } : undefined;
+    }
+
+    /** Returns a redacted, read-only environment report without starting dsh. */
+    public async diagnoseEnvironment(workspaceRoot?: string): Promise<string> {
+        const configuration = this.configuration();
+        const command = configuration.get<string>("command", "dsh").trim() || "dsh";
+        const configuredArgs = configuration.get<string[]>("commandArgs", ["web"]);
+        const args = Array.isArray(configuredArgs)
+            ? configuredArgs.filter((argument): argument is string => typeof argument === "string")
+            : [];
+        const serverUrl = configuration.get<string>("serverUrl", "").trim();
+        const configuredPort = configuration.get<number>("serverPort", 0);
+        const apiKeyRef = configuration.get<string>("apiKeyEnv", "DEEPSEEK_API_KEY").trim();
+        const commandPath = await findExecutable(command);
+        const dshPath = await findExecutable("dsh");
+        const npxPath = await findExecutable("npx");
+        const npmPath = await findExecutable("npm");
+        const prefix = await globalNpmPrefix();
+
+        let discovery: string;
+        try {
+            const launcher = await discoverDsh(command);
+            discovery = `${launcher.command} (${launcher.source})`;
+        } catch (error) {
+            discovery = `error: ${error instanceof Error ? error.message : String(error)}`;
+        }
+
+        let health = "not running";
+        if (this.baseUrl) {
+            health = (await this.isHealthy(this.baseUrl)) ? "healthy" : "unreachable";
+        }
+
+        let hostDescription = this.hostDescription;
+        let rpcHealth = "not checked";
+        if (health === "healthy") {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3_000);
+            try {
+                hostDescription = await this.apiClient.describe(controller.signal);
+                rpcHealth = "ok";
+            } catch {
+                rpcHealth = "failed";
+            } finally {
+                clearTimeout(timeout);
+            }
+        }
+
+        const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+        const lines = [
+            "DSH environment report",
+            `Generated: ${new Date().toISOString()}`,
+            `VS Code: ${vscode.version}`,
+            `Node: ${process.versions.node}`,
+            `Platform: ${process.platform} ${process.arch}`,
+            `Workspace trusted: ${vscode.workspace.isTrusted ? "yes" : "no"}`,
+            `Workspace root argument: ${workspaceRoot ?? "<none>"}`,
+            `Workspace folders: ${workspaceFolders.length ? workspaceFolders.map((folder) => folder.uri.fsPath).join(" | ") : "<none>"}`,
+            `Configured server URL: ${serverUrl ? redactUrl(serverUrl) : "<none>"}`,
+            `Configured server port: ${configuredPort || "automatic"}`,
+            `Configured command: ${command} ${redactArguments(args)}`.trim(),
+            `Resolved command: ${commandPath ?? "<not found>"}`,
+            `Resolved dsh: ${dshPath ?? "<not found>"}`,
+            `Resolved npx: ${npxPath ?? "<not found>"}`,
+            `Resolved npm: ${npmPath ?? "<not found>"}`,
+            `npm global prefix: ${prefix ?? "<unavailable>"}`,
+            `Discovered launcher: ${discovery}`,
+            `Runtime status: ${this.status.state}`,
+            `Runtime URL: ${this.baseUrl ? redactUrl(this.baseUrl) : "<none>"}`,
+            `Runtime health: ${health}`,
+            `Public host.describe RPC: ${rpcHealth}`,
+            `Host version: ${hostDescription?.version ?? "<unknown>"}`,
+            `Host cwd: ${hostDescription?.cwd ?? "<unknown>"}`,
+            `API key reference: ${apiKeyRef || "<empty>"}`,
+            `API key environment variable present: ${apiKeyRef && process.env[apiKeyRef] ? "yes" : "no"}`,
+        ];
+        return lines.join("\n");
     }
 
     public getApiClient(): HarnessApiClient {

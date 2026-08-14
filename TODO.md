@@ -15,7 +15,7 @@
 
 - [x] **全界面 i18n**：扩展清单、Extension Host、聊天 Webview 与 Trace 使用英文源文案和简体中文语言包；协议标识、模型名、文件路径和用户内容保持原样。
 - [ ] **VS Code Chat Participant**：支持通过 `@dsh` 在内置 Chat 中发起任务，并复用同一 Harness session/context 边界。
-- [ ] **资源管理器入口**：文件和目录右键“使用 DSH 提问”，保留明确的目标路径与工作区根。
+- [x] **资源管理器入口**：文件和目录右键“使用 DSH 提问”，保留明确的目标路径与工作区根。
 - [ ] **代码块操作**：复制、插入光标、打开新编辑器、应用到目标文件；写文件前显示 diff 并要求确认。
 - [ ] **Skills 浏览与选择**：接入公开 `skill.list` 等能力，在 Composer 中展示本轮启用的 Skills；不直接扫描或解释私有 Runtime 目录。
 - [ ] **Provider、模型与 reasoning effort 状态**：在 Composer 附近展示当前路由，并统一 `/model`、`/mode` 与未来 provider/effort 选择体验。
@@ -33,7 +33,7 @@
 ## P2：产品呈现
 
 - [ ] **Marketplace 截图与短 GIF**：展示流式回答、工具卡片、审批、计划评审、Activity Dock、Slash Commands 和 Trace 跳转。
-- [ ] **环境检查命令**：一次性诊断 VS Code 版本、工作区信任、Node/dsh 路径、Runtime 版本、端口、API Key 引用和公开 RPC 可用性；输出必须脱敏。
+- [x] **环境检查命令**：一次性诊断 VS Code 版本、工作区信任、Node/dsh 路径、Runtime 版本、端口、API Key 引用和公开 RPC 可用性；输出必须脱敏。
 - [ ] **兼容版本说明**：记录验证过的 DSH 版本范围和协议变化，遇到不兼容版本时给出可操作提示。
 - [ ] **常见问题与故障排查**：覆盖找不到 dsh、API Key、空白 Webview、端口冲突、模型不可路由和远程工作区路径问题。
 - [ ] **隐私与数据流说明**：明确编辑器上下文、prompt、凭据、日志和余额查询分别流向哪里，以及哪些数据会持久化。

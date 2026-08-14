@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isAbsolute, relative } from "node:path";
 import * as vscode from "vscode";
 import { DeepSeekBalanceService } from "./balanceService";
 import {
@@ -261,6 +262,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         this.insertComposerText(reference);
+    }
+
+    /** Prefills a safe, workspace-scoped prompt for an Explorer resource. */
+    public async askAboutResource(resource?: vscode.Uri): Promise<void> {
+        if (!vscode.workspace.isTrusted) {
+            throw new Error(t("Trust the current workspace before asking about a resource."));
+        }
+        if (!resource || resource.scheme !== "file") {
+            throw new Error(t("Select a file or directory inside a workspace first."));
+        }
+        const folder = vscode.workspace.getWorkspaceFolder(resource);
+        if (!folder) {
+            throw new Error(t("The selected resource is outside the current workspace."));
+        }
+
+        const relativePath = relative(folder.uri.fsPath, resource.fsPath).replace(/\\/gu, "/");
+        if (
+            !relativePath ||
+            relativePath === ".." ||
+            relativePath.startsWith("../") ||
+            isAbsolute(relativePath)
+        ) {
+            throw new Error(t("The selected resource is outside the current workspace."));
+        }
+
+        let resourceType = t("Workspace resource");
+        try {
+            const stat = await vscode.workspace.fs.stat(resource);
+            resourceType = stat.type & vscode.FileType.Directory ? t("Directory") : t("File");
+        } catch {
+            // The prompt remains useful when the Explorer item disappears during the command.
+        }
+
+        const cleanPath = relativePath.replace(/[\r\n]/gu, " ");
+        this.setComposerText([
+            t("Inspect this workspace resource and help me with it."),
+            `${t("Workspace root")}: ${folder.uri.fsPath}`,
+            `${t("Target path")}: ${cleanPath}`,
+            `${t("Target type")}: ${resourceType}`,
+        ].join("\n"));
     }
 
     public async prefillEditorTask(kind: QuickTaskKind): Promise<void> {

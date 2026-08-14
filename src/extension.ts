@@ -95,6 +95,9 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.insertEditorReference", () =>
             chatView.insertEditorReference(),
         ),
+        vscode.commands.registerCommand("dsh.askAboutResource", (resource?: vscode.Uri) =>
+            runCommand(t("Ask about resource"), () => chatView.askAboutResource(resource)),
+        ),
         ...registerQuickTaskCommands(chatView),
         vscode.commands.registerCommand("dsh.openIdeContextPicker", () =>
             chatView.openIdeContextPicker(),
@@ -106,6 +109,13 @@ export function activate(context: vscode.ExtensionContext): void {
             }),
         ),
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
+        vscode.commands.registerCommand("dsh.diagnoseEnvironment", async () => {
+            await runCommand(t("Diagnose environment"), async () => {
+                output.appendLine("");
+                output.appendLine(await runtime.diagnoseEnvironment(workspaceRoot()));
+                output.show(true);
+            });
+        }),
     );
     balanceService.start();
 
