@@ -1,24 +1,27 @@
-# DSH VSCode Integration
+# Deepseek-Harness VSCode Integration Community Edition
 
 <p align="center">
   <img src="resources/dsh.png" alt="DSH" width="128">
 </p>
 
-原生连接 DeepSeek Harness 的社区版 VS Code Extension。
+面向 DeepSeek Harness 社区版 VS Code Extension，支持四种模式切换、Trace Vscode内查看等特色功能
 
 [English](README.md) | **简体中文**
 
 > **注意**：本项目为独立社区项目，并非 DeepSeek 官方项目，也未获得 DeepSeek 官方维护。
 
-> [!NOTE]
-> **亮点**
+> [!NOTE] 亮点
 >
-> - 在持久 Harness 会话中流式执行任务，支持队列、Steer、审批和计划评审
+> - 快速查看Key余额
+> - 流式传输、队列、Steer、审批和计划评审支持
 > - 输入 `@` 实时搜索工作区文件，并插入明确的文件引用
-> - 附加选区、Diagnostics 和 Git diff，发送前显示字节大小与截断情况
-> - 在内建 Trace 中查看工具调用、结果和 Reasoning，并支持文件路径与行号跳转
-> - 按 turn 审查文件变更，使用 VS Code 原生 diff，恢复前保留确认边界
+> - Git Diff集成，长prompt自动转文件发送
+> - 在内建 Trace 中查看工具调用、结果和 Reasoning
+> - 支持文件路径与行号跳转
 > - 查看当前模型、Reasoning effort、计费 Token、缓存用量和估算上下文压力
+> - i18n支持
+
+功能更全面：会话状态、IDE 上下文、Runtime 活动、审批、Trace、文件变更均集成在插件内。
 
 ## 功能架构
 

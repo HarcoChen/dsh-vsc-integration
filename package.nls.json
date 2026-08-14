@@ -1,6 +1,6 @@
 {
-    "extension.displayName": "DSH VSCode Integration (Community)",
-    "extension.description": "A focused DeepSeek Agent workspace inside VS Code: stream tasks with persistent sessions, attach files or Git diffs with size and truncation feedback, inspect tools and reasoning in Trace, review changes before restoring them, and monitor model, token, cache, and context usage.",
+    "extension.displayName": "DeepSeek Harness VS Code Integration",
+    "extension.description": "A complete DeepSeek Harness Agent workflow for VS Code: persistent streaming sessions, @file references, IDE and Git context, tool approvals, plan reviews, Trace inspection, change review and restore safeguards, plus model, token, cache, and context observability.",
     "extension.untrustedWorkspace": "DSH IDE requires a trusted workspace before it can start an agent runtime.",
     "view.chat.name": "Chat",
     "command.open.title": "DSH: Open Chat",

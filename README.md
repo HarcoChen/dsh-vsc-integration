@@ -1,4 +1,4 @@
-# DSH VSCode Integration
+# Deepseek-Harness VSCode Integration Community Edition
 
 <p align="center">
   <img src="resources/dsh.png" alt="DSH" width="128">
@@ -8,7 +8,7 @@ Please note that this README is maintained and translated by chatgpt models,it's
 
 Feel free to leave issues!
 
-A native community VS Code extension for connecting to DeepSeek Harness.
+A full-featured community VS Code extension for connecting to DeepSeek Harness and completing the Agent workflow without leaving the editor.
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -23,6 +23,8 @@ A native community VS Code extension for connecting to DeepSeek Harness.
 > - Inspect tool calls, results and reasoning in a built-in Trace, with clickable file and line locations
 > - Review per-turn file changes with native VS Code diffs before restoring anything
 > - Monitor the active model, reasoning effort, billed tokens, cache usage and estimated context pressure
+
+The extension is designed as a complete working surface rather than a thin chat wrapper: session state, IDE context, runtime activity, approvals, traces and file changes stay connected throughout a task.
 
 ## Architecture
 
