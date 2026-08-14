@@ -49,6 +49,22 @@ jobs:
       - name: Run checks
         run: npm test
 
+      - name: Extract changelog entry
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        shell: bash
+        run: |
+          awk -v version="${VERSION}" '
+            $0 == "## [" version "]" || index($0, "## [" version "] - ") == 1 { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [[ ! -s release-notes.md ]]; then
+            echo "CHANGELOG.md has no entry for ${VERSION}." >&2
+            exit 1
+          fi
+
       - name: Package extension
         run: npm run package -- --no-dependencies
 
@@ -56,5 +72,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.metadata.outputs.vsix }}
+          body_path: release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true

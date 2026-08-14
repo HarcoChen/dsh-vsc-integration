@@ -12,6 +12,7 @@ const SLASH_COMMANDS = [
     { name: "/new", description: "新建会话", action: { type: "newSession" } },
     { name: "/search", description: "搜索会话", action: { type: "searchSession" } },
     { name: "/model", description: "选择当前会话模型", action: { type: "selectModel" } },
+    { name: "/mode", description: "选择 Agent 模式", action: { type: "selectAgentPreset" } },
     { name: "/focus", description: "切换 Focus 模式", action: { type: "toggleFocus" } },
     { name: "/trace", description: "打开当前会话 Trace", action: { type: "openTrace" } },
     { name: "/stop", description: "停止 dsh 运行时", action: { type: "stop" } },
@@ -65,6 +66,17 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     }, []);
 
     const executeSlashCommand = useCallback((name: string): boolean => {
+        const mode = name.match(/^\/mode(?:\s+(.+))?$/iu);
+        if (mode) {
+            const agentPreset = mode[1]?.trim();
+            postAction({
+                type: "selectAgentPreset",
+                ...(agentPreset ? { agentPreset } : {}),
+            });
+            setText("");
+            setSlashIndex(0);
+            return true;
+        }
         const command = SLASH_COMMANDS.find((candidate) => candidate.name === name.toLowerCase());
         if (!command) return false;
         postAction(command.action);

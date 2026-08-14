@@ -1,8 +1,8 @@
 {
     "name": "dsh-vsc-integration",
     "displayName": "DSH VSCode Integration (Community)",
-    "description": "A community VS Code client for DeepSeek Harness with transient editor context and native slash-command routing.",
-    "version": "0.2.1",
+    "description": "余额快捷显示、内建 Trace，Slash-like Commands、IDE 上下文感知、支持工具卡片与 Reasoning 折叠的 Cline-like 聊天体验。",
+    "version": "0.2.2",
     "publisher": "harcochen",
     "license": "MIT",
     "repository": {
@@ -13,6 +13,7 @@
         "url": "https://github.com/HarcoChen/dsh-vsc-integration/issues"
     },
     "homepage": "https://github.com/HarcoChen/dsh-vsc-integration#readme",
+    "icon": "resources/dsh.png",
     "engines": {
         "vscode": "^1.106.0"
     },

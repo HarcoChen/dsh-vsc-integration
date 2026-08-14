@@ -22,6 +22,7 @@ export type ChatViewAction =
     | { type: "newSession" }
     | { type: "searchSession" }
     | { type: "selectModel" }
+    | { type: "selectAgentPreset"; agentPreset?: string }
     | { type: "renameSession" }
     | { type: "forkSession" }
     | { type: "archiveSession" }
@@ -170,6 +171,12 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "switchSession":
             return nonEmptyString(value.sessionId)
                 ? { type: "switchSession", sessionId: value.sessionId }
+                : undefined;
+        case "selectAgentPreset":
+            if (!hasOnly(value, ["type", "agentPreset"])) return undefined;
+            if (value.agentPreset === undefined) return { type: "selectAgentPreset" };
+            return nonEmptyString(value.agentPreset) && value.agentPreset.length <= 128
+                ? { type: "selectAgentPreset", agentPreset: value.agentPreset.trim() }
                 : undefined;
         case "goalCreate":
             if (

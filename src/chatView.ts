@@ -20,6 +20,7 @@ import {
 } from "./chatViewProtocol";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
+import { HarnessRpcError } from "./harnessClient";
 import {
     isCopyableCode,
     parseSafeHttpUrl,
@@ -421,6 +422,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "selectModel":
                     await this.selectModel();
                     break;
+                case "selectAgentPreset":
+                    await this.selectAgentPreset(message.agentPreset);
+                    break;
                 case "renameSession":
                     await this.renameSession();
                     break;
@@ -611,11 +615,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return this.sessionId;
     }
 
-    public async newSession(): Promise<void> {
+    public async newSession(agentPreset?: string): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
         if (!workspaceRoot) throw new Error("请先打开一个工作区。");
         await this.runtime.start(workspaceRoot);
-        const created = await this.runtime.createSession(workspaceRoot);
+        const created = await this.runtime.createSession(workspaceRoot, agentPreset);
         await this.switchSession(created.sessionId);
         this.reveal();
     }
@@ -687,6 +691,64 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         });
         this.output.appendLine(`[dsh:model] selected ${result.selected.provider}/${result.selected.model}`);
+        this.postState();
+    }
+
+    public async selectAgentPreset(requestedPreset?: string): Promise<void> {
+        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
+        const catalog = await this.runtime.agentPresets();
+        const available = catalog.presets.filter((preset) => !preset.broken);
+        if (available.length === 0) throw new Error("Harness 未返回可用的 Agent 模式。");
+
+        let target = requestedPreset
+            ? available.find((preset) => preset.id === requestedPreset)
+            : undefined;
+        if (requestedPreset && !target) {
+            throw new Error(`不存在 Agent 模式“${requestedPreset}”。可用模式：${available.map((preset) => preset.id).join("、")}。`);
+        }
+        if (!target) {
+            const current = this.runtime.getSessionCatalog().snapshot().sessions
+                .find((session) => session.sessionId === this.sessionId)?.agentPreset;
+            target = await vscode.window.showQuickPick(
+                available.map((preset) => ({
+                    label: preset.name || preset.id,
+                    description: preset.id === current ? "当前模式" : preset.id,
+                    detail: preset.description,
+                    preset,
+                })),
+                { title: "选择 Harness Agent 模式", placeHolder: current || "选择模式" },
+            ).then((picked) => picked?.preset);
+        }
+        if (!target) return;
+
+        const currentSession = this.runtime.getSessionCatalog().snapshot().sessions
+            .find((session) => session.sessionId === this.sessionId);
+        if (currentSession?.blank === false) {
+            const choice = await vscode.window.showWarningMessage(
+                "当前会话已经开始，Agent 模式不能再切换。",
+                `使用 ${target.name || target.id} 新建会话`,
+            );
+            if (choice) await this.newSession(target.id);
+            return;
+        }
+
+        let result;
+        try {
+            result = await this.runtime.selectAgentPreset(this.sessionId, target.id);
+        } catch (error) {
+            if (!(error instanceof HarnessRpcError) || error.rpcError.code !== "agent-preset-locked") {
+                throw error;
+            }
+            const choice = await vscode.window.showWarningMessage(
+                "当前会话已经开始，Agent 模式不能再切换。",
+                `使用 ${target.name || target.id} 新建会话`,
+            );
+            if (choice) await this.newSession(target.id);
+            return;
+        }
+        this.output.appendLine(`[dsh:agent-preset] selected ${result.agentPreset}`);
+        await this.runtime.refreshSessions();
         this.postState();
     }
 

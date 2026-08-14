@@ -215,8 +215,11 @@ export class DshRuntime implements vscode.Disposable {
         this.setStatus({ state: "stopped" });
     }
 
-    public async createSession(cwd: string): Promise<DshSessionCreateResult> {
-        const result = await this.apiClient.call("session.create", { cwd });
+    public async createSession(cwd: string, agentPreset?: string): Promise<DshSessionCreateResult> {
+        const result = await this.apiClient.call("session.create", {
+            cwd,
+            ...(agentPreset === undefined ? {} : { agentPreset }),
+        });
         this.harnessState.catalog.upsertCreated(result.sessionId, cwd);
         return result;
     }

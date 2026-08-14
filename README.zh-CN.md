@@ -1,31 +1,35 @@
 # DSH IDE
 
-一个面向 Agent 工作流的 `dsh web` 社区版 VS Code 客户端，让任务执行、审查和上下文管理留在编辑器内完成。
+原生连接 DeepSeek Harness 的社区版 VS Code Extension。
 
 [English](README.md) | **简体中文**
 
 > **注意**：本项目为独立社区项目，并非 DeepSeek 官方项目，也未获得 DeepSeek 官方维护。
 
-## 核心亮点
-
-- **面向 Agent 的聊天体验**：React 驱动的右侧聊天视图，支持流式回答、reasoning 折叠、工具卡片、重试、取消、排队和转向。
-- **Human-in-the-loop**：直接在 VS Code 内处理工具审批、结构化问题和 Markdown 计划评审，也可以带反馈继续规划。
-- **IDE 上下文感知**：附加当前选区、文件、诊断信息和 Git diff；使用稳定的 `@file#Lx-y` 引用，避免无差别复制整个文件。
-- **持久 Agent 工作流**：通过紧凑的活动面板查看 Goal、排队消息、Subagent 树和后台 Jobs。
-- **完整会话工作流**：新建、切换、搜索、重命名、Fork 和归档会话，并以 Harness 状态为权威来源。
-- **本地 Slash Commands**：在输入框键入 `/` 查看命令，可直接执行 `/ide`、`/new`、`/search`、`/model`、`/focus`、`/trace` 和 `/stop`。
-- **Runtime 与安全边界**：支持启动、停止或连接 `dsh web`；严格 Webview CSP、消息校验、安全 Markdown 和 SecretStorage 将可信能力留在 Extension Host。
-- **Trace 与可观察性**：从消息跳转到 Session Trace，查看运行状态和日志，并在状态栏监控 DeepSeek 余额。
+> [!NOTE]
+> **亮点**
+>
+> - Slash-like Command 支持
+> - 上下文感知支持
+> - 余额快捷显示
+> - Trace 功能内建支持
+> - Cline-like 的聊天体验：工具卡片、Reasoning 折叠
 
 ## 功能架构
 
-聊天界面使用 React Webview 和类型化全量状态桥。Extension Host 继续负责 VS Code API、Runtime RPC、凭据、安全 Markdown 和动作校验，在保持界面响应性的同时，不把可信操作下放到浏览器环境。
-
-DSH IDE 只消费 `dsh` 公开的 Web RPC 和 projection。公开边界未提供的能力不会通过隐藏接口或 prompt 约定模拟。
+聊天界面使用 React Webview 和类型化全量状态桥。Extension Host 负责 VS Code API、Runtime RPC、凭据、安全 Markdown 和动作校验。
 
 ## 安装
 
-### 开发者
+### 从Extension Market
+
+[🔗安装链接](https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration)
+
+### 从Github Release
+
+从 [GitHub Releases](https://github.com/HarcoChen/dsh-vsc-integration/releases) 下载 `.vsix`，然后运行 `Extensions: Install from VSIX...`。
+
+### 从源码构建
 
 ```bash
 npm install
@@ -73,12 +77,11 @@ npm run package    # 编译 + vsce 打包
 
 在 VS Code 中按 `F5` 启动 Extension Development Host。
 
-## 文档
+## 更多信息
 
-- [功能清单](docs/FEATURES.md)
-- [Harness 集成边界](docs/HARNESS_INTEGRATIONS.md)
-- [Trace 集成设计](docs/TRACE_INTEGRATION.md)
-- [前端架构](docs/FRONTEND_ARCHITECTURE.md)
+- [更新日志](CHANGELOG.md)
+- [产品 TODO](TODO.md)
+- [第三方资产说明](THIRD_PARTY_NOTICES.md)
 
 ## 许可证
 
