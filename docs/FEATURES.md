@@ -21,7 +21,7 @@ DeepSeek Harness 已提供完整 GUI 所需的大部分后端和 client/UI 基�
 
 Harness 自身还有一组不能按普通聊天插件处理的运行时语义，包括 surface replacement、通用 projection、持久 Goal、可续跑 Subagent 和后台 Job。当前实现严格限定于已有 RPC、WebSocket frame 和 projection，完整范围见 [基于现有 RPC 的 Harness 特色集成清单](HARNESS_INTEGRATIONS.md)。
 
-前端采用“原生 VS Code 外壳 + React Webview + Harness client adapter”。后续复杂 UI 优先复用 Harness client packages，不继续扩张 `chatView.ts` 的内联页面；迁移边界与顺序见 [DSH IDE 前端架构与 Harness UI 复用](FRONTEND_ARCHITECTURE.md)。
+前端采用“原生 VS Code 外壳 + 薄 Webview adapter”。现有聊天界面保持稳定；Harness 已有的复杂 UI 优先复用或在官方 Web UI 打开，不以机械迁移为目标。React 构建和版本化 bridge 作为可选组件承载层保留，边界见 [DSH IDE 前端架构与 Harness UI 复用](FRONTEND_ARCHITECTURE.md)。
 
 ## 能力矩阵
 
@@ -30,15 +30,15 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 | 默认位置 | 右侧 Secondary Sidebar | 可放侧栏或编辑器 | 分屏终端 | 客户端无关 |
 | Runtime 启动 | 探测 `dsh`，缺失时回退 `npx` | 扩展内置 CLI | 要求 CLI；CLI 可安装扩展 | `npx @deepseek-ai/dsh web` |
 | 当前文件/选区 | 自动感知选区、`@` 行号引用 | 自动感知、行号引用 | 自动共享 | `session.prompt` |
-| `@` 文件/目录引用 | 无 | 模糊搜索、目录、行范围 | 文件及行范围 | 需 IDE 构建 |
+| `@` 文件/目录引用 | 文件模糊搜索、当前文件与选区行范围；目录待补 | 模糊搜索、目录、行范围 | 文件及行范围 | 需 IDE 构建 |
 | 流式消息/工具过程 | [x] 基础实现；UI 待复用 | 有 | TUI 内有 | WebSocket mux + `session/event` |
 | 审批/用户问题 | [x] 基础实现；UI 待复用 | 有 | TUI/Server 支持 | answerable frame + `/api/respond` |
 | 计划模式/评审 | [adapter] | Markdown 计划、批注、批准 | agent/TUI 能力 | `plan` projection + `plan-review` |
 | 文件变更 diff | 无 | 原生 diff、接受/拒绝/反馈 | Server 有 session diff | IDE 可做；Harness 无公开 diff RPC |
-| Session 列表/搜索 | 只保存最近 ID | 搜索、恢复、重命名、删除 | TUI 会话入口 | `session.list/search/rename` |
-| 多会话并行 | 无 | 多 tab/窗口及状态提示 | 新终端会话 | session/host stream |
-| Fork/checkpoint | 无 | fork、代码 rewind | Server 有 fork/revert | `session.fork` 可做；代码 rewind 属于对标差距 |
-| 模型/推理强度 | [adapter] | 可切换 | TUI 可切换 | `session.models/selectModel` |
+| Session 列表/搜索 | 列表、新建、切换、搜索、重命名、归档 | 搜索、恢复、重命名、删除 | TUI 会话入口 | `session.list/search/rename` |
+| 多会话并行 | 状态已隔离；editor tab/草稿恢复待补 | 多 tab/窗口及状态提示 | 新终端会话 | session/host stream |
+| Fork/checkpoint | 已支持对话 fork；不做代码 rewind | fork、代码 rewind | Server 有 fork/revert | `session.fork` 可做；代码 rewind 属于对标差距 |
+| 模型/推理强度 | Quick Pick 已接入 Harness 模型与 effort | 可切换 | TUI 可切换 | `session.models/selectModel` |
 | 命令/Skills | 仅本地 `/ide`；Skills 待接入 | `/` 菜单和 skills | TUI 命令 | `skill.list`；runtime command 属于对标差距 |
 | MCP/插件 | 无 | MCP 与插件管理 UI | Server 有 MCP API | 对标差距，不在当前范围 |
 | Token/context | [adapter] | 用量、自动/手动 compact | TUI 管理 | token/context projections + compaction |
@@ -59,6 +59,17 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 - [x] 工作区信任、远程 URL 提示、日志、请求超时、TypeScript 检查和 VSIX 打包。
 
 ## P0：可用的 agent 闭环
+
+### P0 剩余工作（按优先级）
+
+截至 2026-08-14，协议连接、断线恢复、流式消息、工具过程、审批/问题、Goal/Subagent/Job 和基础 Session 工作流已经可用。剩余 P0 不再以 React 迁移为主线，按以下顺序交付：
+
+1. **文件变更审查**：任务前 Git/文件快照、按 turn 归因的变更集合、VS Code 原生 diff，以及拒绝/恢复时的后续修改冲突保护。
+2. **多会话 IDE 容器**：session editor tab、独立草稿/context、关闭恢复；补齐跨 session 搜索分页和滚动锚点。
+3. **Context 与输入安全**：目录和 workspace symbol 引用、路径/诊断跳转、草稿与 IME、超大粘贴提示、`.env`/私钥/密钥拦截。
+4. **工程保障**：Webview 安全审计、脱敏诊断包、长 session 性能预算和 VS Code integration tests。
+
+Harness 已有的 Permission、Plan、模型、Skills 和 Settings UI 不计入本地重写清单；只在公开 adapter 或 browser-safe 组件边界内接入。
 
 ### P0-1 协议客户端与事件状态
 
@@ -113,7 +124,7 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 ### P0-6 Context 与编辑器交互
 
 - [x] **自动选区感知**（IDE 自建）：composer footer 显示当前文件/选区行数，发送时重新取快照且可关闭。
-- [ide] **`@` 模糊引用**（IDE 自建）：搜索文件、目录、workspace symbol，支持 `@path#Lx-y`。
+- [ide] **`@` 模糊引用**（IDE 自建）：[x] 工作区文件搜索与当前选区 `@path#Lx-y`；目录和 workspace symbol 待接入。
 - [ide] **Context chips**（IDE 自建）：展示来源、范围、字节/token 估算和截断状态，可移除和定位。
 - [ide] **路径与诊断链接**（IDE 自建）：消息内工作区路径、行号、diagnostic 可点击打开。
 - [ide] **输入体验**（IDE 自建）：Shift+Enter、可配置发送键、草稿、IME、粘贴大文本提示。
@@ -121,7 +132,7 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 
 ### P0-7 工程质量
 
-- [adapter/ide] **React Webview 基础**：独立构建 Webview，建立版本化 bridge 和 Harness client adapter，逐步替换内联 HTML/CSS/脚本。
+- [x] **可选 React Webview 基础**：可独立构建并随 VSIX 打包，已建立版本化 bridge；当前稳定聊天 UI 不做机械迁移，React 仅在复用 Harness browser-safe 组件时按需加载。
 - [adapter] **Harness UI 复用**：接入 `client/ui-conversation`、`ui-tool`、`ui-user-questions` 等 browser-safe 模块；只重写 VS Code 特有 UI。
 - [adapter] **Harness fixture server**：覆盖 RPC、WebSocket 重连、乱序/重复 frame、迟到应答、分页和旧字段；不重复实现 Harness UI。
 - [ide] **VS Code integration tests**：覆盖命令、快捷键、session tab、context、diff、trust 和 multi-root。
@@ -197,24 +208,20 @@ MCP 和 Harness 插件管理属于对标差距，当前 Web RPC map 未公开对
 ## 建议交付顺序
 
 ```text
-能力握手 + WebSocket 状态仓库
+已完成：WebSocket 状态仓库 / 流式消息 / 审批 / 基础 Session
           ↓
-流式消息 / 工具卡片 / 审批 / 问题
+P0：任务快照 / 变更归因 / 原生 diff / 冲突保护
           ↓
-React Webview + Harness client adapter
+P0：Session tab / 草稿恢复 / 搜索分页
           ↓
-迁移 Conversation / Tool / Question / Permission
+P0：Context 跳转 / 输入安全 / 诊断包 / 性能预算
           ↓
-Session 列表、恢复、多 tab、queue/steer
+P1：Token / Skills / Settings 等 Harness adapter
           ↓
-文件快照、原生 diff、session fork
-          ↓
-@ 引用、Plan、模型、Goal、Subagent、Token
-          ↓
-Skills / Presets / Workspaces / Settings / Trace
+P2：远程 / 多根 / Worktree / 团队策略
 ```
 
-React Webview 迁移是后续复杂前端功能的前置项。迁移期间保留现有可用功能，但模型、Skills、Settings、附件等新面板不再添加到内联页面。模型选择、插件市场等功能也不应早于事件恢复、审批和文件安全审查。
+React 不是后续功能的强制前置项。模型、Skills、Settings、附件等 Harness 领域能力优先复用 browser-safe 组件或打开官方 Web UI；本仓库优先投入文件引用、diff、诊断、终端和编辑器跳转等 VS Code 特有能力。
 
 ## 对标来源
 

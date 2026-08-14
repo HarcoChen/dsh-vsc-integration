@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DSH</title>
+    <link rel="stylesheet" href="./dist/main.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const mockState = {
+        messages: [
+          { id: "u1", role: "user", text: "梳理当前模块并修复构建问题。", createdAt: Date.now(), state: "committed" },
+          { id: "a1", role: "assistant", text: "已完成代码检查，正在验证构建产物。", renderedHtml: "<p>已完成代码检查，正在验证构建产物。</p>", reasoning: "先检查协议，再核对 UI action。", renderedReasoningHtml: "<p>先检查协议，再核对 UI action。</p>", createdAt: Date.now(), seq: 12, state: "streaming" },
+          { id: "t1", role: "tool", text: "", createdAt: Date.now(), tool: { callId: "c1", name: "compile", title: "运行项目构建", status: "completed", result: "Build succeeded", durationMs: 842 } }
+        ],
+        context: [{ id: "ctx1", kind: "file", label: "src/chatView.ts", content: "", byteLength: 0 }],
+        selection: { id: "sel", kind: "selection", label: "App.tsx", content: "", byteLength: 0, range: { startLine: 8, endLine: 21 } },
+        selectionEnabled: true,
+        status: { state: "running", url: "http://localhost:3000" },
+        busy: true,
+        submitting: false,
+        cancelling: false,
+        focusMode: false,
+        workspaceName: "dsh-ide",
+        sessionId: "session-1",
+        sessions: [{ sessionId: "session-1", title: "Chat View UX redesign", running: true, attention: false, archived: false }],
+        sessionStatus: { running: true, attention: false, turn: { phase: "running", turn: 4, detail: "Generating" } },
+        permissions: { currentValue: "workspace", currentLabel: "Workspace", options: [{ value: "workspace", label: "Workspace", description: "允许工作区内读写" }] },
+        interactions: [{ key: "approval-1", kind: "approval", status: "pending", toolName: "Shell", reason: "需要执行构建命令" }],
+        queue: [{ id: "q1", placement: "queued", preview: "更新前端架构文档", editableText: "更新前端架构文档" }],
+        goal: { state: "present", roundsStarted: 2, goal: { ref: "goal-1", revision: 3, objective: "完成 Chat View UX 重设计", phase: "active", maxGoalRounds: 8 } },
+        subagents: { rootSessionId: "session-1", state: "ready", nodes: [] },
+        jobs: [{ id: "job-1", kind: "build", label: "Webview build", ownerSessionId: "session-1", status: "running", startedAt: Date.now() }]
+      };
+      window.acquireVsCodeApi = () => ({
+        postMessage: (message) => console.log("[dsh-dev] postMessage", message),
+        getState: () => mockState,
+        setState: () => undefined
+      });
+    </script>
+    <script type="module" src="./dist/main.js"></script>
+  </body>
+</html>

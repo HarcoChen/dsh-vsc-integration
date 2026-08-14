@@ -324,16 +324,22 @@
         }
     },
     "scripts": {
-        "compile": "tsc -p ./tsconfig.json",
+        "build:webview": "node ./scripts/build-webview.mjs",
+        "compile": "npm run build:webview && tsc -p ./tsconfig.json",
         "watch": "tsc -watch -p ./tsconfig.json",
         "check": "tsc --noEmit -p ./tsconfig.json",
         "test": "npm run compile && node --test test/*.test.js",
         "package": "npm run compile && vsce package"
     },
     "devDependencies": {
+        "@types/react": "^18.3.24",
+        "@types/react-dom": "^18.3.7",
         "@types/node": "^22.10.2",
         "@types/vscode": "^1.106.0",
         "@vscode/vsce": "^3.6.0",
+        "esbuild": "^0.25.9",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
         "typescript": "^5.7.2"
     }
 }
