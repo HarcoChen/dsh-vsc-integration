@@ -1,5 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DSH">
-  <rect x="4" y="4" width="56" height="56" rx="14" fill="#4f46e5"/>
-  <path d="M18 17h15c8 0 13 5 13 15s-5 15-13 15H18V17zm9 7v16h5c3.6 0 5.8-2.4 5.8-8S35.6 24 32 24h-5z" fill="#fff"/>
-  <path d="M14 31h36" stroke="#a5b4fc" stroke-width="3" stroke-linecap="round" opacity=".75"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DSH IDE">
+  <rect x="3" y="3" width="58" height="58" rx="16" fill="#8bdce8"/>
+
+  <!-- Compact whale silhouette: readable at activity-bar size. -->
+  <path
+    d="M10 35c0-13 11-23 27-23 9 0 16 3 21 8 4-1 6-4 8-8 1 6 0 11-4 14 2 3 1 7-2 10-6 7-15 10-27 10-15 0-23-4-23-11Z"
+    fill="#0b1117"
+    stroke="#030509"
+    stroke-linejoin="round"
+    stroke-width="1.25"
+  />
+  <path d="M51 20 61 10l-3 13c-2 4-5 4-7-3Z" fill="#05080d"/>
+  <path d="M12 39c6 6 16 8 27 7 7-1 12-3 17-8-2 7-11 12-24 12-10 0-17-3-20-11Z" fill="#174452"/>
+
+  <!-- Cyan eye and code mark tie the whale to the coding assistant. -->
+  <circle cx="23" cy="28" r="2.4" fill="#71f3ff"/>
+  <circle cx="23" cy="28" r="0.9" fill="#07131a"/>
+  <path d="M31 28 23 35 31 42 33 40 27 35 33 30Z" fill="#71f3ff"/>
+  <path d="M38 28 46 35 38 42 36 40 42 35 36 30Z" fill="#71f3ff"/>
 </svg>

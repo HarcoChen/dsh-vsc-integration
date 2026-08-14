@@ -25,10 +25,15 @@ export interface ChatMessage {
     id: string;
     role: ChatRole;
     text: string;
+    /** Assistant-only thinking content, never folded into visible text. */
+    reasoning?: string;
+    reasoningState?: "streaming" | "complete";
     /** Fixed-vocabulary HTML produced by the extension-host safe Markdown renderer. */
     renderedHtml?: string;
+    renderedReasoningHtml?: string;
     /** Opaque per-render nonce used to address host-retained code payloads. */
     renderId?: string;
+    reasoningRenderId?: string;
     createdAt: number;
     seq?: number;
     state?: "committed" | "streaming" | "pending" | "failed";

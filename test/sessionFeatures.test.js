@@ -133,7 +133,10 @@ test("Subagent history uses the same visible surface projector", () => {
                     message: {
                         id: "m1",
                         role: "assistant",
-                        content: [{ type: "text", text: "done" }],
+                        content: [
+                            { type: "reasoning", text: "subagent thought" },
+                            { type: "text", text: "done" },
+                        ],
                     },
                 },
                 surfaceOp: "append",
@@ -141,7 +144,12 @@ test("Subagent history uses the same visible surface projector", () => {
             },
         }],
     });
-    assert.deepEqual(messages.map((message) => [message.role, message.text]), [["assistant", "done"]]);
+    assert.deepEqual(messages.map((message) => [
+        message.role,
+        message.text,
+        message.reasoning,
+        message.reasoningState,
+    ]), [["assistant", "done", "subagent thought", "complete"]]);
 });
 
 test("Job Center is read-only and exposes detail as the only available output summary", () => {

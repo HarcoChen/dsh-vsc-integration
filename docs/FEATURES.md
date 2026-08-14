@@ -69,7 +69,7 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 ### P0-2 流式聊天与工具可观察性
 
 - [x] **增量 assistant 输出**（Harness 直连）：按事件 seq 合并 `assistant/chunk`，安全渲染 Markdown，支持代码块复制。
-- [ ] **reasoning 展开/折叠**（Harness 直连）：默认折叠，不把 reasoning 混入最终回答。
+- [x] **reasoning 展开/折叠**（Harness 直连）：默认折叠，不把 reasoning 混入最终回答。
 - [ ] **工具调用卡片**（Harness 直连）：显示工具名、参数摘要、状态、结果、耗时和错误；优先使用 host presentation view。
 - [ ] **轮次状态**（Harness 直连）：显示 queued/running/waiting/completed/cancelled/failed；隐藏标签页完成或待审批时显示 badge。
 - [ ] **取消、重试、queue/steer**（Harness 直连）：失败后安全重试；运行时消息明确选择排队或 steer。

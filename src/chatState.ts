@@ -18,27 +18,40 @@ export interface QueueDockItem {
     editableText?: string;
 }
 
+const NO_VISIBLE_ASSISTANT_ANSWER = "（无可见回答）";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function contentText(value: unknown): string {
+interface ContentChannels {
+    text: string;
+    reasoning: string;
+}
+
+/** Preserve per-channel ContentBlock order without leaking reasoning into visible text. */
+export function contentChannels(value: unknown): ContentChannels {
     if (typeof value === "string") {
-        return value;
+        return { text: value, reasoning: "" };
     }
     if (!Array.isArray(value)) {
         const object = isRecord(value) ? value : undefined;
-        return typeof object?.text === "string" ? object.text : "";
+        const content = typeof object?.text === "string" ? object.text : "";
+        return object?.type === "reasoning"
+            ? { text: "", reasoning: content }
+            : { text: content, reasoning: "" };
     }
-    return value
-        .map((part) => {
-            if (!isRecord(part)) return "";
-            if (part.type === "text" || part.type === "reasoning") {
-                return typeof part.text === "string" ? part.text : "";
-            }
-            return "";
-        })
-        .join("");
+    const channels: ContentChannels = { text: "", reasoning: "" };
+    for (const part of value) {
+        if (!isRecord(part) || typeof part.text !== "string") continue;
+        if (part.type === "text") channels.text += part.text;
+        else if (part.type === "reasoning") channels.reasoning += part.text;
+    }
+    return channels;
+}
+
+export function contentText(value: unknown): string {
+    return contentChannels(value).text;
 }
 
 export function promptDisplayText(wireText: string): string {
@@ -191,12 +204,16 @@ export function projectChatMessages(
                 order: node.event.seq,
             });
         } else if (node.event.type === "assistant/message") {
-            const text = eventText(node);
-            if (text) {
+            const message = messageRecord(node);
+            const content = contentChannels(message?.content ?? message?.text);
+            if (content.text || content.reasoning) {
                 rows.push({
                     id: `event:${node.event.seq}`,
                     role: "assistant",
-                    text,
+                    text: content.text || NO_VISIBLE_ASSISTANT_ANSWER,
+                    ...(content.reasoning
+                        ? { reasoning: content.reasoning, reasoningState: "complete" as const }
+                        : {}),
                     createdAt: node.event.time,
                     seq: node.event.seq,
                     state: "committed",
@@ -244,14 +261,24 @@ export function projectChatMessages(
             .filter(([, block]) => block.kind === "text")
             .map(([, block]) => block.text)
             .join("");
-        const reasoning = blocks.some(([, block]) => block.kind === "reasoning" && block.text);
+        const reasoning = blocks
+            .filter(([, block]) => block.kind === "reasoning")
+            .map(([, block]) => block.text)
+            .join("");
         if (!text && !reasoning) continue;
+        const complete = endedTurns.has(partial.turn);
         rows.push({
             id: `partial:${partial.key}`,
             role: "assistant",
-            text: text || "思考中…",
+            text: text || NO_VISIBLE_ASSISTANT_ANSWER,
+            ...(reasoning
+                ? {
+                      reasoning,
+                      reasoningState: complete ? "complete" as const : "streaming" as const,
+                  }
+                : {}),
             createdAt: partial.lastTime,
-            state: endedTurns.has(partial.turn) ? "committed" : "streaming",
+            state: complete ? "committed" : "streaming",
             order: partial.firstSeq + 0.5,
         });
     }

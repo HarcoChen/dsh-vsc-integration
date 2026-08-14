@@ -85,9 +85,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly optimisticPrompts: OptimisticPrompt[] = [];
     private readonly markdownCache = new Map<string, {
         source: string;
+        reasoningSource?: string;
         html: string;
         renderId: string;
         codeBlocks: ReadonlyMap<string, string>;
+        reasoningHtml?: string;
+        reasoningRenderId?: string;
     }>();
     private readonly copyableCodeByRenderId = new Map<string, ReadonlyMap<string, string>>();
     private readonly goalMutations = new GoalMutationGate();
@@ -1284,32 +1287,83 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private renderMessages(messages: readonly ChatMessage[], scope: string): ChatMessage[] {
         return messages.map((message) => {
             const key = `${scope}:${message.role}:${message.id}`;
+            const reasoningSource = message.role === "assistant" && message.reasoning
+                ? message.reasoning
+                : undefined;
             const cached = this.markdownCache.get(key);
-            if (cached?.source === message.text) {
-                return { ...message, renderedHtml: cached.html, renderId: cached.renderId };
+            if (
+                cached?.source === message.text &&
+                cached.reasoningSource === reasoningSource
+            ) {
+                return {
+                    ...message,
+                    renderedHtml: cached.html,
+                    renderId: cached.renderId,
+                    ...(cached.reasoningHtml === undefined
+                        ? {}
+                        : { renderedReasoningHtml: cached.reasoningHtml }),
+                    ...(cached.reasoningRenderId === undefined
+                        ? {}
+                        : { reasoningRenderId: cached.reasoningRenderId }),
+                };
             }
             const rendered = renderMarkdownMessage(message.text);
+            const renderedReasoning = reasoningSource === undefined
+                ? undefined
+                : renderMarkdownMessage(reasoningSource);
             const html = rendered.html;
             if (!cached && this.markdownCache.size >= 2_000) {
                 const oldest = this.markdownCache.keys().next().value as string | undefined;
                 if (oldest !== undefined) {
                     const evicted = this.markdownCache.get(oldest);
-                    if (evicted) this.copyableCodeByRenderId.delete(evicted.renderId);
+                    if (evicted) this.discardMarkdownPayloads(evicted);
                     this.markdownCache.delete(oldest);
                 }
             }
-            if (cached) this.copyableCodeByRenderId.delete(cached.renderId);
+            if (cached) this.discardMarkdownPayloads(cached);
             const renderId = randomUUID().replace(/-/gu, "");
             const codeBlocks = new Map(rendered.codeBlocks.map((block) => [block.id, block.text]));
+            const reasoningRenderId = renderedReasoning === undefined
+                ? undefined
+                : randomUUID().replace(/-/gu, "");
+            const reasoningCodeBlocks = renderedReasoning === undefined
+                ? undefined
+                : new Map(renderedReasoning.codeBlocks.map((block) => [block.id, block.text]));
             this.markdownCache.set(key, {
                 source: message.text,
+                ...(reasoningSource === undefined ? {} : { reasoningSource }),
                 html,
                 renderId,
                 codeBlocks,
+                ...(renderedReasoning === undefined
+                    ? {}
+                    : { reasoningHtml: renderedReasoning.html }),
+                ...(reasoningRenderId === undefined ? {} : { reasoningRenderId }),
             });
             this.copyableCodeByRenderId.set(renderId, codeBlocks);
-            return { ...message, renderedHtml: html, renderId };
+            if (reasoningRenderId && reasoningCodeBlocks) {
+                this.copyableCodeByRenderId.set(reasoningRenderId, reasoningCodeBlocks);
+            }
+            return {
+                ...message,
+                renderedHtml: html,
+                renderId,
+                ...(renderedReasoning === undefined
+                    ? {}
+                    : { renderedReasoningHtml: renderedReasoning.html }),
+                ...(reasoningRenderId === undefined ? {} : { reasoningRenderId }),
+            };
         });
+    }
+
+    private discardMarkdownPayloads(cached: {
+        renderId: string;
+        reasoningRenderId?: string;
+    }): void {
+        this.copyableCodeByRenderId.delete(cached.renderId);
+        if (cached.reasoningRenderId) {
+            this.copyableCodeByRenderId.delete(cached.reasoningRenderId);
+        }
     }
 
     private async copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
@@ -1382,6 +1436,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .markdown-code-copy { padding: 2px 6px; font-size: 10px; }
         .markdown-code-block pre { margin: 0; padding: 9px; max-height: 360px; overflow: auto; white-space: pre; }
         .markdown-code-block pre code { padding: 0; background: transparent; font: 11px/1.45 var(--vscode-editor-font-family); }
+        .message-reasoning { margin-top: 7px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; color: var(--vscode-descriptionForeground); background: var(--vscode-editorWidget-background); }
+        .message-reasoning > summary { padding: 5px 7px; cursor: pointer; font-size: 11px; user-select: none; }
+        .message-reasoning[open] > summary { border-bottom: 1px solid var(--vscode-panel-border); }
+        .message-reasoning > .message-body { padding: 7px; color: var(--vscode-foreground); }
         .message.user .message-body { padding: 8px 9px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); border: 1px solid var(--vscode-textBlockQuote-border); }
         .message.system .message-body { color: var(--vscode-errorForeground); }
         .composer-shell { padding: 7px 10px 10px; border-top: 1px solid var(--vscode-panel-border); }
@@ -1494,6 +1552,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return '未启动';
         }
 
+        function expandedReasoning(root) {
+            return new Set(Array.from(root.querySelectorAll('details[data-reasoning-id][open]')).map((details) => details.dataset.reasoningId));
+        }
+
+        function renderMessageContent(message, expanded) {
+            const body = typeof message.renderedHtml === 'string' ? message.renderedHtml : '<p>' + escapeHtml(message.text) + '</p>';
+            if (message.role !== 'assistant' || typeof message.reasoning !== 'string' || !message.reasoning) {
+                return '<div class="message-body">' + body + '</div>';
+            }
+            const reasoningBody = typeof message.renderedReasoningHtml === 'string'
+                ? message.renderedReasoningHtml
+                : '<p>' + escapeHtml(message.reasoning) + '</p>';
+            const reasoningId = String(message.id);
+            const renderId = typeof message.reasoningRenderId === 'string'
+                ? ' data-render-id="' + escapeHtml(message.reasoningRenderId) + '"'
+                : '';
+            const open = expanded.has(reasoningId) ? ' open' : '';
+            const label = message.reasoningState === 'streaming' ? '思考中…' : '思考过程 · 已完成';
+            return '<div class="message-body">' + body + '</div><details class="message-reasoning" data-reasoning-id="' + escapeHtml(reasoningId) + '"' + renderId + open + '><summary>' + label + '</summary><div class="message-body">' + reasoningBody + '</div></details>';
+        }
+
         function render() {
             const status = state.status || { state: 'stopped' };
             const dot = document.getElementById('statusDot');
@@ -1550,6 +1629,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const messages = document.getElementById('messages');
+            const expandedMainReasoning = expandedReasoning(messages);
             if (!state.messages || state.messages.length === 0) {
                 messages.innerHTML = '<div class="empty">直接描述任务。<br>当前选区会自动附加，也可以用 @ 引用文件。</div>';
             } else {
@@ -1558,9 +1638,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     const stateClass = message.state === 'streaming' ? ' streaming' : (message.state === 'pending' ? ' pending' : '');
                     const stateLabel = message.state === 'pending' ? ' · 等待接收' : (message.state === 'streaming' ? ' · 流式生成' : '');
                     const trace = Number.isSafeInteger(message.seq) && message.seq >= 0 ? '<button class="message-trace" data-trace-seq="' + message.seq + '" title="在 Trace 中定位">trace</button>' : '';
-                    const body = typeof message.renderedHtml === 'string' ? message.renderedHtml : '<p>' + escapeHtml(message.text) + '</p>';
                     const renderId = typeof message.renderId === 'string' ? ' data-render-id="' + escapeHtml(message.renderId) + '"' : '';
-                    return '<div class="message ' + message.role + stateClass + '"' + renderId + '><div class="message-label">' + label + stateLabel + trace + '</div><div class="message-body">' + body + '</div></div>';
+                    return '<div class="message ' + message.role + stateClass + '"' + renderId + '><div class="message-label">' + label + stateLabel + trace + '</div>' + renderMessageContent(message, expandedMainReasoning) + '</div>';
                 }).join('');
                 messages.scrollTop = messages.scrollHeight;
             }
@@ -1585,6 +1664,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             queue.innerHTML = queueRows.length ? '<div class="dock-title">Queue</div>' + queueRows.map((item) => '<div class="queue-row" data-item-id="' + escapeHtml(item.id) + '" data-editable="' + escapeHtml(item.editableText === undefined ? '' : item.editableText) + '"><div class="queue-preview">' + (item.placement === 'steering' ? '↪ ' : '') + escapeHtml(item.preview || '（无文本内容）') + '</div><div class="queue-actions">' + (item.editableText === undefined ? '' : '<button class="secondary" data-action="edit">编辑</button>') + '<button class="secondary" data-action="remove">移除</button><button class="secondary" data-action="steer"' + (sessionStatus.running ? '' : ' disabled') + '>立即转向</button></div></div>').join('') : '';
 
             const subagents = document.getElementById('subagents');
+            const expandedSubagentReasoning = expandedReasoning(subagents);
             const tree = state.subagents;
             if (!tree || !state.sessionId) {
                 subagents.innerHTML = '';
@@ -1602,9 +1682,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 let previewHtml = '';
                 if (preview) {
                     const transcript = (preview.messages || []).map((message) => {
-                        const body = typeof message.renderedHtml === 'string' ? message.renderedHtml : '<p>' + escapeHtml(message.text) + '</p>';
                         const renderId = typeof message.renderId === 'string' ? ' data-render-id="' + escapeHtml(message.renderId) + '"' : '';
-                        return '<div class="message ' + escapeHtml(message.role) + '"' + renderId + '><div class="message-label">' + (message.role === 'assistant' ? 'subagent' : (message.role === 'user' ? '你' : '系统')) + '</div><div class="message-body">' + body + '</div></div>';
+                        return '<div class="message ' + escapeHtml(message.role) + '"' + renderId + '><div class="message-label">' + (message.role === 'assistant' ? 'subagent' : (message.role === 'user' ? '你' : '系统')) + '</div>' + renderMessageContent(message, expandedSubagentReasoning) + '</div>';
                     }).join('');
                     const pendingAction = preview.pendingAction ? '正在执行 ' + preview.pendingAction + '…' : '';
                     const followUp = preview.mode === 'continuable' ? '<div class="follow-up"><input id="subagentFollowUp" placeholder="给 continuable subagent 追加任务"' + (!preview.parentAvailable || preview.pendingAction ? ' disabled' : '') + '><button data-subagent-follow="' + escapeHtml(preview.childSessionId) + '"' + (!preview.parentAvailable || preview.pendingAction ? ' disabled' : '') + '>发送</button></div>' : '';
