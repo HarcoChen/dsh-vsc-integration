@@ -45,6 +45,7 @@ import {
     DshQuestionResponse,
     DshSubagentAddress,
     DshSubagentCatalog,
+    PermissionProjectionView,
     SubagentHistoryPreview,
     SubagentTreeNodeView,
 } from "./types";
@@ -79,6 +80,29 @@ function isCredentialIssue(error: unknown): boolean {
     return /missing[_ -]?credential|api[ _-]?key|\bauth\b|authentication|unauthori[sz]ed|\b401\b|credential.*(unset|missing|not configured)/u.test(
         message,
     );
+}
+
+function permissionProjection(value: unknown): PermissionProjectionView | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    if (typeof record.currentValue !== "string" || !Array.isArray(record.options)) return undefined;
+    const options = record.options.flatMap((option): PermissionProjectionView["options"] => {
+        if (!option || typeof option !== "object" || Array.isArray(option)) return [];
+        const item = option as Record<string, unknown>;
+        if (typeof item.value !== "string" || typeof item.name !== "string") return [];
+        return [{
+            value: item.value,
+            label: item.name,
+            ...(typeof item.description === "string" ? { description: item.description } : {}),
+        }];
+    });
+    const current = options.find((option) => option.value === record.currentValue);
+    if (!current) return undefined;
+    return {
+        currentValue: record.currentValue,
+        currentLabel: current.label,
+        options,
+    };
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -594,6 +618,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             },
         );
         if (choice) await this.switchSession(choice.sessionId);
+    }
+
+    public async selectModel(): Promise<void> {
+        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
+        const catalog = await this.runtime.models(this.sessionId);
+        if (!catalog.routable) {
+            throw new Error("当前会话没有可路由的模型。");
+        }
+        const items = catalog.groups.flatMap((group) => group.models.map((model) => ({
+            label: `${group.name || group.provider} / ${model.name || model.id}`,
+            description: group.provider === catalog.current.provider && model.id === catalog.current.model
+                ? "当前模型"
+                : model.id,
+            provider: group.provider,
+            model: model.id,
+            efforts: model.reasoningEfforts ?? [],
+        })));
+        if (items.length === 0) throw new Error("Harness 未返回可用模型。");
+        const picked = await vscode.window.showQuickPick(items, {
+            title: "选择 Harness 模型",
+            placeHolder: `${catalog.current.provider} / ${catalog.current.model}`,
+        });
+        if (!picked) return;
+        let reasoningEffort: string | undefined;
+        if (picked.efforts.length > 0) {
+            reasoningEffort = await vscode.window.showQuickPick(picked.efforts, {
+                title: "选择 reasoning effort",
+                placeHolder: catalog.current.reasoningEffort ?? "默认",
+            });
+            if (reasoningEffort === undefined) return;
+        }
+        const result = await this.runtime.selectModel({
+            sessionId: this.sessionId,
+            provider: picked.provider,
+            model: picked.model,
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        });
+        this.output.appendLine(`[dsh:model] selected ${result.selected.provider}/${result.selected.model}`);
+        this.postState();
     }
 
     public async chooseSession(): Promise<void> {
@@ -1232,6 +1296,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
         const goalCell = session?.projections.find((cell) => cell.key === "goal");
+        const permissionsCell = session?.projections.find((cell) => cell.key === "permissions");
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -1286,6 +1351,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                           : { error: selected.lastAgentError }),
                   }
                 : undefined,
+            permissions: permissionProjection(permissionsCell?.value),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {
@@ -1614,6 +1680,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .follow-up input { flex: 1; min-width: 0; padding: 5px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); }
         .job-row { padding: 5px 0; border-top: 1px solid var(--vscode-panel-border); }
         .job-summary { margin-top: 3px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .permission-option { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-top: 1px solid var(--vscode-panel-border); }
+        .permission-option.active { color: var(--vscode-textLink-foreground); font-weight: 600; }
         .streaming::after { content: ' ●'; color: var(--vscode-progressBar-background); }
         .pending { opacity: .7; }
         .failed { color: var(--vscode-errorForeground); }
@@ -1646,6 +1714,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             <button id="openTrace" class="secondary" title="打开当前会话 Trace">脉</button>
         </div>
         <div id="goal" class="dock"></div>
+        <div id="permissions" class="dock"></div>
         <div id="messages" class="messages"></div>
         <div id="interactions" class="dock"></div>
         <div id="queue" class="dock"></div>
@@ -1764,6 +1833,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     + (currentGoal.phase !== 'complete' ? '<button class="secondary" data-goal-action="complete"' + disabled + '>完成</button>' : '<button data-goal-action="create"' + disabled + '>新 Goal</button>')
                     + '<button class="secondary" data-goal-action="clear"' + disabled + '>清除</button>';
                 goal.innerHTML = '<div class="dock-title">Goal HUD</div><div class="card"><div class="goal-objective">' + escapeHtml(currentGoal.objective || '') + '</div><div class="card-detail">阶段 ' + escapeHtml(currentGoal.phase || '') + ' · revision ' + escapeHtml(currentGoal.revision || '') + ' · round ' + escapeHtml(goalState.roundsStarted || 0) + '/' + escapeHtml(currentGoal.maxGoalRounds || '') + '</div>' + blocked + pending + (goalState.error ? '<div class="card-error">' + escapeHtml(goalState.error) + '</div>' : '') + '<div class="feature-actions">' + actions + '</div></div>';
+            }
+
+            const permissions = document.getElementById('permissions');
+            const permissionState = state.permissions;
+            if (!permissionState) {
+                permissions.innerHTML = '';
+            } else {
+                const options = permissionState.options.map((option) => '<div class="permission-option' + (option.value === permissionState.currentValue ? ' active' : '') + '"><span>' + escapeHtml(option.label) + (option.value === permissionState.currentValue ? ' · 当前' : '') + '</span>' + (option.description ? '<span class="card-detail">' + escapeHtml(option.description) + '</span>' : '') + '</div>').join('');
+                permissions.innerHTML = '<div class="feature-head"><div class="dock-title">Permissions</div></div><div class="card"><div class="card-detail">当前 preset：' + escapeHtml(permissionState.currentLabel) + '</div>' + options + '<div class="card-detail">权限切换由 Harness Web UI 的公开 command 负责。</div></div>';
             }
 
             const messages = document.getElementById('messages');

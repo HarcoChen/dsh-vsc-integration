@@ -226,6 +226,25 @@ export interface DshSessionSelectModelResult {
     [key: string]: unknown;
 }
 
+export interface DshAgentPresetEntry {
+    id: string;
+    trust: "system" | "user";
+    isDefault: boolean;
+    name?: string;
+    description?: string;
+    broken?: string;
+}
+
+export interface DshAgentPresetListResult {
+    presets: DshAgentPresetEntry[];
+    authorable: boolean;
+    hasDocument: boolean;
+}
+
+export interface DshAgentPresetSelectResult {
+    agentPreset: string;
+}
+
 export interface DshSessionRenameResult {
     title: string;
     seq: number;
@@ -587,6 +606,7 @@ export interface ChatViewState {
         turn: TurnStatusView;
         error?: string;
     };
+    permissions?: PermissionProjectionView;
     interactions: Array<{
         key: string;
         kind: "approval" | "question" | "plan-review";
@@ -615,6 +635,16 @@ export interface ChatViewState {
     subagents?: SubagentTreeView;
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
+}
+
+export interface PermissionProjectionView {
+    currentValue: string;
+    currentLabel: string;
+    options: Array<{
+        value: string;
+        label: string;
+        description?: string;
+    }>;
 }
 
 export interface TurnStatusView {

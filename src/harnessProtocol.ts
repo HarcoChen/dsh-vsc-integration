@@ -7,6 +7,10 @@ import {
     DshSessionForkResult,
     DshSessionListResult,
     DshSessionPromptResult,
+    DshSessionModelsResult,
+    DshSessionSelectModelResult,
+    DshAgentPresetListResult,
+    DshAgentPresetSelectResult,
     DshSessionRenameResult,
     DshSessionSearchResult,
     DshSkillListResult,
@@ -52,6 +56,18 @@ export interface HarnessRpcMethodMap {
         },
         DshSessionPromptResult
     >;
+    "session.models": RpcMethod<{ sessionId: string }, DshSessionModelsResult>;
+    "session.selectModel": RpcMethod<{
+        sessionId: string;
+        provider: string;
+        model: string;
+        reasoningEffort?: string;
+    }, DshSessionSelectModelResult>;
+    "agentPreset.list": RpcMethod<EmptyPayload, DshAgentPresetListResult>;
+    "agentPreset.select": RpcMethod<{
+        sessionId: string;
+        agentPreset: string;
+    }, DshAgentPresetSelectResult>;
     "session.updateQueue": RpcMethod<
         { sessionId: string; itemId: string; action: HarnessQueueAction },
         { accepted: true }

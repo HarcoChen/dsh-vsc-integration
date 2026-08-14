@@ -18,6 +18,10 @@ import {
     DshSessionCreateResult,
     DshSessionForkResult,
     DshSessionPromptResult,
+    DshSessionModelsResult,
+    DshSessionSelectModelResult,
+    DshAgentPresetListResult,
+    DshAgentPresetSelectResult,
     DshSessionRenameResult,
     DshSessionSearchResult,
     DshSkillEntry,
@@ -265,6 +269,27 @@ export class DshRuntime implements vscode.Disposable {
             mode,
             content: [{ type: "text", text }],
         });
+    }
+
+    public models(sessionId: string): Promise<DshSessionModelsResult> {
+        return this.apiClient.call("session.models", { sessionId });
+    }
+
+    public selectModel(selection: {
+        sessionId: string;
+        provider: string;
+        model: string;
+        reasoningEffort?: string;
+    }): Promise<DshSessionSelectModelResult> {
+        return this.apiClient.call("session.selectModel", selection);
+    }
+
+    public agentPresets(): Promise<DshAgentPresetListResult> {
+        return this.apiClient.call("agentPreset.list", {});
+    }
+
+    public selectAgentPreset(sessionId: string, agentPreset: string): Promise<DshAgentPresetSelectResult> {
+        return this.apiClient.call("agentPreset.select", { sessionId, agentPreset });
     }
 
     public async cancel(sessionId: string): Promise<void> {

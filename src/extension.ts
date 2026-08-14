@@ -59,6 +59,9 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.searchSession", () =>
             runCommand("搜索会话", () => chatView.searchSession()),
         ),
+        vscode.commands.registerCommand("dsh.selectModel", () =>
+            runCommand("选择模型", () => chatView.selectModel()),
+        ),
         vscode.commands.registerCommand("dsh.renameSession", () =>
             runCommand("重命名会话", () => chatView.renameSession()),
         ),
