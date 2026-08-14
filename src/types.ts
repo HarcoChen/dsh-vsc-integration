@@ -582,6 +582,7 @@ export interface ChatViewState {
     sessionStatus?: {
         running: boolean;
         attention: boolean;
+        turn: TurnStatusView;
         error?: string;
     };
     interactions: Array<{
@@ -604,6 +605,12 @@ export interface ChatViewState {
     subagents?: SubagentTreeView;
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
+}
+
+export interface TurnStatusView {
+    phase: "queued" | "running" | "waiting" | "completed" | "cancelled" | "failed";
+    turn?: number;
+    detail?: string;
 }
 
 export interface HostBaselineView {

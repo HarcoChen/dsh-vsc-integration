@@ -1,7 +1,12 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { projectChatMessages, queueDockItems } = require("../dist/chatState.js");
+const {
+    hiddenViewBadge,
+    projectChatMessages,
+    projectTurnStatus,
+    queueDockItems,
+} = require("../dist/chatState.js");
 const { HarnessSessionStore } = require("../dist/sessionStore.js");
 const { renderSafeMarkdown } = require("../dist/safeMarkdown.js");
 
@@ -285,6 +290,80 @@ test("tool card JSON-string arguments redact sensitive keys before reaching the 
     assert.match(args, /example\.test/);
     assert.match(args, /\[redacted\]/);
     assert.doesNotMatch(args, /must-not-render/);
+});
+
+test("turn status maps Harness lifecycle reasons and transient priority", () => {
+    const lifecycle = (reason) => {
+        const store = new HarnessSessionStore();
+        store.applyMuxEnvelope(envelope("start", {
+            type: "session/event",
+            sessionId: "turn",
+            event: event(1, "turn/start", { turn: 3 }),
+        }));
+        if (reason) store.applyMuxEnvelope(envelope("end", {
+            type: "session/event",
+            sessionId: "turn",
+            event: event(2, "turn/end", { turn: 3, reason }),
+        }));
+        return store;
+    };
+
+    assert.deepEqual(projectTurnStatus(lifecycle().get("turn"), false), {
+        phase: "running",
+        turn: 3,
+    });
+    assert.deepEqual(projectTurnStatus(lifecycle({ kind: "completed" }).get("turn"), false), {
+        phase: "completed",
+        turn: 3,
+    });
+    assert.deepEqual(projectTurnStatus(lifecycle({ kind: "aborted", reason: { kind: "user" } }).get("turn"), false), {
+        phase: "cancelled",
+        turn: 3,
+    });
+    assert.deepEqual(projectTurnStatus(lifecycle({ kind: "interrupted" }).get("turn"), false), {
+        phase: "cancelled",
+        turn: 3,
+    });
+    assert.deepEqual(projectTurnStatus(lifecycle({ kind: "max-tokens" }).get("turn"), false), {
+        phase: "failed",
+        turn: 3,
+        detail: "达到最大输出 token",
+    });
+    assert.deepEqual(projectTurnStatus(
+        lifecycle({ kind: "completed" }).get("turn"),
+        false,
+        "provider unavailable",
+    ), {
+        phase: "failed",
+        turn: 3,
+        detail: "provider unavailable",
+    });
+
+    const queued = lifecycle({ kind: "completed" });
+    queued.applyMuxEnvelope(envelope("queue", {
+        type: "session/queue",
+        sessionId: "turn",
+        items: [{ id: "q1", placement: "queued", message: {} }],
+    }));
+    assert.equal(projectTurnStatus(queued.get("turn"), false).phase, "queued");
+    assert.equal(projectTurnStatus(queued.get("turn"), true).phase, "running");
+
+    queued.applyMuxEnvelope(envelope("approval", {
+        type: "approval/requested",
+        sessionId: "turn",
+        approvalId: "approval-1",
+        toolName: "shell",
+    }));
+    assert.equal(projectTurnStatus(queued.get("turn"), true).phase, "waiting");
+});
+
+test("hidden view badge deduplicates completed and attention sessions", () => {
+    const badge = hiddenViewBadge([
+        { sessionId: "attention", pendingInteraction: "approval" },
+        { sessionId: "idle" },
+    ], new Set(["attention", "completed"]));
+    assert.deepEqual(badge, { value: 2, tooltip: "1 个会话等待操作" });
+    assert.equal(hiddenViewBadge([{ sessionId: "idle" }], new Set()), undefined);
 });
 
 test("reasoning-only assistant uses a visible placeholder and safe folded reasoning", () => {

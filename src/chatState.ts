@@ -1,4 +1,4 @@
-import { ChatMessage, ChatToolCall, DshQueuedInboxItem } from "./types";
+import { ChatMessage, ChatToolCall, DshQueuedInboxItem, TurnStatusView } from "./types";
 import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
 
@@ -451,6 +451,81 @@ export function projectChatMessages(
         });
     }
     return projected;
+}
+
+/** Project the current turn lifecycle from durable events plus authoritative transient state. */
+export function projectTurnStatus(
+    snapshot: SessionStateSnapshot | undefined,
+    hostRunning: boolean,
+    hostError?: string,
+): TurnStatusView {
+    const pendingInteraction = snapshot?.interactions.some(
+        (interaction) => interaction.status === "pending" || interaction.status === "submitting",
+    ) === true;
+    const turns = new Map<number, { started: boolean; end?: StoredSessionEvent }>();
+    for (const stored of snapshot?.events ?? []) {
+        if ((stored.event.type !== "turn/start" && stored.event.type !== "turn/end") ||
+            !isRecord(stored.event.data) ||
+            typeof stored.event.data.turn !== "number" ||
+            !Number.isSafeInteger(stored.event.data.turn) ||
+            stored.event.data.turn < 1) continue;
+        const turn = stored.event.data.turn;
+        const current = turns.get(turn) ?? { started: false };
+        if (stored.event.type === "turn/start") current.started = true;
+        else current.end = stored;
+        turns.set(turn, current);
+    }
+    const latestTurn = [...turns.keys()].sort((left, right) => right - left)[0];
+    const latest = latestTurn === undefined ? undefined : turns.get(latestTurn);
+    if (pendingInteraction) {
+        return { phase: "waiting", ...(latestTurn === undefined ? {} : { turn: latestTurn }) };
+    }
+    if (hostRunning || (latest?.started === true && latest.end === undefined)) {
+        return { phase: "running", ...(latestTurn === undefined ? {} : { turn: latestTurn }) };
+    }
+    if (hostError) {
+        return {
+            phase: "failed",
+            ...(latestTurn === undefined ? {} : { turn: latestTurn }),
+            detail: hostError,
+        };
+    }
+    if ((snapshot?.queue.items.length ?? 0) > 0) {
+        return { phase: "queued", ...(latestTurn === undefined ? {} : { turn: latestTurn }) };
+    }
+    const endData = latest?.end && isRecord(latest.end.event.data) ? latest.end.event.data : undefined;
+    const reason = isRecord(endData?.reason) ? endData.reason : undefined;
+    const kind = typeof reason?.kind === "string" ? reason.kind : undefined;
+    if (kind === "completed") return { phase: "completed", turn: latestTurn };
+    if (kind === "aborted" || kind === "interrupted") {
+        return { phase: "cancelled", turn: latestTurn };
+    }
+    if (kind) {
+        const failure = isRecord(reason?.error) ? reason.error : undefined;
+        const detail = typeof failure?.message === "string"
+            ? failure.message
+            : kind === "max-tokens" ? "达到最大输出 token" : kind;
+        return { phase: "failed", turn: latestTurn, detail };
+    }
+    return { phase: "completed" };
+}
+
+export function hiddenViewBadge(
+    sessions: readonly { sessionId: string; pendingInteraction?: unknown }[],
+    completedSessionIds: ReadonlySet<string>,
+): { value: number; tooltip: string } | undefined {
+    const attention = sessions.filter((session) => session.pendingInteraction !== undefined);
+    const notified = new Set([
+        ...attention.map((session) => session.sessionId),
+        ...completedSessionIds,
+    ]);
+    if (notified.size === 0) return undefined;
+    return {
+        value: notified.size,
+        tooltip: attention.length > 0
+            ? `${attention.length} 个会话等待操作`
+            : `${notified.size} 个会话已完成`,
+    };
 }
 
 export function queueDockItems(items: readonly DshQueuedInboxItem[]): QueueDockItem[] {

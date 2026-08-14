@@ -3,9 +3,11 @@ import * as vscode from "vscode";
 import { DeepSeekBalanceService } from "./balanceService";
 import {
     highestKnownSeq,
+    hiddenViewBadge,
     OptimisticPrompt,
     promptDisplayText,
     projectChatMessages,
+    projectTurnStatus,
     queueDockItems,
 } from "./chatState";
 import {
@@ -107,6 +109,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private pendingInsertText: string | undefined;
     private stateUpdateTimer: ReturnType<typeof setTimeout> | undefined;
     private subagentRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    private readonly observedRunning = new Map<string, boolean>();
+    private readonly completedWhileHidden = new Set<string>();
 
     public constructor(
         private readonly extensionContext: vscode.ExtensionContext,
@@ -126,6 +130,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
         });
         const unsubscribeCatalog = runtime.getSessionCatalog().onDidChange(() => {
+            this.observeSessionTransitions();
             this.schedulePostState();
             this.scheduleSubagentRefresh();
         });
@@ -148,6 +153,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         _token: vscode.CancellationToken,
     ): void {
         this.view = webviewView;
+        this.seedObservedRunning();
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this.extensionUri],
@@ -158,6 +164,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.handleMessage(message),
         );
         this.disposables.push(
+            webviewView.onDidChangeVisibility(() => {
+                if (webviewView.visible) this.completedWhileHidden.clear();
+                this.updateViewBadge();
+            }),
             webviewView.onDidDispose(() => {
                 if (this.view === webviewView) {
                     this.view = undefined;
@@ -1227,6 +1237,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                               interaction.status === "pending" ||
                               interaction.status === "submitting",
                       ),
+                      turn: projectTurnStatus(
+                          session,
+                          selected.running === true,
+                          selected.lastAgentError,
+                      ),
                       ...(selected.lastAgentError === undefined
                           ? {}
                           : { error: selected.lastAgentError }),
@@ -1282,6 +1297,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 : [],
         };
         void this.view.webview.postMessage({ type: "state", state });
+        this.updateViewBadge(catalog.sessions);
+    }
+
+    private seedObservedRunning(): void {
+        for (const session of this.runtime.getSessionCatalog().snapshot().sessions) {
+            this.observedRunning.set(session.sessionId, session.running === true);
+        }
+    }
+
+    private observeSessionTransitions(): void {
+        const sessions = this.runtime.getSessionCatalog().snapshot().sessions;
+        for (const session of sessions) {
+            const running = session.running === true;
+            const previous = this.observedRunning.get(session.sessionId);
+            if (previous === true && !running && this.view && !this.view.visible) {
+                this.completedWhileHidden.add(session.sessionId);
+            }
+            this.observedRunning.set(session.sessionId, running);
+        }
+        const currentIds = new Set(sessions.map((session) => session.sessionId));
+        for (const sessionId of this.observedRunning.keys()) {
+            if (!currentIds.has(sessionId)) this.observedRunning.delete(sessionId);
+        }
+        this.updateViewBadge(sessions);
+    }
+
+    private updateViewBadge(sessions = this.runtime.getSessionCatalog().snapshot().sessions): void {
+        if (!this.view) return;
+        if (this.view.visible) {
+            this.completedWhileHidden.clear();
+            this.view.badge = undefined;
+            return;
+        }
+        this.view.badge = hiddenViewBadge(sessions, this.completedWhileHidden);
     }
 
     private renderMessages(messages: readonly ChatMessage[], scope: string): ChatMessage[] {
@@ -1414,6 +1463,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .dot.running { background: #4ec994; }
         .dot.starting { background: #e5b567; }
         .dot.error { background: #f14c4c; }
+        .turn-phase { padding: 1px 5px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; font-size: 10px; }
+        .turn-phase.failed, .turn-phase.cancelled { color: var(--vscode-errorForeground); }
+        .turn-phase.completed { color: var(--vscode-testing-iconPassed); }
         .messages { flex: 1; overflow: auto; padding: 12px 10px 8px; }
         .empty { color: var(--vscode-descriptionForeground); text-align: center; padding: 30px 12px; line-height: 1.6; }
         .message { margin: 0 0 12px; }
@@ -1600,8 +1652,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const status = state.status || { state: 'stopped' };
             const dot = document.getElementById('statusDot');
             const sessionStatus = state.sessionStatus || {};
+            const turn = sessionStatus.turn || {};
+            const turnLabels = { queued: '已排队', running: '运行中', waiting: '等待操作', completed: '已完成', cancelled: '已取消', failed: '失败' };
             dot.className = 'dot ' + (sessionStatus.error ? 'error' : (sessionStatus.attention ? 'starting' : status.state));
-            document.getElementById('statusText').textContent = sessionStatus.error ? '会话错误' : (sessionStatus.attention ? '等待操作' : (sessionStatus.running ? '生成中' : statusLabel(status)));
+            const statusText = document.getElementById('statusText');
+            statusText.textContent = turnLabels[turn.phase] || (sessionStatus.error ? '会话错误' : statusLabel(status));
+            statusText.className = 'turn-phase ' + (turn.phase || '');
+            statusText.title = (Number.isSafeInteger(turn.turn) ? 'Turn ' + turn.turn : '') + (turn.detail ? ' · ' + turn.detail : '');
             const runtimeButton = document.getElementById('runtimeButton');
             runtimeButton.textContent = status.state === 'running' || status.state === 'starting' ? '停止' : '启动';
             runtimeButton.disabled = status.state === 'starting';
