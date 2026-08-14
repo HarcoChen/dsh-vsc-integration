@@ -179,6 +179,114 @@ test("stream chunks assemble indexed text and reasoning independently", () => {
     }]);
 });
 
+test("tool cards pair calls and results and prefer host presentation views", () => {
+    const store = new HarnessSessionStore();
+    store.applyMuxEnvelope({
+        rpcId: "call",
+        method: "session/event",
+        payload: {
+            type: "session/event",
+            sessionId: "tools",
+            event: event(1, "tool/call", {
+                turn: 1,
+                step: 1,
+                callId: "call-1",
+                name: "shell",
+                arguments: "{\"command\":\"ignored fallback\"}",
+            }),
+            view: {
+                for: "call",
+                view: { title: "Run tests", description: "npm test", cwd: "/workspace" },
+            },
+        },
+    });
+
+    let tool = projectChatMessages(store.get("tools"), [])[0];
+    assert.equal(tool.role, "tool");
+    assert.deepEqual(tool.tool, {
+        callId: "call-1",
+        name: "shell",
+        title: "Run tests",
+        status: "running",
+        args: "npm test · /workspace",
+    });
+
+    store.applyMuxEnvelope({
+        rpcId: "result",
+        method: "session/event",
+        payload: {
+            type: "session/event",
+            sessionId: "tools",
+            event: { ...event(2, "tool/result", {
+                message: {
+                    source: { kind: "tool", callId: "call-1" },
+                    content: [{
+                        type: "tool-result",
+                        toolCallId: "call-1",
+                        isError: false,
+                        content: [{ type: "text", text: "fallback output" }],
+                    }],
+                },
+            }), time: 2501 },
+            view: { for: "result", view: { output: "18 tests passed", exitCode: 0 } },
+        },
+    });
+    tool = projectChatMessages(store.get("tools"), [])[0];
+    assert.deepEqual(tool.tool, {
+        callId: "call-1",
+        name: "shell",
+        title: "Run tests",
+        status: "completed",
+        args: "npm test · /workspace",
+        result: "18 tests passed · exit 0",
+        durationMs: 1500,
+    });
+});
+
+test("tool cards expose structured and provider-reported failures", () => {
+    const store = new HarnessSessionStore();
+    store.applyMuxEnvelope(envelope("call", {
+        type: "session/event",
+        sessionId: "failed-tool",
+        event: event(4, "tool/call", {
+            callId: "bad-call",
+            name: "write",
+            arguments: { path: "secret.txt", authorization: "hidden" },
+        }),
+    }));
+    store.applyMuxEnvelope(envelope("result", {
+        type: "session/event",
+        sessionId: "failed-tool",
+        event: event(5, "tool/result", {
+            callId: "bad-call",
+            error: { code: "DENIED", message: "permission rejected" },
+            content: [{ type: "text", text: "not written" }],
+        }),
+    }));
+    const tool = projectChatMessages(store.get("failed-tool"), [])[0].tool;
+    assert.equal(tool.status, "failed");
+    assert.equal(tool.error, "DENIED · permission rejected");
+    assert.match(tool.args, /\[redacted\]/);
+    assert.doesNotMatch(tool.args, /hidden/);
+});
+
+test("tool card JSON-string arguments redact sensitive keys before reaching the webview", () => {
+    const store = new HarnessSessionStore();
+    store.applyMuxEnvelope(envelope("call", {
+        type: "session/event",
+        sessionId: "redacted-tool",
+        event: event(1, "tool/call", {
+            callId: "secret-call",
+            name: "request",
+            arguments: JSON.stringify({ url: "https://example.test", apiKey: "must-not-render" }),
+        }),
+    }));
+    const args = projectChatMessages(store.get("redacted-tool"), [])[0].tool.args;
+    assert.match(args, /example\.test/);
+    assert.match(args, /\[redacted\]/);
+    assert.doesNotMatch(args, /must-not-render/);
+});
+
 test("reasoning-only assistant uses a visible placeholder and safe folded reasoning", () => {
     const streamingStore = new HarnessSessionStore();
     streamingStore.applyMuxEnvelope(envelope("r", {

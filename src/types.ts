@@ -19,7 +19,18 @@ export interface DshContextItem {
     byteLength: number;
 }
 
-export type ChatRole = "user" | "assistant" | "system";
+export type ChatRole = "user" | "assistant" | "system" | "tool";
+
+export interface ChatToolCall {
+    callId: string;
+    name: string;
+    title: string;
+    status: "running" | "completed" | "failed";
+    args?: string;
+    result?: string;
+    durationMs?: number;
+    error?: string;
+}
 
 export interface ChatMessage {
     id: string;
@@ -28,6 +39,7 @@ export interface ChatMessage {
     /** Assistant-only thinking content, never folded into visible text. */
     reasoning?: string;
     reasoningState?: "streaming" | "complete";
+    tool?: ChatToolCall;
     /** Fixed-vocabulary HTML produced by the extension-host safe Markdown renderer. */
     renderedHtml?: string;
     renderedReasoningHtml?: string;

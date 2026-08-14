@@ -1,5 +1,6 @@
-import { ChatMessage, DshQueuedInboxItem } from "./types";
+import { ChatMessage, ChatToolCall, DshQueuedInboxItem } from "./types";
 import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
+import { safeTraceJson } from "./traceProjector";
 
 export interface OptimisticPrompt {
     id: string;
@@ -19,6 +20,7 @@ export interface QueueDockItem {
 }
 
 const NO_VISIBLE_ASSISTANT_ANSWER = "（无可见回答）";
+const TOOL_SUMMARY_LIMIT = 1_200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -78,6 +80,135 @@ function directUser(event: StoredSessionEvent): boolean {
 function eventText(event: StoredSessionEvent): string {
     const message = messageRecord(event);
     return contentText(message?.content ?? message?.text);
+}
+
+function oneLine(value: string, limit = TOOL_SUMMARY_LIMIT): string {
+    const normalized = value.replace(/\s+/gu, " ").trim();
+    return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 1)}…`;
+}
+
+function toolView(event: StoredSessionEvent | undefined, target: "call" | "result"):
+    Record<string, unknown> | undefined {
+    if (!event || !isRecord(event.view) || event.view.for !== target || !isRecord(event.view.view)) {
+        return undefined;
+    }
+    return event.view.view;
+}
+
+function contentSummary(value: unknown): string {
+    if (typeof value === "string") return oneLine(value);
+    if (!Array.isArray(value)) return "";
+    return oneLine(value.flatMap((part) => {
+        if (!isRecord(part)) return [];
+        if (typeof part.text === "string") return [part.text];
+        if (part.type === "image") return ["[image]"];
+        return [];
+    }).join("\n"));
+}
+
+function presentationSummary(view: Record<string, unknown> | undefined): string | undefined {
+    if (!view) return undefined;
+    const parts: string[] = [];
+    for (const key of ["description", "cwd", "path", "url", "answer", "output"] as const) {
+        if (typeof view[key] === "string") parts.push(view[key]);
+    }
+    const content = contentSummary(view.content);
+    if (content) parts.push(content);
+    if (view.rawInput !== undefined) parts.push(oneLine(safeTraceJson(view.rawInput, 3_600)));
+    if (typeof view.exitCode === "number") parts.push(`exit ${view.exitCode}`);
+    if (typeof view.signal === "string") parts.push(view.signal);
+    return parts.length ? oneLine(parts.join(" · ")) : undefined;
+}
+
+function toolArgumentsSummary(value: unknown): string | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") return oneLine(safeTraceJson(value, 3_600));
+    try {
+        return oneLine(safeTraceJson(JSON.parse(value), 3_600));
+    } catch {
+        return oneLine(value);
+    }
+}
+
+function toolResultFacts(event: StoredSessionEvent): {
+    callId?: string;
+    result?: string;
+    error?: string;
+} {
+    const data = isRecord(event.event.data) ? event.event.data : undefined;
+    const message = isRecord(data?.message) ? data.message : undefined;
+    const source = isRecord(message?.source) ? message.source : undefined;
+    const block = Array.isArray(message?.content) && isRecord(message.content[0])
+        ? message.content[0]
+        : undefined;
+    const callId = typeof source?.callId === "string"
+        ? source.callId
+        : typeof block?.toolCallId === "string"
+          ? block.toolCallId
+          : typeof data?.callId === "string"
+            ? data.callId
+            : undefined;
+    const result = presentationSummary(toolView(event, "result")) ||
+        contentSummary(block?.content ?? data?.content) || undefined;
+    const structuredError = isRecord(data?.error)
+        ? [data.error.code, data.error.message].filter((part) => typeof part === "string").join(" · ")
+        : typeof data?.error === "string" ? data.error : undefined;
+    const failed = block?.isError === true || data?.isError === true || Boolean(structuredError);
+    return {
+        ...(callId ? { callId } : {}),
+        ...(result ? { result } : {}),
+        ...(failed ? { error: oneLine(structuredError || result || "Tool failed") } : {}),
+    };
+}
+
+function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { order: number }> {
+    const calls = new Map<string, StoredSessionEvent>();
+    const results = new Map<string, StoredSessionEvent>();
+    for (const event of snapshot.events) {
+        const data = isRecord(event.event.data) ? event.event.data : undefined;
+        if (event.event.type === "tool/call" && typeof data?.callId === "string") {
+            calls.set(data.callId, event);
+        } else if (event.event.type === "tool/result") {
+            const callId = toolResultFacts(event).callId;
+            if (callId && !results.has(callId)) results.set(callId, event);
+        }
+    }
+    return [...new Set([...calls.keys(), ...results.keys()])].flatMap((callId) => {
+        const call = calls.get(callId);
+        const result = results.get(callId);
+        const anchor = call ?? result;
+        if (!anchor) return [];
+        const data = call && isRecord(call.event.data) ? call.event.data : undefined;
+        const facts = result ? toolResultFacts(result) : undefined;
+        const callPresentation = toolView(call, "call");
+        const name = typeof data?.name === "string" ? data.name : "unknown tool";
+        const title = typeof callPresentation?.title === "string" ? callPresentation.title : name;
+        const args = presentationSummary(callPresentation) ||
+            toolArgumentsSummary(data?.arguments);
+        const durationMs = call && result && result.event.time >= call.event.time
+            ? result.event.time - call.event.time
+            : undefined;
+        const tool: ChatToolCall = {
+            callId,
+            name,
+            title,
+            status: !result ? "running" : facts?.error ? "failed" : "completed",
+            ...(args ? { args } : {}),
+            ...(facts?.result ? { result: facts.result } : {}),
+            ...(durationMs === undefined ? {} : { durationMs }),
+            ...(facts?.error ? { error: facts.error } : {}),
+        };
+        return [{
+            id: `tool:${callId}`,
+            role: "tool" as const,
+            text: title,
+            tool,
+            createdAt: anchor.event.time,
+            seq: anchor.event.seq,
+            state: result ? "committed" as const : "streaming" as const,
+            order: anchor.event.seq + 0.25,
+        }];
+    });
 }
 
 function assistantLocation(event: StoredSessionEvent): string | undefined {
@@ -222,6 +353,7 @@ export function projectChatMessages(
             }
         }
     }
+    rows.push(...projectToolRows(snapshot));
 
     const partials = new Map<string, PartialMessage>();
     const endedTurns = new Set<number>();

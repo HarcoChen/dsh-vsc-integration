@@ -1440,6 +1440,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .message-reasoning > summary { padding: 5px 7px; cursor: pointer; font-size: 11px; user-select: none; }
         .message-reasoning[open] > summary { border-bottom: 1px solid var(--vscode-panel-border); }
         .message-reasoning > .message-body { padding: 7px; color: var(--vscode-foreground); }
+        .message.tool { margin: 5px 0; }
+        .tool-card { border: 1px solid var(--vscode-panel-border); border-radius: 5px; background: var(--vscode-editorWidget-background); }
+        .tool-card.failed { border-color: var(--vscode-inputValidation-errorBorder); }
+        .tool-card > summary { display: flex; align-items: center; gap: 6px; padding: 7px 8px; cursor: pointer; user-select: none; }
+        .tool-status { width: 9px; height: 9px; flex: none; border-radius: 50%; background: var(--vscode-testing-iconPassed); }
+        .tool-card.running .tool-status { background: var(--vscode-progressBar-background); }
+        .tool-card.failed .tool-status { background: var(--vscode-testing-iconFailed); }
+        .tool-title { min-width: 0; flex: 1; overflow-wrap: anywhere; font-weight: 600; }
+        .tool-meta { color: var(--vscode-descriptionForeground); font-size: 10px; }
+        .tool-detail { padding: 0 8px 8px; border-top: 1px solid var(--vscode-panel-border); }
+        .tool-section { margin-top: 7px; }
+        .tool-section-label { color: var(--vscode-descriptionForeground); font-size: 10px; text-transform: uppercase; }
+        .tool-section pre { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); font-size: 11px; }
         .message.user .message-body { padding: 8px 9px; border-radius: 6px; background: var(--vscode-textBlockQuote-background); border: 1px solid var(--vscode-textBlockQuote-border); }
         .message.system .message-body { color: var(--vscode-errorForeground); }
         .composer-shell { padding: 7px 10px 10px; border-top: 1px solid var(--vscode-panel-border); }
@@ -1557,6 +1570,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         function renderMessageContent(message, expanded) {
+            if (message.role === 'tool' && message.tool) {
+                const tool = message.tool;
+                const duration = Number.isFinite(tool.durationMs) ? ' · ' + (tool.durationMs < 1000 ? tool.durationMs + ' ms' : (tool.durationMs / 1000).toFixed(1) + ' s') : '';
+                const status = tool.status === 'running' ? '运行中' : (tool.status === 'failed' ? '失败' : '完成');
+                const args = tool.args ? '<div class="tool-section"><div class="tool-section-label">参数</div><pre>' + escapeHtml(tool.args) + '</pre></div>' : '';
+                const result = tool.result ? '<div class="tool-section"><div class="tool-section-label">结果</div><pre>' + escapeHtml(tool.result) + '</pre></div>' : '';
+                const error = tool.error ? '<div class="tool-section card-error">' + escapeHtml(tool.error) + '</div>' : '';
+                const detail = args || result || error ? '<div class="tool-detail">' + args + result + error + '</div>' : '';
+                return '<details class="tool-card ' + escapeHtml(tool.status) + '"><summary><span class="tool-status"></span><span class="tool-title">' + escapeHtml(tool.title || tool.name) + '</span><span class="tool-meta">' + status + duration + '</span></summary>' + detail + '</details>';
+            }
             const body = typeof message.renderedHtml === 'string' ? message.renderedHtml : '<p>' + escapeHtml(message.text) + '</p>';
             if (message.role !== 'assistant' || typeof message.reasoning !== 'string' || !message.reasoning) {
                 return '<div class="message-body">' + body + '</div>';
@@ -1634,7 +1657,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 messages.innerHTML = '<div class="empty">直接描述任务。<br>当前选区会自动附加，也可以用 @ 引用文件。</div>';
             } else {
                 messages.innerHTML = state.messages.map((message) => {
-                    const label = message.role === 'user' ? '你' : (message.role === 'assistant' ? 'dsh' : '系统');
+                    const label = message.role === 'user' ? '你' : (message.role === 'assistant' ? 'dsh' : (message.role === 'tool' ? '工具' : '系统'));
                     const stateClass = message.state === 'streaming' ? ' streaming' : (message.state === 'pending' ? ' pending' : '');
                     const stateLabel = message.state === 'pending' ? ' · 等待接收' : (message.state === 'streaming' ? ' · 流式生成' : '');
                     const trace = Number.isSafeInteger(message.seq) && message.seq >= 0 ? '<button class="message-trace" data-trace-seq="' + message.seq + '" title="在 Trace 中定位">trace</button>' : '';
