@@ -570,6 +570,7 @@ export interface ChatViewState {
     busy: boolean;
     submitting: boolean;
     cancelling: boolean;
+    focusMode: boolean;
     workspaceName?: string;
     host?: HostBaselineView;
     sessionId?: string;

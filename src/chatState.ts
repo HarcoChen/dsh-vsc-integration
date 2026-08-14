@@ -29,6 +29,26 @@ export function resolvePromptMode(
     return requested === "steer" && sessionRunning ? "steer" : "queue";
 }
 
+/** Focus mode is a presentation-only projection; the underlying event store stays intact. */
+export function focusChatMessages(
+    messages: readonly ChatMessage[],
+    enabled: boolean,
+): ChatMessage[] {
+    if (!enabled) return messages.map((message) => ({ ...message }));
+    return messages.flatMap((message) => {
+        if (message.role === "tool") return [];
+        if (message.role !== "assistant") return [{ ...message }];
+        const {
+            reasoning: _reasoning,
+            reasoningState: _reasoningState,
+            renderedReasoningHtml: _renderedReasoningHtml,
+            reasoningRenderId: _reasoningRenderId,
+            ...focused
+        } = message;
+        return [focused];
+    });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }

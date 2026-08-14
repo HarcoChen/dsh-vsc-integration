@@ -5,6 +5,7 @@ export type ChatViewAction =
     | { type: "ready" }
     | { type: "sendPrompt"; text: string; mode: "queue" | "steer" }
     | { type: "retryPrompt"; id: string }
+    | { type: "toggleFocus" }
     | { type: "cancel" }
     | { type: "configureApiKey" }
     | { type: "openIdeContextPicker" }
@@ -99,6 +100,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "configureApiKey":
         case "openIdeContextPicker":
         case "toggleSelection":
+        case "toggleFocus":
         case "start":
         case "stop":
         case "openLogs":

@@ -73,7 +73,7 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 - [x] **工具调用卡片**（Harness 直连）：显示工具名、参数摘要、状态、结果、耗时和错误；优先使用 host presentation view。
 - [x] **轮次状态**（Harness 直连）：显示 queued/running/waiting/completed/cancelled/failed；隐藏标签页完成或待审批时显示 badge。
 - [x] **取消、重试、queue/steer**（Harness 直连）：失败后安全重试；运行时消息明确选择排队或 steer。
-- [ ] **Focus view**（IDE 自建）：可折叠 tool、result 和 reasoning，保留最终回答、todo/goal 与待处理交互。
+- [x] **Focus view**（IDE 自建）：可折叠 tool、result 和 reasoning，保留最终回答、todo/goal 与待处理交互。
 
 ### P0-3 审批、问题与权限
 

@@ -4,6 +4,7 @@ import { DeepSeekBalanceService } from "./balanceService";
 import {
     highestKnownSeq,
     hiddenViewBadge,
+    focusChatMessages,
     OptimisticPrompt,
     promptDisplayText,
     projectChatMessages,
@@ -107,6 +108,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private submitting = false;
     private cancelRequested = false;
     private selectionEnabled = true;
+    private focusMode = false;
     private pendingInsertText: string | undefined;
     private stateUpdateTimer: ReturnType<typeof setTimeout> | undefined;
     private subagentRefreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -317,6 +319,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "toggleSelection":
                     this.selectionEnabled = !this.selectionEnabled;
+                    this.postState();
+                    break;
+                case "toggleFocus":
+                    this.focusMode = !this.focusMode;
                     this.postState();
                     break;
                 case "start":
@@ -1236,7 +1242,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) ?? [];
         const state: ChatViewState = {
             messages: this.renderMessages(
-                projectChatMessages(session, this.optimisticPrompts),
+                focusChatMessages(
+                    projectChatMessages(session, this.optimisticPrompts),
+                    this.focusMode,
+                ),
                 `session:${this.sessionId ?? "none"}`,
             ),
             context: this.contextStore.snapshot(),
@@ -1246,6 +1255,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             busy: selected?.running === true,
             submitting: this.submitting,
             cancelling: this.cancelRequested && selected?.running === true,
+            focusMode: this.focusMode,
             workspaceName: workspaceFolder?.name,
             host: presentHostBaseline(this.runtime.getHostDescription()),
             sessionId: this.sessionId,
@@ -1495,6 +1505,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .turn-phase { padding: 1px 5px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; font-size: 10px; }
         .turn-phase.failed, .turn-phase.cancelled { color: var(--vscode-errorForeground); }
         .turn-phase.completed { color: var(--vscode-testing-iconPassed); }
+        .focus-toggle.active { color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
         .messages { flex: 1; overflow: auto; padding: 12px 10px 8px; }
         .empty { color: var(--vscode-descriptionForeground); text-align: center; padding: 30px 12px; line-height: 1.6; }
         .message { margin: 0 0 12px; }
@@ -1601,6 +1612,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             <div class="brand">DeepSeek Harness</div>
             <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">未启动</span></div>
             <div class="runtime-actions">
+                <button id="focusButton" class="secondary focus-toggle" title="仅显示对话与待处理事项">Focus</button>
                 <button id="runtimeButton" class="secondary" title="启动或停止 dsh web">启动</button>
                 <button id="keyButton" class="secondary" title="配置 dsh API Key">Key</button>
                 <button id="logsButton" class="secondary" title="打开运行日志">日志</button>
@@ -1642,7 +1654,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     </div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        let state = { messages: [], context: [], sessions: [], interactions: [], queue: [], jobs: [], selectionEnabled: true, status: { state: 'stopped' }, busy: false, submitting: false, cancelling: false };
+        let state = { messages: [], context: [], sessions: [], interactions: [], queue: [], jobs: [], selectionEnabled: true, status: { state: 'stopped' }, busy: false, submitting: false, cancelling: false, focusMode: false };
         let promptMode = 'queue';
 
         function escapeHtml(value) {
@@ -1701,6 +1713,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const runtimeButton = document.getElementById('runtimeButton');
             runtimeButton.textContent = status.state === 'running' || status.state === 'starting' ? '停止' : '启动';
             runtimeButton.disabled = status.state === 'starting';
+            const focusButton = document.getElementById('focusButton');
+            focusButton.classList.toggle('active', Boolean(state.focusMode));
+            focusButton.setAttribute('aria-pressed', state.focusMode ? 'true' : 'false');
+            focusButton.title = state.focusMode ? '显示工具调用与 reasoning' : '仅显示对话与待处理事项';
 
             const hostInfo = document.getElementById('hostInfo');
             const host = state.host;
@@ -1877,6 +1893,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             render();
         });
         document.getElementById('cancel').addEventListener('click', () => post('cancel'));
+        document.getElementById('focusButton').addEventListener('click', () => post('toggleFocus'));
         document.getElementById('runtimeButton').addEventListener('click', () => post(state.status.state === 'running' ? 'stop' : 'start'));
         document.getElementById('keyButton').addEventListener('click', () => post('configureApiKey'));
         document.getElementById('logsButton').addEventListener('click', () => post('openLogs'));

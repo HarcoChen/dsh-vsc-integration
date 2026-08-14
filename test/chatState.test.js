@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     hiddenViewBadge,
+    focusChatMessages,
     projectChatMessages,
     projectTurnStatus,
     queueDockItems,
@@ -372,6 +373,39 @@ test("prompt mode permits steer only while the selected session is running", () 
     assert.equal(resolvePromptMode("queue", true), "queue");
     assert.equal(resolvePromptMode("steer", false), "queue");
     assert.equal(resolvePromptMode("steer", true), "steer");
+});
+
+test("Focus view removes tool rows and reasoning without mutating the transcript", () => {
+    const messages = [
+        { id: "u", role: "user", text: "question", createdAt: 1 },
+        {
+            id: "a",
+            role: "assistant",
+            text: "final answer",
+            reasoning: "hidden thought",
+            reasoningState: "complete",
+            renderedReasoningHtml: "<p>hidden thought</p>",
+            reasoningRenderId: "render-reasoning",
+            createdAt: 2,
+        },
+        {
+            id: "tool:1",
+            role: "tool",
+            text: "shell",
+            tool: { callId: "1", name: "shell", title: "Run", status: "completed" },
+            createdAt: 3,
+        },
+        { id: "system", role: "system", text: "notice", createdAt: 4 },
+    ];
+    const focused = focusChatMessages(messages, true);
+    assert.deepEqual(focused.map((message) => [message.role, message.text]), [
+        ["user", "question"],
+        ["assistant", "final answer"],
+        ["system", "notice"],
+    ]);
+    assert.equal("reasoning" in focused[1], false);
+    assert.equal(messages[1].reasoning, "hidden thought");
+    assert.notEqual(focusChatMessages(messages, false)[0], messages[0]);
 });
 
 test("reasoning-only assistant uses a visible placeholder and safe folded reasoning", () => {
