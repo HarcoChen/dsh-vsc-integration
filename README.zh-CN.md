@@ -1,5 +1,9 @@
 # DSH VSCode Integration
 
+<p align="center">
+  <img src="resources/dsh.png" alt="DSH" width="128">
+</p>
+
 原生连接 DeepSeek Harness 的社区版 VS Code Extension。
 
 [English](README.md) | **简体中文**
@@ -9,11 +13,12 @@
 > [!NOTE]
 > **亮点**
 >
-> - Slash-like Command 支持
-> - 上下文感知支持
-> - 余额快捷显示
-> - Trace 功能内建支持
-> - Cline-like 的聊天体验：工具卡片、Reasoning 折叠
+> - 在持久 Harness 会话中流式执行任务，支持队列、Steer、审批和计划评审
+> - 输入 `@` 实时搜索工作区文件，并插入明确的文件引用
+> - 附加选区、Diagnostics 和 Git diff，发送前显示字节大小与截断情况
+> - 在内建 Trace 中查看工具调用、结果和 Reasoning，并支持文件路径与行号跳转
+> - 按 turn 审查文件变更，使用 VS Code 原生 diff，恢复前保留确认边界
+> - 查看当前模型、Reasoning effort、计费 Token、缓存用量和估算上下文压力
 
 ## 功能架构
 
@@ -43,7 +48,7 @@ npm run package
 
 1. 打开一个已信任的工作区。
 2. 打开 DSH Chat（`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`）。
-3. 附加文件、选区、诊断信息或未暂存的 Git diff，也可以输入 `/` 打开本地命令菜单。
+3. 输入 `@` 搜索并引用工作区文件，附加选区、诊断信息或未暂存的 Git diff，也可以输入 `/` 打开本地命令菜单。
 4. 发送 prompt，并直接在聊天视图内处理工具审批、问题和计划评审。
 
 如果 dsh 报告 API Key 缺失或无效，点击聊天头部的 `Key`，或运行 `DSH: Configure API Key`。密钥会交给 dsh 的凭据服务，并以 VS Code SecretStorage 加密保存一份给余额指示器使用；不会写入 prompt、扩展状态或日志。

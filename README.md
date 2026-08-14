@@ -1,5 +1,9 @@
 # DSH VSCode Integration
 
+<p align="center">
+  <img src="resources/dsh.png" alt="DSH" width="128">
+</p>
+
 Please note that this README is maintained and translated by chatgpt models,it's better to refer to `README.zh-CN.md` for human-friendly descripitons.
 
 Feel free to leave issues!
@@ -13,11 +17,12 @@ A native community VS Code extension for connecting to DeepSeek Harness.
 > [!NOTE]
 > **Highlights**
 >
-> - Slash-like command support
-> - Context-aware assistance
-> - Quick balance display
-> - Built-in Trace support
-> - A Cline-like chat experience with tool cards and collapsible reasoning
+> - Stream tasks in persistent Harness sessions, with queueing, steering, approvals and plan reviews
+> - Type `@` to search workspace files in real time and insert an explicit file reference
+> - Attach selections, diagnostics and Git diffs with byte-size and truncation feedback before sending
+> - Inspect tool calls, results and reasoning in a built-in Trace, with clickable file and line locations
+> - Review per-turn file changes with native VS Code diffs before restoring anything
+> - Monitor the active model, reasoning effort, billed tokens, cache usage and estimated context pressure
 
 ## Architecture
 
@@ -47,7 +52,7 @@ Install the generated `.vsix` via `Extensions: Install from VSIX...`.
 
 1. Open a trusted workspace.
 2. Open DSH Chat (`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`).
-3. Attach files, selections, diagnostics or unstaged Git diffs, or type `/` to open the local command menu.
+3. Type `@` to search and reference workspace files, attach selections, diagnostics or unstaged Git diffs, or type `/` to open the local command menu.
 4. Send a prompt and handle tool approvals, questions and plan reviews directly in the chat view.
 
 If dsh reports a missing or invalid API key, click `Key` in the chat header or run `DSH: Configure API Key`. The key is passed to dsh's credential service, and an encrypted copy is stored in VS Code SecretStorage for the balance indicator. It is not written to prompts, extension state or logs.

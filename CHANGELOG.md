@@ -5,7 +5,7 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [0.3.0] - 2026-08-14
 
 - 新增紧凑的 Token 与上下文统计入口：使用环形进度展示估算占用，并在独立浮层中展示当前模型、reasoning effort、计费输入/输出、推理 Token 和缓存命中；数据来自 Harness 公开 usage/context projection，并明确区分计费值与估算值。
 - 新增文件跳转：支持聊天回答、工具参数与结果、Trace 摘要及详情中的裸文件路径和 `path:line[:column]`，裸路径默认打开第 1 行；Extension Host 会校验工作区信任、真实文件、符号链接和工作区边界后再打开编辑器定位。
@@ -16,6 +16,8 @@
 - 新增 `@` 文件引用实时候选：根据输入内容查询工作区文件，排除 `.git` 和 `node_modules`，点击候选项即可插入引用。
 - 增强发送前上下文反馈：附件显示字节大小和截断状态，并汇总本次实际进入 prompt 的上下文数量与大小。
 - 更新 Marketplace 描述，突出流式任务、持久会话、Trace、变更审查和 Token/上下文可观测性。
+
+## [未发布]
 
 ## [0.2.2] - 2026-08-14
 
@@ -41,7 +43,8 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
-[未发布]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...HEAD
+[未发布]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.1.0-alpha...v0.2.1
 [0.1.0-alpha]: https://github.com/HarcoChen/dsh-vsc-integration/releases/tag/v0.1.0-alpha
