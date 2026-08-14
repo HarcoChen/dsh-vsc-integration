@@ -5,6 +5,7 @@ import {
     DshGoalRef,
     DshHistoryResult,
     DshJobView,
+    DshQuestionItem,
     DshSubagentCatalog,
     DshSubagentListEntry,
     JobCenterItem,
@@ -12,6 +13,36 @@ import {
     SubagentTreeView,
 } from "./types";
 import { HarnessSessionStore, ProjectionCell } from "./sessionStore";
+
+export interface PlanReviewView {
+    id: string;
+    question: string;
+    plan: string;
+    approve: string;
+    decline?: string;
+}
+
+export function presentPlanReview(questions: readonly DshQuestionItem[]): PlanReviewView | undefined {
+    if (questions.length !== 1) return undefined;
+    const question = questions[0];
+    const approve = question?.intent?.kind === "plan-review" &&
+        typeof question.intent.approve === "string"
+        ? question.intent.approve
+        : undefined;
+    if (!question || !approve || question.detail === undefined || question.multiSelect === true) {
+        return undefined;
+    }
+    const options = question.options ?? [];
+    if (options.length > 2 || !options.some((option) => option.label === approve)) return undefined;
+    const decline = options.find((option) => option.label !== approve)?.label;
+    return {
+        id: question.id,
+        question: question.question,
+        plan: question.detail,
+        approve,
+        ...(decline === undefined ? {} : { decline }),
+    };
+}
 
 export type GoalMutationOperation =
     | "create"

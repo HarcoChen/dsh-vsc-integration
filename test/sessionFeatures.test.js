@@ -8,10 +8,27 @@ const {
     parseGoalProjection,
     presentGoalHud,
     presentJobCenter,
+    presentPlanReview,
     presentSubagentTree,
     projectSubagentHistory,
     SubagentTreeStore,
 } = require("../dist/sessionFeatures.js");
+
+test("plan-review intent becomes a markdown decision with approve and feedback paths", () => {
+    assert.deepEqual(presentPlanReview([{
+        id: "plan-review",
+        question: "Approve this plan?",
+        detail: "# Plan\n\n1. Build it",
+        options: [{ label: "Approve" }, { label: "Keep planning" }],
+        intent: { kind: "plan-review", approve: "Approve" },
+    }]), {
+        id: "plan-review",
+        question: "Approve this plan?",
+        plan: "# Plan\n\n1. Build it",
+        approve: "Approve",
+        decline: "Keep planning",
+    });
+});
 
 function goalValue(overrides = {}) {
     return {

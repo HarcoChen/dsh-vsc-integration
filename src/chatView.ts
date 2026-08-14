@@ -24,6 +24,7 @@ import {
     isCopyableCode,
     parseSafeHttpUrl,
     renderMarkdownMessage,
+    renderSafeMarkdown,
 } from "./safeMarkdown";
 import {
     GoalMutationGate,
@@ -32,6 +33,7 @@ import {
     parseGoalProjection,
     presentGoalHud,
     presentJobCenter,
+    presentPlanReview,
     projectSubagentHistory,
     SubagentTreeStore,
 } from "./sessionFeatures";
@@ -1303,18 +1305,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                               ? {}
                               : { error: interaction.error }),
                       }
-                    : {
-                          key: interaction.key,
-                          kind: "question",
-                          status: interaction.status,
-                          questions: [...interaction.questions],
-                          ...(interaction.outcome === undefined
-                              ? {}
-                              : { outcome: interaction.outcome }),
-                          ...(interaction.error === undefined
-                              ? {}
-                              : { error: interaction.error }),
-                      },
+                    : (() => {
+                          const review = presentPlanReview(interaction.questions);
+                          return review
+                              ? {
+                                    key: interaction.key,
+                                    kind: "plan-review" as const,
+                                    status: interaction.status,
+                                    review,
+                                    planHtml: renderSafeMarkdown(review.plan),
+                                    ...(interaction.outcome === undefined
+                                        ? {}
+                                        : { outcome: interaction.outcome }),
+                                    ...(interaction.error === undefined
+                                        ? {}
+                                        : { error: interaction.error }),
+                                }
+                              : {
+                                    key: interaction.key,
+                                    kind: "question" as const,
+                                    status: interaction.status,
+                                    questions: [...interaction.questions],
+                                    ...(interaction.outcome === undefined
+                                        ? {}
+                                        : { outcome: interaction.outcome }),
+                                    ...(interaction.error === undefined
+                                        ? {}
+                                        : { error: interaction.error }),
+                                };
+                      })(),
             ),
             queue: queueDockItems(session?.queue.items ?? []),
             goal: this.sessionId
@@ -1576,6 +1595,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .card-actions { display: flex; gap: 5px; margin-top: 7px; }
         .question { margin: 7px 0; }
         .question-title { margin-bottom: 4px; }
+        .plan-review { border-left: 3px solid var(--vscode-focusBorder); }
+        .plan-review-body { max-height: 45vh; overflow: auto; padding: 8px; border: 1px solid var(--vscode-panel-border); }
+        .plan-review-body .markdown-code-copy { display: none; }
+        .plan-feedback { width: 100%; min-height: 58px; margin-top: 7px; padding: 6px; resize: vertical; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); }
         .option { display: block; margin: 3px 0; font-size: 12px; }
         .custom-answer { width: 100%; padding: 5px; margin-top: 4px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); }
         .queue-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 5px 0; border-top: 1px solid var(--vscode-panel-border); }
@@ -1787,6 +1810,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 if (interaction.kind === 'approval') {
                     return '<div class="card interaction" data-key="' + escapeHtml(interaction.key) + '"><div class="card-title">需要批准：' + escapeHtml(interaction.toolName || '工具调用') + '</div>' + (interaction.reason ? '<div class="card-detail">' + escapeHtml(interaction.reason) + '</div>' : '') + (statusText ? '<div class="card-detail">' + escapeHtml(statusText) + '</div>' : '') + (interaction.error ? '<div class="card-error">' + escapeHtml(interaction.error) + '</div>' : '') + '<div class="card-actions"><button data-outcome="allowed-once"' + disabled + '>仅允许本次</button><button class="secondary" data-outcome="rejected"' + disabled + '>拒绝</button></div></div>';
                 }
+                if (interaction.kind === 'plan-review') {
+                    const review = interaction.review || {};
+                    return '<div class="card interaction plan-review" data-key="' + escapeHtml(interaction.key) + '" data-plan-id="' + escapeHtml(review.id || '') + '" data-approve="' + escapeHtml(review.approve || '') + '" data-decline="' + escapeHtml(review.decline || '') + '"><div class="card-title">计划评审</div><div class="plan-review-body message-body">' + (interaction.planHtml || '') + '</div><textarea class="plan-feedback" placeholder="反馈后继续规划"' + disabled + '></textarea>' + (statusText ? '<div class="card-detail">' + escapeHtml(statusText) + '</div>' : '') + (interaction.error ? '<div class="card-error">' + escapeHtml(interaction.error) + '</div>' : '') + '<div class="card-actions"><button class="secondary plan-feedback-submit"' + disabled + '>继续规划</button><button class="plan-approve"' + disabled + '>批准计划</button></div></div>';
+                }
                 const questions = (interaction.questions || []).map((question) => {
                     const inputType = question.multiSelect ? 'checkbox' : 'radio';
                     const options = (question.options || []).map((option) => '<label class="option"><input type="' + inputType + '" name="' + escapeHtml(interaction.key + ':' + question.id) + '" value="' + escapeHtml(option.label) + '"' + disabled + '> ' + escapeHtml(option.label) + (option.description ? ' — ' + escapeHtml(option.description) : '') + '</label>').join('');
@@ -1960,6 +1987,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         document.getElementById('interactions').addEventListener('click', (event) => {
             const card = event.target.closest('.interaction');
             if (!card) return;
+            const planApprove = event.target.closest('.plan-approve');
+            const planFeedback = event.target.closest('.plan-feedback-submit');
+            const planAction = planApprove || planFeedback;
+            if (planAction && !planAction.disabled) {
+                const selected = planApprove ? [card.dataset.approve] : (card.dataset.decline ? [card.dataset.decline] : []);
+                const custom = planFeedback ? card.querySelector('.plan-feedback').value.trim() || undefined : undefined;
+                for (const control of card.querySelectorAll('button,textarea')) control.disabled = true;
+                post('answerQuestion', {
+                    key: card.dataset.key,
+                    answers: [{ id: card.dataset.planId, selected, custom }],
+                });
+                return;
+            }
             const approval = event.target.closest('[data-outcome]');
             if (approval && !approval.disabled) {
                 for (const button of card.querySelectorAll('button')) button.disabled = true;

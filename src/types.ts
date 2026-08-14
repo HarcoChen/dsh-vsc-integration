@@ -589,11 +589,19 @@ export interface ChatViewState {
     };
     interactions: Array<{
         key: string;
-        kind: "approval" | "question";
+        kind: "approval" | "question" | "plan-review";
         status: "pending" | "submitting" | "resolved" | "failed" | "unavailable";
         toolName?: string;
         reason?: string;
         questions?: DshQuestionItem[];
+        review?: {
+            id: string;
+            question: string;
+            plan: string;
+            approve: string;
+            decline?: string;
+        };
+        planHtml?: string;
         outcome?: string;
         error?: string;
     }>;

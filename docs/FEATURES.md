@@ -79,7 +79,7 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 
 - [x] **审批卡片**（Harness 直连）：展示 tool、call、reason 和 session；支持 Allow once / Reject，用原 rpcId POST `/api/respond`。
 - [x] **结构化问题**（Harness 直连）：支持单选、多选、自由文本和批量问题；未知或伪造回答 fail-closed。
-- [ ] **计划评审**（Harness 直连）：识别 `plan-review`，用 Markdown 展示，允许批准或带反馈继续规划。
+- [x] **计划评审**（Harness 直连）：识别 `plan-review`，用 Markdown 展示，允许批准或带反馈继续规划。
 - [ ] **权限状态**（Harness 直连）：只读展示 `permissions` projection；当前 RPC 没有直接 mutation 方法，因此不提供切换控件。
 - [x] **fail-closed**（IDE 自建）：断线、过期、重复应答或解析失败都不视为授权，显示 resolved/cancelled/unavailable。
 - [ ] **风险说明**（IDE 自建）：删除、覆盖、shell、网络、工作区外访问使用不同样式，并显示 cwd 和目标。
