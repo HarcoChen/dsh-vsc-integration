@@ -564,8 +564,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.postState();
             return;
         }
-        const uris = await vscode.workspace.findFiles(`**/${query.trim()}*`, "**/{.git,node_modules}/**", 40);
-        this.fileReferenceCandidates = uris.map((uri) => vscode.workspace.asRelativePath(uri, false));
+        const normalizedQuery = query.trim().replaceAll("\\", "/").toLowerCase();
+        const uris = await vscode.workspace.findFiles("**/*", "**/{.git,node_modules,.DS_Store}/**", 2_000);
+        const active = vscode.window.activeTextEditor?.document.uri;
+        const candidates = uris
+            .map((uri) => vscode.workspace.asRelativePath(uri, false).replaceAll("\\", "/"))
+            .filter((relative) => relative.toLowerCase().includes(normalizedQuery));
+        const activeRelative = active
+            ? vscode.workspace.asRelativePath(active, false).replaceAll("\\", "/")
+            : undefined;
+        const ordered = activeRelative && activeRelative.toLowerCase().includes(normalizedQuery)
+            ? [activeRelative, ...candidates.filter((candidate) => candidate !== activeRelative)]
+            : candidates;
+        this.fileReferenceCandidates = ordered.slice(0, 40);
         this.postState();
     }
 
