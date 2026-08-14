@@ -5,3 +5,4 @@ dist/
 npm-debug.log*
 deepseek-harness/
 .DS_Store
+docs/
