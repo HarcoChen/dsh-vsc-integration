@@ -21,6 +21,7 @@ export type ChatViewAction =
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
     | { type: "searchSession" }
+    | { type: "selectModel" }
     | { type: "renameSession" }
     | { type: "forkSession" }
     | { type: "archiveSession" }
@@ -42,7 +43,9 @@ export type ChatViewAction =
           itemId: string;
           action: "edit" | "remove" | "steer";
           text?: string;
-      };
+    };
+
+export const CHAT_WEBVIEW_PROTOCOL_VERSION = 1 as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -94,6 +97,9 @@ function questionAnswers(value: unknown): DshQuestionAnswerItem[] | undefined {
 /** Strict trust boundary for messages originating in the webview. */
 export function parseChatViewAction(value: unknown): ChatViewAction | undefined {
     if (!isRecord(value) || typeof value.type !== "string") return undefined;
+    if (value.protocol !== undefined && value.protocol !== CHAT_WEBVIEW_PROTOCOL_VERSION) {
+        return undefined;
+    }
     switch (value.type) {
         case "ready":
         case "cancel":
@@ -107,6 +113,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "openBrowser":
         case "newSession":
         case "searchSession":
+        case "selectModel":
         case "renameSession":
         case "forkSession":
         case "archiveSession":

@@ -1,0 +1,36 @@
+/* Design tokens for the DSH chat webview. Every value resolves to a VS Code theme
+   variable so the UI follows the active workbench theme automatically. */
+:root {
+    color-scheme: light dark;
+
+    /* Spacing scale */
+    --dsh-space-1: 3px;
+    --dsh-space-2: 5px;
+    --dsh-space-3: 7px;
+    --dsh-space-4: 10px;
+    --dsh-space-5: 12px;
+    --dsh-space-6: 16px;
+
+    /* Radius scale */
+    --dsh-radius-sm: 4px;
+    --dsh-radius-md: 6px;
+    --dsh-radius-lg: 8px;
+    --dsh-radius-chip: 10px;
+
+    /* Font scale (body text never below 11px; badges may use 10px) */
+    --dsh-font-xs: 11px;
+    --dsh-font-sm: 12px;
+    --dsh-font-md: 13px;
+    --dsh-font-badge: 10px;
+
+    /* Semantic status colors */
+    --dsh-status-ok: var(--vscode-testing-iconPassed, #4ec994);
+    --dsh-status-busy: var(--vscode-progressBar-background, #0e70c0);
+    --dsh-status-warning: var(--vscode-editorWarning-foreground, #e5b567);
+    --dsh-status-error: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, #f14c4c));
+    --dsh-status-off: var(--vscode-descriptionForeground, #888888);
+
+    /* Surfaces */
+    --dsh-surface: var(--vscode-editorWidget-background);
+    --dsh-border: var(--vscode-panel-border);
+}
