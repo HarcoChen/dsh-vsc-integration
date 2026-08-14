@@ -4,6 +4,8 @@
 
 本文严格以 DeepSeek Harness 当前公开的 Web RPC、SSE frame 和 session projection 为边界。不为 Harness 内部 subsystem 猜测接口，也不把尚未暴露的能力列入扩展开发路线。
 
+客户端 UI 的复用与 VS Code 边界见 [DSH IDE 前端架构与 Harness UI 复用](FRONTEND_ARCHITECTURE.md)。协议范围由本文约束，展示层优先采用仓库内 Harness client packages。
+
 ## 可依赖的公开边界
 
 - Unary RPC：`session.*`、`subagent.*`、`host.*`、`workspace.*`、`skill.list`、`agentPreset.*`、`goal.*`、`settings.*`、`credentials.*`、`llm.*`。
@@ -55,6 +57,7 @@
 8. **未知 projection 不丢弃**：保存 key、value、seq，并在诊断视图展示；只有已知 schema 才做业务控件。
 9. **凭据值不回显**：只允许 set/unset，不进入 store、webview state、日志或诊断包。
 10. **不伪造 capability**：`host.describe` 不是方法清单；可选 host 方法失败时做明确降级。
+11. **不重复建设 Web UI**：browser-safe 的 Harness client 逻辑和组件优先复用；Extension Host 只保留 bridge 与 VS Code 特有能力。
 
 ## 当前明确不做
 
@@ -79,6 +82,8 @@
 RPC client + Event Store + Surface Fold + Projection Store
                            ↓
 Streaming Chat + Approval/Question + Queue + Session lifecycle
+                           ↓
+React Webview + Harness client adapter + UI migration
                            ↓
 Goal HUD + Agent Tree + Read-only Job Center
                            ↓

@@ -19,6 +19,8 @@ DeepSeek Harness 已提供完整 GUI 所需的大部分后端基础：事件溯�
 
 Harness 自身还有一组不能按普通聊天插件处理的运行时语义，包括 surface replacement、通用 projection、持久 Goal、可续跑 Subagent 和后台 Job。当前实现严格限定于已有 RPC、SSE frame 和 projection，完整范围见 [基于现有 RPC 的 Harness 特色集成清单](HARNESS_INTEGRATIONS.md)。
 
+前端采用“原生 VS Code 外壳 + React Webview + Harness client adapter”。后续复杂 UI 优先复用 Harness client packages，不继续扩张 `chatView.ts` 的内联页面；迁移边界与顺序见 [DSH IDE 前端架构与 Harness UI 复用](FRONTEND_ARCHITECTURE.md)。
+
 ## 能力矩阵
 
 | 能力 | DSH IDE 当前 | Claude Code VS Code | OpenCode VS Code | Harness 可用基础 |
@@ -117,6 +119,8 @@ Harness 自身还有一组不能按普通聊天插件处理的运行时语义，
 
 ### P0-7 工程质量
 
+- [ ] **React Webview 基础**：独立构建 Webview，建立版本化 bridge 和 Harness client adapter，逐步替换内联 HTML/CSS/脚本。
+- [ ] **Harness UI 复用**：优先接入 `client/ui-conversation`、`ui-tool`、`ui-user-questions` 等 browser-safe 模块；只重写 VS Code 特有 UI。
 - [ ] **Fake Harness server**：覆盖 RPC、SSE 重连、乱序/重复 frame、迟到应答、分页和旧字段。
 - [ ] **VS Code integration tests**：覆盖命令、快捷键、session tab、context、diff、trust 和 multi-root。
 - [ ] **Webview 安全**：严格 CSP、nonce、消息 schema、Markdown sanitize、command URI 白名单。
@@ -195,6 +199,10 @@ MCP 和 Harness 插件管理属于对标差距，当前 Web RPC map 未公开对
           ↓
 流式消息 / 工具卡片 / 审批 / 问题
           ↓
+React Webview + Harness client adapter
+          ↓
+迁移 Conversation / Tool / Question / Permission
+          ↓
 Session 列表、恢复、多 tab、queue/steer
           ↓
 文件快照、原生 diff、session fork
@@ -204,7 +212,7 @@ Session 列表、恢复、多 tab、queue/steer
 Skills / Presets / Workspaces / Settings / Trace
 ```
 
-前四阶段完成后，DSH IDE 才具备可与成熟 agent IDE 比较的核心闭环。模型选择、插件市场等功能不应早于事件恢复、审批和文件安全审查。
+React Webview 迁移是后续复杂前端功能的前置项。迁移期间保留现有可用功能，但模型、Skills、Settings、附件等新面板不再添加到内联页面。模型选择、插件市场等功能也不应早于事件恢复、审批和文件安全审查。
 
 ## 对标来源
 
