@@ -1,4 +1,4 @@
-# DSH IDE
+# DSH VSCode Integration
 
 原生连接 DeepSeek Harness 的社区版 VS Code Extension。
 

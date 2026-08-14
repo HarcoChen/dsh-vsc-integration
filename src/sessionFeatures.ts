@@ -1,4 +1,5 @@
 import { projectChatMessages } from "./chatState";
+import { t } from "./localize";
 import {
     GoalHudView,
     DshGoalProjection,
@@ -90,7 +91,7 @@ export function normalizeGoalRef(value: unknown): DshGoalRef | undefined {
 export function parseGoalProjection(value: unknown): ParsedGoalProjection {
     if (value === null) return { ok: true, value: null };
     if (!isRecord(value) || !isRecord(value.goal)) {
-        return { ok: false, error: "Harness 返回了无效的 goal projection。" };
+        return { ok: false, error: t("Harness returned an invalid goal projection.") };
     }
     const goal = value.goal;
     if (
@@ -108,7 +109,7 @@ export function parseGoalProjection(value: unknown): ParsedGoalProjection {
         typeof value.updatedAt !== "number" ||
         !Number.isFinite(value.updatedAt)
     ) {
-        return { ok: false, error: "Harness 返回了无效的 goal projection。" };
+        return { ok: false, error: t("Harness returned an invalid goal projection.") };
     }
     let blockedReason: DshGoalProjection["goal"]["blockedReason"];
     if (goal.blockedReason !== undefined) {
@@ -117,7 +118,7 @@ export function parseGoalProjection(value: unknown): ParsedGoalProjection {
             typeof goal.blockedReason.code !== "string" ||
             typeof goal.blockedReason.message !== "string"
         ) {
-            return { ok: false, error: "Harness 返回了无效的 goal blockedReason。" };
+            return { ok: false, error: t("Harness returned an invalid goal blockedReason.") };
         }
         blockedReason = {
             code: goal.blockedReason.code,
@@ -125,7 +126,7 @@ export function parseGoalProjection(value: unknown): ParsedGoalProjection {
         };
     }
     if ((goal.phase === "blocked") !== (blockedReason !== undefined)) {
-        return { ok: false, error: "Harness goal phase 与 blockedReason 不一致。" };
+        return { ok: false, error: t("Harness goal phase is inconsistent with blockedReason.") };
     }
     return {
         ok: true,

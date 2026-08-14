@@ -59,12 +59,12 @@ test("question validation rejects forged options, duplicate ids, and multi-selec
         multiSelect: false,
     }];
     assert.equal(validateQuestionAnswers(questions, [{ id: "q1", selected: ["A"] }]), undefined);
-    assert.match(validateQuestionAnswers(questions, [{ id: "q1", selected: ["forged"] }]), /未提供/);
-    assert.match(validateQuestionAnswers(questions, [{ id: "q1", selected: ["A", "B"] }]), /单选/);
+    assert.match(validateQuestionAnswers(questions, [{ id: "q1", selected: ["forged"] }]), /not provided/);
+    assert.match(validateQuestionAnswers(questions, [{ id: "q1", selected: ["A", "B"] }]), /single-choice/);
     assert.match(validateQuestionAnswers(questions, [
         { id: "q1", selected: ["A"] },
         { id: "q1", selected: ["B"] },
-    ]), /不匹配|重复/);
+    ]), /do not match|duplicate/);
 });
 
 test("Goal and subagent actions accept only UI intent, never forged refs or addresses", () => {

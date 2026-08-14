@@ -1,6 +1,7 @@
 import React from "react";
 import type { ChatMessage, ChatToolCall } from "../../../src/types";
 import { findFileLocations } from "../../../src/fileLocations";
+import { t } from "../i18n";
 import { formatToolDuration, ROLE_LABELS } from "../state";
 
 interface MessageItemProps {
@@ -38,7 +39,7 @@ function LinkedFileLocations({ text }: { text: string }): React.JSX.Element {
 
 function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
     const status =
-        tool.status === "running" ? "运行中" : tool.status === "failed" ? "失败" : "完成";
+        tool.status === "running" ? t("Running") : tool.status === "failed" ? t("Failed") : t("Done");
     const hasDetail = Boolean(tool.args || tool.result || tool.error);
     return (
         <details className={`dsh-tool-card ${tool.status}`}>
@@ -54,13 +55,13 @@ function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
                 <div className="dsh-tool-detail">
                     {tool.args ? (
                         <div className="dsh-tool-section">
-                            <div className="dsh-tool-section-label">参数</div>
+                            <div className="dsh-tool-section-label">{t("Parameters")}</div>
                             <pre><LinkedFileLocations text={tool.args} /></pre>
                         </div>
                     ) : null}
                     {tool.result ? (
                         <div className="dsh-tool-section">
-                            <div className="dsh-tool-section-label">结果</div>
+                            <div className="dsh-tool-section-label">{t("Result")}</div>
                             <pre><LinkedFileLocations text={tool.result} /></pre>
                         </div>
                     ) : null}
@@ -112,7 +113,7 @@ export function MessageContent({ message }: { message: ChatMessage }): React.JSX
                     : {})}
             >
                 <summary>
-                    {message.reasoningState === "streaming" ? "思考中…" : "思考过程 · 已完成"}
+                    {message.reasoningState === "streaming" ? t("Thinking...") : t("Reasoning · complete")}
                 </summary>
                 {reasoningBody}
             </details>
@@ -129,9 +130,9 @@ export function MessageItem({ message, submitting }: MessageItemProps): React.JS
               : "";
     const stateLabel =
         message.state === "pending"
-            ? " · 等待接收"
+            ? t(" · waiting for response")
             : message.state === "streaming"
-              ? " · 流式生成"
+              ? t(" · streaming")
               : "";
     const hasTrace = Number.isSafeInteger(message.seq) && (message.seq ?? -1) >= 0;
     return (
@@ -149,7 +150,7 @@ export function MessageItem({ message, submitting }: MessageItemProps): React.JS
                         type="button"
                         className="dsh-message-trace"
                         data-trace-seq={message.seq}
-                        title="在 Trace 中定位"
+                        title={t("Locate in Trace")}
                     >
                         trace
                     </button>
@@ -163,7 +164,7 @@ export function MessageItem({ message, submitting }: MessageItemProps): React.JS
                     data-retry-id={message.id}
                     disabled={submitting}
                 >
-                    重试
+                    {t("Retry")}
                 </button>
             ) : null}
         </div>

@@ -6,6 +6,7 @@ import type {
     SubagentTreeView,
 } from "../../../src/types";
 import { postAction } from "../bridge";
+import { t } from "../i18n";
 import { handleMarkdownClick, handleMarkdownKeydown } from "./MessageList";
 import { MessageContent } from "./MessageItem";
 
@@ -19,14 +20,14 @@ interface TabDef {
 
 function askGoalRounds(initialValue: number | undefined): { cancelled: true } | { value?: number } {
     const raw = window.prompt(
-        "最大 Goal rounds（留空使用 Harness 默认值）",
+        t("Maximum Goal rounds (leave empty for the Harness default)"),
         initialValue === undefined ? "" : String(initialValue),
     );
     if (raw === null) return { cancelled: true };
     if (!raw.trim()) return { value: undefined };
     const value = Number(raw);
     if (!Number.isSafeInteger(value) || value <= 0) {
-        window.alert("Goal rounds 必须是正整数。");
+        window.alert(t("Goal rounds must be a positive integer."));
         return { cancelled: true };
     }
     return { value };
@@ -36,13 +37,13 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
     if (goal.state === "invalid") {
         return (
             <div className="dsh-card">
-                <div className="dsh-card-error">{goal.error || "Goal projection 无效"}</div>
+                <div className="dsh-card-error">{goal.error || t("Invalid Goal projection")}</div>
             </div>
         );
     }
 
     const create = (): void => {
-        const objective = window.prompt("Goal objective", "");
+        const objective = window.prompt(t("Goal objective"), "");
         if (objective === null || !objective.trim()) return;
         const rounds = askGoalRounds(undefined);
         if ("cancelled" in rounds) return;
@@ -56,7 +57,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
     if (goal.state === "empty") {
         return (
             <div className="dsh-card">
-                <div className="dsh-card-detail">当前会话尚未创建 Goal。</div>
+                <div className="dsh-card-detail">{t("This session has no Goal yet.")}</div>
                 {goal.error ? <div className="dsh-card-error">{goal.error}</div> : null}
                 <div className="dsh-card-actions">
                     <button
@@ -65,7 +66,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                         disabled={goal.pending}
                         onClick={create}
                     >
-                        创建 Goal
+                        {t("Create Goal")}
                     </button>
                 </div>
             </div>
@@ -76,7 +77,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
     if (!current) {
         return (
             <div className="dsh-card">
-                <div className="dsh-card-error">Goal 数据缺失。</div>
+                <div className="dsh-card-error">{t("Goal data is missing.")}</div>
             </div>
         );
     }
@@ -87,7 +88,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
         Number(goal.roundsStarted || 0) < Number(current.maxGoalRounds || 0);
 
     const edit = (): void => {
-        const objective = window.prompt("编辑 Goal objective", current.objective || "");
+        const objective = window.prompt(t("Edit Goal objective"), current.objective || "");
         if (objective === null || !objective.trim()) return;
         const rounds = askGoalRounds(current.maxGoalRounds);
         if ("cancelled" in rounds) return;
@@ -98,7 +99,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
         });
     };
     const simple = (action: "goalPause" | "goalResume" | "goalComplete" | "goalClear") => (): void => {
-        if (action === "goalClear" && !window.confirm("清除当前 Goal？")) return;
+        if (action === "goalClear" && !window.confirm(t("Clear the current Goal?"))) return;
         postAction({ type: action });
     };
 
@@ -106,8 +107,12 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
         <div className="dsh-card">
             <div className="dsh-goal-objective">{current.objective}</div>
             <div className="dsh-card-detail">
-                阶段 {current.phase} · revision {current.revision} · round {goal.roundsStarted || 0}/
-                {current.maxGoalRounds}
+                {t("Phase {phase} · revision {revision} · round {started}/{maximum}", {
+                    phase: current.phase,
+                    revision: current.revision,
+                    started: goal.roundsStarted || 0,
+                    maximum: current.maxGoalRounds,
+                })}
             </div>
             {current.blockedReason ? (
                 <div className="dsh-card-error">
@@ -116,13 +121,15 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
             ) : null}
             {goal.pending ? (
                 <div className="dsh-card-detail">
-                    正在执行 {goal.pendingOperation || "mutation"}，等待 projection 收敛…
+                    {t("Running {operation}; waiting for the projection to converge...", {
+                        operation: goal.pendingOperation || t("mutation"),
+                    })}
                 </div>
             ) : null}
             {goal.error ? <div className="dsh-card-error">{goal.error}</div> : null}
             <div className="dsh-card-actions">
                 <button type="button" className="dsh-button" disabled={disabled} onClick={edit}>
-                    编辑
+                    {t("Edit")}
                 </button>
                 {current.phase === "active" ? (
                     <button
@@ -131,7 +138,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                         disabled={disabled}
                         onClick={simple("goalPause")}
                     >
-                        暂停
+                        {t("Pause")}
                     </button>
                 ) : null}
                 {canResume ? (
@@ -141,7 +148,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                         disabled={disabled}
                         onClick={simple("goalResume")}
                     >
-                        继续
+                        {t("Resume")}
                     </button>
                 ) : null}
                 {current.phase !== "complete" ? (
@@ -151,11 +158,11 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                         disabled={disabled}
                         onClick={simple("goalComplete")}
                     >
-                        完成
+                        {t("Complete")}
                     </button>
                 ) : (
                     <button type="button" className="dsh-button" disabled={disabled} onClick={create}>
-                        新 Goal
+                        {t("New Goal")}
                     </button>
                 )}
                 <button
@@ -164,7 +171,7 @@ function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                     disabled={disabled}
                     onClick={simple("goalClear")}
                 >
-                    清除
+                    {t("Clear")}
                 </button>
             </div>
         </div>
@@ -180,7 +187,7 @@ function QueuePanel({
 }): React.JSX.Element {
     const act = (itemId: string, action: "edit" | "remove" | "steer", editableText?: string): void => {
         if (action === "edit") {
-            const text = window.prompt("编辑排队消息", editableText ?? "");
+            const text = window.prompt(t("Edit queued message"), editableText ?? "");
             if (text === null || !text.trim()) return;
             postAction({ type: "updateQueue", itemId, action: "edit", text });
             return;
@@ -193,7 +200,7 @@ function QueuePanel({
                 <div className="dsh-queue-row" key={item.id}>
                     <div className="dsh-queue-preview">
                         {item.placement === "steering" ? "↪ " : ""}
-                        {item.preview || "（无文本内容）"}
+                        {item.preview || t("(no text content)")}
                     </div>
                     <div className="dsh-queue-actions">
                         {item.editableText !== undefined ? (
@@ -202,7 +209,7 @@ function QueuePanel({
                                 className="dsh-button dsh-button-secondary"
                                 onClick={() => act(item.id, "edit", item.editableText)}
                             >
-                                编辑
+                                {t("Edit")}
                             </button>
                         ) : null}
                         <button
@@ -210,7 +217,7 @@ function QueuePanel({
                             className="dsh-button dsh-button-secondary"
                             onClick={() => act(item.id, "remove")}
                         >
-                            移除
+                            {t("Remove")}
                         </button>
                         <button
                             type="button"
@@ -218,7 +225,7 @@ function QueuePanel({
                             disabled={!running}
                             onClick={() => act(item.id, "steer")}
                         >
-                            立即转向
+                            {t("Steer now")}
                         </button>
                     </div>
                 </div>
@@ -248,19 +255,19 @@ function SubagentPreviewCard({ preview }: { preview: SubagentHistoryPreview }): 
                     className="dsh-button dsh-button-secondary"
                     onClick={() => postAction({ type: "closeSubagent" })}
                 >
-                    关闭
+                    {t("Close")}
                 </button>
             </div>
             <div className="dsh-card-detail">
                 {preview.mode} · {preview.activity} ·{" "}
-                {preview.parentAvailable ? "parent available" : "parent unavailable"}
+                {preview.parentAvailable ? t("parent available") : t("parent unavailable")}
             </div>
             {preview.state === "loading" ? (
-                <div className="dsh-card-detail">加载 history…</div>
+                <div className="dsh-card-detail">{t("Loading history...")}</div>
             ) : null}
             {preview.error ? <div className="dsh-card-error">{preview.error}</div> : null}
             {preview.pendingAction ? (
-                <div className="dsh-card-detail">正在执行 {preview.pendingAction}…</div>
+                <div className="dsh-card-detail">{t("Running {operation}...", { operation: preview.pendingAction })}</div>
             ) : null}
             {preview.messages.length ? (
                 <div
@@ -280,8 +287,8 @@ function SubagentPreviewCard({ preview }: { preview: SubagentHistoryPreview }): 
                                 {message.role === "assistant"
                                     ? "subagent"
                                     : message.role === "user"
-                                      ? "你"
-                                      : "系统"}
+                                      ? t("You")
+                                      : t("System")}
                             </div>
                             <MessageContent message={message} />
                         </div>
@@ -291,7 +298,7 @@ function SubagentPreviewCard({ preview }: { preview: SubagentHistoryPreview }): 
             {preview.mode === "continuable" ? (
                 <div className="dsh-follow-up">
                     <input
-                        placeholder="给 continuable subagent 追加任务"
+                        placeholder={t("Add a task for the continuable subagent")}
                         value={followUp}
                         disabled={!canFollowUp}
                         onChange={(event) => setFollowUp(event.target.value)}
@@ -308,7 +315,7 @@ function SubagentPreviewCard({ preview }: { preview: SubagentHistoryPreview }): 
                         disabled={!canFollowUp || !followUp.trim()}
                         onClick={sendFollowUp}
                     >
-                        发送
+                        {t("Send")}
                     </button>
                 </div>
             ) : null}
@@ -325,7 +332,7 @@ function SubagentPreviewCard({ preview }: { preview: SubagentHistoryPreview }): 
                             })
                         }
                     >
-                        中断
+                        {t("Interrupt")}
                     </button>
                 </div>
             ) : null}
@@ -342,23 +349,23 @@ function SubagentsPanel({
 }): React.JSX.Element {
     const statusText =
         tree.state === "loading"
-            ? "加载中…"
+            ? t("Loading...")
             : tree.state === "error"
-              ? tree.error || "加载失败"
+              ? tree.error || t("Loading failed")
               : tree.nodes.length
                 ? ""
-                : "暂无 subagent";
+                : t("No subagents");
     return (
         <div>
             <div className="dsh-feature-head">
-                <div className="dsh-dock-title">Subagent Tree</div>
+                <div className="dsh-dock-title">{t("Subagent Tree")}</div>
                 <button
                     type="button"
                     className="dsh-button dsh-button-secondary"
                     disabled={tree.state === "loading"}
                     onClick={() => postAction({ type: "refreshSubagents" })}
                 >
-                    刷新
+                    {t("Refresh")}
                 </button>
             </div>
             {statusText ? <div className="dsh-card-detail">{statusText}</div> : null}
@@ -370,7 +377,10 @@ function SubagentsPanel({
                             <div>
                                 <div className="dsh-tree-label">{node.id}</div>
                                 <div className="dsh-tree-meta">
-                                    diagnostic · {node.reason || ""} · parent {node.parentSessionId}
+                                    {t("diagnostic · {reason} · parent {parent}", {
+                                        reason: node.reason || "",
+                                        parent: node.parentSessionId,
+                                    })}
                                 </div>
                             </div>
                         </div>
@@ -379,8 +389,8 @@ function SubagentsPanel({
                 const meta = [
                     node.mode,
                     node.activity,
-                    node.hasChildren ? "has children" : "leaf",
-                    node.parentAvailable ? "parent available" : "parent unavailable",
+                    node.hasChildren ? t("has children") : t("leaf"),
+                    node.parentAvailable ? t("parent available") : t("parent unavailable"),
                 ]
                     .filter(Boolean)
                     .join(" · ");
@@ -391,7 +401,7 @@ function SubagentsPanel({
                             <div className="dsh-tree-meta">
                                 {meta}
                                 <br />
-                                parent {node.parentSessionId}
+                                {t("parent {parent}", { parent: node.parentSessionId })}
                             </div>
                         </div>
                         <button
@@ -399,7 +409,7 @@ function SubagentsPanel({
                             className="dsh-button dsh-button-secondary"
                             onClick={() => postAction({ type: "openSubagent", childSessionId: node.id })}
                         >
-                            历史
+                            {t("History")}
                         </button>
                     </div>
                 );
@@ -412,12 +422,12 @@ function SubagentsPanel({
 function JobsPanel({ jobs }: { jobs: ChatViewState["jobs"] }): React.JSX.Element {
     return (
         <div>
-            <div className="dsh-card-detail">Job Center · 只读</div>
+            <div className="dsh-card-detail">{t("Job Center · read-only")}</div>
             {jobs.map((job) => (
                 <div className="dsh-job-row" key={job.id}>
                     <div>{job.label}</div>
                     <div className="dsh-job-meta">
-                        {job.kind} · {job.status} · owner {job.ownerSessionId}
+                        {job.kind} · {job.status} · {t("owner {owner}", { owner: job.ownerSessionId })}
                     </div>
                     {job.outputSummary ? (
                         <div className="dsh-job-summary">{job.outputSummary}</div>
@@ -435,7 +445,7 @@ function PermissionsPanel({
 }): React.JSX.Element {
     return (
         <div className="dsh-card">
-            <div className="dsh-card-detail">当前 preset：{permissions.currentLabel}</div>
+            <div className="dsh-card-detail">{t("Current preset: {preset}", { preset: permissions.currentLabel })}</div>
             {permissions.options.map((option) => (
                 <div
                     className={`dsh-permission-option${
@@ -445,14 +455,14 @@ function PermissionsPanel({
                 >
                     <span>
                         {option.label}
-                        {option.value === permissions.currentValue ? " · 当前" : ""}
+                        {option.value === permissions.currentValue ? t(" · current") : ""}
                     </span>
                     {option.description ? (
                         <span className="dsh-card-detail">{option.description}</span>
                     ) : null}
                 </div>
             ))}
-            <div className="dsh-card-detail">权限切换由 Harness Web UI 的公开 command 负责。</div>
+            <div className="dsh-card-detail">{t("Permission changes are handled by the public command in the Harness Web UI.")}</div>
         </div>
     );
 }
@@ -462,16 +472,16 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
 
     const tabs: TabDef[] = [];
     if (state.goal) tabs.push({ id: "goal", label: "Goal" });
-    if (state.queue.length) tabs.push({ id: "queue", label: "队列", count: state.queue.length });
+    if (state.queue.length) tabs.push({ id: "queue", label: t("Queue"), count: state.queue.length });
     if (state.subagents && state.sessionId) {
         tabs.push({
             id: "subagents",
-            label: "子代理",
+            label: t("Subagents"),
             count: state.subagents.nodes.length || undefined,
         });
     }
     if (state.jobs.length) tabs.push({ id: "jobs", label: "Jobs", count: state.jobs.length });
-    if (state.permissions) tabs.push({ id: "permissions", label: "权限" });
+    if (state.permissions) tabs.push({ id: "permissions", label: t("Permissions") });
 
     const available = tabs.map((tab) => tab.id).join(",");
     useEffect(() => {

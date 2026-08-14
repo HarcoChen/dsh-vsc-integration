@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import type { ChatViewState } from "../../../src/types";
 import type { ChatViewAction } from "../../../src/chatViewProtocol";
 import { postAction } from "../bridge";
+import { t } from "../i18n";
 import { statusLabel, TURN_LABELS } from "../state";
 import { CheckIcon, MoreIcon, PlusIcon, SearchIcon } from "./icons";
 
@@ -55,7 +56,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
     const label = !runtimeReady
         ? statusLabel(status)
         : (turn && TURN_LABELS[turn.phase]) ||
-          (sessionStatus?.error ? "会话错误" : statusLabel(status));
+          (sessionStatus?.error ? t("Session error") : statusLabel(status));
     const turnTitle =
         (turn && Number.isSafeInteger(turn.turn) ? `Turn ${turn.turn}` : "") +
         (turn?.detail ? ` · ${turn.detail}` : "");
@@ -66,23 +67,23 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
     const runtimeRunning = status.state === "running" || status.state === "starting";
 
     const menuItems: MenuItem[] = [
-        { key: "rename", label: "重命名会话", action: { type: "renameSession" }, disabled: !hasSession },
-        { key: "fork", label: "Fork 会话", action: { type: "forkSession" }, disabled: !hasSession },
-        { key: "archive", label: "归档会话", action: { type: "archiveSession" }, disabled: !hasSession },
-        { key: "trace", label: "打开会话 Trace", action: { type: "openTrace" }, disabled: !hasSession },
+        { key: "rename", label: t("Rename session"), action: { type: "renameSession" }, disabled: !hasSession },
+        { key: "fork", label: t("Fork session"), action: { type: "forkSession" }, disabled: !hasSession },
+        { key: "archive", label: t("Archive session"), action: { type: "archiveSession" }, disabled: !hasSession },
+        { key: "trace", label: t("Open session trace"), action: { type: "openTrace" }, disabled: !hasSession },
         {
             key: "runtime",
-            label: runtimeRunning ? "停止运行时" : "启动运行时",
+            label: runtimeRunning ? t("Stop runtime") : t("Start runtime"),
             action: { type: runtimeRunning ? "stop" : "start" },
             disabled: status.state === "starting",
             separatorBefore: true,
         },
-        { key: "logs", label: "打开运行日志", action: { type: "openLogs" } },
-        { key: "browser", label: "在浏览器中打开", action: { type: "openBrowser" } },
-        { key: "key", label: "配置 API Key", action: { type: "configureApiKey" }, separatorBefore: true },
+        { key: "logs", label: t("Open runtime logs"), action: { type: "openLogs" } },
+        { key: "browser", label: t("Open in browser"), action: { type: "openBrowser" } },
+        { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" }, separatorBefore: true },
         {
             key: "focus",
-            label: state.focusMode ? "Focus 模式：开" : "Focus 模式：关",
+            label: state.focusMode ? t("Focus mode: on") : t("Focus mode: off"),
             action: { type: "toggleFocus" },
             active: state.focusMode,
         },
@@ -97,8 +98,8 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                         type="button"
                         className="dsh-status-label dsh-status-action"
                         title={status.state === "error"
-                            ? `${status.message || "启动失败"}\n点击重试`
-                            : "点击启动 DSH Runtime"}
+                            ? `${status.message || t("Startup failed")}\n${t("Click to retry")}`
+                            : t("Click to start DSH Runtime")}
                         onClick={() => postAction({ type: "start" })}
                     >
                         {label}
@@ -111,7 +112,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
             </div>
             <select
                 className="dsh-session-select"
-                title="切换会话"
+                title={t("Switch session")}
                 value={state.sessionId ?? ""}
                 disabled={sessions.length === 0}
                 onChange={(event) => {
@@ -121,7 +122,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                 }}
             >
                 {sessions.length === 0 ? (
-                    <option value="">暂无会话</option>
+                    <option value="">{t("No sessions")}</option>
                 ) : (
                     sessions.map((session) => (
                         <option key={session.sessionId} value={session.sessionId}>
@@ -134,7 +135,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
             <button
                 type="button"
                 className="dsh-icon-button"
-                title="新建会话"
+                title={t("New session")}
                 onClick={() => postAction({ type: "newSession" })}
             >
                 <PlusIcon />
@@ -142,7 +143,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
             <button
                 type="button"
                 className="dsh-icon-button"
-                title="搜索会话"
+                title={t("Search sessions")}
                 onClick={() => postAction({ type: "searchSession" })}
             >
                 <SearchIcon />
@@ -151,7 +152,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                 <button
                     type="button"
                     className={`dsh-icon-button${menuOpen ? " active" : ""}`}
-                    title="更多操作"
+                    title={t("More actions")}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen}
                     onClick={() => setMenuOpen((open) => !open)}

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import type { ChatViewState, DshQuestionAnswerItem } from "../../../src/types";
 import { postAction } from "../bridge";
+import { t } from "../i18n";
 import { interactionStatusText } from "../state";
 
 type Interaction = ChatViewState["interactions"][number];
@@ -36,7 +37,7 @@ function ApprovalCard({ interaction }: CardProps): React.JSX.Element {
     };
     return (
         <div className="dsh-card dsh-interaction">
-            <div className="dsh-card-title">需要批准：{interaction.toolName || "工具调用"}</div>
+            <div className="dsh-card-title">{t("Approval required: {tool}", { tool: interaction.toolName || t("Tool call") })}</div>
             {interaction.reason ? <div className="dsh-card-detail">{interaction.reason}</div> : null}
             <StatusLines interaction={interaction} />
             <div className="dsh-card-actions">
@@ -46,7 +47,7 @@ function ApprovalCard({ interaction }: CardProps): React.JSX.Element {
                     disabled={disabled}
                     onClick={() => answer("allowed-once")}
                 >
-                    仅允许本次
+                    {t("Allow once")}
                 </button>
                 <button
                     type="button"
@@ -54,7 +55,7 @@ function ApprovalCard({ interaction }: CardProps): React.JSX.Element {
                     disabled={disabled}
                     onClick={() => answer("rejected")}
                 >
-                    拒绝
+                    {t("Reject")}
                 </button>
             </div>
         </div>
@@ -70,8 +71,8 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
     if (!review) {
         return (
             <div className="dsh-card dsh-interaction dsh-plan-review">
-                <div className="dsh-card-title">计划评审</div>
-                <div className="dsh-card-error">计划数据缺失。</div>
+                <div className="dsh-card-title">{t("Plan review")}</div>
+                <div className="dsh-card-error">{t("Plan data is missing.")}</div>
             </div>
         );
     }
@@ -95,7 +96,7 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
 
     return (
         <div className="dsh-card dsh-interaction dsh-plan-review">
-            <div className="dsh-card-title">计划评审</div>
+            <div className="dsh-card-title">{t("Plan review")}</div>
             <div
                 className="dsh-plan-review-body dsh-message-body"
                 {...(typeof interaction.planHtml === "string"
@@ -104,7 +105,7 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
             />
             <textarea
                 className="dsh-plan-feedback"
-                placeholder="反馈后继续规划"
+                placeholder={t("Provide feedback and continue planning")}
                 value={feedback}
                 disabled={disabled}
                 onChange={(event) => setFeedback(event.target.value)}
@@ -117,7 +118,7 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
                     disabled={disabled}
                     onClick={() => answer(false)}
                 >
-                    继续规划
+                    {t("Continue planning")}
                 </button>
                 <button
                     type="button"
@@ -125,7 +126,7 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
                     disabled={disabled}
                     onClick={() => answer(true)}
                 >
-                    批准计划
+                    {t("Approve plan")}
                 </button>
             </div>
         </div>
@@ -168,7 +169,7 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
 
     return (
         <div className="dsh-card dsh-interaction">
-            <div className="dsh-card-title">dsh 需要你的回答</div>
+            <div className="dsh-card-title">{t("dsh needs your answer")}</div>
             {questions.map((question) => {
                 const options = question.options ?? [];
                 const selected = selections[question.id] ?? [];
@@ -203,7 +204,7 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
                         ))}
                         <input
                             className="dsh-custom-answer"
-                            placeholder={options.length ? "其他回答（可选）" : "输入回答"}
+                            placeholder={options.length ? t("Other answer (optional)") : t("Enter an answer")}
                             value={customs[question.id] ?? ""}
                             disabled={disabled}
                             onChange={(event) =>
@@ -224,7 +225,7 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
                     disabled={disabled}
                     onClick={submit}
                 >
-                    提交回答
+                    {t("Submit answer")}
                 </button>
             </div>
         </div>

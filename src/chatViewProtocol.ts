@@ -1,4 +1,5 @@
 import { DshApprovalOutcome, DshQuestionAnswerItem, DshQuestionItem } from "./types";
+import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
 import {
     MAX_FILE_LOCATION_INDEX,
@@ -291,21 +292,21 @@ export function validateQuestionAnswers(
 ): string | undefined {
     const byId = new Map(questions.map((question) => [question.id, question]));
     if (byId.size !== questions.length || answers.length !== questions.length) {
-        return "问题回答与当前请求不匹配。";
+        return t("The answers do not match the current request.");
     }
     const seen = new Set<string>();
     for (const answer of answers) {
         const question = byId.get(answer.id);
         if (!question || seen.has(answer.id)) {
-            return "问题回答包含未知或重复的标识。";
+            return t("The answers contain an unknown or duplicate identifier.");
         }
         seen.add(answer.id);
         if (!question.multiSelect && answer.selected.length > 1) {
-            return "单选问题不能选择多个选项。";
+            return t("A single-choice question cannot have multiple selections.");
         }
         const allowed = new Set((question.options ?? []).map((option) => option.label));
         if (answer.selected.some((selection) => !allowed.has(selection))) {
-            return "问题回答包含当前请求未提供的选项。";
+            return t("The answers contain an option that was not provided by the current request.");
         }
     }
     return undefined;

@@ -1,7 +1,7 @@
 {
     "name": "dsh-vsc-integration",
-    "displayName": "DSH VSCode Integration (Community)",
-    "description": "余额快捷显示、内建 Trace，Slash-like Commands、IDE 上下文感知、支持工具卡片与 Reasoning 折叠的 Cline-like 聊天体验。Quick balance display, built-in Trace, slash-like commands, IDE context awareness, tool cards",
+    "displayName": "%extension.displayName%",
+    "description": "%extension.description%",
     "version": "0.2.2",
     "publisher": "harcochen",
     "license": "MIT",
@@ -14,6 +14,7 @@
     },
     "homepage": "https://github.com/HarcoChen/dsh-vsc-integration#readme",
     "icon": "resources/dsh.png",
+    "l10n": "./l10n",
     "engines": {
         "vscode": "^1.106.0"
     },
@@ -24,7 +25,7 @@
         "virtualWorkspaces": false,
         "untrustedWorkspaces": {
             "supported": false,
-            "description": "DSH IDE requires a trusted workspace before it can start an agent runtime."
+            "description": "%extension.untrustedWorkspace%"
         }
     },
     "categories": [
@@ -86,7 +87,7 @@
                 {
                     "type": "webview",
                     "id": "dsh.chatView",
-                    "name": "Chat",
+                    "name": "%view.chat.name%",
                     "icon": "resources/dsh.svg",
                     "visibility": "visible"
                 }
@@ -95,91 +96,91 @@
         "commands": [
             {
                 "command": "dsh.open",
-                "title": "DSH: Open Chat",
+                "title": "%command.open.title%",
                 "category": "DSH",
                 "icon": "$(comment-discussion)"
             },
             {
                 "command": "dsh.openTrace",
-                "title": "DSH: Open Session Trace",
+                "title": "%command.openTrace.title%",
                 "category": "DSH",
                 "icon": "$(pulse)"
             },
             {
                 "command": "dsh.newSession",
-                "title": "DSH: New Session",
+                "title": "%command.newSession.title%",
                 "category": "DSH",
                 "icon": "$(add)"
             },
             {
                 "command": "dsh.switchSession",
-                "title": "DSH: Switch Session",
+                "title": "%command.switchSession.title%",
                 "category": "DSH",
                 "icon": "$(list-selection)"
             },
             {
                 "command": "dsh.searchSession",
-                "title": "DSH: Search Sessions",
+                "title": "%command.searchSession.title%",
                 "category": "DSH",
                 "icon": "$(search)"
             },
             {
                 "command": "dsh.selectModel",
-                "title": "DSH: Select Model",
+                "title": "%command.selectModel.title%",
                 "category": "DSH",
                 "icon": "$(symbol-misc)"
             },
             {
                 "command": "dsh.renameSession",
-                "title": "DSH: Rename Session",
+                "title": "%command.renameSession.title%",
                 "category": "DSH",
                 "icon": "$(edit)"
             },
             {
                 "command": "dsh.forkSession",
-                "title": "DSH: Fork Session",
+                "title": "%command.forkSession.title%",
                 "category": "DSH",
                 "icon": "$(repo-forked)"
             },
             {
                 "command": "dsh.archiveSession",
-                "title": "DSH: Archive Session",
+                "title": "%command.archiveSession.title%",
                 "category": "DSH",
                 "icon": "$(archive)"
             },
             {
                 "command": "dsh.start",
-                "title": "DSH: Start dsh Web Runtime",
+                "title": "%command.start.title%",
                 "category": "DSH",
                 "icon": "$(play)"
             },
             {
                 "command": "dsh.stop",
-                "title": "DSH: Stop dsh Web Runtime",
+                "title": "%command.stop.title%",
                 "category": "DSH",
                 "icon": "$(debug-stop)"
             },
             {
                 "command": "dsh.restart",
-                "title": "DSH: Restart dsh Web Runtime",
+                "title": "%command.restart.title%",
                 "category": "DSH",
                 "icon": "$(refresh)"
             },
             {
                 "command": "dsh.openLogs",
-                "title": "DSH: Show dsh Runtime Logs",
+                "title": "%command.openLogs.title%",
                 "category": "DSH",
                 "icon": "$(output)"
             },
             {
                 "command": "dsh.openInBrowser",
-                "title": "DSH: Open dsh Web UI in Browser",
+                "title": "%command.openInBrowser.title%",
                 "category": "DSH",
                 "icon": "$(link-external)"
             },
             {
                 "command": "dsh.insertEditorReference",
-                "title": "DSH: Insert Current Editor Reference",
+                "title": "%command.insertEditorReference.title%",
                 "category": "DSH",
                 "icon": "$(references)"
             },
@@ -225,19 +226,19 @@
             },
             {
                 "command": "dsh.openIdeContextPicker",
-                "title": "DSH: Manage IDE Context (/ide)",
+                "title": "%command.openIdeContextPicker.title%",
                 "category": "DSH",
                 "icon": "$(settings)"
             },
             {
                 "command": "dsh.configureApiKey",
-                "title": "DSH: Configure API Key",
+                "title": "%command.configureApiKey.title%",
                 "category": "DSH",
                 "icon": "$(key)"
             },
             {
                 "command": "dsh.refreshBalance",
-                "title": "DSH: Refresh DeepSeek Balance",
+                "title": "%command.refreshBalance.title%",
                 "category": "DSH",
                 "icon": "$(dashboard)"
             }
@@ -354,7 +355,7 @@
                 "dsh.command": {
                     "type": "string",
                     "default": "npx",
-                    "description": "Executable used to start dsh web when dsh.serverUrl is empty. The default uses the official npm entry point; use dsh or an absolute path if the CLI is installed locally. Arguments are configured separately and no shell is used."
+                    "description": "%config.command.description%"
                 },
                 "dsh.commandArgs": {
                     "type": "array",
@@ -366,67 +367,67 @@
                         "@deepseek-ai/dsh",
                         "web"
                     ],
-                    "description": "Arguments passed to dsh.command when dsh.serverUrl is empty. The default runs npx -y @deepseek-ai/dsh web. A --port argument is appended when no port is present."
+                    "description": "%config.commandArgs.description%"
                 },
                 "dsh.serverUrl": {
                     "type": "string",
                     "default": "",
-                    "description": "Optional HTTP(S) URL for an already running, trusted dsh web runtime. When set, the extension attaches to it instead of spawning dsh.command."
+                    "description": "%config.serverUrl.description%"
                 },
                 "dsh.serverPort": {
                     "type": "number",
                     "default": 0,
                     "minimum": 0,
                     "maximum": 65535,
-                    "description": "Port passed to dsh web when dsh.serverUrl is empty and dsh.commandArgs has no port. Zero asks dsh to choose a free port."
+                    "description": "%config.serverPort.description%"
                 },
                 "dsh.autoStart": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Start or attach to dsh web automatically when the extension activates. If false, start it from the status label or with DSH: Start dsh Web Runtime."
+                    "description": "%config.autoStart.description%"
                 },
                 "dsh.installWhenMissing": {
                     "type": "boolean",
                     "default": true,
-                    "description": "When dsh.command is set to the bare dsh executable and it is missing, try the official @deepseek-ai/dsh package through npx. Other custom commands are never replaced."
+                    "description": "%config.installWhenMissing.description%"
                 },
                 "dsh.startupTimeoutMs": {
                     "type": "number",
                     "default": 30000,
                     "minimum": 1000,
                     "maximum": 120000,
-                    "description": "Maximum time to wait for the dsh web HTTP health check after starting or attaching."
+                    "description": "%config.startupTimeoutMs.description%"
                 },
                 "dsh.requestTimeoutMs": {
                     "type": "number",
                     "default": 600000,
                     "minimum": 10000,
                     "maximum": 3600000,
-                    "description": "Maximum time for one Harness RPC, including reconnect history rebaselines. Live assistant output is delivered over WebSocket and is not polled."
+                    "description": "%config.requestTimeoutMs.description%"
                 },
                 "dsh.maxContextBytes": {
                     "type": "number",
                     "default": 120000,
                     "minimum": 1000,
                     "maximum": 1000000,
-                    "description": "Maximum UTF-8 bytes of the assembled <ide_context> block included in one prompt."
+                    "description": "%config.maxContextBytes.description%"
                 },
                 "dsh.persistSession": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Reuse the last dsh session ID for the current workspace when possible. Chat messages and attached context are not persisted."
+                    "description": "%config.persistSession.description%"
                 },
                 "dsh.apiKeyEnv": {
                     "type": "string",
                     "default": "DEEPSEEK_API_KEY",
-                    "description": "Credential reference passed to dsh.credentials.set when using DSH: Configure API Key. The key is also encrypted in VS Code SecretStorage when balance display is enabled."
+                    "description": "%config.apiKeyEnv.description%"
                 },
                 "dsh.balanceRefreshIntervalMs": {
                     "type": "number",
                     "default": 30000,
                     "minimum": 10000,
                     "maximum": 3600000,
-                    "description": "Interval for refreshing the DeepSeek balance status bar item."
+                    "description": "%config.balanceRefreshIntervalMs.description%"
                 }
             }
         }

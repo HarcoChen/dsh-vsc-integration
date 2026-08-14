@@ -58,6 +58,6 @@ test("fetchDeepSeekBalance rejects malformed responses", async () => {
         fetchDeepSeekBalance("sk-test", {
             fetch: async () => Response.json({ balance_infos: [] }),
         }),
-        /响应格式无效/,
+        /response is invalid/,
     );
 });

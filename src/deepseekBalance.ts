@@ -1,3 +1,5 @@
+import { t } from "./localize";
+
 export interface DeepSeekBalanceInfo {
     currency: string;
     totalBalance: string;
@@ -54,7 +56,7 @@ export async function fetchDeepSeekBalance(
 ): Promise<DeepSeekBalance> {
     const key = apiKey.trim();
     if (!key) {
-        throw new Error("未配置 DeepSeek API Key。");
+        throw new Error(t("DeepSeek API Key is not configured."));
     }
 
     const doFetch = options.fetch ?? fetch;
@@ -74,12 +76,12 @@ export async function fetchDeepSeekBalance(
         });
 
         if (!response.ok) {
-            throw new Error(`DeepSeek 余额请求失败（HTTP ${response.status}）。`);
+            throw new Error(t("DeepSeek balance request failed (HTTP {status}).", { status: response.status }));
         }
 
         const body: unknown = await response.json();
         if (!isRecord(body) || typeof body.is_available !== "boolean") {
-            throw new Error("DeepSeek 余额响应格式无效。");
+            throw new Error(t("The DeepSeek balance response is invalid."));
         }
 
         const values = Array.isArray(body.balance_infos)
@@ -93,7 +95,7 @@ export async function fetchDeepSeekBalance(
         };
     } catch (error) {
         if (controller.signal.aborted) {
-            throw new Error("DeepSeek 余额请求超时。");
+            throw new Error(t("The DeepSeek balance request timed out."));
         }
         throw error;
     } finally {

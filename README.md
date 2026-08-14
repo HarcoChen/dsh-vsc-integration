@@ -1,4 +1,4 @@
-# DSH IDE
+# DSH VSCode Integration
 
 Please note that this README is maintained and translated by chatgpt models,it's better to refer to `README.zh-CN.md` for human-friendly descripitons.
 

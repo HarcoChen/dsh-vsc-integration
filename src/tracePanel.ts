@@ -18,6 +18,7 @@ import {
     TraceLocation,
 } from "./traceProtocol";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
+import { t } from "./localize";
 
 const PAGE_SIZE = 250;
 const RAW_DETAIL_LIMIT = 65_536;
@@ -62,7 +63,7 @@ export class TracePanelManager implements vscode.Disposable, vscode.WebviewPanel
 
     public async open(locationValue: unknown): Promise<void> {
         const location = parseTraceLocation(locationValue);
-        if (!location) throw new Error("Trace location 无效或缺少 sessionId。");
+        if (!location) throw new Error(t("Trace location is invalid or missing sessionId."));
         const existing = this.panels.get(location.sessionId);
         if (existing) {
             existing.reveal();
@@ -90,9 +91,9 @@ export class TracePanelManager implements vscode.Disposable, vscode.WebviewPanel
     ): Promise<void> {
         const location = parseTraceLocation(state);
         if (!location || this.disposed) {
-            webviewPanel.title = "DSH Trace（无法恢复）";
+            webviewPanel.title = t("DSH Trace (cannot restore)");
             webviewPanel.webview.options = { enableScripts: false, localResourceRoots: [] };
-            webviewPanel.webview.html = this.errorHtml("Trace tab 的恢复状态无效。");
+            webviewPanel.webview.html = this.errorHtml(t("The restore state for this Trace tab is invalid."));
             return;
         }
         const existing = this.panels.get(location.sessionId);
@@ -138,7 +139,7 @@ export class TracePanelManager implements vscode.Disposable, vscode.WebviewPanel
             if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
             await this.runtime.syncSession(controller.sessionId);
             const snapshot = this.runtime.getSessionStore().get(controller.sessionId);
-            if (!snapshot) throw new Error(`找不到 session ${controller.sessionId} 的 history。`);
+            if (!snapshot) throw new Error(t("History was not found for session {sessionId}.", { sessionId: controller.sessionId }));
             controller.update(snapshot);
         } catch (error) {
             const message = errorMessage(error);
@@ -451,9 +452,37 @@ class TracePanelController implements vscode.Disposable {
 
 function traceHtml(sessionId: string): string {
     const nonce = randomUUID().replace(/-/gu, "");
+    const language = vscode.env.language.replace(/[^a-z0-9-]/giu, "") || "en";
     const serialized = scriptJson({ sessionId });
+    const strings = {
+        loading: t("Loading"),
+        searchPlaceholder: t("Search events, content, tool arguments, or results..."),
+        older: t("Older"),
+        newer: t("Newer"),
+        followLatest: t("Follow latest"),
+        projectionInspector: t("Projection Inspector · read-only"),
+        selectRecord: t("Select a record or projection"),
+        loadingFailed: t("Loading failed"),
+        sessionError: t("Session error"),
+        waitingForAction: t("Waiting for action"),
+        running: t("Running"),
+        idle: t("Idle"),
+        historySyncing: t("history syncing"),
+        noProjections: t("The current history baseline has no projection keys."),
+        noRows: t("No matching Trace rows."),
+        deferredDetail: t("Details are loaded on selection so the full log is not sent to the webview at once."),
+        event: t("Event"),
+        turnStep: t("Turn / Step"),
+        summary: t("Summary"),
+        time: t("Time"),
+        rows: t("rows"),
+        projected: t("projected"),
+        raw: t("raw"),
+        followLive: t("follow live"),
+    };
+    const serializedStrings = scriptJson(strings);
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${language}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -526,27 +555,28 @@ function traceHtml(sessionId: string): string {
 </head>
 <body>
     <div class="app">
-        <header><div id="title" class="title">DSH Trace</div><div class="status"><span id="dot" class="dot"></span><span id="statusText">加载中</span></div></header>
+        <header><div id="title" class="title">DSH Trace</div><div class="status"><span id="dot" class="dot"></span><span id="statusText">${escapeHtml(strings.loading)}</span></div></header>
         <div class="toolbar">
-            <input id="search" placeholder="搜索 event、内容、tool 参数或结果…">
+            <input id="search" placeholder="${escapeHtml(strings.searchPlaceholder)}">
             <span id="counts" class="counts"></span>
-            <button id="older" class="secondary">较早</button><button id="newer" class="secondary">较新</button><button id="latest" class="secondary">跟随尾部</button>
+            <button id="older" class="secondary">${escapeHtml(strings.older)}</button><button id="newer" class="secondary">${escapeHtml(strings.newer)}</button><button id="latest" class="secondary">${escapeHtml(strings.followLatest)}</button>
         </div>
         <div class="layout">
             <div class="ledger-shell">
-                <section class="section"><div class="section-title">Projection Inspector · 只读</div><div id="projections" class="projections"></div></section>
-                <div class="ledger-head"><div># / seq</div><div>Event</div><div>Turn / Step</div><div>Summary</div><div>Time</div></div>
+                <section class="section"><div class="section-title">${escapeHtml(strings.projectionInspector)}</div><div id="projections" class="projections"></div></section>
+                <div class="ledger-head"><div># / seq</div><div>${escapeHtml(strings.event)}</div><div>${escapeHtml(strings.turnStep)}</div><div>${escapeHtml(strings.summary)}</div><div>${escapeHtml(strings.time)}</div></div>
                 <div id="ledger" class="ledger"></div>
             </div>
             <aside class="inspector">
-                <div class="inspector-head"><div id="detailKind" class="inspector-kind">Inspector</div><div id="detailTitle" class="inspector-title">选择一条记录或 projection</div></div>
-                <div class="tabs"><button data-tab="summary" class="active">Summary</button><button data-tab="raw">Raw</button></div>
+                <div class="inspector-head"><div id="detailKind" class="inspector-kind">Inspector</div><div id="detailTitle" class="inspector-title">${escapeHtml(strings.selectRecord)}</div></div>
+                <div class="tabs"><button data-tab="summary" class="active">${escapeHtml(strings.summary)}</button><button data-tab="raw">${escapeHtml(strings.raw)}</button></div>
                 <div class="detail"><div id="summaryDetail"></div><pre id="rawDetail" class="hidden"></pre></div>
             </aside>
         </div>
     </div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
+        const i18n = ${serializedStrings};
         vscode.setState(${serialized});
         let state = { rows: [], projections: [], status: {}, query: '' };
         let detail = undefined;
@@ -585,10 +615,10 @@ function traceHtml(sessionId: string): string {
             const status = state.status || {};
             const dot = document.getElementById('dot');
             dot.className = 'dot ' + (status.error || state.error ? 'error' : (status.attention ? 'attention' : (status.running ? 'running' : '')));
-            document.getElementById('statusText').textContent = state.error ? '加载失败' : (status.error ? '会话错误' : (status.attention ? '等待操作' : (status.running ? '运行中' : '空闲')));
+            document.getElementById('statusText').textContent = state.error ? i18n.loadingFailed : (status.error ? i18n.sessionError : (status.attention ? i18n.waitingForAction : (status.running ? i18n.running : i18n.idle)));
             const search = document.getElementById('search');
             if (document.activeElement !== search) search.value = state.query || '';
-            document.getElementById('counts').textContent = (state.filteredRows || 0) + ' rows / ' + (state.totalRows || 0) + ' projected / ' + (state.totalEvents || 0) + ' raw' + (state.needsHistoryBaseline ? ' · history 同步中' : '') + (state.followLatest ? ' · follow live' : '');
+            document.getElementById('counts').textContent = (state.filteredRows || 0) + ' ' + i18n.rows + ' / ' + (state.totalRows || 0) + ' ' + i18n.projected + ' / ' + (state.totalEvents || 0) + ' ' + i18n.raw + (state.needsHistoryBaseline ? ' · ' + i18n.historySyncing : '') + (state.followLatest ? ' · ' + i18n.followLive : '');
             document.getElementById('older').disabled = !state.hasOlder;
             document.getElementById('newer').disabled = !state.hasNewer;
             document.getElementById('latest').disabled = Boolean(state.followLatest);
@@ -596,13 +626,13 @@ function traceHtml(sessionId: string): string {
             const projections = document.getElementById('projections');
             projections.innerHTML = (state.projections || []).length
                 ? state.projections.map((item) => '<div class="projection' + (state.selectedId === item.id ? ' selected' : '') + '" data-projection-key="' + escapeHtml(item.key) + '"><div class="projection-head"><span class="projection-key">' + escapeHtml(item.key) + '</span><span class="seq">seq ' + escapeHtml(item.seq) + '</span></div><div class="projection-value">' + item.valueHtml + '</div></div>').join('')
-                : '<div class="empty">当前 history baseline 没有 projection key。</div>';
+                : '<div class="empty">' + escapeHtml(i18n.noProjections) + '</div>';
 
             const ledger = document.getElementById('ledger');
             if (state.error) {
                 ledger.innerHTML = '<div class="error-box">' + escapeHtml(state.error) + '</div>';
             } else if (!(state.rows || []).length) {
-                ledger.innerHTML = '<div class="empty">没有匹配的 Trace rows。</div>';
+                ledger.innerHTML = '<div class="empty">' + escapeHtml(i18n.noRows) + '</div>';
             } else {
                 ledger.innerHTML = state.rows.map((row, index) => {
                     const group = (row.turn === undefined ? 'session' : 'T' + row.turn) + (row.step === undefined ? '' : ' · S' + row.step);
@@ -616,11 +646,11 @@ function traceHtml(sessionId: string): string {
         }
         function renderDetail() {
             document.getElementById('detailKind').textContent = detail ? detail.kind : 'Inspector';
-            document.getElementById('detailTitle').textContent = detail ? detail.title : '选择一条记录或 projection';
+            document.getElementById('detailTitle').textContent = detail ? detail.title : i18n.selectRecord;
             const summary = document.getElementById('summaryDetail');
             summary.innerHTML = detail
                 ? (detail.summary || []).map((field) => '<div class="field"><div class="field-label">' + escapeHtml(field.label) + '</div><div class="field-value">' + field.valueHtml + '</div></div>').join('')
-                : '<div class="empty">详情按选择延迟加载，不会把完整日志一次性发送到 webview。</div>';
+                : '<div class="empty">' + escapeHtml(i18n.deferredDetail) + '</div>';
             const raw = document.getElementById('rawDetail');
             raw.innerHTML = detail ? detail.rawHtml : '';
             summary.classList.toggle('hidden', activeTab !== 'summary');

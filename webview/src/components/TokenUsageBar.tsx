@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { TokenUsageView } from "../../../src/types";
+import { numberFormatter, t } from "../i18n";
 import { CloseIcon } from "./icons";
 
 interface TokenUsageBarProps {
@@ -21,12 +22,10 @@ interface ChartRowProps {
     title: string;
 }
 
-const formatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1 });
-
 function compactTokens(tokens: number): string {
-    if (tokens < 1_000) return formatter.format(tokens);
-    if (tokens < 1_000_000) return `${formatter.format(tokens / 1_000)}K`;
-    return `${formatter.format(tokens / 1_000_000)}M`;
+    if (tokens < 1_000) return numberFormatter.format(tokens);
+    if (tokens < 1_000_000) return `${numberFormatter.format(tokens / 1_000)}K`;
+    return `${numberFormatter.format(tokens / 1_000_000)}M`;
 }
 
 function UsageRing({ percent, size, severity }: RingProps): React.JSX.Element {
@@ -98,7 +97,7 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
 
     if (!usage) return null;
     const { route, billing, context } = usage;
-    const routeLabel = route.model || "模型未知";
+    const routeLabel = route.model || t("Unknown model");
     const occupied = context?.projectedTokens;
     const capacity = context?.contextWindow;
     const occupancy = occupied !== undefined && capacity !== undefined
@@ -126,34 +125,34 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
         : 1;
 
     return (
-        <section className="dsh-usage" aria-label="Token 与上下文用量" ref={rootRef}>
+        <section className="dsh-usage" aria-label={t("Token and context usage")} ref={rootRef}>
             <button
                 type="button"
                 className="dsh-usage-summary"
                 aria-expanded={open}
-                title="打开 Token 统计"
+                title={t("Open token statistics")}
                 onClick={() => setOpen((current) => !current)}
             >
                 <UsageRing percent={occupancy} size="small" severity={severity} />
                 <span className="dsh-usage-summary-route">
                     <strong>{routeLabel}</strong>
-                    <small>· {route.reasoningEffort || "默认"}</small>
+                    <small>· {route.reasoningEffort || t("Default")}</small>
                 </span>
                 <span className="dsh-usage-summary-context">
                     {occupied === undefined ? "--" : compactTokens(occupied)} / {capacity === undefined ? "--" : compactTokens(capacity)}
                 </span>
             </button>
             {open ? (
-                <div className="dsh-usage-panel" role="dialog" aria-label="Token 统计">
+                <div className="dsh-usage-panel" role="dialog" aria-label={t("Token statistics")}>
                     <div className="dsh-usage-panel-head">
                         <div>
-                            <strong>Token 统计</strong>
-                            <span>{routeLabel} · effort {route.reasoningEffort || "默认"}</span>
+                            <strong>{t("Token statistics")}</strong>
+                            <span>{routeLabel} · effort {route.reasoningEffort || t("Default")}</span>
                         </div>
                         <button
                             type="button"
                             className="dsh-icon-button"
-                            title="关闭"
+                            title={t("Close")}
                             onClick={() => setOpen(false)}
                         >
                             <CloseIcon />
@@ -161,11 +160,11 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
                     </div>
                     <div
                         className="dsh-usage-context-stat"
-                        title="估算值：基于最近 provider usage 与当前 Surface 变化推算下一次请求占用"
+                        title={t("Estimate based on the latest provider usage and current Surface changes")}
                     >
                         <UsageRing percent={occupancy} size="large" severity={severity} />
                         <div>
-                            <span>上下文占用 · 估算</span>
+                            <span>{t("Context usage · estimated")}</span>
                             <strong>
                                 {occupied === undefined ? "--" : compactTokens(occupied)}
                                 <small> / {capacity === undefined ? "--" : compactTokens(capacity)}</small>
@@ -173,51 +172,51 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
                         </div>
                     </div>
                     {billing ? (
-                        <div className="dsh-token-chart" aria-label="会话计费 Token 分布">
+                        <div className="dsh-token-chart" aria-label={t("Billed session token distribution")}>
                             <div className="dsh-token-chart-head">
-                                <span>会话计费 Token</span>
-                                <span>Provider usage</span>
+                                <span>{t("Billed session tokens")}</span>
+                                <span>{t("Provider usage")}</span>
                             </div>
                             <ChartRow
-                                label="输入"
+                                label={t("Input")}
                                 tokens={billing.uncachedInputTokens}
                                 maximum={chartMaximum}
                                 kind="input"
-                                title="未缓存输入 token"
+                                title={t("Uncached input tokens")}
                             />
                             <ChartRow
-                                label="输出"
+                                label={t("Output")}
                                 tokens={billing.outputTokens}
                                 maximum={chartMaximum}
                                 kind="output"
-                                title="输出 token"
+                                title={t("Output tokens")}
                             />
                             <ChartRow
-                                label="推理"
+                                label={t("Reasoning")}
                                 tokens={billing.reasoningTokens}
                                 maximum={Math.max(1, billing.outputTokens)}
                                 kind="reasoning"
-                                suffix="输出子集"
-                                title="Reasoning token，已包含在输出中"
+                                suffix={t("Output subset")}
+                                title={t("Reasoning tokens are included in output")}
                             />
                             <ChartRow
-                                label="缓存读"
+                                label={t("Cache read")}
                                 tokens={billing.cacheReadTokens}
                                 maximum={chartMaximum}
                                 kind="cache-read"
-                                suffix={cacheHitRate === undefined ? undefined : `${formatter.format(cacheHitRate)}% 命中`}
-                                title="缓存读取 token 与命中率"
+                                suffix={cacheHitRate === undefined ? undefined : t("{rate}% hit", { rate: numberFormatter.format(cacheHitRate) })}
+                                title={t("Cache-read tokens and hit rate")}
                             />
                             <ChartRow
-                                label="缓存写"
+                                label={t("Cache write")}
                                 tokens={billing.cacheWriteTokens}
                                 maximum={chartMaximum}
                                 kind="cache-write"
-                                title="缓存写入 token"
+                                title={t("Cache-write tokens")}
                             />
                         </div>
                     ) : (
-                        <div className="dsh-usage-empty">暂无 provider 计费数据</div>
+                        <div className="dsh-usage-empty">{t("No provider billing data")}</div>
                     )}
                 </div>
             ) : null}

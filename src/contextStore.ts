@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
+import { t } from "./localize";
 import { DshContextItem } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -183,7 +184,7 @@ export class ContextStore {
         uri: vscode.Uri | undefined = vscode.window.activeTextEditor?.document.uri,
     ): Promise<DshContextItem> {
         if (!uri) {
-            throw new Error("当前没有可读取诊断信息的文件。");
+            throw new Error(t("There is no current file with diagnostics to read."));
         }
 
         const pathLabel = this.displayPath(uri);
@@ -221,7 +222,7 @@ export class ContextStore {
             (activeUri && vscode.workspace.getWorkspaceFolder(activeUri)) ??
             vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
-            throw new Error("请先打开一个工作区，才能读取 Git diff。");
+            throw new Error(t("Open a workspace before reading the Git diff."));
         }
 
         let content: string;
@@ -238,7 +239,7 @@ export class ContextStore {
             content = result.stdout || "No unstaged Git diff.";
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`读取 Git diff 失败：${message}`);
+            throw new Error(t("Failed to read Git diff: {message}", { message }));
         }
 
         const limited = truncateUtf8(

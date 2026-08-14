@@ -22,6 +22,7 @@ import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
+import { t } from "./localize";
 import {
     isCopyableCode,
     parseSafeHttpUrl,
@@ -64,20 +65,20 @@ export type QuickTaskKind = "explain" | "fix" | "review" | "docs";
 
 const EDITOR_TASK_PROMPTS: Readonly<Record<QuickTaskKind, (reference: string) => string>> = {
     explain: (reference) =>
-        `请解释 ${reference} 的实现逻辑、关键数据流和需要注意的边界条件。`,
+        t("Explain the implementation, key data flow, and important edge cases in {reference}.", { reference }),
     fix: (reference) =>
-        `请检查并修复 ${reference} 中的问题。先说明问题和修改方案，再实施修改。`,
+        t("Inspect and fix issues in {reference}. Explain the issues and proposed changes before implementing them.", { reference }),
     review: (reference) =>
-        `请审查 ${reference}，重点关注正确性、回归风险、安全性和可维护性。`,
+        t("Review {reference}, focusing on correctness, regression risk, security, and maintainability.", { reference }),
     docs: (reference) =>
-        `请为 ${reference} 生成或完善文档，保持与项目现有风格一致。`,
+        t("Generate or improve documentation for {reference}, following the project's existing style.", { reference }),
 };
 
-const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, string>> = {
-    explain: "请解释已附加 Git diff 的改动目的、实现方式和影响范围。",
-    fix: "请检查并修复已附加 Git diff 中的问题。先说明问题和修改方案，再实施修改。",
-    review: "请审查已附加 Git diff，重点关注缺陷、回归风险、安全性和遗漏。",
-    docs: "请根据已附加 Git diff 生成或更新相关文档，保持与项目现有风格一致。",
+const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, () => string>> = {
+    explain: () => t("Explain the purpose, implementation, and impact of the attached Git diff."),
+    fix: () => t("Inspect and fix issues in the attached Git diff. Explain the issues and proposed changes before implementing them."),
+    review: () => t("Review the attached Git diff, focusing on defects, regression risk, security, and omissions."),
+    docs: () => t("Generate or update relevant documentation from the attached Git diff, following the project's existing style."),
 };
 
 
@@ -240,7 +241,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public insertEditorReference(): void {
         const reference = this.contextStore.getActiveEditorReference();
         if (!reference) {
-            this.reportError(new Error("当前没有可引用的编辑器。"));
+            this.reportError(new Error(t("There is no current editor to reference.")));
             return;
         }
 
@@ -250,7 +251,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async prefillEditorTask(kind: QuickTaskKind): Promise<void> {
         const reference = this.contextStore.getActiveEditorReference();
         if (!reference) {
-            throw new Error("当前没有可用于快捷任务的编辑器。");
+            throw new Error(t("There is no current editor for this quick task."));
         }
 
         this.setComposerText(EDITOR_TASK_PROMPTS[kind](reference));
@@ -258,22 +259,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async prefillGitDiffTask(kind: QuickTaskKind): Promise<void> {
         await this.contextStore.addGitDiff();
-        this.setComposerText(GIT_DIFF_TASK_PROMPTS[kind]);
+        this.setComposerText(GIT_DIFF_TASK_PROMPTS[kind]());
     }
 
     public async configureApiKey(): Promise<void> {
         const configuration = vscode.workspace.getConfiguration("dsh");
         const ref = configuration.get<string>("apiKeyEnv", "DEEPSEEK_API_KEY").trim();
         if (!ref) {
-            throw new Error("dsh.apiKeyEnv 不能为空，请先配置凭据引用名。");
+            throw new Error(t("dsh.apiKeyEnv cannot be empty. Configure a credential reference name first."));
         }
 
         const key = await vscode.window.showInputBox({
-            title: `配置 ${ref}`,
-            prompt: "API Key 会交给 dsh runtime，并以 VS Code SecretStorage 加密保存一份供余额查询；不会写入扩展状态或日志。",
+            title: t("Configure {reference}", { reference: ref }),
+            prompt: t("The API Key is passed to the dsh runtime and encrypted in VS Code SecretStorage for balance queries. It is never written to extension state or logs."),
             password: true,
             ignoreFocusOut: true,
-            validateInput: (value) => (value.trim() ? undefined : "请输入 API Key。"),
+            validateInput: (value) => (value.trim() ? undefined : t("Enter an API Key.")),
         });
         if (key === undefined) {
             return;
@@ -285,9 +286,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             await this.balanceService?.storeApiKey(key.trim());
         } catch (error) {
             const message = errorMessage(error);
-            void vscode.window.showWarningMessage(`DSH：聊天 Key 已保存，但余额缓存失败：${message}`);
+            void vscode.window.showWarningMessage(t("DSH: The chat key was saved, but balance caching failed: {message}", { message }));
         }
-        void vscode.window.showInformationMessage(`DSH：${ref} 已保存，可重新发送任务。`);
+        void vscode.window.showInformationMessage(t("DSH: {reference} was saved. You can retry the task.", { reference: ref }));
         this.reveal();
     }
 
@@ -296,37 +297,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const choice = await vscode.window.showQuickPick(
             [
                 ...(hasSelection
-                    ? [{ label: "$(selection) Selection", detail: "启用当前选区，发送时重新读取" }]
+                    ? [{ actionId: "selection" as const, label: `$(selection) ${t("Selection")}`, detail: t("Enable the current selection and read it again when sending") }]
                     : []),
-                { label: "$(search) Workspace file", detail: "模糊搜索并插入 @文件引用" },
-                { label: "$(file-code) Current file", detail: "插入 @文件引用，不复制正文" },
-                { label: "$(warning) Diagnostics", detail: "作为本轮一次性附件" },
-                { label: "$(git-compare) Git diff", detail: "作为本轮一次性附件" },
+                { actionId: "workspace-file" as const, label: `$(search) ${t("Workspace file")}`, detail: t("Fuzzy-search and insert an @file reference") },
+                { actionId: "current-file" as const, label: `$(file-code) ${t("Current file")}`, detail: t("Insert an @file reference without copying its contents") },
+                { actionId: "diagnostics" as const, label: `$(warning) ${t("Diagnostics")}`, detail: t("Attach once to this turn") },
+                { actionId: "git-diff" as const, label: "$(git-compare) Git diff", detail: t("Attach once to this turn") },
                 {
+                    actionId: "toggle-selection" as const,
                     label: this.selectionEnabled
-                        ? "$(eye-closed) Disable selection"
-                        : "$(eye) Enable selection",
-                    detail: this.selectionEnabled ? "不自动附加当前选区" : "自动附加当前选区",
+                        ? `$(eye-closed) ${t("Disable selection")}`
+                        : `$(eye) ${t("Enable selection")}`,
+                    detail: this.selectionEnabled ? t("Do not attach the current selection automatically") : t("Attach the current selection automatically"),
                 },
             ],
-            { placeHolder: "选择本轮 IDE context 或调整选区策略" },
+            { placeHolder: t("Choose IDE context for this turn or adjust the selection policy") },
         );
         if (!choice) {
             return;
         }
 
-        if (choice.label.includes("Selection")) {
+        if (choice.actionId === "selection") {
             this.selectionEnabled = true;
-        } else if (choice.label.includes("Workspace file")) {
+        } else if (choice.actionId === "workspace-file") {
             await this.openWorkspaceFileReferencePicker();
             return;
-        } else if (choice.label.includes("Current file")) {
+        } else if (choice.actionId === "current-file") {
             this.insertEditorReference();
             return;
-        } else if (choice.label.includes("Diagnostics")) {
+        } else if (choice.actionId === "diagnostics") {
             await this.runContextAction(() => this.contextStore.addDiagnostics());
             return;
-        } else if (choice.label.includes("Git diff")) {
+        } else if (choice.actionId === "git-diff") {
             await this.runContextAction(() => this.contextStore.addGitDiff());
             return;
         } else {
@@ -350,7 +352,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             };
         });
         const selected = await vscode.window.showQuickPick(items, {
-            placeHolder: "搜索工作区文件并插入 @path",
+            placeHolder: t("Search workspace files and insert @path"),
             matchOnDescription: true,
         });
         if (!selected) return;
@@ -439,9 +441,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "openExternalLink": {
                     const url = parseSafeHttpUrl(message.url);
-                    if (!url) throw new Error("仅允许打开明确的 HTTP(S) 链接。");
+                    if (!url) throw new Error(t("Only explicit HTTP(S) links can be opened."));
                     const opened = await vscode.env.openExternal(vscode.Uri.parse(url, true));
-                    if (!opened) throw new Error("VS Code 未能打开该链接。");
+                    if (!opened) throw new Error(t("VS Code could not open the link."));
                     break;
                 }
                 case "openFileLocation":
@@ -533,7 +535,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         const workspaceRoot = this.workspaceRoot();
         if (!workspaceRoot) {
-            this.reportError(new Error("请先打开一个工作区，再向 dsh 发送任务。"));
+            this.reportError(new Error(t("Open a workspace before sending a task to dsh.")));
             return;
         }
 
@@ -547,7 +549,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (autoStart || this.runtime.getUrl()) {
                 await this.runtime.start(workspaceRoot);
             } else {
-                throw new Error("dsh web 尚未启动。请开启 dsh.autoStart 或执行“DSH: Start Web Runtime”。");
+                throw new Error(t("dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”."));
             }
 
             const session = await this.getOrCreateSession(workspaceRoot);
@@ -562,7 +564,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.selectionEnabled || explicitlyReferencesSelection,
             });
             if (explicitlyReferencesSelection && !capture.items.some((item) => item.kind === "selection")) {
-                throw new Error("@selection 没有可用的当前选区。请先在活动编辑器中选择文本。");
+                throw new Error(t("@selection has no current selection. Select text in the active editor first."));
             }
             const prompt = capture.text ? `${text}\n\n${capture.text}` : text;
             optimistic = {
@@ -578,7 +580,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
             const promptResult = await this.runtime.prompt(session, prompt, mode);
             if (promptResult.accepted === false) {
-                throw new Error("dsh runtime 拒绝了本次 prompt。请检查当前模型和 API Key 配置。");
+                throw new Error(t("The dsh runtime rejected this prompt. Check the current model and API Key configuration."));
             }
             this.contextStore.consumeCapturedOneShots(capture.capturedOneShotIds);
         } catch (error) {
@@ -608,7 +610,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
         try {
             const result = await this.runtime.prompt(this.sessionId, optimistic.wireText, "queue");
-            if (result.accepted === false) throw new Error("dsh runtime 拒绝了本次重试。");
+            if (result.accepted === false) throw new Error(t("The dsh runtime rejected this retry."));
         } catch (error) {
             optimistic.error = errorMessage(error);
             this.reportError(error);
@@ -703,7 +705,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async newSession(agentPreset?: string): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) throw new Error("请先打开一个工作区。");
+        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
         await this.runtime.start(workspaceRoot);
         const created = await this.runtime.createSession(workspaceRoot, agentPreset);
         await this.switchSession(created.sessionId);
@@ -713,10 +715,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async searchSession(): Promise<void> {
         await this.runtime.start(this.workspaceRoot());
         const query = await vscode.window.showInputBox({
-            title: "搜索 dsh 会话",
-            prompt: "搜索会话消息内容",
+            title: t("Search dsh sessions"),
+            prompt: t("Search session message content"),
             ignoreFocusOut: true,
-            validateInput: (value) => (value.trim() ? undefined : "请输入搜索内容。"),
+            validateInput: (value) => (value.trim() ? undefined : t("Enter a search query.")),
         });
         if (query === undefined) return;
         const result = await this.runtime.searchSessions(query.trim());
@@ -732,7 +734,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 };
             }),
             {
-                placeHolder: result.hasMore ? "选择会话（结果已截断）" : "选择会话",
+                placeHolder: result.hasMore ? t("Select a session (results truncated)") : t("Select a session"),
                 matchOnDescription: true,
                 matchOnDetail: true,
             },
@@ -741,7 +743,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public async selectModel(): Promise<void> {
-        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.sessionId) throw new Error(t("There is no current session."));
         if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
         const catalog = await this.runtime.models(this.sessionId);
         this.selectedModels.set(this.sessionId, {
@@ -750,28 +752,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
         this.schedulePostState();
         if (!catalog.routable) {
-            throw new Error("当前会话没有可路由的模型。");
+            throw new Error(t("The current session has no routable model."));
         }
         const items = catalog.groups.flatMap((group) => group.models.map((model) => ({
             label: `${group.name || group.provider} / ${model.name || model.id}`,
             description: group.provider === catalog.current.provider && model.id === catalog.current.model
-                ? "当前模型"
+                ? t("Current model")
                 : model.id,
             provider: group.provider,
             model: model.id,
             efforts: model.reasoningEfforts ?? [],
         })));
-        if (items.length === 0) throw new Error("Harness 未返回可用模型。");
+        if (items.length === 0) throw new Error(t("Harness returned no available models."));
         const picked = await vscode.window.showQuickPick(items, {
-            title: "选择 Harness 模型",
+            title: t("Select Harness model"),
             placeHolder: `${catalog.current.provider} / ${catalog.current.model}`,
         });
         if (!picked) return;
         let reasoningEffort: string | undefined;
         if (picked.efforts.length > 0) {
             reasoningEffort = await vscode.window.showQuickPick(picked.efforts, {
-                title: "选择 reasoning effort",
-                placeHolder: catalog.current.reasoningEffort ?? "默认",
+                title: t("Select reasoning effort"),
+                placeHolder: catalog.current.reasoningEffort ?? t("Default"),
             });
             if (reasoningEffort === undefined) return;
         }
@@ -790,17 +792,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public async selectAgentPreset(requestedPreset?: string): Promise<void> {
-        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.sessionId) throw new Error(t("There is no current session."));
         if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
         const catalog = await this.runtime.agentPresets();
         const available = catalog.presets.filter((preset) => !preset.broken);
-        if (available.length === 0) throw new Error("Harness 未返回可用的 Agent 模式。");
+        if (available.length === 0) throw new Error(t("Harness returned no available agent modes."));
 
         let target = requestedPreset
             ? available.find((preset) => preset.id === requestedPreset)
             : undefined;
         if (requestedPreset && !target) {
-            throw new Error(`不存在 Agent 模式“${requestedPreset}”。可用模式：${available.map((preset) => preset.id).join("、")}。`);
+            throw new Error(t("Agent mode “{preset}” does not exist. Available modes: {available}.", {
+                preset: requestedPreset,
+                available: available.map((preset) => preset.id).join(", "),
+            }));
         }
         if (!target) {
             const current = this.runtime.getSessionCatalog().snapshot().sessions
@@ -808,11 +813,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             target = await vscode.window.showQuickPick(
                 available.map((preset) => ({
                     label: preset.name || preset.id,
-                    description: preset.id === current ? "当前模式" : preset.id,
+                    description: preset.id === current ? t("Current mode") : preset.id,
                     detail: preset.description,
                     preset,
                 })),
-                { title: "选择 Harness Agent 模式", placeHolder: current || "选择模式" },
+                { title: t("Select Harness agent mode"), placeHolder: current || t("Select mode") },
             ).then((picked) => picked?.preset);
         }
         if (!target) return;
@@ -820,9 +825,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const currentSession = this.runtime.getSessionCatalog().snapshot().sessions
             .find((session) => session.sessionId === this.sessionId);
         if (currentSession?.blank === false) {
+            const createWithMode = t("Create a session with {mode}", { mode: target.name || target.id });
             const choice = await vscode.window.showWarningMessage(
-                "当前会话已经开始，Agent 模式不能再切换。",
-                `使用 ${target.name || target.id} 新建会话`,
+                t("The current session has already started, so its agent mode cannot be changed."),
+                createWithMode,
             );
             if (choice) await this.newSession(target.id);
             return;
@@ -835,9 +841,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (!(error instanceof HarnessRpcError) || error.rpcError.code !== "agent-preset-locked") {
                 throw error;
             }
+            const createWithMode = t("Create a session with {mode}", { mode: target.name || target.id });
             const choice = await vscode.window.showWarningMessage(
-                "当前会话已经开始，Agent 模式不能再切换。",
-                `使用 ${target.name || target.id} 新建会话`,
+                t("The current session has already started, so its agent mode cannot be changed."),
+                createWithMode,
             );
             if (choice) await this.newSession(target.id);
             return;
@@ -860,41 +867,42 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     detail: item.cwd,
                     sessionId: item.sessionId,
                 })),
-            { placeHolder: "选择 dsh 会话", matchOnDescription: true, matchOnDetail: true },
+            { placeHolder: t("Select a dsh session"), matchOnDescription: true, matchOnDetail: true },
         );
         if (choice) await this.switchSession(choice.sessionId);
     }
 
     public async renameSession(): Promise<void> {
-        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.sessionId) throw new Error(t("There is no current session."));
         const current = this.runtime
             .getSessionCatalog()
             .snapshot()
             .sessions.find((item) => item.sessionId === this.sessionId);
         const title = await vscode.window.showInputBox({
-            title: "重命名 dsh 会话",
+            title: t("Rename dsh session"),
             value: current?.title ?? "",
             ignoreFocusOut: true,
-            validateInput: (value) => (value.trim() ? undefined : "标题不能为空。"),
+            validateInput: (value) => (value.trim() ? undefined : t("The title cannot be empty.")),
         });
         if (title === undefined) return;
         await this.runtime.renameSession(this.sessionId, title);
     }
 
     public async forkSession(): Promise<void> {
-        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.sessionId) throw new Error(t("There is no current session."));
         const forked = await this.runtime.forkSession(this.sessionId);
         await this.switchSession(forked.sessionId);
     }
 
     public async archiveSession(): Promise<void> {
-        if (!this.sessionId) throw new Error("当前没有会话。");
+        if (!this.sessionId) throw new Error(t("There is no current session."));
+        const archiveAction = t("Archive");
         const confirmation = await vscode.window.showWarningMessage(
-            "将当前会话归档并从 DSH IDE 会话列表隐藏？可在官方 dsh Web UI 中管理归档会话。",
+            t("Archive the current session and hide it from the DSH IDE session list? Archived sessions can be managed in the official dsh Web UI."),
             { modal: true },
-            "归档",
+            archiveAction,
         );
-        if (confirmation !== "归档") return;
+        if (confirmation !== archiveAction) return;
         const archived = this.sessionId;
         await this.runtime.archiveSession(archived);
         const next = this.runtime
@@ -938,7 +946,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .get(sessionId)
             ?.projections.find((cell) => cell.key === "goal");
         if (!goalCell) {
-            throw new Error("当前 Harness 未提供 goal projection，Goal HUD 已保持关闭。");
+            throw new Error(t("The current Harness does not provide a goal projection, so the Goal HUD remains hidden."));
         }
         const parsed = parseGoalProjection(goalCell.value);
         if (!parsed.ok) throw new Error(parsed.error);
@@ -956,7 +964,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         try {
             if (action.type === "goalCreate") {
                 if (parsed.value !== null && parsed.value.goal.phase !== "complete") {
-                    throw new Error("只有空 Goal 或已完成 Goal 可以创建替代目标。");
+                    throw new Error(t("A replacement Goal can only be created when the current Goal is empty or complete."));
                 }
                 const result = await this.runtime.createGoal(
                     sessionId,
@@ -964,10 +972,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     action.maxGoalRounds,
                 );
                 const ref = normalizeGoalRef(result.ref);
-                if (!ref) throw new Error("Harness 返回了无效的 goal.create ref。");
+                if (!ref) throw new Error(t("Harness returned an invalid goal.create ref."));
                 this.goalMutations.acknowledgeRef(sessionId, ref);
             } else {
-                if (parsed.value === null) throw new Error("当前会话没有可操作的 Goal。");
+                if (parsed.value === null) throw new Error(t("The current session has no actionable Goal."));
                 const ref = {
                     id: parsed.value.goal.id,
                     revision: parsed.value.goal.revision,
@@ -986,27 +994,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                             : { maxGoalRounds: action.maxGoalRounds },
                     );
                     const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error("Harness 返回了无效的 goal.edit ref。");
+                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.edit ref."));
                     this.goalMutations.acknowledgeRef(sessionId, nextRef);
                 } else if (action.type === "goalPause") {
                     const result = await this.runtime.pauseGoal(sessionId, ref);
                     const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error("Harness 返回了无效的 goal.pause ref。");
+                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.pause ref."));
                     this.goalMutations.acknowledgeRef(sessionId, nextRef);
                 } else if (action.type === "goalResume") {
                     const result = await this.runtime.resumeGoal(sessionId, ref);
                     const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error("Harness 返回了无效的 goal.resume ref。");
+                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.resume ref."));
                     this.goalMutations.acknowledgeRef(sessionId, nextRef);
                 } else if (action.type === "goalComplete") {
                     const result = await this.runtime.completeGoal(sessionId, ref);
                     const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error("Harness 返回了无效的 goal.complete ref。");
+                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.complete ref."));
                     this.goalMutations.acknowledgeRef(sessionId, nextRef);
                 } else if (action.type === "goalClear") {
                     const result = await this.runtime.clearGoal(sessionId, ref);
                     if (result.cleared !== true) {
-                        throw new Error("Harness 返回了无效的 goal.clear acknowledgement。");
+                        throw new Error(t("Harness returned an invalid goal.clear acknowledgement."));
                     }
                     this.goalMutations.acknowledgeClear(sessionId);
                 }
@@ -1042,7 +1050,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 const raw = await this.runtime.listSubagents(parentSessionId, controller.signal);
                 const catalog = normalizeSubagentCatalog(raw);
                 if (!catalog) {
-                    throw new Error(`Harness 返回了无效的 subagent.list：${parentSessionId}`);
+                    throw new Error(t("Harness returned an invalid subagent.list for {sessionId}.", { sessionId: parentSessionId }));
                 }
                 catalogs.set(parentSessionId, catalog);
                 for (const entry of catalog.entries) {
@@ -1076,7 +1084,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.subagentPreview = {
                         ...this.subagentPreview,
                         state: "error",
-                        error: "该 subagent 已不在当前官方目录中。",
+                        error: t("This subagent is no longer in the current official catalog."),
                     };
                 }
             }
@@ -1122,13 +1130,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         let beforeSeq = lowestEventSeq(tail.events);
         while (hasMore) {
             if (beforeSeq === undefined || beforeSeq <= 0) {
-                throw new Error(`Subagent ${address.childSessionId} history 分页未提供更早 seq。`);
+                throw new Error(t("Subagent {sessionId} history pagination did not provide an earlier seq.", { sessionId: address.childSessionId }));
             }
             const page = await this.runtime.subagentHistory(address, beforeSeq, 100, signal);
             pages.push(page.events);
             const nextBeforeSeq = lowestEventSeq(page.events);
             if (page.hasMore && (nextBeforeSeq === undefined || nextBeforeSeq >= beforeSeq)) {
-                throw new Error(`Subagent ${address.childSessionId} history 分页没有前进。`);
+                throw new Error(t("Subagent {sessionId} history pagination did not advance.", { sessionId: address.childSessionId }));
             }
             beforeSeq = nextBeforeSeq;
             hasMore = page.hasMore;
@@ -1246,7 +1254,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 mode: "continuable",
             }, text);
             if (typeof result.messageId !== "string") {
-                throw new Error("Harness 返回了无效的 subagent.prompt acknowledgement。");
+                throw new Error(t("Harness returned an invalid subagent.prompt acknowledgement."));
             }
             await this.refreshSubagentTree(rootSessionId);
             if (
@@ -1289,7 +1297,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 mode: "continuable",
             });
             if (result.accepted !== true) {
-                throw new Error("Harness 返回了无效的 subagent.interrupt acknowledgement。");
+                throw new Error(t("Harness returned an invalid subagent.interrupt acknowledgement."));
             }
             await this.refreshSubagentTree(rootSessionId);
             if (
@@ -1349,7 +1357,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ?.interactions.find((item) => item.key === action.key);
         if (!current || current.kind !== "question" || current.status !== "pending") return;
         const invalid = validateQuestionAnswers(current.questions, action.answers);
-        if (invalid) throw new Error(`${invalid} 已拒绝发送。`);
+        if (invalid) throw new Error(t("{message} Sending was refused.", { message: invalid }));
         const interaction = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
         if (!interaction || interaction.kind !== "question") return;
         try {
@@ -1434,14 +1442,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const message = errorMessage(error);
         this.output.appendLine(`[dsh] ${message}`);
         if (isCredentialIssue(error)) {
+            const configureKeyAction = t("Configure API Key");
+            const openWebUiAction = t("Open dsh Web UI");
             void vscode.window
-                .showErrorMessage(`DSH: ${message}`, "配置 API Key", "打开 dsh Web UI")
+                .showErrorMessage(`DSH: ${message}`, configureKeyAction, openWebUiAction)
                 .then((action) => {
-                    if (action === "配置 API Key") {
+                    if (action === configureKeyAction) {
                         void this.configureApiKey().catch((configureError) =>
                             this.reportError(configureError),
                         );
-                    } else if (action === "打开 dsh Web UI") {
+                    } else if (action === openWebUiAction) {
                         void this.openBrowser().catch((openError) => this.reportError(openError));
                     }
                 });
@@ -1744,7 +1754,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
         const text = this.copyableCodeByRenderId.get(renderId)?.get(codeBlockId);
         if (text === undefined || !isCopyableCode(text)) {
-            throw new Error("代码块不存在或超过允许复制的大小。");
+            throw new Error(t("The code block does not exist or exceeds the copy size limit."));
         }
         await vscode.env.clipboard.writeText(text);
     }
@@ -1767,6 +1777,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private getHtml(webview: vscode.Webview): string {
         const nonce = randomUUID().replace(/-/g, "");
+        const language = vscode.env.language.replace(/[^a-z0-9-]/giu, "") || "en";
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.extensionUri, "webview", "dist", "main.js"),
         );
@@ -1774,7 +1785,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             vscode.Uri.joinPath(this.extensionUri, "webview", "dist", "main.css"),
         );
         return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${language}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

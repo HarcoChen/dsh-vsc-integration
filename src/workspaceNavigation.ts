@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
+import { t } from "./localize";
 import { FileLocation } from "./fileLocations";
 
 function containsPath(root: string, candidate: string): boolean {
@@ -14,10 +15,10 @@ export async function openWorkspaceFileLocation(
     preferredRoot?: string,
 ): Promise<void> {
     if (!vscode.workspace.isTrusted) {
-        throw new Error("请先信任当前工作区，再打开文件位置。");
+        throw new Error(t("Trust the current workspace before opening a file location."));
     }
     const folders = vscode.workspace.workspaceFolders ?? [];
-    if (folders.length === 0) throw new Error("当前没有可用的工作区。");
+    if (folders.length === 0) throw new Error(t("There is no available workspace."));
     const roots = folders.map((folder) => folder.uri.fsPath);
     const bases = [preferredRoot, ...roots]
         .filter((value): value is string => Boolean(value))
@@ -29,7 +30,7 @@ export async function openWorkspaceFileLocation(
         roots.some((root) => containsPath(resolve(root), candidate)),
     );
     if (boundedCandidates.length === 0) {
-        throw new Error(`拒绝打开工作区外路径：${location.path}`);
+        throw new Error(t("Refusing to open a path outside the workspace: {path}", { path: location.path }));
     }
 
     const realRoots = await Promise.all(roots.map((root) => realpath(root)));
@@ -46,7 +47,7 @@ export async function openWorkspaceFileLocation(
             // Try the next workspace-relative interpretation.
         }
     }
-    if (!target) throw new Error(`工作区内找不到文件：${location.path}`);
+    if (!target) throw new Error(t("File not found in the workspace: {path}", { path: location.path }));
 
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target));
     const line = Math.min(location.line - 1, Math.max(0, document.lineCount - 1));

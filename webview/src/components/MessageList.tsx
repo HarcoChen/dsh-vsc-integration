@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useRef } from "react";
 import type { ChatMessage } from "../../../src/types";
 import { postAction } from "../bridge";
+import { t } from "../i18n";
 import { MessageItem } from "./MessageItem";
 
 interface MessageListProps {
@@ -125,11 +126,11 @@ export function MessageList({ messages, submitting }: MessageListProps): React.J
         >
             {messages.length === 0 ? (
                 <div className="dsh-empty">
-                    <div className="dsh-empty-title">直接描述任务。</div>
+                    <div className="dsh-empty-title">{t("Describe a task.")}</div>
                     <div className="dsh-empty-detail">
-                        当前选区会自动附加，也可以用 @ 引用文件。
+                        {t("The current selection is attached automatically. You can also use @ to reference files.")}
                         <br />
-                        Ctrl/Cmd + Enter 发送。
+                        {t("Ctrl/Cmd + Enter to send.")}
                     </div>
                 </div>
             ) : (

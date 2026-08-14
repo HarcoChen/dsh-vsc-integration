@@ -329,7 +329,7 @@ test("turn status maps Harness lifecycle reasons and transient priority", () => 
     assert.deepEqual(projectTurnStatus(lifecycle({ kind: "max-tokens" }).get("turn"), false), {
         phase: "failed",
         turn: 3,
-        detail: "达到最大输出 token",
+        detail: "Maximum output tokens reached",
     });
     assert.deepEqual(projectTurnStatus(
         lifecycle({ kind: "completed" }).get("turn"),
@@ -364,7 +364,7 @@ test("hidden view badge deduplicates completed and attention sessions", () => {
         { sessionId: "attention", pendingInteraction: "approval" },
         { sessionId: "idle" },
     ], new Set(["attention", "completed"]));
-    assert.deepEqual(badge, { value: 2, tooltip: "1 个会话等待操作" });
+    assert.deepEqual(badge, { value: 2, tooltip: "1 session waiting for action" });
     assert.equal(hiddenViewBadge([{ sessionId: "idle" }], new Set()), undefined);
 });
 
@@ -420,7 +420,7 @@ test("reasoning-only assistant uses a visible placeholder and safe folded reason
         }),
     }));
     const streaming = projectChatMessages(streamingStore.get("reasoning-stream"), [])[0];
-    assert.equal(streaming.text, "（无可见回答）");
+    assert.equal(streaming.text, "(no visible response)");
     assert.equal(streaming.reasoning, "working");
     assert.equal(streaming.reasoningState, "streaming");
 
@@ -440,7 +440,7 @@ test("reasoning-only assistant uses a visible placeholder and safe folded reason
         }, { surfaceOp: "append", sourceEventSeqs: [] }),
     }));
     const assistant = projectChatMessages(store.get("reasoning-only"), [])[0];
-    assert.equal(assistant.text, "（无可见回答）");
+    assert.equal(assistant.text, "(no visible response)");
     assert.notEqual(assistant.text, assistant.reasoning);
     assert.equal(assistant.reasoningState, "complete");
     const reasoningHtml = renderSafeMarkdown(assistant.reasoning);

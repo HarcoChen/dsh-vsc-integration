@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { t } from "./localize";
 import {
     DeepSeekBalance,
     DeepSeekBalanceInfo,
@@ -91,7 +92,7 @@ export class DeepSeekBalanceService implements vscode.Disposable {
     public async storeApiKey(apiKey: string): Promise<void> {
         const key = apiKey.trim();
         if (!key) {
-            throw new Error("请输入 DeepSeek API Key。");
+            throw new Error(t("Enter a DeepSeek API Key."));
         }
         await this.extensionContext.secrets.store(BALANCE_SECRET_KEY, key);
         await this.refresh();
@@ -120,8 +121,8 @@ export class DeepSeekBalanceService implements vscode.Disposable {
         } catch (error) {
             const message = errorText(error);
             this.output.appendLine(`[balance] ${message}`);
-            this.statusBarItem.text = "$(circle-slash) DeepSeek: 错误";
-            this.statusBarItem.tooltip = `${message}\n点击重试`;
+            this.statusBarItem.text = `$(circle-slash) ${t("DeepSeek: Error")}`;
+            this.statusBarItem.tooltip = `${message}\n${t("Click to retry")}`;
             this.statusBarItem.command = "dsh.refreshBalance";
             this.statusBarItem.backgroundColor = new vscode.ThemeColor(
                 "statusBarItem.errorBackground",
@@ -143,15 +144,15 @@ export class DeepSeekBalanceService implements vscode.Disposable {
     }
 
     private showKeyRequired(): void {
-        this.statusBarItem.text = "$(key) DeepSeek: 设置 Key";
-        this.statusBarItem.tooltip = "点击安全配置 DeepSeek API Key";
+        this.statusBarItem.text = `$(key) ${t("DeepSeek: Set Key")}`;
+        this.statusBarItem.tooltip = t("Click to securely configure the DeepSeek API Key");
         this.statusBarItem.command = "dsh.configureApiKey";
         this.statusBarItem.backgroundColor = undefined;
     }
 
     private showRefreshing(): void {
-        this.statusBarItem.text = "$(sync~spin) DeepSeek: 查询中";
-        this.statusBarItem.tooltip = "正在查询 DeepSeek 账户余额…";
+        this.statusBarItem.text = `$(sync~spin) ${t("DeepSeek: Checking")}`;
+        this.statusBarItem.tooltip = t("Checking DeepSeek account balance...");
         this.statusBarItem.command = "dsh.refreshBalance";
         this.statusBarItem.backgroundColor = undefined;
     }
@@ -159,8 +160,8 @@ export class DeepSeekBalanceService implements vscode.Disposable {
     private showBalance(balance: DeepSeekBalance): void {
         const info = preferredBalance(balance.balanceInfos);
         if (!balance.isAvailable || !info) {
-            this.statusBarItem.text = "$(circle-slash) DeepSeek: 暂不可用";
-            this.statusBarItem.tooltip = "DeepSeek 账户当前没有可用余额信息。点击重试";
+            this.statusBarItem.text = `$(circle-slash) ${t("DeepSeek: Unavailable")}`;
+            this.statusBarItem.tooltip = t("DeepSeek account balance is currently unavailable. Click to retry.");
             this.statusBarItem.command = "dsh.refreshBalance";
             this.statusBarItem.backgroundColor = undefined;
             return;
@@ -172,11 +173,16 @@ export class DeepSeekBalanceService implements vscode.Disposable {
         const details = balance.balanceInfos
             .map(
                 (value) =>
-                    `${value.currency}: 总额 ${formatAmount(value.totalBalance)} · 赠送 ${formatAmount(value.grantedBalance)} · 充值 ${formatAmount(value.toppedUpBalance)}`,
+                    t("{currency}: total {total} · granted {granted} · topped up {toppedUp}", {
+                        currency: value.currency,
+                        total: formatAmount(value.totalBalance),
+                        granted: formatAmount(value.grantedBalance),
+                        toppedUp: formatAmount(value.toppedUpBalance),
+                    }),
             )
             .join("\n");
         this.statusBarItem.text = `${low ? "$(warning)" : "$(dashboard)"} DeepSeek: ${total} ${info.currency}`;
-        this.statusBarItem.tooltip = `${details}\n\n点击刷新`;
+        this.statusBarItem.tooltip = `${details}\n\n${t("Click to refresh")}`;
         this.statusBarItem.command = "dsh.refreshBalance";
         this.statusBarItem.backgroundColor = low
             ? new vscode.ThemeColor("statusBarItem.warningBackground")

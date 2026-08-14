@@ -1,6 +1,7 @@
 import { ChatMessage, ChatToolCall, DshQueuedInboxItem, TurnStatusView } from "./types";
 import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
+import { t } from "./localize";
 
 export interface OptimisticPrompt {
     id: string;
@@ -19,7 +20,7 @@ export interface QueueDockItem {
     editableText?: string;
 }
 
-const NO_VISIBLE_ASSISTANT_ANSWER = "（无可见回答）";
+const noVisibleAssistantAnswer = (): string => t("(no visible response)");
 const TOOL_SUMMARY_LIMIT = 1_200;
 
 export function resolvePromptMode(
@@ -314,7 +315,7 @@ export function projectChatMessages(
         return optimistic.map((item) => ({
             id: item.id,
             role: item.error ? "system" : "user",
-            text: item.error ? `发送失败：${item.error}` : item.displayText,
+            text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
             createdAt: item.createdAt,
             state: item.error ? "failed" : "pending",
         }));
@@ -368,7 +369,7 @@ export function projectChatMessages(
                 rows.push({
                     id: `event:${node.event.seq}`,
                     role: "assistant",
-                    text: content.text || NO_VISIBLE_ASSISTANT_ANSWER,
+                    text: content.text || noVisibleAssistantAnswer(),
                     ...(content.reasoning
                         ? { reasoning: content.reasoning, reasoningState: "complete" as const }
                         : {}),
@@ -429,7 +430,7 @@ export function projectChatMessages(
         rows.push({
             id: `partial:${partial.key}`,
             role: "assistant",
-            text: text || NO_VISIBLE_ASSISTANT_ANSWER,
+            text: text || noVisibleAssistantAnswer(),
             ...(reasoning
                 ? {
                       reasoning,
@@ -452,7 +453,7 @@ export function projectChatMessages(
         const failure = isRecord(reason.error) ? reason.error : reason;
         const message = typeof failure.message === "string"
             ? failure.message
-            : "dsh agent 在生成回复前结束了本轮任务。";
+            : t("The dsh agent ended the turn before generating a response.");
         const code = typeof failure.code === "string" ? failure.code : undefined;
         rows.push({
             id: `turn-error:${event.seq}`,
@@ -472,7 +473,7 @@ export function projectChatMessages(
         projected.push({
             id: item.id,
             role: item.error ? "system" : "user",
-            text: item.error ? `发送失败：${item.error}` : item.displayText,
+            text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
             createdAt: item.createdAt,
             state: item.error ? "failed" : "pending",
         });
@@ -531,7 +532,7 @@ export function projectTurnStatus(
         const failure = isRecord(reason?.error) ? reason.error : undefined;
         const detail = typeof failure?.message === "string"
             ? failure.message
-            : kind === "max-tokens" ? "达到最大输出 token" : kind;
+            : kind === "max-tokens" ? t("Maximum output tokens reached") : kind;
         return { phase: "failed", turn: latestTurn, detail };
     }
     return { phase: "completed" };
@@ -550,8 +551,12 @@ export function hiddenViewBadge(
     return {
         value: notified.size,
         tooltip: attention.length > 0
-            ? `${attention.length} 个会话等待操作`
-            : `${notified.size} 个会话已完成`,
+            ? attention.length === 1
+                ? t("{count} session waiting for action", { count: attention.length })
+                : t("{count} sessions waiting for action", { count: attention.length })
+            : notified.size === 1
+                ? t("{count} session completed", { count: notified.size })
+                : t("{count} sessions completed", { count: notified.size }),
     };
 }
 
@@ -565,7 +570,7 @@ export function queueDockItems(items: readonly DshQueuedInboxItem[]): QueueDockI
                 if (!isRecord(block)) return "";
                 return block.type === "text" && typeof block.text === "string"
                     ? block.text
-                    : `[${String(block.type ?? "内容")}]`;
+                    : `[${String(block.type ?? t("content"))}]`;
             })
             .join(" ")
             .replace(/\s+/gu, " ")

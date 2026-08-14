@@ -11,6 +11,7 @@ import {
     HarnessQueueAction,
 } from "./harnessProtocol";
 import { HarnessStateCoordinator } from "./harnessState";
+import { t } from "./localize";
 import {
     DshGoalRef,
     DshGoalRefResult,
@@ -187,7 +188,7 @@ export class DshRuntime implements vscode.Disposable {
 
     public async start(workspaceRoot?: string): Promise<string> {
         if (this.disposed) {
-            throw new Error("dsh-ide runtime 已经被释放。");
+            throw new Error(t("The dsh-ide runtime has already been disposed."));
         }
 
         if (this.startPromise) {
@@ -420,17 +421,17 @@ export class DshRuntime implements vscode.Disposable {
         const startupTimeout = this.configuration().get<number>("startupTimeoutMs", 30_000);
 
         if (!vscode.workspace.isTrusted) {
-            const message = "请先信任当前工作区，dsh 才能执行 agent 操作。";
+            const message = t("Trust the current workspace before dsh can run agent operations.");
             this.setStatus({ state: "error", message });
             throw new Error(message);
         }
 
-        this.setStatus({ state: "starting", message: "正在连接 dsh web…" });
+        this.setStatus({ state: "starting", message: t("Connecting to dsh web...") });
 
         if (configuredUrl) {
             if (this.child && this.startedByExtension) {
                 await this.stop();
-                this.setStatus({ state: "starting", message: "正在连接 dsh web…" });
+                this.setStatus({ state: "starting", message: t("Connecting to dsh web...") });
             }
             const url = normalizeUrl(configuredUrl);
             await this.waitForReady(url, startupTimeout);
@@ -448,14 +449,14 @@ export class DshRuntime implements vscode.Disposable {
         }
 
         if (!workspaceRoot) {
-            const message = "请先打开一个工作区，dsh 才能以该目录作为工作目录启动。";
+            const message = t("Open a workspace before starting dsh with it as the working directory.");
             this.setStatus({ state: "error", message });
             throw new Error(message);
         }
 
         if (this.child && this.startedByExtension) {
             await this.stop();
-            this.setStatus({ state: "starting", message: "正在启动 dsh web…" });
+            this.setStatus({ state: "starting", message: t("Starting dsh web...") });
         }
 
         let command = this.configuration().get<string>("command", "dsh").trim() || "dsh";
@@ -466,20 +467,19 @@ export class DshRuntime implements vscode.Disposable {
         if (!(await executableExists(command))) {
             const installWhenMissing = this.configuration().get<boolean>("installWhenMissing", true);
             if (command !== "dsh" || !installWhenMissing) {
-                const message = `找不到启动命令“${command}”。请安装 Node.js/npm、配置 dsh.command 的绝对路径，或手动安装 dsh CLI。官方 npm 入口是 npx @deepseek-ai/dsh web。`;
+                const message = t("Start command “{command}” was not found. Install Node.js/npm, configure an absolute dsh.command path, or install the dsh CLI. The official npm entry point is npx @deepseek-ai/dsh web.", { command });
                 this.setStatus({ state: "error", message });
                 throw new Error(message);
             }
             if (!(await executableExists("npx"))) {
-                const message =
-                    "未找到 dsh，也未找到可用于安装回退的 npx。请先安装 Node.js/npm，或配置 dsh.command 的绝对路径。";
+                const message = t("Neither dsh nor the fallback npx executable was found. Install Node.js/npm or configure an absolute dsh.command path.");
                 this.setStatus({ state: "error", message });
                 throw new Error(message);
             }
 
             command = "npx";
             args = ["-y", "@deepseek-ai/dsh", ...args];
-            this.setStatus({ state: "starting", message: "未找到 dsh，正在通过 npx 获取并启动…" });
+            this.setStatus({ state: "starting", message: t("dsh was not found; fetching and starting it through npx...") });
             this.output.appendLine("[dsh] executable not found; falling back to npx -y @deepseek-ai/dsh");
         }
 
@@ -568,12 +568,14 @@ export class DshRuntime implements vscode.Disposable {
             if (hasExited?.()) {
                 const launchError = getLaunchError?.();
                 if (launchError) {
-                    throw new Error(`启动 dsh 失败：${launchError.message}`);
+                    throw new Error(t("Failed to start dsh: {message}", { message: launchError.message }));
                 }
 
                 const tail = getOutputTail?.().trim();
                 throw new Error(
-                    `dsh web 在就绪前退出。${tail ? `\n\n最后输出：\n${tail}` : ""}`,
+                    t("dsh web exited before becoming ready.{output}", {
+                        output: tail ? `\n\n${t("Last output:")}\n${tail}` : "",
+                    }),
                 );
             }
 
@@ -583,17 +585,18 @@ export class DshRuntime implements vscode.Disposable {
             }
 
             if (url) {
-                lastError = `无法连接 ${url}`;
+                lastError = t("Unable to connect to {url}", { url });
             }
             await delay(250);
         }
 
         const tail = getOutputTail?.().trim();
-        throw new Error(
-            `等待 dsh web 超时。${lastError ? ` ${lastError}。` : " 未从进程输出中发现本地服务地址。"}${
-                tail ? `\n\n最后输出：\n${tail}` : ""
-            }`,
-        );
+        throw new Error(t("Timed out waiting for dsh web.{reason}{output}", {
+            reason: lastError
+                ? ` ${lastError}.`
+                : ` ${t("No local service address was found in the process output.")}`,
+            output: tail ? `\n\n${t("Last output:")}\n${tail}` : "",
+        }));
     }
 
     private async isHealthy(url: string): Promise<boolean> {

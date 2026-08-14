@@ -1,4 +1,5 @@
 import { HarnessStreamEnvelope } from "./harnessClient";
+import { t } from "./localize";
 import {
     DshHistoryEntry,
     DshHistoryEvent,
@@ -646,8 +647,8 @@ class SessionState {
             status: receipt.reason === "not-pending" ? "unavailable" : "failed",
             error:
                 receipt.reason === "not-pending"
-                    ? "请求已不再等待回答。"
-                    : `回答被 Harness 拒绝：${receipt.reason}`,
+                    ? t("The request is no longer waiting for an answer.")
+                    : t("The answer was rejected by Harness: {reason}", { reason: receipt.reason }),
         });
     }
 

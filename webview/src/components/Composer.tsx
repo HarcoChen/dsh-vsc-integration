@@ -2,20 +2,21 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatViewState } from "../../../src/types";
 import type { ChatViewAction } from "../../../src/chatViewProtocol";
 import { postAction, registerInsertTextHandler, registerSetTextHandler } from "../bridge";
+import { t } from "../i18n";
 import { CloseIcon, EyeIcon, EyeOffIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 
 const MIN_HEIGHT = 68;
 const MAX_HEIGHT = 180;
 
 const SLASH_COMMANDS = [
-    { name: "/ide", description: "添加一次性 IDE context", action: { type: "openIdeContextPicker" } },
-    { name: "/new", description: "新建会话", action: { type: "newSession" } },
-    { name: "/search", description: "搜索会话", action: { type: "searchSession" } },
-    { name: "/model", description: "选择当前会话模型", action: { type: "selectModel" } },
-    { name: "/mode", description: "选择 Agent 模式", action: { type: "selectAgentPreset" } },
-    { name: "/focus", description: "切换 Focus 模式", action: { type: "toggleFocus" } },
-    { name: "/trace", description: "打开当前会话 Trace", action: { type: "openTrace" } },
-    { name: "/stop", description: "停止 dsh 运行时", action: { type: "stop" } },
+    { name: "/ide", description: t("Add one-shot IDE context"), action: { type: "openIdeContextPicker" } },
+    { name: "/new", description: t("New session"), action: { type: "newSession" } },
+    { name: "/search", description: t("Search sessions"), action: { type: "searchSession" } },
+    { name: "/model", description: t("Select the current session model"), action: { type: "selectModel" } },
+    { name: "/mode", description: t("Select agent mode"), action: { type: "selectAgentPreset" } },
+    { name: "/focus", description: t("Toggle focus mode"), action: { type: "toggleFocus" } },
+    { name: "/trace", description: t("Open the current session trace"), action: { type: "openTrace" } },
+    { name: "/stop", description: t("Stop the dsh runtime"), action: { type: "stop" } },
 ] satisfies ReadonlyArray<{ name: string; description: string; action: ChatViewAction }>;
 
 interface ComposerProps {
@@ -127,7 +128,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         ? Math.max(1, selectionRange.endLine - selectionRange.startLine + 1)
         : 0;
 
-    const sendLabel = state.busy ? (promptMode === "steer" ? "转向" : "排队") : "发送";
+    const sendLabel = state.busy ? (promptMode === "steer" ? t("Steer") : t("Queue")) : t("Send");
 
     return (
         <div className="dsh-composer">
@@ -136,7 +137,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     {selection ? (
                         <div
                             className={`dsh-chip${state.selectionEnabled ? "" : " dsh-chip-disabled"}`}
-                            title="发送时重新读取当前选区"
+                            title={t("The current selection is read again when sending")}
                         >
                             <span className="dsh-chip-label">
                                 Selection · {selection.label} · {selectionLines} lines
@@ -144,7 +145,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                             <button
                                 type="button"
                                 className="dsh-chip-button"
-                                title="启用或关闭自动选区"
+                                title={t("Toggle automatic selection context")}
                                 onClick={() => postAction({ type: "toggleSelection" })}
                             >
                                 {state.selectionEnabled ? <EyeIcon /> : <EyeOffIcon />}
@@ -152,12 +153,12 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         </div>
                     ) : null}
                     {state.context.map((item) => (
-                        <div className="dsh-chip" title="本轮一次性附件" key={item.id}>
+                        <div className="dsh-chip" title={t("One-shot attachment")} key={item.id}>
                             <span className="dsh-chip-label">{item.label}</span>
                             <button
                                 type="button"
                                 className="dsh-chip-button"
-                                title="移除"
+                                title={t("Remove")}
                                 onClick={() => postAction({ type: "removeContext", id: item.id })}
                             >
                                 <CloseIcon />
@@ -167,14 +168,14 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 </div>
             ) : null}
             {state.busy ? (
-                <div className="dsh-send-mode" aria-label="运行时消息方式">
+                <div className="dsh-send-mode" aria-label={t("Runtime message mode")}>
                     <button
                         type="button"
                         className={promptMode === "queue" ? "active" : ""}
                         disabled={state.submitting}
                         onClick={() => setPromptMode("queue")}
                     >
-                        排队
+                        {t("Queue")}
                     </button>
                     <button
                         type="button"
@@ -182,7 +183,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         disabled={state.submitting}
                         onClick={() => setPromptMode("steer")}
                     >
-                        转向
+                        {t("Steer")}
                     </button>
                 </div>
             ) : null}
@@ -190,7 +191,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 <button
                     type="button"
                     className="dsh-icon-button dsh-add-context"
-                    title="添加一次性 IDE context（/ide）"
+                    title={t("Add one-shot IDE context (/ide)")}
                     onClick={() => postAction({ type: "openIdeContextPicker" })}
                 >
                     <PlusIcon />
@@ -198,7 +199,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 <textarea
                     ref={textareaRef}
                     className="dsh-prompt"
-                    placeholder="描述任务，使用 @ 引用文件或选区…"
+                    placeholder={t("Describe a task; use @ to reference files or selections...")}
                     value={text}
                     disabled={state.submitting}
                     rows={3}
@@ -252,12 +253,12 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     <button
                         type="button"
                         className="dsh-send-button dsh-button-secondary"
-                        title="停止"
+                        title={t("Stop")}
                         disabled={state.cancelling}
                         onClick={() => postAction({ type: "cancel" })}
                     >
                         <StopIcon />
-                        {state.cancelling ? "停止中…" : "停止"}
+                        {state.cancelling ? t("Stopping...") : t("Stop")}
                     </button>
                 ) : null}
                 <button
@@ -271,7 +272,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     {sendLabel}
                 </button>
             </div>
-            <div className="dsh-hint">Ctrl/Cmd + Enter 发送 · 当前选区会在发送时重新读取</div>
+            <div className="dsh-hint">{t("Ctrl/Cmd + Enter to send · the current selection is read again when sending")}</div>
         </div>
     );
 }
