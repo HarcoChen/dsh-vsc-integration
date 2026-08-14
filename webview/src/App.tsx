@@ -5,6 +5,7 @@ import { MessageList } from "./components/MessageList";
 import { Interactions } from "./components/Interactions";
 import { ActivityDock } from "./components/ActivityDock";
 import { Composer } from "./components/Composer";
+import { TokenUsageBar } from "./components/TokenUsageBar";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
@@ -14,6 +15,7 @@ export function App(): React.JSX.Element {
             <MessageList messages={state.messages} submitting={state.submitting} />
             <Interactions interactions={state.interactions} />
             <ActivityDock state={state} />
+            <TokenUsageBar usage={state.tokenUsage} />
             <Composer state={state} />
         </div>
     );

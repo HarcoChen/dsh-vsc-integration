@@ -111,6 +111,7 @@ export class DshRuntime implements vscode.Disposable {
     private startedByExtension = false;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
+    private hostDescription: HarnessHostDescription | undefined;
 
     public constructor(private readonly output: vscode.OutputChannel) {
         this.apiClient = new HarnessApiClient({
@@ -125,7 +126,8 @@ export class DshRuntime implements vscode.Disposable {
         this.harnessState = new HarnessStateCoordinator(this.apiClient, {
             onConnectionState: (state) =>
                 this.output.appendLine(`[dsh:events] connection ${state}`),
-            onHostDescription: () => {
+            onHostDescription: (description) => {
+                this.hostDescription = description;
                 for (const listener of this.harnessConnectedListeners) listener();
             },
             onDiagnostic: (diagnostic) => {
@@ -161,6 +163,10 @@ export class DshRuntime implements vscode.Disposable {
 
     public getUrl(): string | undefined {
         return this.baseUrl;
+    }
+
+    public getHostDescription(): HarnessHostDescription | undefined {
+        return this.hostDescription ? { ...this.hostDescription } : undefined;
     }
 
     public getApiClient(): HarnessApiClient {
@@ -206,6 +212,7 @@ export class DshRuntime implements vscode.Disposable {
         const child = this.child;
         this.child = undefined;
         this.baseUrl = undefined;
+        this.hostDescription = undefined;
 
         if (child && this.startedByExtension) {
             await this.terminate(child);

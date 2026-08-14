@@ -21,6 +21,7 @@ import {
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
 import { HarnessRpcError } from "./harnessClient";
+import { presentHostBaseline } from "./hostState";
 import {
     isCopyableCode,
     parseSafeHttpUrl,
@@ -51,6 +52,7 @@ import {
     SubagentHistoryPreview,
     SubagentTreeNodeView,
 } from "./types";
+import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
 
 interface PersistedSession {
     sessionId: string;
@@ -141,6 +143,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private subagentRefreshTimer: ReturnType<typeof setTimeout> | undefined;
     private readonly observedRunning = new Map<string, boolean>();
     private readonly completedWhileHidden = new Set<string>();
+    private readonly selectedModels = new Map<string, SelectedModelSnapshot>();
 
     public constructor(
         private readonly extensionContext: vscode.ExtensionContext,
@@ -658,6 +661,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!this.sessionId) throw new Error("当前没有会话。");
         if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
         const catalog = await this.runtime.models(this.sessionId);
+        this.selectedModels.set(this.sessionId, {
+            selection: catalog.current,
+            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId)),
+        });
+        this.schedulePostState();
         if (!catalog.routable) {
             throw new Error("当前会话没有可路由的模型。");
         }
@@ -689,6 +697,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             provider: picked.provider,
             model: picked.model,
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        });
+        this.selectedModels.set(this.sessionId, {
+            selection: result.selected,
+            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId)),
         });
         this.output.appendLine(`[dsh:model] selected ${result.selected.provider}/${result.selected.model}`);
         this.postState();
@@ -1389,6 +1401,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             : undefined;
         const goalCell = session?.projections.find((cell) => cell.key === "goal");
         const permissionsCell = session?.projections.find((cell) => cell.key === "permissions");
+        const host = presentHostBaseline(this.runtime.getHostDescription());
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -1415,6 +1428,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,
             workspaceName: workspaceFolder?.name,
+            host,
             sessionId: this.sessionId,
             sessions: catalog.sessions
                 .filter((item) => !archived.has(item.sessionId))
@@ -1443,6 +1457,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                           : { error: selected.lastAgentError }),
                   }
                 : undefined,
+            tokenUsage: projectTokenUsage(
+                session,
+                this.sessionId ? this.selectedModels.get(this.sessionId) : undefined,
+                host,
+            ),
             permissions: permissionProjection(permissionsCell?.value),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"

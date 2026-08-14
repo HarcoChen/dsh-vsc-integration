@@ -606,6 +606,7 @@ export interface ChatViewState {
         turn: TurnStatusView;
         error?: string;
     };
+    tokenUsage?: TokenUsageView;
     permissions?: PermissionProjectionView;
     interactions: Array<{
         key: string;
@@ -635,6 +636,28 @@ export interface ChatViewState {
     subagents?: SubagentTreeView;
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
+}
+
+export interface TokenUsageView {
+    route: {
+        provider?: string;
+        model?: string;
+        reasoningEffort?: string;
+    };
+    billing?: {
+        uncachedInputTokens: number;
+        outputTokens: number;
+        reasoningTokens?: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
+    };
+    context?: {
+        /** Provider-reported prompt size for the most recently completed request. */
+        pressureTokens?: number;
+        /** Provider-anchored estimate of the next request's prompt size. */
+        projectedTokens?: number;
+        contextWindow?: number;
+    };
 }
 
 export interface PermissionProjectionView {
