@@ -22,6 +22,13 @@ export interface QueueDockItem {
 const NO_VISIBLE_ASSISTANT_ANSWER = "（无可见回答）";
 const TOOL_SUMMARY_LIMIT = 1_200;
 
+export function resolvePromptMode(
+    requested: "queue" | "steer",
+    sessionRunning: boolean,
+): "queue" | "steer" {
+    return requested === "steer" && sessionRunning ? "steer" : "queue";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }

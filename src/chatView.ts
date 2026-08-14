@@ -9,6 +9,7 @@ import {
     projectChatMessages,
     projectTurnStatus,
     queueDockItems,
+    resolvePromptMode,
 } from "./chatState";
 import {
     ChatViewAction,
@@ -297,7 +298,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
                     break;
                 case "sendPrompt":
-                    await this.sendPrompt(message.text ?? "");
+                    await this.sendPrompt(message.text ?? "", message.mode);
+                    break;
+                case "retryPrompt":
+                    await this.retryPrompt(message.id);
                     break;
                 case "cancel":
                     await this.cancel();
@@ -405,7 +409,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
-    private async sendPrompt(rawText: string): Promise<void> {
+    private async sendPrompt(rawText: string, requestedMode: "queue" | "steer"): Promise<void> {
         const text = rawText.trim();
         if (!text || this.submitting) {
             return;
@@ -455,7 +459,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             };
             this.optimisticPrompts.push(optimistic);
             this.postState();
-            const promptResult = await this.runtime.prompt(session, prompt);
+            const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
+            const promptResult = await this.runtime.prompt(session, prompt, mode);
             if (promptResult.accepted === false) {
                 throw new Error("dsh runtime 拒绝了本次 prompt。请检查当前模型和 API Key 配置。");
             }
@@ -470,6 +475,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         } finally {
             this.submitting = false;
             this.cancelRequested = false;
+            this.postState();
+        }
+    }
+
+    private async retryPrompt(id: string): Promise<void> {
+        if (this.submitting || !this.sessionId) return;
+        const optimistic = this.optimisticPrompts.find(
+            (item) => item.id === id && item.sessionId === this.sessionId && item.error !== undefined,
+        );
+        if (!optimistic) return;
+        this.submitting = true;
+        optimistic.error = undefined;
+        optimistic.afterSeq = highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId));
+        optimistic.createdAt = Date.now();
+        this.postState();
+        try {
+            const result = await this.runtime.prompt(this.sessionId, optimistic.wireText, "queue");
+            if (result.accepted === false) throw new Error("dsh runtime 拒绝了本次重试。");
+        } catch (error) {
+            optimistic.error = errorMessage(error);
+            this.reportError(error);
+        } finally {
+            this.submitting = false;
             this.postState();
         }
     }
@@ -1217,6 +1245,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             status: this.runtime.getStatus(),
             busy: selected?.running === true,
             submitting: this.submitting,
+            cancelling: this.cancelRequested && selected?.running === true,
             workspaceName: workspaceFolder?.name,
             host: presentHostBaseline(this.runtime.getHostDescription()),
             sessionId: this.sessionId,
@@ -1558,6 +1587,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .job-summary { margin-top: 3px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
         .streaming::after { content: ' ●'; color: var(--vscode-progressBar-background); }
         .pending { opacity: .7; }
+        .failed { color: var(--vscode-errorForeground); }
+        .message-retry { margin-top: 5px; padding: 3px 6px; font-size: 10px; }
+        .send-mode { display: inline-flex; border: 1px solid var(--vscode-panel-border); border-radius: 4px; overflow: hidden; }
+        .send-mode button { border-radius: 0; padding: 3px 7px; font-size: 10px; }
+        .send-mode button:not(.active) { color: var(--vscode-foreground); background: var(--vscode-toolbar-hoverBackground); }
         .hidden { display: none; }
     </style>
 </head>
@@ -1593,6 +1627,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         <div id="jobs" class="dock"></div>
         <div class="composer-shell">
             <div id="contextItems" class="context-items"></div>
+            <div id="sendMode" class="send-mode hidden" aria-label="运行时消息方式">
+                <button class="active" data-prompt-mode="queue">排队</button>
+                <button data-prompt-mode="steer">转向</button>
+            </div>
             <div class="composer">
                 <button id="addContext" class="add-context secondary" title="添加一次性 IDE context（/ide）">+</button>
                 <textarea id="prompt" placeholder="描述任务，使用 @ 引用文件或选区…"></textarea>
@@ -1604,7 +1642,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     </div>
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
-        let state = { messages: [], context: [], sessions: [], interactions: [], queue: [], jobs: [], selectionEnabled: true, status: { state: 'stopped' }, busy: false, submitting: false };
+        let state = { messages: [], context: [], sessions: [], interactions: [], queue: [], jobs: [], selectionEnabled: true, status: { state: 'stopped' }, busy: false, submitting: false, cancelling: false };
+        let promptMode = 'queue';
 
         function escapeHtml(value) {
             return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
@@ -1719,7 +1758,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     const stateLabel = message.state === 'pending' ? ' · 等待接收' : (message.state === 'streaming' ? ' · 流式生成' : '');
                     const trace = Number.isSafeInteger(message.seq) && message.seq >= 0 ? '<button class="message-trace" data-trace-seq="' + message.seq + '" title="在 Trace 中定位">trace</button>' : '';
                     const renderId = typeof message.renderId === 'string' ? ' data-render-id="' + escapeHtml(message.renderId) + '"' : '';
-                    return '<div class="message ' + message.role + stateClass + '"' + renderId + '><div class="message-label">' + label + stateLabel + trace + '</div>' + renderMessageContent(message, expandedMainReasoning) + '</div>';
+                    const retry = message.state === 'failed' ? '<button class="message-retry secondary" data-retry-id="' + escapeHtml(message.id) + '"' + (state.submitting ? ' disabled' : '') + '>重试</button>' : '';
+                    return '<div class="message ' + message.role + stateClass + '"' + renderId + '><div class="message-label">' + label + stateLabel + trace + '</div>' + renderMessageContent(message, expandedMainReasoning) + retry + '</div>';
                 }).join('');
                 messages.scrollTop = messages.scrollHeight;
             }
@@ -1791,10 +1831,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
             contextItems.innerHTML = chips.join('');
 
-            document.getElementById('cancel').classList.toggle('hidden', !state.busy);
+            const cancelButton = document.getElementById('cancel');
+            cancelButton.classList.toggle('hidden', !state.busy);
+            cancelButton.disabled = Boolean(state.cancelling);
+            cancelButton.textContent = state.cancelling ? '停止中…' : '停止';
             document.getElementById('send').disabled = Boolean(state.submitting);
             document.getElementById('prompt').disabled = Boolean(state.submitting);
-            document.getElementById('send').textContent = state.busy ? '排队' : '发送';
+            document.getElementById('send').textContent = state.busy ? (promptMode === 'steer' ? '转向' : '排队') : '发送';
+            const sendMode = document.getElementById('sendMode');
+            sendMode.classList.toggle('hidden', !state.busy);
+            if (!state.busy) promptMode = 'queue';
+            for (const button of sendMode.querySelectorAll('[data-prompt-mode]')) {
+                button.classList.toggle('active', button.dataset.promptMode === promptMode);
+                button.disabled = Boolean(state.submitting);
+            }
         }
 
         function post(type, payload = {}) {
@@ -1816,9 +1866,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         document.getElementById('send').addEventListener('click', () => {
             const prompt = document.getElementById('prompt');
             if (prompt.value.trim()) {
-                post('sendPrompt', { text: prompt.value });
+                post('sendPrompt', { text: prompt.value, mode: state.busy ? promptMode : 'queue' });
                 prompt.value = '';
             }
+        });
+        document.getElementById('sendMode').addEventListener('click', (event) => {
+            const button = event.target.closest('[data-prompt-mode]');
+            if (!button || button.disabled) return;
+            promptMode = button.dataset.promptMode === 'steer' ? 'steer' : 'queue';
+            render();
         });
         document.getElementById('cancel').addEventListener('click', () => post('cancel'));
         document.getElementById('runtimeButton').addEventListener('click', () => post(state.status.state === 'running' ? 'stop' : 'start'));
@@ -1834,6 +1890,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         document.getElementById('archiveSession').addEventListener('click', () => post('archiveSession'));
         document.getElementById('openTrace').addEventListener('click', () => post('openTrace'));
         document.getElementById('messages').addEventListener('click', (event) => {
+            const retry = event.target.closest('[data-retry-id]');
+            if (retry && !retry.disabled) {
+                retry.disabled = true;
+                post('retryPrompt', { id: retry.dataset.retryId });
+                return;
+            }
             const button = event.target.closest('[data-trace-seq]');
             if (button) {
                 post('openTrace', { seq: Number(button.dataset.traceSeq) });

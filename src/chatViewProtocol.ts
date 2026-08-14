@@ -3,7 +3,8 @@ import { parseSafeHttpUrl } from "./safeMarkdown";
 
 export type ChatViewAction =
     | { type: "ready" }
-    | { type: "sendPrompt"; text: string }
+    | { type: "sendPrompt"; text: string; mode: "queue" | "steer" }
+    | { type: "retryPrompt"; id: string }
     | { type: "cancel" }
     | { type: "configureApiKey" }
     | { type: "openIdeContextPicker" }
@@ -145,8 +146,13 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                   }
                 : undefined;
         case "sendPrompt":
-            return typeof value.text === "string"
-                ? { type: "sendPrompt", text: value.text }
+            return typeof value.text === "string" &&
+                (value.mode === "queue" || value.mode === "steer")
+                ? { type: "sendPrompt", text: value.text, mode: value.mode }
+                : undefined;
+        case "retryPrompt":
+            return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
+                ? { type: "retryPrompt", id: value.id }
                 : undefined;
         case "removeContext":
             return nonEmptyString(value.id)

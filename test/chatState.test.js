@@ -6,6 +6,7 @@ const {
     projectChatMessages,
     projectTurnStatus,
     queueDockItems,
+    resolvePromptMode,
 } = require("../dist/chatState.js");
 const { HarnessSessionStore } = require("../dist/sessionStore.js");
 const { renderSafeMarkdown } = require("../dist/safeMarkdown.js");
@@ -364,6 +365,13 @@ test("hidden view badge deduplicates completed and attention sessions", () => {
     ], new Set(["attention", "completed"]));
     assert.deepEqual(badge, { value: 2, tooltip: "1 个会话等待操作" });
     assert.equal(hiddenViewBadge([{ sessionId: "idle" }], new Set()), undefined);
+});
+
+test("prompt mode permits steer only while the selected session is running", () => {
+    assert.equal(resolvePromptMode("queue", false), "queue");
+    assert.equal(resolvePromptMode("queue", true), "queue");
+    assert.equal(resolvePromptMode("steer", false), "queue");
+    assert.equal(resolvePromptMode("steer", true), "steer");
 });
 
 test("reasoning-only assistant uses a visible placeholder and safe folded reasoning", () => {

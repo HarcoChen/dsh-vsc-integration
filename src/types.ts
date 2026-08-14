@@ -569,6 +569,7 @@ export interface ChatViewState {
     status: RuntimeStatus;
     busy: boolean;
     submitting: boolean;
+    cancelling: boolean;
     workspaceName?: string;
     host?: HostBaselineView;
     sessionId?: string;

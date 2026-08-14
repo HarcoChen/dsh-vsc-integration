@@ -30,6 +30,25 @@ test("webview action parser accepts only typed interaction and queue messages", 
         text: "   ",
     }), undefined);
     assert.equal(parseChatViewAction({ type: "switchSession", sessionId: 5 }), undefined);
+    assert.deepEqual(parseChatViewAction({
+        type: "sendPrompt",
+        text: "change direction",
+        mode: "steer",
+    }), { type: "sendPrompt", text: "change direction", mode: "steer" });
+    assert.equal(parseChatViewAction({
+        type: "sendPrompt",
+        text: "change direction",
+        mode: "immediate",
+    }), undefined);
+    assert.deepEqual(parseChatViewAction({
+        type: "retryPrompt",
+        id: "optimistic:opaque-id",
+    }), { type: "retryPrompt", id: "optimistic:opaque-id" });
+    assert.equal(parseChatViewAction({
+        type: "retryPrompt",
+        id: "optimistic:opaque-id",
+        sessionId: "forged-session",
+    }), undefined);
 });
 
 test("question validation rejects forged options, duplicate ids, and multi-select on radio questions", () => {
