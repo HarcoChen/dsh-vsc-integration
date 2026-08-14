@@ -1,7 +1,8 @@
-import { ChildProcess, spawn } from "node:child_process";
+import { ChildProcess, execFile, spawn } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, extname, isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { HarnessApiClient } from "./harnessClient";
 import {
@@ -37,6 +38,7 @@ import {
 
 type RuntimeListener = (status: RuntimeStatus) => void;
 type HarnessConnectedListener = () => void;
+const execFileAsync = promisify(execFile);
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -99,6 +101,45 @@ async function executableExists(command: string): Promise<boolean> {
         }
     }
     return false;
+}
+
+type DshLauncherSource = "configured" | "path" | "npm-prefix" | "npx";
+interface DshLauncher {
+    command: string;
+    args: string[];
+    source: DshLauncherSource;
+}
+
+async function discoverDsh(command: string): Promise<DshLauncher> {
+    if (await executableExists(command)) {
+        return { command, args: [], source: "configured" };
+    }
+    if (command !== "dsh") {
+        throw new Error(t("Start command “{command}” was not found. Configure an absolute dsh.command path or install the dsh CLI.", { command }));
+    }
+
+    if (await executableExists("dsh")) {
+        return { command: "dsh", args: [], source: "path" };
+    }
+
+    try {
+        const result = await execFileAsync("npm", ["prefix", "-g"], { timeout: 10_000, windowsHide: true });
+        const prefix = result.stdout.trim();
+        const binDir = process.platform === "win32" ? prefix : join(prefix, "bin");
+        for (const name of process.platform === "win32" ? ["dsh.cmd", "dsh.exe", "dsh.ps1", "dsh"] : ["dsh"]) {
+            const candidate = join(binDir, name);
+            if (await executableExists(candidate)) {
+                return { command: candidate, args: [], source: "npm-prefix" };
+            }
+        }
+    } catch {
+        // npm is optional; continue to the non-installing npx probe.
+    }
+
+    if (await executableExists("npx")) {
+        return { command: "npx", args: ["--no-install", "@deepseek-ai/dsh"], source: "npx" };
+    }
+    throw new Error(t("No dsh executable was found in PATH, the npm global prefix, or npx. Configure an absolute dsh.command path or install the dsh CLI."));
 }
 
 export class DshRuntime implements vscode.Disposable {
@@ -464,24 +505,17 @@ export class DshRuntime implements vscode.Disposable {
         let args = [...configuredArgs];
         const configuredPort = this.configuration().get<number>("serverPort", 0);
 
-        if (!(await executableExists(command))) {
-            const installWhenMissing = this.configuration().get<boolean>("installWhenMissing", true);
-            if (command !== "dsh" || !installWhenMissing) {
-                const message = t("Start command “{command}” was not found. Install Node.js/npm, configure an absolute dsh.command path, or install the dsh CLI. The official npm entry point is npx @deepseek-ai/dsh web.", { command });
-                this.setStatus({ state: "error", message });
-                throw new Error(message);
-            }
-            if (!(await executableExists("npx"))) {
-                const message = t("Neither dsh nor the fallback npx executable was found. Install Node.js/npm or configure an absolute dsh.command path.");
-                this.setStatus({ state: "error", message });
-                throw new Error(message);
-            }
-
-            command = "npx";
-            args = ["-y", "@deepseek-ai/dsh", ...args];
-            this.setStatus({ state: "starting", message: t("dsh was not found; fetching and starting it through npx...") });
-            this.output.appendLine("[dsh] executable not found; falling back to npx -y @deepseek-ai/dsh");
+        let launcher: DshLauncher;
+        try {
+            launcher = await discoverDsh(command);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.setStatus({ state: "error", message });
+            throw error;
         }
+        command = launcher.command;
+        args = [...launcher.args, ...args];
+        this.output.appendLine(`[dsh] discovered executable: ${command} (${launcher.source})`);
 
         if (!args.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
             args.push("--port", String(configuredPort));
