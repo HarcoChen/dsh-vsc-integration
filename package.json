@@ -287,7 +287,7 @@
                     "default": 600000,
                     "minimum": 10000,
                     "maximum": 3600000,
-                    "description": "Maximum time for one Harness RPC, including reconnect history rebaselines. Live assistant output is delivered over SSE and is not polled."
+                    "description": "Maximum time for one Harness RPC, including reconnect history rebaselines. Live assistant output is delivered over WebSocket and is not polled."
                 },
                 "dsh.maxContextBytes": {
                     "type": "number",

@@ -25,6 +25,8 @@ export interface HarnessClientDiagnostic {
 export interface HarnessApiClientOptions {
     baseUrl: string | (() => string | undefined);
     fetch?: typeof fetch;
+    /** WebSocket constructor used for Harness event streams (injectable for non-browser hosts/tests). */
+    webSocketFactory?: (url: string) => WebSocket;
     timeoutMs?: number | (() => number);
     mintRpcId?: () => string;
     onDiagnostic?: (diagnostic: HarnessClientDiagnostic) => void;
@@ -147,14 +149,14 @@ export class HarnessApiClient {
         signal: AbortSignal,
         onOpen?: () => void,
     ): AsyncIterable<HarnessStreamEnvelope<DshMuxFrame>> {
-        return this.readSse("/api/events.mux", "mux", signal, onOpen);
+        return this.readStream("/api/events.mux", "mux", signal, onOpen);
     }
 
     public host(
         signal: AbortSignal,
         onOpen?: () => void,
     ): AsyncIterable<HarnessStreamEnvelope<DshHostFrame>> {
-        return this.readSse("/api/events.host", "host", signal, onOpen);
+        return this.readStream("/api/events.host", "host", signal, onOpen);
     }
 
     public async respond<T>(
@@ -181,6 +183,86 @@ export class HarnessApiClient {
             throw new Error("Harness respond returned an invalid rejection receipt");
         }
         return { accepted: false, reason: body.reason };
+    }
+
+    private async *readStream<F extends { type: string }>(
+        path: string,
+        channel: "mux" | "host",
+        signal: AbortSignal,
+        onOpen?: () => void,
+    ): AsyncGenerator<HarnessStreamEnvelope<F>> {
+        // Existing callers can inject fetch for deterministic protocol checks. The extension
+        // itself uses the WebSocket path, which is required by current Harness web servers.
+        if (this.options.webSocketFactory === undefined && this.options.fetch !== undefined) {
+            yield* this.readSse(path, channel, signal, onOpen);
+            return;
+        }
+
+        const factory = this.options.webSocketFactory ?? defaultWebSocketFactory;
+        const socket = factory(toWebSocketUrl(this.url(path)));
+        yield* this.readWebSocket(socket, channel, signal, onOpen);
+    }
+
+    private async *readWebSocket<F extends { type: string }>(
+        socket: WebSocket,
+        channel: "mux" | "host",
+        signal: AbortSignal,
+        onOpen?: () => void,
+    ): AsyncGenerator<HarnessStreamEnvelope<F>> {
+        const queue: Array<string | ArrayBuffer | Blob> = [];
+        let wake: (() => void) | undefined;
+        let closed = false;
+        let failure: unknown;
+        const notify = (): void => {
+            wake?.();
+            wake = undefined;
+        };
+        const onMessage = (event: MessageEvent): void => {
+            queue.push(event.data);
+            notify();
+        };
+        const onError = (event: Event): void => {
+            failure = new Error(`Harness ${channel} WebSocket failed`);
+            (failure as Error & { cause?: unknown }).cause = event;
+            closed = true;
+            notify();
+        };
+        const onClose = (): void => {
+            closed = true;
+            notify();
+        };
+        const abort = (): void => {
+            closed = true;
+            socket.close();
+            notify();
+        };
+
+        socket.addEventListener("message", onMessage);
+        socket.addEventListener("error", onError);
+        socket.addEventListener("close", onClose);
+        signal.addEventListener("abort", abort, { once: true });
+        try {
+            await waitForWebSocketOpen(socket, signal);
+            onOpen?.();
+            while (!closed || queue.length > 0) {
+                if (queue.length === 0) {
+                    await new Promise<void>((resolve) => (wake = resolve));
+                    continue;
+                }
+                const data = await webSocketDataToText(queue.shift()!);
+                const envelope = this.parseStreamEnvelope<F>(data, channel);
+                if (envelope) yield envelope;
+            }
+            if (failure) throw failure;
+        } finally {
+            signal.removeEventListener("abort", abort);
+            socket.removeEventListener("message", onMessage);
+            socket.removeEventListener("error", onError);
+            socket.removeEventListener("close", onClose);
+            if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+                socket.close();
+            }
+        }
     }
 
     private async *readSse<F extends { type: string }>(
@@ -244,7 +326,7 @@ export class HarnessApiClient {
                 payload: body.payload as F,
             };
         } catch (error) {
-            this.diagnostic(channel, "Dropping malformed SSE frame", error);
+            this.diagnostic(channel, "Dropping malformed Harness stream frame", error);
             return undefined;
         }
     }
@@ -281,6 +363,60 @@ export class HarnessApiClient {
 interface SseDataResult {
     values: string[];
     rest: string;
+}
+
+function defaultWebSocketFactory(url: string): WebSocket {
+    if (typeof WebSocket !== "function") {
+        throw new Error("Harness WebSocket is unavailable in this runtime");
+    }
+    return new WebSocket(url);
+}
+
+function toWebSocketUrl(url: string): string {
+    const parsed = new URL(url);
+    parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    return parsed.toString();
+}
+
+function waitForWebSocketOpen(socket: WebSocket, signal: AbortSignal): Promise<void> {
+    if (socket.readyState === WebSocket.OPEN) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+        const cleanup = (): void => {
+            socket.removeEventListener("open", opened);
+            socket.removeEventListener("error", failed);
+            socket.removeEventListener("close", closed);
+            signal.removeEventListener("abort", aborted);
+        };
+        const opened = (): void => {
+            cleanup();
+            resolve();
+        };
+        const failed = (): void => {
+            cleanup();
+            reject(new Error("Harness WebSocket failed during handshake"));
+        };
+        const closed = (): void => {
+            cleanup();
+            reject(new Error("Harness WebSocket closed during handshake"));
+        };
+        const aborted = (): void => {
+            cleanup();
+            socket.close();
+            reject(signal.reason ?? new DOMException("The operation was aborted", "AbortError"));
+        };
+        socket.addEventListener("open", opened);
+        socket.addEventListener("error", failed);
+        socket.addEventListener("close", closed);
+        signal.addEventListener("abort", aborted, { once: true });
+    });
+}
+
+async function webSocketDataToText(data: string | ArrayBuffer | Blob): Promise<string> {
+    if (typeof data === "string") return data;
+    if (data instanceof Blob) return data.text();
+    return new TextDecoder().decode(data);
 }
 
 /** Extract all complete SSE records while retaining an incomplete tail. */

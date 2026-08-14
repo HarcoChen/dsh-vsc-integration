@@ -2,7 +2,7 @@
 
 更新时间：2026-08-14。
 
-本文严格以 DeepSeek Harness 当前公开的 Web RPC、SSE frame 和 session projection 为边界。不为 Harness 内部 subsystem 猜测接口，也不把尚未暴露的能力列入扩展开发路线。
+本文严格以 DeepSeek Harness 当前公开的 Web RPC、WebSocket frame 和 session projection 为边界。不为 Harness 内部 subsystem 猜测接口，也不把尚未暴露的能力列入扩展开发路线。
 
 客户端 UI 的复用与 VS Code 边界见 [DSH IDE 前端架构与 Harness UI 复用](FRONTEND_ARCHITECTURE.md)。协议范围由本文约束，展示层优先采用仓库内 Harness client packages。
 
@@ -95,7 +95,7 @@ Trace Editor + Projection Inspector + Settings/Credentials
 ## 参考
 
 - [Web RPC method map](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/rpc-map.ts)
-- [SSE event contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/events.ts)
+- [Event stream contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/events.ts)
 - [Session API](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/sessions.ts)
 - [Host API](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/host.ts)
 - [Trace 集成设计](TRACE_INTEGRATION.md)
