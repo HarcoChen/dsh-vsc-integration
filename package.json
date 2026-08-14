@@ -276,7 +276,7 @@
                 "dsh.autoStart": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Start or attach to dsh web automatically when the chat view sends a prompt. If false, start it with a command first."
+                    "description": "Start or attach to dsh web automatically when the extension activates. If false, start it from the status label or with DSH: Start dsh Web Runtime."
                 },
                 "dsh.installWhenMissing": {
                     "type": "boolean",

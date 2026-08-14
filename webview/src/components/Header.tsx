@@ -43,17 +43,23 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
     const status = state.status;
     const sessionStatus = state.sessionStatus;
     const turn = sessionStatus?.turn;
-    const dotClass = sessionStatus?.error
-        ? "error"
-        : sessionStatus?.attention
-          ? "starting"
-          : status.state;
-    const label =
-        (turn && TURN_LABELS[turn.phase]) ||
-        (sessionStatus?.error ? "会话错误" : statusLabel(status));
-    const statusTitle =
+    const runtimeReady = status.state === "running";
+    const dotClass = !runtimeReady
+        ? status.state
+        : sessionStatus?.error
+          ? "error"
+          : sessionStatus?.attention
+            ? "starting"
+            : status.state;
+    const canStartRuntime = status.state === "stopped" || status.state === "error";
+    const label = !runtimeReady
+        ? statusLabel(status)
+        : (turn && TURN_LABELS[turn.phase]) ||
+          (sessionStatus?.error ? "会话错误" : statusLabel(status));
+    const turnTitle =
         (turn && Number.isSafeInteger(turn.turn) ? `Turn ${turn.turn}` : "") +
         (turn?.detail ? ` · ${turn.detail}` : "");
+    const statusTitle = status.message || turnTitle;
 
     const sessions = state.sessions;
     const hasSession = Boolean(state.sessionId);
@@ -86,9 +92,22 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         <header className="dsh-header">
             <div className="dsh-status" title={statusTitle || undefined}>
                 <span className={`dsh-dot ${dotClass}`} />
-                <span className={`dsh-status-label${turn ? ` dsh-turn-${turn.phase}` : ""}`}>
-                    {label}
-                </span>
+                {canStartRuntime ? (
+                    <button
+                        type="button"
+                        className="dsh-status-label dsh-status-action"
+                        title={status.state === "error"
+                            ? `${status.message || "启动失败"}\n点击重试`
+                            : "点击启动 DSH Runtime"}
+                        onClick={() => postAction({ type: "start" })}
+                    >
+                        {label}
+                    </button>
+                ) : (
+                    <span className={`dsh-status-label${turn ? ` dsh-turn-${turn.phase}` : ""}`}>
+                        {label}
+                    </span>
+                )}
             </div>
             <select
                 className="dsh-session-select"

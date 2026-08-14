@@ -204,6 +204,19 @@ button {
     white-space: nowrap;
 }
 
+.dsh-status-action {
+    color: var(--vscode-textLink-foreground);
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+}
+
+.dsh-status-action:hover {
+    color: var(--vscode-textLink-activeForeground);
+    border-color: var(--vscode-focusBorder);
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
 .dsh-status-label.dsh-turn-failed,
 .dsh-status-label.dsh-turn-cancelled {
     color: var(--vscode-errorForeground);

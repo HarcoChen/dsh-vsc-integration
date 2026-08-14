@@ -105,6 +105,17 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
     );
     balanceService.start();
+
+    const configuration = vscode.workspace.getConfiguration("dsh");
+    const autoStart = configuration.get<boolean>("autoStart", true);
+    const root = workspaceRoot();
+    const configuredServerUrl = configuration.get<string>("serverUrl", "").trim();
+    if (autoStart && vscode.workspace.isTrusted && (root || configuredServerUrl)) {
+        void runtime.start(root).catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : String(error);
+            output.appendLine(`[dsh] automatic startup failed: ${message}`);
+        });
+    }
 }
 
 export function deactivate(): void {
