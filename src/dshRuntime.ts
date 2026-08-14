@@ -71,6 +71,11 @@ function portFromArgs(args: string[]): number | undefined {
     return Number.isInteger(value) && value > 0 && value <= 65_535 ? value : undefined;
 }
 
+function launcherNeedsShell(command: string): boolean {
+    if (process.platform !== "win32") return false;
+    return !/\.exe$/iu.test(command);
+}
+
 async function executableExists(command: string): Promise<boolean> {
     const mode = process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK;
     const candidates: string[] = [];
@@ -530,7 +535,9 @@ export class DshRuntime implements vscode.Disposable {
         const child = spawn(command, args, {
             cwd: workspaceRoot,
             env: process.env,
-            shell: false,
+            // Windows batch and PowerShell launchers fail with EINVAL unless
+            // executed through the shell; native executables do not need it.
+            shell: launcherNeedsShell(command),
             stdio: ["ignore", "pipe", "pipe"],
             windowsHide: true,
         });
