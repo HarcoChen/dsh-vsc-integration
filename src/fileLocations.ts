@@ -14,7 +14,16 @@ export interface FileLocationMatch extends FileLocation {
 }
 
 const LOCATION_TOKEN = /[^\s<>"'`()[\]{}*,;]+:[1-9]\d{0,7}(?::[1-9]\d{0,7})?(?!\d|:\d)/gu;
+const BARE_PATH_TOKEN = /[^\s<>"'`()[\]{}*,;:，。！？：（）【】《》]+/gu;
 const SPECIAL_BASENAME = /^(?:readme|license|makefile|dockerfile|todo|agents)(?:\.[a-z0-9_-]+)?$/iu;
+const SPECIAL_DOTFILE = /^\.(?:env|gitignore|gitattributes|editorconfig|npmrc|nvmrc|prettierrc|eslintrc)(?:\.[a-z0-9_-]+)?$/iu;
+const BARE_EXTENSIONS = new Set([
+    "bash", "c", "cc", "cjs", "conf", "cpp", "cs", "css", "csv", "env", "fish",
+    "go", "gradle", "h", "hpp", "html", "ini", "java", "js", "json", "jsonc", "jsx",
+    "kt", "kts", "less", "lock", "md", "mdx", "mjs", "php", "properties", "proto",
+    "ps1", "py", "rb", "rs", "scss", "sh", "sql", "svelte", "swift", "toml", "ts",
+    "tsx", "txt", "vue", "xml", "yaml", "yml", "zsh",
+]);
 
 function escapeHtml(value: string): string {
     return value.replace(/[&<>"']/gu, (character) => ({
@@ -38,6 +47,21 @@ function pathLike(value: string): boolean {
         value.includes("\\") ||
         basename.includes(".") ||
         SPECIAL_BASENAME.test(basename);
+}
+
+function barePathLike(value: string): boolean {
+    if (!pathLike(value) || value.startsWith("//") || /:\d+(?::\d+)?$/u.test(value)) return false;
+    const basename = value.split(/[\\/]/u).at(-1) ?? "";
+    if (SPECIAL_BASENAME.test(basename) || SPECIAL_DOTFILE.test(basename)) return true;
+    const extension = /\.([\p{L}][\p{L}\p{N}_-]{0,15})$/u.exec(basename)?.[1]?.toLowerCase();
+    if (!extension) return false;
+    return BARE_EXTENSIONS.has(extension) || value.includes("/") || value.includes("\\");
+}
+
+function parseBareFileReference(value: string): FileLocation | undefined {
+    let path = value;
+    while (/[.!?]$/u.test(path) && path.includes(".")) path = path.slice(0, -1);
+    return barePathLike(path) ? { path, line: 1 } : undefined;
 }
 
 export function parseFileLocation(value: unknown): FileLocation | undefined {
@@ -77,7 +101,21 @@ export function findFileLocations(text: string): FileLocationMatch[] {
             text: token[0],
         });
     }
-    return matches;
+    for (const token of text.matchAll(BARE_PATH_TOKEN)) {
+        const start = token.index;
+        if (start === undefined) continue;
+        const location = parseBareFileReference(token[0]);
+        if (!location) continue;
+        const end = start + location.path.length;
+        if (matches.some((match) => start < match.end && end > match.start)) continue;
+        matches.push({
+            ...location,
+            start,
+            end,
+            text: location.path,
+        });
+    }
+    return matches.sort((left, right) => left.start - right.start);
 }
 
 export function renderFileLocationAnchor(
