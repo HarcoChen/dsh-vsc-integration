@@ -147,6 +147,20 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "parent {parent}": "父会话 {parent}",
     "owner {owner}": "所有者 {owner}",
     "Provider usage": "Provider 用量",
+    "Changes": "变更",
+    "Added": "新增",
+    "Modified": "修改",
+    "Deleted": "删除",
+    "Renamed": "重命名",
+    "Turn {turn}": "第 {turn} 轮",
+    "Capturing changes...": "正在捕获变更…",
+    "Restored": "已恢复",
+    "{count} files": "{count} 个文件",
+    "Restore": "恢复",
+    "Restore all changes from this turn": "恢复本轮全部变更",
+    "This turn contains a file type that cannot be restored safely.": "本轮包含无法安全恢复的文件类型。",
+    "Open native diff for {path}": "使用原生 diff 打开 {path}",
+    "Wait for the current turn to finish before restoring changes.": "请等待当前轮次结束后再恢复变更。",
 };
 
 const locale = document.documentElement.lang.toLowerCase();

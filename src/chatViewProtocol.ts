@@ -24,6 +24,8 @@ export type ChatViewAction =
     | { type: "openFileLocation"; path: string; line: number; column?: number }
     | { type: "copyCode"; renderId: string; codeBlockId: string }
     | { type: "openTrace"; seq?: number }
+    | { type: "openChangeDiff"; turn: number; fileId: string }
+    | { type: "restoreTurnChanges"; turn: number }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
     | { type: "searchSession" }
@@ -146,6 +148,14 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 type: "openTrace",
                 ...(value.seq === undefined ? {} : { seq: value.seq }),
             };
+        case "openChangeDiff":
+            if (!positiveInteger(value.turn) || typeof value.fileId !== "string" ||
+                !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value.fileId) ||
+                !hasOnly(value, ["type", "turn", "fileId"])) return undefined;
+            return { type: "openChangeDiff", turn: value.turn, fileId: value.fileId };
+        case "restoreTurnChanges":
+            if (!positiveInteger(value.turn) || !hasOnly(value, ["type", "turn"])) return undefined;
+            return { type: "restoreTurnChanges", turn: value.turn };
         case "openExternalLink": {
             if (!hasOnly(value, ["type", "url"])) return undefined;
             const url = parseSafeHttpUrl(value.url);

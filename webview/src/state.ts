@@ -14,6 +14,7 @@ export const DEFAULT_STATE: ChatViewState = {
     interactions: [],
     queue: [],
     jobs: [],
+    changeReviews: [],
     selectionEnabled: true,
     status: { state: "stopped" },
     busy: false,

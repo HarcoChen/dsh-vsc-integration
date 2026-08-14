@@ -636,6 +636,21 @@ export interface ChatViewState {
     subagents?: SubagentTreeView;
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
+    changeReviews: ChangeReviewView[];
+}
+
+export interface ChangeReviewView {
+    turn: number;
+    state: "capturing" | "ready" | "error";
+    files: Array<{
+        id: string;
+        status: "added" | "modified" | "deleted" | "renamed";
+        path: string;
+        oldPath?: string;
+        restorable: boolean;
+    }>;
+    restored: boolean;
+    error?: string;
 }
 
 export interface TokenUsageView {

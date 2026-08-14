@@ -19,6 +19,7 @@ import {
     validateQuestionAnswers,
 } from "./chatViewProtocol";
 import { ContextStore } from "./contextStore";
+import { ChangeReviewStore } from "./changeReviewStore";
 import { DshRuntime } from "./dshRuntime";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
@@ -168,6 +169,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly observedRunning = new Map<string, boolean>();
     private readonly completedWhileHidden = new Set<string>();
     private readonly selectedModels = new Map<string, SelectedModelSnapshot>();
+    private readonly changeReviews: ChangeReviewStore;
 
     public constructor(
         private readonly extensionContext: vscode.ExtensionContext,
@@ -177,7 +179,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly output: vscode.OutputChannel,
         private readonly balanceService?: DeepSeekBalanceService,
     ) {
+        this.changeReviews = new ChangeReviewStore(output);
         const unsubscribeSession = runtime.getSessionStore().onDidChange((sessionId, snapshot) => {
+            const catalogSession = runtime.getSessionCatalog().snapshot().sessions.find(
+                (item) => item.sessionId === sessionId,
+            );
+            if (!catalogSession?.parentSessionId && catalogSession?.origin !== "subagent") {
+                this.changeReviews.observe(
+                    sessionId,
+                    catalogSession?.cwd ?? (sessionId === this.sessionId ? this.sessionCwd : undefined),
+                    snapshot,
+                );
+            }
             if (sessionId === this.sessionId) {
                 this.goalMutations.observe(
                     sessionId,
@@ -201,6 +214,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             contextStore.onDidChange(() => this.schedulePostState()),
             vscode.window.onDidChangeActiveTextEditor(() => this.schedulePostState()),
             vscode.window.onDidChangeTextEditorSelection(() => this.schedulePostState()),
+            this.changeReviews.onDidUpdate(() => this.schedulePostState()),
             new vscode.Disposable(unsubscribeSession),
             new vscode.Disposable(unsubscribeCatalog),
         );
@@ -380,6 +394,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (this.subagentRefreshTimer) clearTimeout(this.subagentRefreshTimer);
         for (const controller of this.subagentTreeAborts.values()) controller.abort();
         this.subagentPreviewAbort?.abort();
+        this.changeReviews.dispose();
         for (const disposable of this.disposables) {
             disposable.dispose();
         }
@@ -462,6 +477,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                             ...(message.seq === undefined ? {} : { seq: message.seq }),
                         });
                     }
+                    break;
+                case "openChangeDiff":
+                    if (this.sessionId) {
+                        await this.changeReviews.openDiff(this.sessionId, message.turn, message.fileId);
+                    }
+                    break;
+                case "restoreTurnChanges":
+                    if (this.selectedSessionRunning()) {
+                        throw new Error(t("Wait for the current turn to finish before restoring changes."));
+                    }
+                    if (this.sessionId) await this.changeReviews.restore(this.sessionId, message.turn);
                     break;
                 case "switchSession":
                     await this.switchSession(message.sessionId);
@@ -1627,6 +1653,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             jobs: this.sessionId
                 ? presentJobCenter(this.sessionId, session?.jobs.items ?? [])
                 : [],
+            changeReviews: this.changeReviews.view(this.sessionId),
         };
         void this.view.webview.postMessage({
             type: "state",

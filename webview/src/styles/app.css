@@ -750,6 +750,70 @@ button {
     padding: 0 var(--dsh-space-4) var(--dsh-space-3);
 }
 
+/* turn changes */
+
+.dsh-change-turn + .dsh-change-turn {
+    margin-top: var(--dsh-space-3);
+}
+
+.dsh-change-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--dsh-space-2);
+    align-items: center;
+    min-height: 28px;
+    border-bottom: 1px solid var(--dsh-border);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-change-head .dsh-card-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-change-restore {
+    padding: 2px var(--dsh-space-2);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-change-file {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: var(--dsh-space-2);
+    align-items: center;
+    width: 100%;
+    padding: var(--dsh-space-2) 0;
+    border: 0;
+    border-bottom: 1px solid var(--dsh-border);
+    color: var(--vscode-foreground);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+}
+
+.dsh-change-file:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.dsh-change-status {
+    font-size: var(--dsh-font-xs);
+    font-weight: 600;
+}
+
+.dsh-change-status.added { color: var(--vscode-gitDecoration-addedResourceForeground); }
+.dsh-change-status.modified { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
+.dsh-change-status.deleted { color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.dsh-change-status.renamed { color: var(--vscode-gitDecoration-renamedResourceForeground); }
+
+.dsh-change-path {
+    overflow: hidden;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* goal */
 
 .dsh-goal-objective {

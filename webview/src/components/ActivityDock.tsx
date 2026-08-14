@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { handleMarkdownClick, handleMarkdownKeydown } from "./MessageList";
 import { MessageContent } from "./MessageItem";
 
-type DockTab = "goal" | "queue" | "subagents" | "jobs" | "permissions";
+type DockTab = "goal" | "queue" | "changes" | "subagents" | "jobs" | "permissions";
 
 interface TabDef {
     id: DockTab;
@@ -467,12 +467,93 @@ function PermissionsPanel({
     );
 }
 
+const CHANGE_LABELS = {
+    added: t("Added"),
+    modified: t("Modified"),
+    deleted: t("Deleted"),
+    renamed: t("Renamed"),
+} as const;
+
+function ChangesPanel({
+    reviews,
+    running,
+}: {
+    reviews: ChatViewState["changeReviews"];
+    running: boolean;
+}): React.JSX.Element {
+    return (
+        <div className="dsh-changes">
+            {reviews.map((review) => {
+                const canRestore = review.state === "ready" &&
+                    review.files.length > 0 &&
+                    !running &&
+                    !review.restored &&
+                    review.files.every((file) => file.restorable);
+                return (
+                    <section className="dsh-change-turn" key={review.turn}>
+                        <div className="dsh-change-head">
+                            <strong>{t("Turn {turn}", { turn: review.turn })}</strong>
+                            <span className="dsh-card-detail">
+                                {review.state === "capturing"
+                                    ? t("Capturing changes...")
+                                    : review.restored
+                                        ? t("Restored")
+                                        : t("{count} files", { count: review.files.length })}
+                            </span>
+                            <button
+                                type="button"
+                                className="dsh-button dsh-change-restore"
+                                disabled={!canRestore}
+                                title={review.files.some((file) => !file.restorable)
+                                    ? t("This turn contains a file type that cannot be restored safely.")
+                                    : running
+                                        ? t("Wait for the current turn to finish before restoring changes.")
+                                        : t("Restore all changes from this turn")}
+                                onClick={() => postAction({ type: "restoreTurnChanges", turn: review.turn })}
+                            >
+                                {t("Restore")}
+                            </button>
+                        </div>
+                        {review.error ? <div className="dsh-card-error">{review.error}</div> : null}
+                        {review.files.map((file) => (
+                            <button
+                                type="button"
+                                className="dsh-change-file"
+                                key={file.id}
+                                title={t("Open native diff for {path}", { path: file.path })}
+                                onClick={() => postAction({
+                                    type: "openChangeDiff",
+                                    turn: review.turn,
+                                    fileId: file.id,
+                                })}
+                            >
+                                <span className={`dsh-change-status ${file.status}`}>
+                                    {CHANGE_LABELS[file.status]}
+                                </span>
+                                <span className="dsh-change-path">
+                                    {file.status === "renamed" && file.oldPath
+                                        ? `${file.oldPath} → ${file.path}`
+                                        : file.path}
+                                </span>
+                            </button>
+                        ))}
+                    </section>
+                );
+            })}
+        </div>
+    );
+}
+
 export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Element | null {
     const [active, setActive] = useState<DockTab | null>(null);
 
     const tabs: TabDef[] = [];
     if (state.goal) tabs.push({ id: "goal", label: "Goal" });
     if (state.queue.length) tabs.push({ id: "queue", label: t("Queue"), count: state.queue.length });
+    if (state.changeReviews.length) {
+        const count = state.changeReviews.reduce((total, review) => total + review.files.length, 0);
+        tabs.push({ id: "changes", label: t("Changes"), count: count || undefined });
+    }
     if (state.subagents && state.sessionId) {
         tabs.push({
             id: "subagents",
@@ -522,6 +603,12 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
                     {active === "queue" ? (
                         <QueuePanel
                             queue={state.queue}
+                            running={state.sessionStatus?.running === true}
+                        />
+                    ) : null}
+                    {active === "changes" ? (
+                        <ChangesPanel
+                            reviews={state.changeReviews}
                             running={state.sessionStatus?.running === true}
                         />
                     ) : null}
