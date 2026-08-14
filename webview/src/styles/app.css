@@ -1218,6 +1218,36 @@ button {
     margin-bottom: var(--dsh-space-2);
 }
 
+.dsh-context-summary {
+    color: var(--dsh-muted);
+    font-size: 11px;
+    padding: 2px 8px 6px;
+}
+
+.dsh-file-reference-menu {
+    display: flex;
+    flex-direction: column;
+    max-height: 160px;
+    overflow: auto;
+    padding: 4px;
+    border: 1px solid var(--dsh-border);
+    background: var(--dsh-panel);
+}
+
+.dsh-file-reference-menu button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    padding: 5px 8px;
+    cursor: pointer;
+}
+
+.dsh-file-reference-menu button:hover {
+    background: var(--dsh-hover);
+}
+
+
 .dsh-chip {
     display: inline-flex;
     align-items: center;

@@ -210,6 +210,7 @@ export class ContextStore {
             path: pathLabel,
             content: limited,
             byteLength: Buffer.byteLength(limited, "utf8"),
+            truncated: limited.length < content.length,
         };
 
         this.upsertOneShot(item);
@@ -253,6 +254,7 @@ export class ContextStore {
             path: workspaceFolder.name,
             content: limited,
             byteLength: Buffer.byteLength(limited, "utf8"),
+            truncated: limited.length < content.length,
         };
 
         this.upsertOneShot(item);
@@ -383,6 +385,7 @@ export class ContextStore {
             ...cloneItem(source),
             content,
             byteLength: Buffer.byteLength(content, "utf8"),
+            truncated: content.length < source.content.length,
         };
         return {
             text: `${prefix}${content}${suffix}`,
@@ -413,6 +416,7 @@ export class ContextStore {
             range,
             content,
             byteLength: Buffer.byteLength(content, "utf8"),
+            truncated: content.length < document.getText(editor.selection).length,
         };
     }
 

@@ -48,6 +48,8 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "The current selection is read again when sending": "发送时重新读取当前选区",
     "Toggle automatic selection context": "启用或关闭自动选区",
     "One-shot attachment": "本轮一次性附件",
+    "truncated": "已截断",
+    "This send includes {count} context item(s), {bytes} B in the prompt": "本次发送将包含 {count} 个 context 项，prompt 中约 {bytes} B",
     "Remove": "移除",
     "Runtime message mode": "运行时消息方式",
     "Add one-shot IDE context (/ide)": "添加一次性 IDE context（/ide）",

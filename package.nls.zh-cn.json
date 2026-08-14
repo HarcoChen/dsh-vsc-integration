@@ -1,6 +1,6 @@
 {
     "extension.displayName": "DSH VSCode 集成（社区版）",
-    "extension.description": "提供余额快捷显示、内建 Trace、Slash 命令、IDE 上下文感知、工具卡片、推理折叠和类 Cline 聊天体验。",
+    "extension.description": "把 DeepSeek Agent 工作流带进 VS Code：支持流式任务与持久会话，附加文件和 Git diff 并提示大小及截断情况，在 Trace 中查看工具与推理、审查变更后再恢复，同时掌握模型、Token、缓存和上下文用量。",
     "extension.untrustedWorkspace": "DSH IDE 需要受信任的工作区才能启动 Agent Runtime。",
     "view.chat.name": "聊天",
     "command.open.title": "DSH：打开聊天",

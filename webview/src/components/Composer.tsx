@@ -129,6 +129,16 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         : 0;
 
     const sendLabel = state.busy ? (promptMode === "steer" ? t("Steer") : t("Queue")) : t("Send");
+    const promptItems = [
+        ...(selection && state.selectionEnabled ? [selection] : []),
+        ...state.context,
+    ];
+    const promptBytes = promptItems.reduce((total, item) => total + item.byteLength, 0);
+    const referenceMatch = text.match(/(?:^|\s)@([^\s@]*)$/u);
+    const referenceQuery = referenceMatch?.[1] ?? "";
+    useEffect(() => {
+        postAction({ type: "fileReferenceQuery", query: referenceQuery });
+    }, [referenceQuery]);
 
     return (
         <div className="dsh-composer">
@@ -140,7 +150,8 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                             title={t("The current selection is read again when sending")}
                         >
                             <span className="dsh-chip-label">
-                                Selection · {selection.label} · {selectionLines} lines
+                                Selection · {selection.label} · {selectionLines} lines · {selection.byteLength.toLocaleString()} B
+                                {selection.truncated ? ` · ${t("truncated")}` : ""}
                             </span>
                             <button
                                 type="button"
@@ -154,7 +165,10 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     ) : null}
                     {state.context.map((item) => (
                         <div className="dsh-chip" title={t("One-shot attachment")} key={item.id}>
-                            <span className="dsh-chip-label">{item.label}</span>
+                            <span className="dsh-chip-label">
+                                {item.label} · {item.byteLength.toLocaleString()} B
+                                {item.truncated ? ` · ${t("truncated")}` : ""}
+                            </span>
                             <button
                                 type="button"
                                 className="dsh-chip-button"
@@ -164,6 +178,27 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                                 <CloseIcon />
                             </button>
                         </div>
+                    ))}
+                </div>
+            ) : null}
+            {promptItems.length ? (
+                <div className="dsh-context-summary">
+                    {t("This send includes {count} context item(s), {bytes} B in the prompt", {
+                        count: promptItems.length,
+                        bytes: promptBytes.toLocaleString(),
+                    })}
+                </div>
+            ) : null}
+            {referenceMatch && state.fileReferenceCandidates?.length ? (
+                <div className="dsh-file-reference-menu" role="listbox">
+                    {state.fileReferenceCandidates.map((candidate) => (
+                        <button type="button" key={candidate} onMouseDown={(event) => event.preventDefault()} onClick={() => {
+                            const prefix = text.slice(0, text.length - referenceQuery.length);
+                            setText(`${prefix}${candidate} `);
+                            window.requestAnimationFrame(() => textareaRef.current?.focus());
+                        }}>
+                            @{candidate}
+                        </button>
                     ))}
                 </div>
             ) : null}

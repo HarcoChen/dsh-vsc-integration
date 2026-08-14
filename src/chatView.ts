@@ -161,6 +161,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private cancelRequested = false;
     private selectionEnabled = true;
     private focusMode = false;
+    private fileReferenceCandidates: string[] = [];
     private pendingComposerUpdate: { type: "insertText" | "setText"; text: string } | undefined;
     private webviewReady = false;
     private restoringPersistedSession: Promise<void> | undefined;
@@ -432,6 +433,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "removeContext":
                     this.contextStore.remove(message.id);
                     break;
+                case "fileReferenceQuery":
+                    await this.updateFileReferenceCandidates(message.query);
+                    break;
                 case "toggleSelection":
                     this.selectionEnabled = !this.selectionEnabled;
                     this.postState();
@@ -551,6 +555,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         } catch (error) {
             this.reportError(error);
         }
+    }
+
+    private async updateFileReferenceCandidates(query: string): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder || !query.trim()) {
+            this.fileReferenceCandidates = [];
+            this.postState();
+            return;
+        }
+        const uris = await vscode.workspace.findFiles(`**/${query.trim()}*`, "**/{.git,node_modules}/**", 40);
+        this.fileReferenceCandidates = uris.map((uri) => vscode.workspace.asRelativePath(uri, false));
+        this.postState();
     }
 
     private async sendPrompt(rawText: string, requestedMode: "queue" | "steer"): Promise<void> {
@@ -1545,6 +1561,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 `session:${this.sessionId ?? "none"}`,
             ),
             context: this.contextStore.snapshot(),
+            fileReferenceCandidates: this.fileReferenceCandidates,
             selection: this.contextStore.getCurrentSelectionMetadata(),
             selectionEnabled: this.selectionEnabled,
             status: this.runtime.getStatus(),

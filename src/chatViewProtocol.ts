@@ -15,6 +15,7 @@ export type ChatViewAction =
     | { type: "configureApiKey" }
     | { type: "openIdeContextPicker" }
     | { type: "removeContext"; id: string }
+    | { type: "fileReferenceQuery"; query: string }
     | { type: "toggleSelection" }
     | { type: "start" }
     | { type: "stop" }
@@ -200,6 +201,10 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "removeContext":
             return nonEmptyString(value.id)
                 ? { type: "removeContext", id: value.id }
+                : undefined;
+        case "fileReferenceQuery":
+            return hasOnly(value, ["type", "query"]) && typeof value.query === "string" && value.query.length <= 256
+                ? { type: "fileReferenceQuery", query: value.query }
                 : undefined;
         case "switchSession":
             return nonEmptyString(value.sessionId)

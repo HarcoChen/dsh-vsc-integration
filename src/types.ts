@@ -17,6 +17,8 @@ export interface DshContextItem {
     };
     content: string;
     byteLength: number;
+    /** True when the content was shortened before entering the prompt. */
+    truncated?: boolean;
 }
 
 export type ChatRole = "user" | "assistant" | "system" | "tool";
@@ -583,6 +585,7 @@ export interface DshAssistantMessage {
 export interface ChatViewState {
     messages: ChatMessage[];
     context: DshContextItem[];
+    fileReferenceCandidates?: string[];
     selection?: DshContextItem;
     selectionEnabled: boolean;
     status: RuntimeStatus;
