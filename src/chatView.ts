@@ -60,6 +60,26 @@ interface PersistedSession {
     cwd: string;
 }
 
+export type QuickTaskKind = "explain" | "fix" | "review" | "docs";
+
+const EDITOR_TASK_PROMPTS: Readonly<Record<QuickTaskKind, (reference: string) => string>> = {
+    explain: (reference) =>
+        `请解释 ${reference} 的实现逻辑、关键数据流和需要注意的边界条件。`,
+    fix: (reference) =>
+        `请检查并修复 ${reference} 中的问题。先说明问题和修改方案，再实施修改。`,
+    review: (reference) =>
+        `请审查 ${reference}，重点关注正确性、回归风险、安全性和可维护性。`,
+    docs: (reference) =>
+        `请为 ${reference} 生成或完善文档，保持与项目现有风格一致。`,
+};
+
+const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, string>> = {
+    explain: "请解释已附加 Git diff 的改动目的、实现方式和影响范围。",
+    fix: "请检查并修复已附加 Git diff 中的问题。先说明问题和修改方案，再实施修改。",
+    review: "请审查已附加 Git diff，重点关注缺陷、回归风险、安全性和遗漏。",
+    docs: "请根据已附加 Git diff 生成或更新相关文档，保持与项目现有风格一致。",
+};
+
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -139,7 +159,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private cancelRequested = false;
     private selectionEnabled = true;
     private focusMode = false;
-    private pendingInsertText: string | undefined;
+    private pendingComposerUpdate: { type: "insertText" | "setText"; text: string } | undefined;
+    private webviewReady = false;
+    private restoringPersistedSession: Promise<void> | undefined;
     private stateUpdateTimer: ReturnType<typeof setTimeout> | undefined;
     private subagentRefreshTimer: ReturnType<typeof setTimeout> | undefined;
     private readonly observedRunning = new Map<string, boolean>();
@@ -171,7 +193,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.disposables.push(
             runtime.onDidChange(() => this.schedulePostState()),
             runtime.onDidHarnessConnect(() => {
-                if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
+                void this.restorePersistedSession(this.workspaceRoot()).then(() => {
+                    if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
+                });
             }),
             contextStore.onDidChange(() => this.schedulePostState()),
             vscode.window.onDidChangeActiveTextEditor(() => this.schedulePostState()),
@@ -187,6 +211,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         _token: vscode.CancellationToken,
     ): void {
         this.view = webviewView;
+        this.webviewReady = false;
         this.seedObservedRunning();
         webviewView.webview.options = {
             enableScripts: true,
@@ -205,6 +230,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             webviewView.onDidDispose(() => {
                 if (this.view === webviewView) {
                     this.view = undefined;
+                    this.webviewReady = false;
                 }
             }),
         );
@@ -219,6 +245,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         this.insertComposerText(reference);
+    }
+
+    public async prefillEditorTask(kind: QuickTaskKind): Promise<void> {
+        const reference = this.contextStore.getActiveEditorReference();
+        if (!reference) {
+            throw new Error("当前没有可用于快捷任务的编辑器。");
+        }
+
+        this.setComposerText(EDITOR_TASK_PROMPTS[kind](reference));
+    }
+
+    public async prefillGitDiffTask(kind: QuickTaskKind): Promise<void> {
+        await this.contextStore.addGitDiff();
+        this.setComposerText(GIT_DIFF_TASK_PROMPTS[kind]);
     }
 
     public async configureApiKey(): Promise<void> {
@@ -352,8 +392,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         try {
             switch (message.type) {
                 case "ready":
+                    this.webviewReady = true;
                     this.postState();
-                    this.flushPendingInsert();
+                    this.flushPendingComposerUpdate();
                     if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
                     break;
                 case "sendPrompt":
@@ -594,19 +635,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async getOrCreateSession(workspaceRoot: string): Promise<string> {
         const configuration = vscode.workspace.getConfiguration("dsh");
         const persist = configuration.get<boolean>("persistSession", true);
-        const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
-
-        if (!this.sessionId && persist && persisted?.cwd === workspaceRoot) {
-            try {
-                await this.runtime.history(persisted.sessionId, 1);
-                this.sessionId = persisted.sessionId;
-                this.sessionCwd = workspaceRoot;
-                void this.runtime.syncSession(persisted.sessionId);
-                void this.refreshSubagentTree(persisted.sessionId);
-            } catch {
-                await this.extensionContext.workspaceState.update("session", undefined);
-            }
-        }
+        await this.restorePersistedSession(workspaceRoot);
 
         if (!this.sessionId || this.sessionCwd !== workspaceRoot) {
             const created = await this.runtime.createSession(workspaceRoot);
@@ -623,6 +652,53 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         return this.sessionId;
+    }
+
+    private restorePersistedSession(workspaceRoot: string | undefined): Promise<void> {
+        if (!workspaceRoot) {
+            return Promise.resolve();
+        }
+        if (this.restoringPersistedSession) {
+            return this.restoringPersistedSession;
+        }
+        if (this.sessionId) {
+            return Promise.resolve();
+        }
+
+        const restore = this.restorePersistedSessionInternal(workspaceRoot).finally(() => {
+            if (this.restoringPersistedSession === restore) {
+                this.restoringPersistedSession = undefined;
+            }
+        });
+        this.restoringPersistedSession = restore;
+        return restore;
+    }
+
+    private async restorePersistedSessionInternal(workspaceRoot: string): Promise<void> {
+        const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
+        const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
+        if (!persist || !persisted || persisted.cwd !== workspaceRoot) {
+            return;
+        }
+
+        try {
+            await this.runtime.history(persisted.sessionId, 1);
+            if (this.sessionId) {
+                return;
+            }
+            this.sessionId = persisted.sessionId;
+            this.sessionCwd = workspaceRoot;
+            this.postState();
+            await this.runtime.syncSession(persisted.sessionId);
+        } catch (error) {
+            const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
+            if (latest?.sessionId === persisted.sessionId && latest.cwd === persisted.cwd) {
+                await this.extensionContext.workspaceState.update("session", undefined);
+            }
+            this.output.appendLine(
+                `[dsh] persisted session ${persisted.sessionId} could not be restored: ${errorMessage(error)}`,
+            );
+        }
     }
 
     public async newSession(agentPreset?: string): Promise<void> {
@@ -1380,18 +1456,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private insertComposerText(text: string): void {
-        this.pendingInsertText = text;
+        this.pendingComposerUpdate = { type: "insertText", text };
         this.reveal();
-        this.flushPendingInsert();
+        this.flushPendingComposerUpdate();
     }
 
-    private flushPendingInsert(): void {
-        if (!this.view || !this.pendingInsertText) {
+    private setComposerText(text: string): void {
+        this.pendingComposerUpdate = { type: "setText", text };
+        this.reveal();
+        this.flushPendingComposerUpdate();
+    }
+
+    private flushPendingComposerUpdate(): void {
+        if (!this.view || !this.webviewReady || !this.pendingComposerUpdate) {
             return;
         }
-        const text = this.pendingInsertText;
-        this.pendingInsertText = undefined;
-        void this.view.webview.postMessage({ type: "insertText", text });
+        const update = this.pendingComposerUpdate;
+        this.pendingComposerUpdate = undefined;
+        void this.view.webview.postMessage(update);
     }
 
     private postState(): void {

@@ -1,0 +1,12 @@
+{
+    "dsh.editorTask.explain.title": "Explain Current File or Selection",
+    "dsh.editorTask.fix.title": "Fix Current File or Selection",
+    "dsh.editorTask.review.title": "Review Current File or Selection",
+    "dsh.editorTask.docs.title": "Generate Documentation for Current File or Selection",
+    "dsh.gitDiffTask.explain.title": "Explain Git Diff",
+    "dsh.gitDiffTask.fix.title": "Fix Issues in Git Diff",
+    "dsh.gitDiffTask.review.title": "Review Git Diff",
+    "dsh.gitDiffTask.docs.title": "Generate Documentation from Git Diff",
+    "dsh.editorTasks.label": "DSH",
+    "dsh.gitDiffTasks.label": "DSH Git Diff"
+}

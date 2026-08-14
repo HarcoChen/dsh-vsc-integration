@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatViewState } from "../../../src/types";
 import type { ChatViewAction } from "../../../src/chatViewProtocol";
-import { postAction, registerInsertTextHandler } from "../bridge";
+import { postAction, registerInsertTextHandler, registerSetTextHandler } from "../bridge";
 import { CloseIcon, EyeIcon, EyeOffIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 
 const MIN_HEIGHT = 68;
@@ -63,6 +63,20 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
             });
         });
         return () => registerInsertTextHandler(undefined);
+    }, []);
+
+    useEffect(() => {
+        registerSetTextHandler((draft) => {
+            setText(draft);
+            setSlashIndex(0);
+            window.requestAnimationFrame(() => {
+                const textarea = textareaRef.current;
+                if (!textarea) return;
+                textarea.setSelectionRange(draft.length, draft.length);
+                textarea.focus();
+            });
+        });
+        return () => registerSetTextHandler(undefined);
     }, []);
 
     const executeSlashCommand = useCallback((name: string): boolean => {

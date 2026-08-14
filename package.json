@@ -57,6 +57,14 @@
         "onCommand:dsh.stop",
         "onCommand:dsh.restart",
         "onCommand:dsh.insertEditorReference",
+        "onCommand:dsh.editorTask.explain",
+        "onCommand:dsh.editorTask.fix",
+        "onCommand:dsh.editorTask.review",
+        "onCommand:dsh.editorTask.docs",
+        "onCommand:dsh.gitDiffTask.explain",
+        "onCommand:dsh.gitDiffTask.fix",
+        "onCommand:dsh.gitDiffTask.review",
+        "onCommand:dsh.gitDiffTask.docs",
         "onCommand:dsh.openIdeContextPicker",
         "onCommand:dsh.configureApiKey",
         "onCommand:dsh.refreshBalance",
@@ -176,6 +184,46 @@
                 "icon": "$(references)"
             },
             {
+                "command": "dsh.editorTask.explain",
+                "title": "%dsh.editorTask.explain.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.editorTask.fix",
+                "title": "%dsh.editorTask.fix.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.editorTask.review",
+                "title": "%dsh.editorTask.review.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.editorTask.docs",
+                "title": "%dsh.editorTask.docs.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.gitDiffTask.explain",
+                "title": "%dsh.gitDiffTask.explain.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.gitDiffTask.fix",
+                "title": "%dsh.gitDiffTask.fix.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.gitDiffTask.review",
+                "title": "%dsh.gitDiffTask.review.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.gitDiffTask.docs",
+                "title": "%dsh.gitDiffTask.docs.title%",
+                "category": "DSH"
+            },
+            {
                 "command": "dsh.openIdeContextPicker",
                 "title": "DSH: Manage IDE Context (/ide)",
                 "category": "DSH",
@@ -194,6 +242,16 @@
                 "icon": "$(dashboard)"
             }
         ],
+        "submenus": [
+            {
+                "id": "dsh.editorTasks",
+                "label": "%dsh.editorTasks.label%"
+            },
+            {
+                "id": "dsh.gitDiffTasks",
+                "label": "%dsh.gitDiffTasks.label%"
+            }
+        ],
         "keybindings": [
             {
                 "command": "dsh.open",
@@ -208,6 +266,55 @@
             }
         ],
         "menus": {
+            "editor/context": [
+                {
+                    "submenu": "dsh.editorTasks",
+                    "group": "navigation@dsh"
+                }
+            ],
+            "dsh.editorTasks": [
+                {
+                    "command": "dsh.editorTask.explain",
+                    "group": "1_tasks@1"
+                },
+                {
+                    "command": "dsh.editorTask.fix",
+                    "group": "1_tasks@2"
+                },
+                {
+                    "command": "dsh.editorTask.review",
+                    "group": "1_tasks@3"
+                },
+                {
+                    "command": "dsh.editorTask.docs",
+                    "group": "1_tasks@4"
+                }
+            ],
+            "scm/resourceGroup/context": [
+                {
+                    "submenu": "dsh.gitDiffTasks",
+                    "when": "scmProvider == git",
+                    "group": "navigation@dsh"
+                }
+            ],
+            "dsh.gitDiffTasks": [
+                {
+                    "command": "dsh.gitDiffTask.explain",
+                    "group": "1_tasks@1"
+                },
+                {
+                    "command": "dsh.gitDiffTask.fix",
+                    "group": "1_tasks@2"
+                },
+                {
+                    "command": "dsh.gitDiffTask.review",
+                    "group": "1_tasks@3"
+                },
+                {
+                    "command": "dsh.gitDiffTask.docs",
+                    "group": "1_tasks@4"
+                }
+            ],
             "view/title": [
                 {
                     "command": "dsh.newSession",

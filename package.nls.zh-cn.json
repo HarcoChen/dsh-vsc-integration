@@ -1,0 +1,12 @@
+{
+    "dsh.editorTask.explain.title": "解释当前文件或选区",
+    "dsh.editorTask.fix.title": "修复当前文件或选区",
+    "dsh.editorTask.review.title": "审查当前文件或选区",
+    "dsh.editorTask.docs.title": "为当前文件或选区生成文档",
+    "dsh.gitDiffTask.explain.title": "解释 Git diff",
+    "dsh.gitDiffTask.fix.title": "修复 Git diff 中的问题",
+    "dsh.gitDiffTask.review.title": "审查 Git diff",
+    "dsh.gitDiffTask.docs.title": "根据 Git diff 生成文档",
+    "dsh.editorTasks.label": "DSH",
+    "dsh.gitDiffTasks.label": "DSH Git 变更"
+}

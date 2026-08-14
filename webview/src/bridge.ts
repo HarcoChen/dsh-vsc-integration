@@ -77,6 +77,12 @@ function isInsertTextMessage(value: unknown): value is { type: "insertText"; tex
     return message.type === "insertText" && typeof message.text === "string";
 }
 
+function isSetTextMessage(value: unknown): value is { type: "setText"; text: string } {
+    if (!value || typeof value !== "object") return false;
+    const message = value as Record<string, unknown>;
+    return message.type === "setText" && typeof message.text === "string";
+}
+
 function isChatViewState(value: unknown): value is ChatViewState {
     if (!value || typeof value !== "object") return false;
     const state = value as Partial<ChatViewState>;
@@ -84,12 +90,19 @@ function isChatViewState(value: unknown): value is ChatViewState {
 }
 
 export type InsertTextHandler = (text: string) => void;
+export type SetTextHandler = (text: string) => void;
 
 let insertTextHandler: InsertTextHandler | undefined;
+let setTextHandler: SetTextHandler | undefined;
 
 /** Called by the composer to own host-initiated cursor insertions. */
 export function registerInsertTextHandler(handler: InsertTextHandler | undefined): void {
     insertTextHandler = handler;
+}
+
+/** Called by the composer to own host-initiated draft replacements. */
+export function registerSetTextHandler(handler: SetTextHandler | undefined): void {
+    setTextHandler = handler;
 }
 
 /**
@@ -114,6 +127,10 @@ export function useHostState(): ChatViewState {
             }
             if (isInsertTextMessage(data)) {
                 insertTextHandler?.(data.text);
+                return;
+            }
+            if (isSetTextMessage(data)) {
+                setTextHandler?.(data.text);
             }
         };
         window.addEventListener("message", onMessage);

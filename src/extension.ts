@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { DeepSeekBalanceService } from "./balanceService";
-import { ChatViewProvider } from "./chatView";
+import { ChatViewProvider, QuickTaskKind } from "./chatView";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
 import { TracePanelManager } from "./tracePanel";
@@ -93,6 +93,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.insertEditorReference", () =>
             chatView.insertEditorReference(),
         ),
+        ...registerQuickTaskCommands(chatView),
         vscode.commands.registerCommand("dsh.openIdeContextPicker", () =>
             chatView.openIdeContextPicker(),
         ),
@@ -118,6 +119,24 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 }
 
+function registerQuickTaskCommands(chatView: ChatViewProvider): vscode.Disposable[] {
+    const tasks: ReadonlyArray<{ kind: QuickTaskKind; command: string }> = [
+        { kind: "explain", command: "explain" },
+        { kind: "fix", command: "fix" },
+        { kind: "review", command: "review" },
+        { kind: "docs", command: "docs" },
+    ];
+
+    return tasks.flatMap(({ kind, command }) => [
+        vscode.commands.registerCommand(`dsh.editorTask.${command}`, () =>
+            runQuietCommand("预填编辑器快捷任务", () => chatView.prefillEditorTask(kind)),
+        ),
+        vscode.commands.registerCommand(`dsh.gitDiffTask.${command}`, () =>
+            runQuietCommand("预填 Git diff 快捷任务", () => chatView.prefillGitDiffTask(kind)),
+        ),
+    ]);
+}
+
 export function deactivate(): void {
     // The runtime is registered as a disposable in activate().
 }
@@ -130,6 +149,15 @@ async function runCommand(label: string, action: () => Promise<void>): Promise<v
     try {
         await action();
         void vscode.window.showInformationMessage(`DSH: ${label}完成。`);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        void vscode.window.showErrorMessage(`DSH: ${label}失败：${message}`);
+    }
+}
+
+async function runQuietCommand(label: string, action: () => Promise<void>): Promise<void> {
+    try {
+        await action();
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         void vscode.window.showErrorMessage(`DSH: ${label}失败：${message}`);
