@@ -1,9 +1,9 @@
 {
-    "name": "dsh-ide",
-    "displayName": "DSH IDE (Community)",
+    "name": "dsh-vsc-integration",
+    "displayName": "DSH VSCode Integration (Community)",
     "description": "A community VS Code client for DeepSeek Harness with transient editor context and native slash-command routing.",
-    "version": "0.1.0",
-    "publisher": "dsh-community",
+    "version": "0.2.0",
+    "publisher": "harcochen",
     "license": "MIT",
     "repository": {
         "type": "git",
@@ -47,7 +47,8 @@
         "onWebviewPanel:dsh.traceEditor",
         "onCommand:dsh.newSession",
         "onCommand:dsh.switchSession",
-        "onCommand:dsh.searchSession",
+            "onCommand:dsh.searchSession",
+            "onCommand:dsh.selectModel",
         "onCommand:dsh.renameSession",
         "onCommand:dsh.forkSession",
         "onCommand:dsh.archiveSession",
@@ -112,6 +113,12 @@
                 "title": "DSH: Search Sessions",
                 "category": "DSH",
                 "icon": "$(search)"
+            },
+            {
+                "command": "dsh.selectModel",
+                "title": "DSH: Select Model",
+                "category": "DSH",
+                "icon": "$(symbol-misc)"
             },
             {
                 "command": "dsh.renameSession",

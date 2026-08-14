@@ -29,7 +29,7 @@ Harness Trajectory 同时需要横向时间轴、按 turn/step 分组的事件�
 ```mermaid
 flowchart LR
     A["Chat turn / tool card"] -->|"Open trace at seq/callId"| B["Trace Editor"]
-    C["Session SSE + history"] --> D["Shared session event store"]
+    C["Session WebSocket + history"] --> D["Shared session event store"]
     D --> A
     D --> E["Pure trace projection"]
     E --> B
@@ -105,7 +105,7 @@ Trace 与 Chat 必须消费同一份 session event store。Trace 不重新连接
 | 嵌套代码工具 | `tool/code-dispatch-start`、`tool/code-dispatch` |
 | compaction | `compaction/start/summary/end` |
 | surface 替换与来源 | `surfaceOp`、`sourceEventSeqs` |
-| 实时更新 | session mux SSE |
+| 实时更新 | session mux WebSocket |
 | 冷启动和前向分页 | `session.history`，保留 host presentation `view` |
 
 关键原则：时间和 usage 缺失时显示未知，不从客户端当前时间反推；tool 参数和结果优先使用 host 的 presentation view，Raw JSON 只是降级方案。
@@ -147,7 +147,7 @@ interface TraceLocation {
 
 建议新增三层：
 
-1. `SessionEventStore`：负责 SSE/history、分页、去重和 session 隔离。
+1. `SessionEventStore`：负责 WebSocket/history、分页、去重和 session 隔离。
 2. `TraceProjector`：纯函数/增量 reducer，把 raw event 投影成 turn/request/tool/metric 记录。
 3. `TracePanelManager`：管理 webview tab、恢复、定位消息和 VS Code 命令。
 
@@ -168,7 +168,7 @@ Session Trace 是本地会话轨迹，不等同于 OpenTelemetry telemetry：
 ## 性能约束
 
 - 目标：10 万 raw events、1 万可见记录仍可导航。
-- SSE token delta 在 animation frame 内批量归并，不逐 token 重排表格。
+- WebSocket token delta 在 animation frame 内批量归并，不逐 token 重排表格。
 - record identity 使用 seq/callId；仅内容更新不改变虚拟行 key 和测量高度。
 - 搜索建立增量索引，并对流式更新节流。
 - history 每次加载一页；未要求时不读取完整冷 session。
@@ -178,7 +178,7 @@ Session Trace 是本地会话轨迹，不等同于 OpenTelemetry telemetry：
 
 ### Trace MVP
 
-- [x] 建立共享 `SessionEventStore`，接入 history 和 mux SSE。
+- [x] 建立共享 `SessionEventStore`，接入 history 和 mux WebSocket。
 - [x] 实现 turn/step、assistant、tool 的纯投影和单元测试。
 - [x] Editor Tab：Event Ledger、搜索、分页、follow-live。
 - [ ] Details：Summary、Input、Output、Timing、Raw event。
@@ -204,17 +204,17 @@ Session Trace 是本地会话轨迹，不等同于 OpenTelemetry telemetry：
 ## 不做什么
 
 - 不 iframe Harness Web UI。
-- 不为 Trace 创建第二个 session 或第二条 SSE 连接。
+- 不为 Trace 创建第二个 session 或第二条 WebSocket 连接。
 - 不默认展示完整 system prompt、schema 和 raw event。
 - 不用动画或客户端时钟伪造尚未完成的耗时。
 - 不在 MVP 中复制完整 OpenTelemetry/分布式 tracing 产品。
 
 ## 推荐优先级
 
-Trace 的底层依赖与流式聊天完全相同，因此应在“共享 SSE 状态仓库”之后立即实现 Trace MVP，而不是放到路线图末尾。它能反过来验证事件归并、审批、工具卡片、token 和恢复是否正确，是开发期最有价值的自诊断界面之一。
+Trace 的底层依赖与流式聊天完全相同，因此应在“共享 WebSocket 状态仓库”之后立即实现 Trace MVP，而不是放到路线图末尾。它能反过来验证事件归并、审批、工具卡片、token 和恢复是否正确，是开发期最有价值的自诊断界面之一。
 
 参考：
 
 - [Harness Trajectory implementation](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/client/ui-trajectory)
-- [Harness SSE event contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/events.ts)
+- [Harness event stream contract](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/host/apiproxy/src/api/events.ts)
 - [Harness session event catalog](https://deepseek-harness.github.io/deepseek-harness/reference/persistence-catalog)

@@ -6,6 +6,8 @@
 
 客户端 UI 的复用与 VS Code 边界见 [DSH IDE 前端架构与 Harness UI 复用](FRONTEND_ARCHITECTURE.md)。协议范围由本文约束，展示层优先采用仓库内 Harness client packages。
 
+本文中的“VS Code 集成形态”不是要求本仓库重做 Harness Web UI。凡是 Harness 已公开的 RPC、projection、presenter 或 browser-safe UI，均归入 adapter 工作：负责 transport、状态桥接、生命周期、locale/theme 和 VS Code action。只有编辑器 context、Git/diff、tab、路径导航、SecretStorage、Webview 安全和其他 VS Code API 能力由本仓库自建。
+
 ## 可依赖的公开边界
 
 - Unary RPC：`session.*`、`subagent.*`、`host.*`、`workspace.*`、`skill.list`、`agentPreset.*`、`goal.*`、`settings.*`、`credentials.*`、`llm.*`。

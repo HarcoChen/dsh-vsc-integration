@@ -23,7 +23,7 @@ DSH IDE 需要比终端桥接更原生的体验，但 Harness 已提供模块化
 
 ```text
 VS Code Extension Host
-  runtime process / RPC / SSE / SecretStorage / editor API
+  runtime process / HTTP RPC / WebSocket / SecretStorage / editor API
                          |
                   typed message bridge
                          |
@@ -38,7 +38,7 @@ React Webview
 
 负责只有 VS Code 扩展进程能够安全完成的工作：
 
-- 启停或连接 `dsh web`，维护 RPC、SSE 和重连基线。
+- 启停或连接 `dsh web`，维护 HTTP RPC、WebSocket 和重连基线。
 - 访问 workspace、editor、diagnostics、Git、terminal 和原生 diff。
 - 保存 credential 与敏感配置；只向 Webview 发送展示所需的最小数据。
 - 校验 Webview action，并把它映射到公开 Harness RPC。
@@ -95,6 +95,5 @@ Adapter 不新增 Harness 没有公开的能力，也不通过普通 prompt 模�
 - Webview 可独立构建并随 VSIX 打包，不依赖开发机路径。
 - Extension Host 不再包含大段业务 HTML、CSS 或浏览器脚本。
 - 已迁移领域优先使用 Harness client 组件或纯逻辑；自行实现处有明确的 VS Code 特有理由。
-- RPC/SSE、安全和 credential 边界仍由 Extension Host 控制。
+- HTTP RPC/WebSocket、安全和 credential 边界仍由 Extension Host 控制。
 - Reload、theme、缩放和中英文 locale 下核心聊天流程可用。
-
