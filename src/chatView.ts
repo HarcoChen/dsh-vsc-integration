@@ -19,7 +19,6 @@ import {
 } from "./chatViewProtocol";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
-import { presentHostBaseline } from "./hostState";
 import {
     isCopyableCode,
     parseSafeHttpUrl,
@@ -1259,7 +1258,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,
             workspaceName: workspaceFolder?.name,
-            host: presentHostBaseline(this.runtime.getHostDescription()),
             sessionId: this.sessionId,
             sessions: catalog.sessions
                 .filter((item) => !archived.has(item.sessionId))
@@ -1580,9 +1578,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         .hint { padding-top: 6px; color: var(--vscode-descriptionForeground); font-size: 10px; }
         .runtime-actions { display: flex; gap: 4px; }
         .runtime-actions button { padding: 3px 6px; font-size: 10px; }
-        .host-info { padding: 4px 10px 6px; color: var(--vscode-descriptionForeground); border-bottom: 1px solid var(--vscode-panel-border); font-size: 10px; }
-        .host-info summary { cursor: pointer; overflow-wrap: anywhere; }
-        .host-detail { margin-top: 5px; white-space: pre-wrap; overflow-wrap: anywhere; }
         .session-bar { display: flex; gap: 5px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
         .session-bar select { flex: 1; min-width: 0; color: var(--vscode-dropdown-foreground); background: var(--vscode-dropdown-background); border: 1px solid var(--vscode-dropdown-border); }
         .session-bar button { padding: 3px 6px; font-size: 10px; }
@@ -1641,10 +1636,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 <button id="logsButton" class="secondary" title="打开运行日志">日志</button>
             </div>
         </div>
-        <details id="hostInfo" class="host-info hidden">
-            <summary id="hostSummary"></summary>
-            <div id="hostDetail" class="host-detail"></div>
-        </details>
         <div class="session-bar">
             <select id="sessionSelect" title="切换会话"></select>
             <button id="newSession" class="secondary" title="新建会话">＋</button>
@@ -1740,17 +1731,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             focusButton.classList.toggle('active', Boolean(state.focusMode));
             focusButton.setAttribute('aria-pressed', state.focusMode ? 'true' : 'false');
             focusButton.title = state.focusMode ? '显示工具调用与 reasoning' : '仅显示对话与待处理事项';
-
-            const hostInfo = document.getElementById('hostInfo');
-            const host = state.host;
-            if (!host) {
-                hostInfo.classList.add('hidden');
-            } else {
-                hostInfo.classList.remove('hidden');
-                const route = host.provider && host.model ? host.provider + '/' + host.model : (host.model || host.provider || '默认路由');
-                document.getElementById('hostSummary').textContent = 'Harness ' + host.version + ' · ' + route + ' · ' + host.attachedSessions + ' attached';
-                document.getElementById('hostDetail').textContent = 'cwd: ' + host.cwd + '\nopenPath: ' + (host.canOpenPath ? 'available' : 'unavailable');
-            }
 
             const sessionSelect = document.getElementById('sessionSelect');
             const sessions = state.sessions || [];

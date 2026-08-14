@@ -11,7 +11,6 @@ import {
     HarnessQueueAction,
 } from "./harnessProtocol";
 import { HarnessStateCoordinator } from "./harnessState";
-import { parseHostDescription } from "./hostState";
 import {
     DshGoalRef,
     DshGoalRefResult,
@@ -108,7 +107,6 @@ export class DshRuntime implements vscode.Disposable {
     private startedByExtension = false;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
-    private hostDescription: HarnessHostDescription | undefined;
 
     public constructor(private readonly output: vscode.OutputChannel) {
         this.apiClient = new HarnessApiClient({
@@ -123,13 +121,7 @@ export class DshRuntime implements vscode.Disposable {
         this.harnessState = new HarnessStateCoordinator(this.apiClient, {
             onConnectionState: (state) =>
                 this.output.appendLine(`[dsh:events] connection ${state}`),
-            onHostDescription: (description) => {
-                const parsed = parseHostDescription(description);
-                if (!parsed) {
-                    this.output.appendLine("[dsh:rpc] host.describe returned an invalid value");
-                    return;
-                }
-                this.hostDescription = parsed;
+            onHostDescription: () => {
                 for (const listener of this.harnessConnectedListeners) listener();
             },
             onDiagnostic: (diagnostic) => {
@@ -165,10 +157,6 @@ export class DshRuntime implements vscode.Disposable {
 
     public getUrl(): string | undefined {
         return this.baseUrl;
-    }
-
-    public getHostDescription(): HarnessHostDescription | undefined {
-        return this.hostDescription ? { ...this.hostDescription } : undefined;
     }
 
     public getApiClient(): HarnessApiClient {
@@ -211,7 +199,6 @@ export class DshRuntime implements vscode.Disposable {
 
     public async stop(): Promise<void> {
         await this.harnessState.stop();
-        this.hostDescription = undefined;
         const child = this.child;
         this.child = undefined;
         this.baseUrl = undefined;
