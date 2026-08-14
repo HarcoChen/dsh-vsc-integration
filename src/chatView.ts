@@ -418,6 +418,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "searchSession":
                     await this.searchSession();
                     break;
+                case "selectModel":
+                    await this.selectModel();
+                    break;
                 case "renameSession":
                     await this.renameSession();
                     break;

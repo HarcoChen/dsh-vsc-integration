@@ -21,6 +21,7 @@ export type ChatViewAction =
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
     | { type: "searchSession" }
+    | { type: "selectModel" }
     | { type: "renameSession" }
     | { type: "forkSession" }
     | { type: "archiveSession" }
@@ -112,6 +113,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "openBrowser":
         case "newSession":
         case "searchSession":
+        case "selectModel":
         case "renameSession":
         case "forkSession":
         case "archiveSession":

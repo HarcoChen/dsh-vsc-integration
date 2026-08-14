@@ -1,10 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatViewState } from "../../../src/types";
+import type { ChatViewAction } from "../../../src/chatViewProtocol";
 import { postAction, registerInsertTextHandler } from "../bridge";
 import { CloseIcon, EyeIcon, EyeOffIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 
 const MIN_HEIGHT = 68;
 const MAX_HEIGHT = 180;
+
+const SLASH_COMMANDS = [
+    { name: "/ide", description: "添加一次性 IDE context", action: { type: "openIdeContextPicker" } },
+    { name: "/new", description: "新建会话", action: { type: "newSession" } },
+    { name: "/search", description: "搜索会话", action: { type: "searchSession" } },
+    { name: "/model", description: "选择当前会话模型", action: { type: "selectModel" } },
+    { name: "/focus", description: "切换 Focus 模式", action: { type: "toggleFocus" } },
+    { name: "/trace", description: "打开当前会话 Trace", action: { type: "openTrace" } },
+    { name: "/stop", description: "停止 dsh 运行时", action: { type: "stop" } },
+] satisfies ReadonlyArray<{ name: string; description: string; action: ChatViewAction }>;
 
 interface ComposerProps {
     state: ChatViewState;
@@ -13,6 +24,7 @@ interface ComposerProps {
 export function Composer({ state }: ComposerProps): React.JSX.Element {
     const [text, setText] = useState("");
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
+    const [slashIndex, setSlashIndex] = useState(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Legacy behavior: the queue/steer choice resets to queue once the session is idle.
@@ -52,17 +64,36 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         return () => registerInsertTextHandler(undefined);
     }, []);
 
+    const executeSlashCommand = useCallback((name: string): boolean => {
+        const command = SLASH_COMMANDS.find((candidate) => candidate.name === name.toLowerCase());
+        if (!command) return false;
+        postAction(command.action);
+        setText("");
+        setSlashIndex(0);
+        return true;
+    }, []);
+
     const send = useCallback((): void => {
         if (state.submitting) return;
         const value = textareaRef.current?.value ?? text;
         if (!value.trim()) return;
+        if (executeSlashCommand(value.trim())) return;
         postAction({
             type: "sendPrompt",
             text: value,
             mode: state.busy ? promptMode : "queue",
         });
         setText("");
-    }, [state.busy, state.submitting, promptMode, text]);
+    }, [executeSlashCommand, state.busy, state.submitting, promptMode, text]);
+
+    const slashQuery = text.match(/^\/(\S*)$/u)?.[1]?.toLowerCase();
+    const slashMatches = slashQuery === undefined
+        ? []
+        : SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(slashQuery));
+    const chooseSlashCommand = useCallback((name: string): void => {
+        executeSlashCommand(name);
+        window.requestAnimationFrame(() => textareaRef.current?.focus());
+    }, [executeSlashCommand]);
 
     const selection = state.selection;
     const selectionRange = selection?.range;
@@ -145,14 +176,52 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     value={text}
                     disabled={state.submitting}
                     rows={3}
-                    onChange={(event) => setText(event.target.value)}
+                    onChange={(event) => {
+                        setText(event.target.value);
+                        setSlashIndex(0);
+                    }}
                     onKeyDown={(event) => {
+                        if (slashMatches.length) {
+                            if (event.key === "ArrowDown") {
+                                event.preventDefault();
+                                setSlashIndex((current) => (current + 1) % slashMatches.length);
+                                return;
+                            }
+                            if (event.key === "ArrowUp") {
+                                event.preventDefault();
+                                setSlashIndex((current) => (current - 1 + slashMatches.length) % slashMatches.length);
+                                return;
+                            }
+                            if (event.key === "Tab" || event.key === "Enter") {
+                                event.preventDefault();
+                                chooseSlashCommand(slashMatches[slashIndex].name);
+                                return;
+                            }
+                        }
                         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                             event.preventDefault();
                             send();
                         }
                     }}
                 />
+                {slashMatches.length ? (
+                    <div className="dsh-slash-menu" role="listbox" aria-label="Slash commands">
+                        {slashMatches.map((command, index) => (
+                            <button
+                                type="button"
+                                role="option"
+                                aria-selected={index === slashIndex}
+                                className={index === slashIndex ? "active" : ""}
+                                key={command.name}
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => chooseSlashCommand(command.name)}
+                            >
+                                <strong>{command.name}</strong>
+                                <span>{command.description}</span>
+                            </button>
+                        ))}
+                    </div>
+                ) : null}
                 {state.busy ? (
                     <button
                         type="button"

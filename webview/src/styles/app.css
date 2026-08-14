@@ -928,9 +928,59 @@ button {
 }
 
 .dsh-composer-row {
+    position: relative;
     display: flex;
     gap: var(--dsh-space-2);
     align-items: flex-end;
+}
+
+.dsh-slash-menu {
+    position: absolute;
+    right: var(--dsh-space-4);
+    bottom: calc(100% + var(--dsh-space-2));
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    max-width: min(320px, calc(100vw - 24px));
+    padding: var(--dsh-space-1);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    background: var(--vscode-menu-background, var(--dsh-surface));
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+
+.dsh-slash-menu button {
+    display: flex;
+    align-items: baseline;
+    gap: var(--dsh-space-3);
+    width: 100%;
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border: 0;
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+}
+
+.dsh-slash-menu button.active,
+.dsh-slash-menu button:hover {
+    color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+    background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.dsh-slash-menu strong {
+    flex: none;
+    font-size: var(--dsh-font-sm);
+}
+
+.dsh-slash-menu span {
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dsh-add-context {
