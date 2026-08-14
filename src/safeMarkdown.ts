@@ -1,3 +1,8 @@
+import {
+    findFileLocations,
+    renderFileLocationAnchor,
+} from "./fileLocations";
+
 export const MAX_EXTERNAL_URL_CHARACTERS = 4_096;
 export const MAX_COPIED_CODE_BYTES = 65_536;
 
@@ -117,9 +122,22 @@ function closingParenthesis(value: string, start: number): number {
 
 function renderInline(source: string, depth = 0): string {
     if (depth >= MAX_INLINE_DEPTH) return escapeHtml(source);
+    const fileLocations = findFileLocations(source);
+    let fileLocationIndex = 0;
     let output = "";
     let index = 0;
     while (index < source.length) {
+        while (
+            fileLocationIndex < fileLocations.length &&
+            (fileLocations[fileLocationIndex]?.end ?? 0) <= index
+        ) fileLocationIndex += 1;
+        const fileLocation = fileLocations[fileLocationIndex];
+        if (fileLocation?.start === index) {
+            output += renderFileLocationAnchor(fileLocation);
+            index = fileLocation.end;
+            fileLocationIndex += 1;
+            continue;
+        }
         const character = source[index];
         if (
             character === "\\" &&
@@ -138,7 +156,12 @@ function renderInline(source: string, depth = 0): string {
                 if (code.startsWith(" ") && code.endsWith(" ") && code.trim()) {
                     code = code.slice(1, -1);
                 }
-                output += `<code>${escapeHtml(code)}</code>`;
+                const codeLocation = findFileLocations(code);
+                output += codeLocation.length === 1 &&
+                    codeLocation[0]?.start === 0 &&
+                    codeLocation[0].end === code.length
+                    ? renderFileLocationAnchor(codeLocation[0], true)
+                    : `<code>${escapeHtml(code)}</code>`;
                 index = closing + length;
                 continue;
             }
@@ -184,7 +207,11 @@ function renderInline(source: string, depth = 0): string {
             }
         }
         let end = index + 1;
-        while (end < source.length && !"\\`[*_".includes(source[end] as string)) end += 1;
+        while (
+            end < source.length &&
+            end < (fileLocation?.start ?? source.length) &&
+            !"\\`[*_".includes(source[end] as string)
+        ) end += 1;
         output += escapeHtml(source.slice(index, end));
         index = end;
     }

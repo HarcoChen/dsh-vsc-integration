@@ -1,3 +1,8 @@
+import {
+    MAX_FILE_LOCATION_INDEX,
+    MAX_FILE_LOCATION_PATH_CHARACTERS,
+} from "./fileLocations";
+
 export interface TraceLocation {
     sessionId: string;
     seq?: number;
@@ -10,6 +15,7 @@ export type TraceWebviewAction =
     | { type: "ready" }
     | { type: "selectRow"; rowId: string }
     | { type: "selectProjection"; key: string }
+    | { type: "openFileLocation"; path: string; line: number; column?: number }
     | { type: "setQuery"; query: string }
     | { type: "page"; direction: "older" | "newer" | "latest" };
 
@@ -61,6 +67,26 @@ export function parseTraceWebviewAction(value: unknown): TraceWebviewAction | un
             return boundedString(value.key, 1_024)
                 ? { type: "selectProjection", key: value.key }
                 : undefined;
+        case "openFileLocation":
+            if (
+                Object.keys(value).some((key) =>
+                    key !== "type" && key !== "path" && key !== "line" && key !== "column"
+                ) ||
+                !boundedString(value.path, MAX_FILE_LOCATION_PATH_CHARACTERS) ||
+                !nonNegativeInteger(value.line) ||
+                value.line === 0 ||
+                value.line > MAX_FILE_LOCATION_INDEX ||
+                (value.column !== undefined &&
+                    (!nonNegativeInteger(value.column) ||
+                        value.column === 0 ||
+                        value.column > MAX_FILE_LOCATION_INDEX))
+            ) return undefined;
+            return {
+                type: "openFileLocation",
+                path: value.path,
+                line: value.line,
+                ...(value.column === undefined ? {} : { column: value.column }),
+            };
         case "setQuery":
             return boundedString(value.query, 500, true)
                 ? { type: "setQuery", query: value.query }

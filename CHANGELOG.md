@@ -7,6 +7,10 @@
 
 ## [未发布]
 
+- 新增紧凑的 Token 与上下文统计入口：使用环形进度展示估算占用，并在独立浮层中展示当前模型、reasoning effort、计费输入/输出、推理 Token 和缓存命中；数据来自 Harness 公开 usage/context projection，并明确区分计费值与估算值。
+- 新增 `path:line[:column]` 文件跳转：支持聊天回答、工具参数与结果、Trace 摘要及详情；Extension Host 会校验工作区信任、真实文件、符号链接和工作区边界后再打开编辑器定位。
+- 优化 Runtime 启动体验：`dsh.autoStart` 默认在扩展激活时启动或连接 DSH，“未启动”和“错误”状态可直接点击启动或重试。
+
 ## [0.2.2] - 2026-08-14
 
 本版本修复扩展图标缺失问题，并完善 DSH 的 IDE 品牌识别。

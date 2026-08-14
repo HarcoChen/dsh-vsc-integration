@@ -1,5 +1,9 @@
 import { DshApprovalOutcome, DshQuestionAnswerItem, DshQuestionItem } from "./types";
 import { parseSafeHttpUrl } from "./safeMarkdown";
+import {
+    MAX_FILE_LOCATION_INDEX,
+    MAX_FILE_LOCATION_PATH_CHARACTERS,
+} from "./fileLocations";
 
 export type ChatViewAction =
     | { type: "ready" }
@@ -16,6 +20,7 @@ export type ChatViewAction =
     | { type: "openLogs" }
     | { type: "openBrowser" }
     | { type: "openExternalLink"; url: string }
+    | { type: "openFileLocation"; path: string; line: number; column?: number }
     | { type: "copyCode"; renderId: string; codeBlockId: string }
     | { type: "openTrace"; seq?: number }
     | { type: "switchSession"; sessionId: string }
@@ -145,6 +150,23 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             const url = parseSafeHttpUrl(value.url);
             return url ? { type: "openExternalLink", url } : undefined;
         }
+        case "openFileLocation":
+            if (
+                !hasOnly(value, ["type", "path", "line", "column"]) ||
+                !nonEmptyString(value.path) ||
+                value.path.length > MAX_FILE_LOCATION_PATH_CHARACTERS ||
+                value.path.includes("\0") ||
+                !positiveInteger(value.line) ||
+                value.line > MAX_FILE_LOCATION_INDEX ||
+                (value.column !== undefined &&
+                    (!positiveInteger(value.column) || value.column > MAX_FILE_LOCATION_INDEX))
+            ) return undefined;
+            return {
+                type: "openFileLocation",
+                path: value.path,
+                line: value.line,
+                ...(value.column === undefined ? {} : { column: value.column }),
+            };
         case "copyCode":
             return hasOnly(value, ["type", "renderId", "codeBlockId"]) &&
                 typeof value.renderId === "string" && /^[a-f0-9]{32}$/u.test(value.renderId) &&

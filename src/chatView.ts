@@ -53,6 +53,7 @@ import {
     SubagentTreeNodeView,
 } from "./types";
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
+import { openWorkspaceFileLocation } from "./workspaceNavigation";
 
 interface PersistedSession {
     sessionId: string;
@@ -402,6 +403,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (!opened) throw new Error("VS Code 未能打开该链接。");
                     break;
                 }
+                case "openFileLocation":
+                    await openWorkspaceFileLocation(
+                        message,
+                        this.sessionCwd ?? this.workspaceRoot(),
+                    );
+                    break;
                 case "copyCode":
                     await this.copyCodeBlock(message.renderId, message.codeBlockId);
                     break;

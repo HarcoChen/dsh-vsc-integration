@@ -1,10 +1,39 @@
 import React from "react";
 import type { ChatMessage, ChatToolCall } from "../../../src/types";
+import { findFileLocations } from "../../../src/fileLocations";
 import { formatToolDuration, ROLE_LABELS } from "../state";
 
 interface MessageItemProps {
     message: ChatMessage;
     submitting: boolean;
+}
+
+function LinkedFileLocations({ text }: { text: string }): React.JSX.Element {
+    const locations = findFileLocations(text);
+    if (locations.length === 0) return <>{text}</>;
+    const content: React.ReactNode[] = [];
+    let cursor = 0;
+    for (const location of locations) {
+        content.push(text.slice(cursor, location.start));
+        content.push(
+            <span
+                className="file-location-link"
+                role="link"
+                tabIndex={0}
+                data-file-path={location.path}
+                data-file-line={location.line}
+                {...(location.column === undefined
+                    ? {}
+                    : { "data-file-column": location.column })}
+                key={`${location.start}:${location.end}`}
+            >
+                {location.text}
+            </span>,
+        );
+        cursor = location.end;
+    }
+    content.push(text.slice(cursor));
+    return <>{content}</>;
 }
 
 function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
@@ -26,17 +55,19 @@ function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
                     {tool.args ? (
                         <div className="dsh-tool-section">
                             <div className="dsh-tool-section-label">参数</div>
-                            <pre>{tool.args}</pre>
+                            <pre><LinkedFileLocations text={tool.args} /></pre>
                         </div>
                     ) : null}
                     {tool.result ? (
                         <div className="dsh-tool-section">
                             <div className="dsh-tool-section-label">结果</div>
-                            <pre>{tool.result}</pre>
+                            <pre><LinkedFileLocations text={tool.result} /></pre>
                         </div>
                     ) : null}
                     {tool.error ? (
-                        <div className="dsh-tool-section dsh-card-error">{tool.error}</div>
+                        <div className="dsh-tool-section dsh-card-error">
+                            <LinkedFileLocations text={tool.error} />
+                        </div>
                     ) : null}
                 </div>
             ) : null}

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import { DshRuntime } from "./dshRuntime";
+import { renderFileLocationsHtml } from "./fileLocations";
 import { SessionStateSnapshot } from "./sessionStore";
 import {
     ProjectedTraceRow,
@@ -16,6 +17,7 @@ import {
     parseTraceWebviewAction,
     TraceLocation,
 } from "./traceProtocol";
+import { openWorkspaceFileLocation } from "./workspaceNavigation";
 
 const PAGE_SIZE = 250;
 const RAW_DETAIL_LIMIT = 65_536;
@@ -276,6 +278,16 @@ class TracePanelController implements vscode.Disposable {
             this.selectedId = item.id;
             this.publish();
             this.postProjectionDetail(item);
+        } else if (action.type === "openFileLocation") {
+            const session = this.runtime
+                .getSessionCatalog()
+                .snapshot()
+                .sessions.find((candidate) => candidate.sessionId === this.sessionId);
+            void openWorkspaceFileLocation(action, session?.cwd).catch((error: unknown) => {
+                const message = errorMessage(error);
+                this.output.appendLine(`[dsh:trace] file navigation failed: ${message}`);
+                void vscode.window.showWarningMessage(`DSH: ${message}`);
+            });
         } else if (action.type === "setQuery") {
             this.query = action.query;
             this.followLatest = true;
@@ -314,7 +326,16 @@ class TracePanelController implements vscode.Disposable {
         const filtered = this.filteredRows();
         const maximum = Math.max(0, filtered.length - PAGE_SIZE);
         this.offset = this.followLatest ? maximum : Math.min(Math.max(0, this.offset), maximum);
-        const rows = filtered.slice(this.offset, this.offset + PAGE_SIZE).map(traceRowView);
+        const rows = filtered.slice(this.offset, this.offset + PAGE_SIZE).map((row) => {
+            const view = traceRowView(row);
+            return {
+                ...view,
+                summaryHtml: renderFileLocationsHtml(view.summary),
+                ...(view.error === undefined
+                    ? {}
+                    : { errorHtml: renderFileLocationsHtml(view.error) }),
+            };
+        });
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const session = catalog.sessions.find((candidate) => candidate.sessionId === this.sessionId);
         const status: TracePanelStatus = {
@@ -343,6 +364,7 @@ class TracePanelController implements vscode.Disposable {
                     key: projection.key,
                     seq: projection.seq,
                     valuePreview: projection.valuePreview,
+                    valueHtml: renderFileLocationsHtml(projection.valuePreview),
                 })),
                 selectedId: this.selectedId,
                 needsHistoryBaseline: this.snapshot?.needsHistoryBaseline === true,
@@ -401,14 +423,19 @@ class TracePanelController implements vscode.Disposable {
         kind: "Event" | "Projection",
         source: TraceDetailSource,
     ): void {
+        const raw = safeTraceJson(source.raw, RAW_DETAIL_LIMIT);
         void this.panel.webview.postMessage({
             type: "detail",
             detail: {
                 id,
                 title,
                 kind,
-                summary: source.summary,
-                raw: safeTraceJson(source.raw, RAW_DETAIL_LIMIT),
+                summary: source.summary.map((field) => ({
+                    ...field,
+                    valueHtml: renderFileLocationsHtml(field.value),
+                })),
+                raw,
+                rawHtml: renderFileLocationsHtml(raw),
             },
         });
     }
@@ -484,6 +511,8 @@ function traceHtml(sessionId: string): string {
         .field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--vscode-panel-border); }
         .field-label { color: var(--vscode-descriptionForeground); }
         .field-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+        .file-location-link { color: var(--vscode-textLink-foreground); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
+        .file-location-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration-style: solid; }
         pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 var(--vscode-editor-font-family); }
         .hidden { display: none; }
         @media (max-width: 900px) {
@@ -542,6 +571,15 @@ function traceHtml(sessionId: string): string {
             if (tokens.reasoningTokens !== undefined) parts.push('think ' + tokens.reasoningTokens);
             return parts.join(' · ');
         }
+        function openFileLocation(target) {
+            const link = target instanceof Element ? target.closest('[data-file-path]') : undefined;
+            if (!link || !link.dataset.filePath) return false;
+            const line = Number(link.dataset.fileLine);
+            const column = link.dataset.fileColumn === undefined ? undefined : Number(link.dataset.fileColumn);
+            if (!Number.isSafeInteger(line) || line <= 0 || (column !== undefined && (!Number.isSafeInteger(column) || column <= 0))) return false;
+            vscode.postMessage({ type: 'openFileLocation', path: link.dataset.filePath, line, ...(column === undefined ? {} : { column }) });
+            return true;
+        }
         function render() {
             document.getElementById('title').textContent = 'DSH Trace: ' + (state.title || state.sessionId || '');
             const status = state.status || {};
@@ -557,7 +595,7 @@ function traceHtml(sessionId: string): string {
 
             const projections = document.getElementById('projections');
             projections.innerHTML = (state.projections || []).length
-                ? state.projections.map((item) => '<div class="projection' + (state.selectedId === item.id ? ' selected' : '') + '" data-projection-key="' + escapeHtml(item.key) + '"><div class="projection-head"><span class="projection-key">' + escapeHtml(item.key) + '</span><span class="seq">seq ' + escapeHtml(item.seq) + '</span></div><div class="projection-value">' + escapeHtml(item.valuePreview) + '</div></div>').join('')
+                ? state.projections.map((item) => '<div class="projection' + (state.selectedId === item.id ? ' selected' : '') + '" data-projection-key="' + escapeHtml(item.key) + '"><div class="projection-head"><span class="projection-key">' + escapeHtml(item.key) + '</span><span class="seq">seq ' + escapeHtml(item.seq) + '</span></div><div class="projection-value">' + item.valueHtml + '</div></div>').join('')
                 : '<div class="empty">当前 history baseline 没有 projection key。</div>';
 
             const ledger = document.getElementById('ledger');
@@ -570,7 +608,8 @@ function traceHtml(sessionId: string): string {
                     const group = (row.turn === undefined ? 'session' : 'T' + row.turn) + (row.step === undefined ? '' : ' · S' + row.step);
                     const meta = [row.tool && row.tool.name, row.callId, tokenLabel(row.tokens)].filter(Boolean).join(' · ');
                     const summary = row.summary + (meta ? ' · ' + meta : '');
-                    return '<div class="trace-row ' + escapeHtml(row.category) + (row.error ? ' error' : '') + (state.selectedId === row.id ? ' selected' : '') + '" data-row-id="' + escapeHtml(row.id) + '" style="padding-left:' + Math.min(8, Number(row.depth || 0)) * 12 + 'px"><div class="seq">#' + (Number(state.offset || 0) + index + 1) + ' · ' + escapeHtml(row.seq) + (row.endSeq === undefined ? '' : '→' + escapeHtml(row.endSeq)) + '</div><div class="event">' + escapeHtml(row.eventType) + '</div><div class="meta">' + escapeHtml(group) + '</div><div class="summary" title="' + escapeHtml(summary) + '">' + escapeHtml(summary) + (row.error ? ' · ' + escapeHtml(row.error) : '') + '</div><div class="time">' + escapeHtml(formatTime(row.time)) + '<br>' + escapeHtml(duration(row)) + '</div></div>';
+                    const summaryHtml = row.summaryHtml + (meta ? ' · ' + escapeHtml(meta) : '');
+                    return '<div class="trace-row ' + escapeHtml(row.category) + (row.error ? ' error' : '') + (state.selectedId === row.id ? ' selected' : '') + '" data-row-id="' + escapeHtml(row.id) + '" style="padding-left:' + Math.min(8, Number(row.depth || 0)) * 12 + 'px"><div class="seq">#' + (Number(state.offset || 0) + index + 1) + ' · ' + escapeHtml(row.seq) + (row.endSeq === undefined ? '' : '→' + escapeHtml(row.endSeq)) + '</div><div class="event">' + escapeHtml(row.eventType) + '</div><div class="meta">' + escapeHtml(group) + '</div><div class="summary" title="' + escapeHtml(summary) + '">' + summaryHtml + (row.error ? ' · ' + row.errorHtml : '') + '</div><div class="time">' + escapeHtml(formatTime(row.time)) + '<br>' + escapeHtml(duration(row)) + '</div></div>';
                 }).join('');
             }
             renderDetail();
@@ -580,14 +619,25 @@ function traceHtml(sessionId: string): string {
             document.getElementById('detailTitle').textContent = detail ? detail.title : '选择一条记录或 projection';
             const summary = document.getElementById('summaryDetail');
             summary.innerHTML = detail
-                ? (detail.summary || []).map((field) => '<div class="field"><div class="field-label">' + escapeHtml(field.label) + '</div><div class="field-value">' + escapeHtml(field.value) + '</div></div>').join('')
+                ? (detail.summary || []).map((field) => '<div class="field"><div class="field-label">' + escapeHtml(field.label) + '</div><div class="field-value">' + field.valueHtml + '</div></div>').join('')
                 : '<div class="empty">详情按选择延迟加载，不会把完整日志一次性发送到 webview。</div>';
             const raw = document.getElementById('rawDetail');
-            raw.textContent = detail ? detail.raw : '';
+            raw.innerHTML = detail ? detail.rawHtml : '';
             summary.classList.toggle('hidden', activeTab !== 'summary');
             raw.classList.toggle('hidden', activeTab !== 'raw');
             for (const tab of document.querySelectorAll('[data-tab]')) tab.classList.toggle('active', tab.dataset.tab === activeTab);
         }
+        document.addEventListener('click', (event) => {
+            if (!openFileLocation(event.target)) return;
+            event.preventDefault();
+            event.stopPropagation();
+        }, true);
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (!openFileLocation(event.target)) return;
+            event.preventDefault();
+            event.stopPropagation();
+        }, true);
         document.getElementById('ledger').addEventListener('click', (event) => {
             const row = event.target.closest('[data-row-id]');
             if (row) vscode.postMessage({ type: 'selectRow', rowId: row.dataset.rowId });

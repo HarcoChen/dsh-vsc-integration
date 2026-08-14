@@ -19,6 +19,25 @@ function closestElement(target: EventTarget | null, selector: string): HTMLEleme
  * Returns true when the event was consumed.
  */
 export function handleMarkdownClick(target: EventTarget | null): boolean {
+    const file = closestElement(target, "[data-file-path]");
+    const line = Number(file?.dataset.fileLine);
+    const column = file?.dataset.fileColumn === undefined
+        ? undefined
+        : Number(file.dataset.fileColumn);
+    if (
+        file?.dataset.filePath &&
+        Number.isSafeInteger(line) &&
+        line > 0 &&
+        (column === undefined || (Number.isSafeInteger(column) && column > 0))
+    ) {
+        postAction({
+            type: "openFileLocation",
+            path: file.dataset.filePath,
+            line,
+            ...(column === undefined ? {} : { column }),
+        });
+        return true;
+    }
     const link = closestElement(target, "[data-external-url]");
     if (link?.dataset.externalUrl) {
         postAction({ type: "openExternalLink", url: link.dataset.externalUrl });
@@ -50,7 +69,13 @@ export function handleMarkdownClick(target: EventTarget | null): boolean {
 export function handleMarkdownKeydown(event: React.KeyboardEvent): void {
     if (event.key !== "Enter" && event.key !== " ") return;
     const target = event.target;
-    if (!(target instanceof Element) || !target.matches("[data-external-url]")) return;
+    if (!(target instanceof Element)) return;
+    if (target.matches("[data-file-path]")) {
+        event.preventDefault();
+        handleMarkdownClick(target);
+        return;
+    }
+    if (!target.matches("[data-external-url]")) return;
     const url = (target as HTMLElement).dataset.externalUrl;
     if (!url) return;
     event.preventDefault();

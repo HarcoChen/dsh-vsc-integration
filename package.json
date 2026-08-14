@@ -1,7 +1,7 @@
 {
     "name": "dsh-vsc-integration",
     "displayName": "DSH VSCode Integration (Community)",
-    "description": "余额快捷显示、内建 Trace，Slash-like Commands、IDE 上下文感知、支持工具卡片与 Reasoning 折叠的 Cline-like 聊天体验。",
+    "description": "余额快捷显示、内建 Trace，Slash-like Commands、IDE 上下文感知、支持工具卡片与 Reasoning 折叠的 Cline-like 聊天体验。Quick balance display, built-in Trace, slash-like commands, IDE context awareness, tool cards",
     "version": "0.2.2",
     "publisher": "harcochen",
     "license": "MIT",
