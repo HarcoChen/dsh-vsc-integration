@@ -754,6 +754,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
+    /** Sends a prompt originating from the VS Code Chat Participant. */
+    public async sendParticipantPrompt(text: string, token?: vscode.CancellationToken): Promise<void> {
+        if (token?.isCancellationRequested) return;
+        await this.sendPrompt(text, "queue");
+    }
+
     private async retryPrompt(id: string): Promise<void> {
         if (this.submitting || !this.sessionId) return;
         const optimistic = this.optimisticPrompts.find(

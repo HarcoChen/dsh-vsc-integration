@@ -36,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 retainContextWhenHidden: true,
             },
         }),
+        registerChatParticipant(chatView, context.extensionUri),
         vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
         vscode.commands.registerCommand("dsh.open", () => chatView.reveal()),
         vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
@@ -129,6 +130,22 @@ export function activate(context: vscode.ExtensionContext): void {
             output.appendLine(`[dsh] automatic startup failed: ${message}`);
         });
     }
+}
+
+function registerChatParticipant(chatView: ChatViewProvider, extensionUri: vscode.Uri): vscode.Disposable {
+    const participant = vscode.chat.createChatParticipant("dsh", async (request, _context, response, token) => {
+        const prompt = request.prompt.trim();
+        if (!prompt) {
+            response.markdown(t("Please provide a task for dsh."));
+            return;
+        }
+        response.progress(t("Sending the task to the dsh session..."));
+        await chatView.sendParticipantPrompt(prompt, token);
+        if (token.isCancellationRequested) return;
+        response.markdown(t("Task sent to the current dsh session. Continue in the DSH view for streaming output and approvals."));
+    });
+    participant.iconPath = vscode.Uri.joinPath(extensionUri, "resources", "dsh.svg");
+    return participant;
 }
 
 function registerQuickTaskCommands(chatView: ChatViewProvider): vscode.Disposable[] {
