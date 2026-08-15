@@ -1500,8 +1500,27 @@ button {
     cursor: default;
 }
 
-.dsh-hint {
+.dsh-stats {
     padding-top: var(--dsh-space-2);
     color: var(--vscode-descriptionForeground);
     font-size: var(--dsh-font-xs);
+    text-align: center;
+}
+
+.dsh-stats-top {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--dsh-space-2);
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.dsh-stats-bottom {
+    margin-top: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }

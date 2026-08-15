@@ -631,6 +631,7 @@ export interface ChatViewState {
         error?: string;
     };
     tokenUsage?: TokenUsageView;
+    sessionStats?: SessionStatsView;
     reasoningEffort?: ReasoningEffortView;
     permissions?: PermissionProjectionView;
     interactions: Array<{
@@ -698,6 +699,17 @@ export interface TokenUsageView {
         projectedTokens?: number;
         contextWindow?: number;
     };
+}
+
+export interface SessionStatsView {
+    turns: number;
+    steps: number;
+    llmMs: number;
+    toolMs: number;
+    ttftMs: number;
+    ttftSteps: number;
+    decodeMs: number;
+    decodeTokens: number;
 }
 
 export interface PermissionProjectionView {

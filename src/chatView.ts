@@ -55,6 +55,7 @@ import {
     DshSubagentAddress,
     DshSubagentCatalog,
     PermissionProjectionView,
+    SessionStatsView,
     SubagentHistoryPreview,
     SubagentTreeNodeView,
 } from "./types";
@@ -150,6 +151,25 @@ function permissionProjection(value: unknown): PermissionProjectionView | undefi
         currentValue: record.currentValue,
         currentLabel: current.label,
         options,
+    };
+}
+
+function sessionStatsProjection(value: unknown): SessionStatsView | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const fields = ["turns", "steps", "llmMs", "toolMs", "ttftMs", "ttftSteps", "decodeMs", "decodeTokens"] as const;
+    if (!fields.every((field) => typeof record[field] === "number" && Number.isFinite(record[field]) && record[field] >= 0)) {
+        return undefined;
+    }
+    return {
+        turns: record.turns as number,
+        steps: record.steps as number,
+        llmMs: record.llmMs as number,
+        toolMs: record.toolMs as number,
+        ttftMs: record.ttftMs as number,
+        ttftSteps: record.ttftSteps as number,
+        decodeMs: record.decodeMs as number,
+        decodeTokens: record.decodeTokens as number,
     };
 }
 
@@ -1825,6 +1845,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             : undefined;
         const goalCell = session?.projections.find((cell) => cell.key === "goal");
         const permissionsCell = session?.projections.find((cell) => cell.key === "permissions");
+        const sessionStats = sessionStatsProjection(
+            session?.projections.find((cell) => cell.key === "sessionStats")?.value,
+        );
         const host = presentHostBaseline(this.runtime.getHostDescription());
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
@@ -1893,6 +1916,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.sessionId ? this.selectedModels.get(this.sessionId) : undefined,
                 host,
             ),
+            ...(sessionStats === undefined ? {} : { sessionStats }),
             reasoningEffort: this.reasoningEffortView(),
             permissions: permissionProjection(permissionsCell?.value),
             interactions: activeInteractions.map((interaction) =>
