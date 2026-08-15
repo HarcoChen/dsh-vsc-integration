@@ -29,6 +29,29 @@ interface TracePanelStatus {
     error?: string;
 }
 
+interface TraceOverview {
+    durationMs?: number;
+    turns: number;
+    calls: number;
+    errors: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+}
+
+interface TraceTimelineItem {
+    id: string;
+    lane: "input" | "model" | "tools";
+    slot: number;
+    category: string;
+    eventType: string;
+    left: number;
+    width: number;
+    durationMs?: number;
+    summary: string;
+}
+
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
@@ -337,6 +360,49 @@ class TracePanelController implements vscode.Disposable {
                     : { errorHtml: renderFileLocationsHtml(view.error) }),
             };
         });
+        const allRows = this.projection.rows;
+        const turns = new Set(allRows.flatMap((row) => row.turn === undefined ? [] : [row.turn])).size;
+        const callIds = new Set(allRows.flatMap((row) => row.callId ? [row.callId] : []));
+        const tokenTotals = allRows.reduce((totals, row) => {
+            if (!row.tokens) return totals;
+            totals.inputTokens += row.tokens.inputTokens;
+            totals.outputTokens += row.tokens.outputTokens;
+            totals.cacheReadTokens += row.tokens.cacheReadTokens ?? 0;
+            totals.cacheWriteTokens += row.tokens.cacheWriteTokens ?? 0;
+            return totals;
+        }, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
+        const firstTime = allRows[0]?.time;
+        const lastTime = allRows.at(-1)?.time;
+        const overview: TraceOverview = {
+            ...(firstTime !== undefined && lastTime !== undefined && lastTime >= firstTime
+                ? { durationMs: lastTime - firstTime }
+                : {}),
+            turns,
+            calls: callIds.size || allRows.filter((row) => row.category === "tool" || row.category === "subtool").length,
+            errors: allRows.filter((row) => row.error !== undefined || row.category === "error").length,
+            ...tokenTotals,
+        };
+        const timelineStart = firstTime ?? 0;
+        const timelineEnd = Math.max(lastTime ?? timelineStart, timelineStart + 1);
+        const timelineRows = allRows.slice(-180);
+        const blockWidth = Math.max(0.8, Math.min(8, (100 / Math.max(1, timelineRows.length)) * 0.72));
+        const timeSpan = Math.max(1, timelineEnd - timelineStart);
+        const timeline = timelineRows.map((row, index): TraceTimelineItem => ({
+            id: row.id,
+            lane: row.category === "assistant" ? "model" :
+                row.category === "tool" || row.category === "subtool" || row.category === "error" ? "tools" : "input",
+            slot: index,
+            category: row.category,
+            eventType: row.eventType,
+            // Match Harness ui-trajectory's default sequence projection: visible
+            // records receive dense indexes; raw session seq gaps are ignored.
+            left: timelineRows.length <= 1 ? 0 : (index / timelineRows.length) * 100,
+            width: row.durationMs === undefined
+                ? blockWidth
+                : Math.max(blockWidth, Math.min(18, (row.durationMs / timeSpan) * 100)),
+            ...(row.durationMs === undefined ? {} : { durationMs: row.durationMs }),
+            summary: row.summary,
+        }));
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const session = catalog.sessions.find((candidate) => candidate.sessionId === this.sessionId);
         const status: TracePanelStatus = {
@@ -354,6 +420,10 @@ class TracePanelController implements vscode.Disposable {
                 rows,
                 totalEvents: this.snapshot?.events.length ?? 0,
                 totalRows: this.projection.rows.length,
+                overview,
+                timeline,
+                timelineStart: firstTime,
+                timelineEnd: lastTime,
                 filteredRows: filtered.length,
                 offset: this.offset,
                 pageSize: PAGE_SIZE,
@@ -479,6 +549,18 @@ function traceHtml(sessionId: string): string {
         projected: t("projected"),
         raw: t("raw"),
         followLive: t("follow live"),
+        overview: t("Run overview"),
+        timeline: t("Timeline"),
+        duration: t("Duration"),
+        turns: t("Turns"),
+        calls: t("Calls"),
+        errors: t("Errors"),
+        inputTokens: t("Input tokens"),
+        outputTokens: t("Output tokens"),
+        cacheRead: t("Cache read"),
+        cacheWrite: t("Cache write"),
+        collapse: t("Collapse"),
+        expand: t("Expand"),
     };
     const serializedStrings = scriptJson(strings);
     return `<!DOCTYPE html>
@@ -495,7 +577,7 @@ function traceHtml(sessionId: string): string {
         button { border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; padding: 4px 8px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; }
         button.secondary { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground); }
         button:disabled { opacity: .5; cursor: default; }
-        .app { height: 100vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+        .app { height: 100vh; display: grid; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
         header { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
         .title { font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .status { display: flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
@@ -506,6 +588,19 @@ function traceHtml(sessionId: string): string {
         .toolbar { display: flex; gap: 6px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
         .toolbar input { width: min(420px, 45vw); padding: 5px 7px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); }
         .counts { flex: 1; color: var(--vscode-descriptionForeground); }
+        .overview { display: grid; grid-template-columns: repeat(8, minmax(90px, 1fr)); gap: 1px; padding: 8px 12px; background: var(--vscode-panel-border); border-bottom: 1px solid var(--vscode-panel-border); }
+        .metric { min-width: 0; padding: 7px 9px; background: var(--vscode-editor-background); }
+        .metric-label { color: var(--vscode-descriptionForeground); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+        .metric-value { margin-top: 3px; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .timeline { min-height: 70px; padding: 8px 12px 10px; border-bottom: 1px solid var(--vscode-panel-border); overflow: hidden; }
+        .timeline-lanes { display: grid; gap: 3px; margin-top: 7px; }
+        .timeline-lane { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; align-items: center; }
+        .timeline-lane-label { color: var(--vscode-descriptionForeground); font-size: 10px; }
+        .timeline-track { display: grid; height: 21px; column-gap: 3px; padding: 2px 3px; background: color-mix(in srgb, var(--vscode-panel-border) 35%, transparent); border-radius: 3px; overflow: hidden; }
+        .timeline-item { grid-row: 1; align-self: center; justify-self: stretch; width: auto; height: 16px; border-radius: 2px; opacity: .9; cursor: pointer; }
+        .timeline-item:hover { opacity: 1; outline: 1px solid var(--vscode-focusBorder); }
+        .timeline-item.user { background: #4f8cca; } .timeline-item.assistant { background: #8d6bb3; } .timeline-item.tool, .timeline-item.subtool { background: #d88924; } .timeline-item.error { background: #d94c4c; } .timeline-item.compaction { background: #4ca879; } .timeline-item.context { background: #6a7178; } .timeline-item.boundary { background: #5d9a75; } .timeline-item.system { background: #7a8088; } .timeline-item.generic { background: #9b7b4a; }
+        .timeline-scale { display: flex; justify-content: space-between; color: var(--vscode-descriptionForeground); font: 10px var(--vscode-editor-font-family); }
         .layout { min-height: 0; display: grid; grid-template-columns: minmax(480px, 1fr) minmax(300px, 38%); }
         .ledger-shell { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, auto) minmax(0, 1fr); border-right: 1px solid var(--vscode-panel-border); }
         .section { padding: 7px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
@@ -525,6 +620,17 @@ function traceHtml(sessionId: string): string {
         .trace-row.selected { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
         .seq, .meta, .time { color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family); font-size: 11px; }
         .event { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .event::before { content: ''; display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--vscode-descriptionForeground); }
+        .trace-row.user .event { color: #4f8cca; } .trace-row.user .event::before { background: #4f8cca; }
+        .trace-row.context .event { color: #6a7178; } .trace-row.context .event::before { background: #6a7178; }
+        .trace-row.assistant .event { color: #8d6bb3; } .trace-row.assistant .event::before { background: #8d6bb3; }
+        .trace-row.tool .event, .trace-row.subtool .event { color: #d88924; } .trace-row.tool .event::before, .trace-row.subtool .event::before { background: #d88924; }
+        .trace-row.compaction .event { color: #4ca879; } .trace-row.compaction .event::before { background: #4ca879; }
+        .trace-row.system .event { color: #7a8088; } .trace-row.system .event::before { background: #7a8088; }
+        .trace-row.boundary .event { color: #5d9a75; } .trace-row.boundary .event::before { background: #5d9a75; }
+        .trace-row.generic .event { color: #9b7b4a; } .trace-row.generic .event::before { background: #9b7b4a; }
+        .trace-row.error .event::before { background: var(--vscode-errorForeground); }
+        .tree-toggle { min-width: 18px; width: 18px; height: 18px; padding: 0; margin-right: 4px; line-height: 14px; vertical-align: -2px; }
         .summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .trace-row.error .event, .trace-row.error .summary { color: var(--vscode-errorForeground); }
         .empty, .error-box { padding: 24px; color: var(--vscode-descriptionForeground); text-align: center; }
@@ -550,6 +656,7 @@ function traceHtml(sessionId: string): string {
             .layout { display: block; }
             .ledger-shell { min-height: 520px; border-right: 0; }
             .inspector { min-height: 360px; border-top: 1px solid var(--vscode-panel-border); }
+            .overview { grid-template-columns: repeat(4, minmax(90px, 1fr)); }
         }
     </style>
 </head>
@@ -561,6 +668,8 @@ function traceHtml(sessionId: string): string {
             <span id="counts" class="counts"></span>
             <button id="older" class="secondary">${escapeHtml(strings.older)}</button><button id="newer" class="secondary">${escapeHtml(strings.newer)}</button><button id="latest" class="secondary">${escapeHtml(strings.followLatest)}</button>
         </div>
+        <section class="overview"><div class="metric"><div class="metric-label">${escapeHtml(strings.duration)}</div><div id="metricDuration" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.turns)}</div><div id="metricTurns" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.calls)}</div><div id="metricCalls" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.errors)}</div><div id="metricErrors" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.inputTokens)}</div><div id="metricInput" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.outputTokens)}</div><div id="metricOutput" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.cacheRead)}</div><div id="metricCacheRead" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.cacheWrite)}</div><div id="metricCacheWrite" class="metric-value">—</div></div></section>
+        <section class="timeline"><div class="section-title">${escapeHtml(strings.timeline)}</div><div class="timeline-scale"><span id="timelineStart">—</span><span id="timelineEnd">—</span></div><div id="timelineLanes" class="timeline-lanes"></div></section>
         <div class="layout">
             <div class="ledger-shell">
                 <section class="section"><div class="section-title">${escapeHtml(strings.projectionInspector)}</div><div id="projections" class="projections"></div></section>
@@ -582,13 +691,16 @@ function traceHtml(sessionId: string): string {
         let detail = undefined;
         let activeTab = 'summary';
         let searchTimer;
+        const collapsed = new Set();
 
         function escapeHtml(value) {
             return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
         }
         function formatTime(value) {
             const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleTimeString([], { hour12: false, fractionalSecondDigits: 3 });
+            if (Number.isNaN(date.getTime())) return String(value);
+            const pad = (number, size = 2) => String(number).padStart(size, '0');
+            return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds()) + '.' + pad(date.getMilliseconds(), 3);
         }
         function duration(row) {
             return row.durationMs === undefined ? '—' : Math.round(row.durationMs).toLocaleString() + ' ms';
@@ -600,6 +712,53 @@ function traceHtml(sessionId: string): string {
             if (tokens.cacheWriteTokens !== undefined) parts.push('cache-write ' + tokens.cacheWriteTokens);
             if (tokens.reasoningTokens !== undefined) parts.push('think ' + tokens.reasoningTokens);
             return parts.join(' · ');
+        }
+        function compactNumber(value) {
+            return Number(value || 0).toLocaleString();
+        }
+        function compactDuration(value) {
+            if (value === undefined) return '—';
+            if (value < 1000) return Math.round(value) + ' ms';
+            if (value < 60000) return (value / 1000).toFixed(1) + ' s';
+            return Math.floor(value / 60000) + 'm ' + Math.round((value % 60000) / 1000) + 's';
+        }
+        function hasCollapsedAncestor(rows, index) {
+            const depth = Number(rows[index].depth || 0);
+            for (let i = index - 1; i >= 0; i -= 1) {
+                const candidate = rows[i];
+                if (Number(candidate.depth || 0) < depth) {
+                    if (collapsed.has(candidate.id)) return true;
+                    return hasCollapsedAncestor(rows, i);
+                }
+            }
+            return false;
+        }
+        function hasChildren(rows, index) {
+            return index + 1 < rows.length && Number(rows[index + 1].depth || 0) > Number(rows[index].depth || 0);
+        }
+        function renderOverview() {
+            const overview = state.overview || {};
+            document.getElementById('metricDuration').textContent = compactDuration(overview.durationMs);
+            document.getElementById('metricTurns').textContent = compactNumber(overview.turns);
+            document.getElementById('metricCalls').textContent = compactNumber(overview.calls);
+            document.getElementById('metricErrors').textContent = compactNumber(overview.errors);
+            document.getElementById('metricInput').textContent = compactNumber(overview.inputTokens);
+            document.getElementById('metricOutput').textContent = compactNumber(overview.outputTokens);
+            document.getElementById('metricCacheRead').textContent = compactNumber(overview.cacheReadTokens);
+            document.getElementById('metricCacheWrite').textContent = compactNumber(overview.cacheWriteTokens);
+            const timeline = state.timeline || [];
+            const lanes = [
+                ['input', 'Input'],
+                ['model', 'Model'],
+                ['tools', 'Tools'],
+            ];
+            document.getElementById('timelineLanes').innerHTML = lanes.map(([lane, label]) => {
+                const items = timeline.filter((item) => item.lane === lane);
+                const bars = items.map((item) => '<div class="timeline-item ' + escapeHtml(item.category) + '" data-timeline-id="' + escapeHtml(item.id) + '" style="grid-column:' + (item.slot + 1) + '" title="' + escapeHtml(item.eventType + ' · ' + compactDuration(item.durationMs) + ' · ' + item.summary) + '"></div>').join('');
+                return '<div class="timeline-lane"><span class="timeline-lane-label">' + label + '</span><div class="timeline-track" style="grid-template-columns:repeat(' + Math.max(1, timeline.length) + ', minmax(0, 1fr))">' + bars + '</div></div>';
+            }).join('');
+            document.getElementById('timelineStart').textContent = state.timelineStart === undefined ? '—' : formatTime(state.timelineStart);
+            document.getElementById('timelineEnd').textContent = state.overview && state.overview.durationMs !== undefined ? '+' + compactDuration(state.overview.durationMs) : '—';
         }
         function openFileLocation(target) {
             const link = target instanceof Element ? target.closest('[data-file-path]') : undefined;
@@ -622,6 +781,7 @@ function traceHtml(sessionId: string): string {
             document.getElementById('older').disabled = !state.hasOlder;
             document.getElementById('newer').disabled = !state.hasNewer;
             document.getElementById('latest').disabled = Boolean(state.followLatest);
+            renderOverview();
 
             const projections = document.getElementById('projections');
             projections.innerHTML = (state.projections || []).length
@@ -634,12 +794,14 @@ function traceHtml(sessionId: string): string {
             } else if (!(state.rows || []).length) {
                 ledger.innerHTML = '<div class="empty">' + escapeHtml(i18n.noRows) + '</div>';
             } else {
-                ledger.innerHTML = state.rows.map((row, index) => {
+                ledger.innerHTML = state.rows.map((row, index, sourceRows) => {
+                    if (hasCollapsedAncestor(sourceRows, index)) return '';
                     const group = (row.turn === undefined ? 'session' : 'T' + row.turn) + (row.step === undefined ? '' : ' · S' + row.step);
                     const meta = [row.tool && row.tool.name, row.callId, tokenLabel(row.tokens)].filter(Boolean).join(' · ');
                     const summary = row.summary + (meta ? ' · ' + meta : '');
                     const summaryHtml = row.summaryHtml + (meta ? ' · ' + escapeHtml(meta) : '');
-                    return '<div class="trace-row ' + escapeHtml(row.category) + (row.error ? ' error' : '') + (state.selectedId === row.id ? ' selected' : '') + '" data-row-id="' + escapeHtml(row.id) + '" style="padding-left:' + Math.min(8, Number(row.depth || 0)) * 12 + 'px"><div class="seq">#' + (Number(state.offset || 0) + index + 1) + ' · ' + escapeHtml(row.seq) + (row.endSeq === undefined ? '' : '→' + escapeHtml(row.endSeq)) + '</div><div class="event">' + escapeHtml(row.eventType) + '</div><div class="meta">' + escapeHtml(group) + '</div><div class="summary" title="' + escapeHtml(summary) + '">' + summaryHtml + (row.error ? ' · ' + row.errorHtml : '') + '</div><div class="time">' + escapeHtml(formatTime(row.time)) + '<br>' + escapeHtml(duration(row)) + '</div></div>';
+                    const toggle = hasChildren(sourceRows, index) ? '<button class="tree-toggle secondary" data-toggle-row="' + escapeHtml(row.id) + '" title="' + (collapsed.has(row.id) ? i18n.expand : i18n.collapse) + '">' + (collapsed.has(row.id) ? '+' : '−') + '</button>' : '';
+                    return '<div class="trace-row ' + escapeHtml(row.category) + (row.error ? ' error' : '') + (state.selectedId === row.id ? ' selected' : '') + '" data-row-id="' + escapeHtml(row.id) + '" style="padding-left:' + Math.min(8, Number(row.depth || 0)) * 12 + 'px"><div class="seq">#' + (Number(state.offset || 0) + index + 1) + ' · ' + escapeHtml(row.seq) + (row.endSeq === undefined ? '' : '→' + escapeHtml(row.endSeq)) + '</div><div class="event">' + toggle + escapeHtml(row.eventType) + '</div><div class="meta">' + escapeHtml(group) + '</div><div class="summary" title="' + escapeHtml(summary) + '">' + summaryHtml + (row.error ? ' · ' + row.errorHtml : '') + '</div><div class="time">' + escapeHtml(formatTime(row.time)) + '<br>' + escapeHtml(duration(row)) + '</div></div>';
                 }).join('');
             }
             renderDetail();
@@ -669,8 +831,19 @@ function traceHtml(sessionId: string): string {
             event.stopPropagation();
         }, true);
         document.getElementById('ledger').addEventListener('click', (event) => {
+            const toggle = event.target.closest('[data-toggle-row]');
+            if (toggle) {
+                const id = toggle.dataset.toggleRow;
+                if (collapsed.has(id)) collapsed.delete(id); else collapsed.add(id);
+                render();
+                return;
+            }
             const row = event.target.closest('[data-row-id]');
             if (row) vscode.postMessage({ type: 'selectRow', rowId: row.dataset.rowId });
+        });
+        document.getElementById('timelineLanes').addEventListener('click', (event) => {
+            const item = event.target.closest('[data-timeline-id]');
+            if (item) vscode.postMessage({ type: 'selectRow', rowId: item.dataset.timelineId });
         });
         document.getElementById('projections').addEventListener('click', (event) => {
             const item = event.target.closest('[data-projection-key]');
