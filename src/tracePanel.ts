@@ -396,7 +396,12 @@ class TracePanelController implements vscode.Disposable {
             row.category === "compaction"
         ).slice(-180);
         const blockWidth = Math.max(0.8, Math.min(8, (100 / Math.max(1, timelineRows.length)) * 0.72));
-        const timeSpan = Math.max(1, timelineEnd - timelineStart);
+        // The timeline domain is based on the visible timeline records only, not
+        // on the whole raw event log. Otherwise a long idle session would push
+        // every real record into a tiny left sliver and make the timeline blank.
+        const timelineFirst = timelineRows[0]?.time ?? timelineStart;
+        const timelineLast = timelineRows.at(-1)?.time ?? timelineEnd;
+        const timeSpan = Math.max(1, timelineLast - timelineFirst);
         const timeline = timelineRows.map((row, index): TraceTimelineItem => ({
             id: row.id,
             lane: row.category === "assistant" || row.category === "compaction" ? "model" :
@@ -404,12 +409,12 @@ class TracePanelController implements vscode.Disposable {
             slot: index,
             category: row.category,
             eventType: row.eventType,
-            // Match Harness ui-trajectory's default sequence projection: visible
-            // records receive dense indexes; raw session seq gaps are ignored.
-            left: timelineRows.length <= 1 ? 0 : (index / timelineRows.length) * 100,
+            // Use wall-clock positions within the visible timeline domain so
+            // idle gaps stay visible and the lanes are not artificially filled.
+            left: Math.max(0, Math.min(100, ((row.time - timelineFirst) / timeSpan) * 100)),
             width: row.durationMs === undefined
                 ? blockWidth
-                : Math.max(blockWidth, Math.min(18, (row.durationMs / timeSpan) * 100)),
+                : Math.max(blockWidth, Math.min(100, (row.durationMs / timeSpan) * 100)),
             ...(row.durationMs === undefined ? {} : { durationMs: row.durationMs }),
             summary: row.summary,
         }));
@@ -432,8 +437,8 @@ class TracePanelController implements vscode.Disposable {
                 totalRows: this.projection.rows.length,
                 overview,
                 timeline,
-                timelineStart: firstTime,
-                timelineEnd: lastTime,
+                timelineStart: timelineFirst,
+                timelineEnd: timelineLast,
                 filteredRows: filtered.length,
                 offset: this.offset,
                 pageSize: PAGE_SIZE,
@@ -606,8 +611,8 @@ function traceHtml(sessionId: string): string {
         .timeline-lanes { display: grid; gap: 3px; margin-top: 7px; }
         .timeline-lane { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; align-items: center; }
         .timeline-lane-label { color: var(--vscode-descriptionForeground); font-size: 10px; }
-        .timeline-track { display: grid; height: 21px; column-gap: 3px; padding: 2px 3px; background: color-mix(in srgb, var(--vscode-panel-border) 35%, transparent); border-radius: 3px; overflow: hidden; }
-        .timeline-item { grid-row: 1; align-self: center; justify-self: stretch; width: auto; height: 16px; border-radius: 2px; opacity: .9; cursor: pointer; }
+        .timeline-track { position: relative; height: 21px; padding: 2px 3px; background: color-mix(in srgb, var(--vscode-panel-border) 35%, transparent); border-radius: 3px; overflow: hidden; }
+        .timeline-item { position: absolute; top: 2px; height: 16px; border-radius: 2px; opacity: .9; cursor: pointer; }
         .timeline-item:hover { opacity: 1; outline: 1px solid var(--vscode-focusBorder); }
         .timeline-item.user { background: #4f8cca; } .timeline-item.assistant { background: #8d6bb3; } .timeline-item.tool, .timeline-item.subtool { background: #d88924; } .timeline-item.error { background: #d94c4c; } .timeline-item.compaction { background: #4ca879; } .timeline-item.context { background: #6a7178; } .timeline-item.boundary { background: #5d9a75; } .timeline-item.system { background: #7a8088; } .timeline-item.generic { background: #9b7b4a; }
         .timeline-scale { display: flex; justify-content: space-between; color: var(--vscode-descriptionForeground); font: 10px var(--vscode-editor-font-family); }
@@ -762,13 +767,34 @@ function traceHtml(sessionId: string): string {
                 ['model', 'Model'],
                 ['tools', 'Tools'],
             ];
-            document.getElementById('timelineLanes').innerHTML = lanes.map(([lane, label]) => {
+            const timelineLanes = document.getElementById('timelineLanes');
+            timelineLanes.innerHTML = '';
+            for (const [lane, label] of lanes) {
                 const items = timeline.filter((item) => item.lane === lane);
-                const bars = items.map((item) => '<div class="timeline-item ' + escapeHtml(item.category) + '" data-timeline-id="' + escapeHtml(item.id) + '" style="grid-column:' + (item.slot + 1) + '" title="' + escapeHtml(item.eventType + ' · ' + compactDuration(item.durationMs) + ' · ' + item.summary) + '"></div>').join('');
-                return '<div class="timeline-lane"><span class="timeline-lane-label">' + label + '</span><div class="timeline-track" style="grid-template-columns:repeat(' + Math.max(1, timeline.length) + ', minmax(0, 1fr))">' + bars + '</div></div>';
-            }).join('');
+                const laneEl = document.createElement('div');
+                laneEl.className = 'timeline-lane';
+                const labelEl = document.createElement('span');
+                labelEl.className = 'timeline-lane-label';
+                labelEl.textContent = label;
+                const trackEl = document.createElement('div');
+                trackEl.className = 'timeline-track';
+                for (const item of items) {
+                    const bar = document.createElement('div');
+                    bar.className = 'timeline-item ' + item.category;
+                    bar.dataset.timelineId = item.id;
+                    bar.title = item.eventType + ' · ' + compactDuration(item.durationMs) + ' · ' + item.summary;
+                    // Use CSSOM instead of inline style attributes so the
+                    // webview CSP does not strip the positioning.
+                    bar.style.left = item.left + '%';
+                    bar.style.width = item.width + '%';
+                    trackEl.appendChild(bar);
+                }
+                laneEl.appendChild(labelEl);
+                laneEl.appendChild(trackEl);
+                timelineLanes.appendChild(laneEl);
+            }
             document.getElementById('timelineStart').textContent = state.timelineStart === undefined ? '—' : formatTime(state.timelineStart);
-            document.getElementById('timelineEnd').textContent = state.overview && state.overview.durationMs !== undefined ? '+' + compactDuration(state.overview.durationMs) : '—';
+            document.getElementById('timelineEnd').textContent = state.timelineStart !== undefined && state.timelineEnd !== undefined ? '+' + compactDuration(state.timelineEnd - state.timelineStart) : '—';
         }
         function openFileLocation(target) {
             const link = target instanceof Element ? target.closest('[data-file-path]') : undefined;
