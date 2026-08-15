@@ -1,6 +1,6 @@
 import { ChildProcess, execFile, spawn } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access, writeFile } from "node:fs/promises";
+import { access, open, readFile, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -209,6 +209,7 @@ export class DshRuntime implements vscode.Disposable {
     private baseUrl: string | undefined;
     private startPromise: Promise<string> | undefined;
     private startedByExtension = false;
+    private runtimeLock: { handle: FileHandle; path: string } | undefined;
     private compactionPatchPath: string | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
@@ -394,6 +395,8 @@ export class DshRuntime implements vscode.Disposable {
         if (child && this.startedByExtension) {
             await this.terminate(child);
         }
+
+        await this.releaseRuntimeLock();
 
         this.startedByExtension = false;
         this.setStatus({ state: "stopped" });
@@ -632,6 +635,19 @@ export class DshRuntime implements vscode.Disposable {
             return this.baseUrl;
         }
 
+        // Reuse a Runtime started by the CLI, another VS Code window, or a
+        // previous extension instance before creating another writer process.
+        // Harness's web profile defaults to port 3080; an explicit setting wins.
+        const configuredPort = this.configuration().get<number>("serverPort", 0);
+        const existingUrl = await this.findExistingRuntime(configuredPort);
+        if (existingUrl) {
+            this.baseUrl = existingUrl;
+            this.startedByExtension = false;
+            this.setStatus({ state: "running", url: existingUrl });
+            this.harnessState.start();
+            return existingUrl;
+        }
+
         if (!workspaceRoot) {
             const message = t("Open a workspace before starting dsh with it as the working directory.");
             this.setStatus({ state: "error", message });
@@ -646,13 +662,31 @@ export class DshRuntime implements vscode.Disposable {
         let command = this.configuration().get<string>("command", "dsh").trim() || "dsh";
         const configuredArgs = this.configuration().get<string[]>("commandArgs", ["web"]);
         let args = [...configuredArgs];
-        const configuredPort = this.configuration().get<number>("serverPort", 0);
         const enableCompaction = this.configuration().get<boolean>("enableCompaction", true);
+
+        if (!(await this.acquireRuntimeLock())) {
+            const deadline = Date.now() + startupTimeout;
+            while (Date.now() < deadline) {
+                const url = await this.findExistingRuntime(configuredPort);
+                if (url) {
+                    this.baseUrl = url;
+                    this.startedByExtension = false;
+                    this.setStatus({ state: "running", url });
+                    this.harnessState.start();
+                    return url;
+                }
+                await delay(250);
+            }
+            const message = t("Another dsh runtime is starting, but it did not become available.");
+            this.setStatus({ state: "error", message });
+            throw new Error(message);
+        }
 
         let launcher: DshLauncher;
         try {
             launcher = await discoverDsh(command);
         } catch (error) {
+            await this.releaseRuntimeLock();
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus({ state: "error", message });
             throw error;
@@ -662,17 +696,25 @@ export class DshRuntime implements vscode.Disposable {
         this.output.appendLine(`[dsh] discovered executable: ${command} (${launcher.source})`);
         if (enableCompaction && args.includes("web")) {
             this.compactionPatchPath = join(tmpdir(), `dsh-vscode-${process.pid}-compaction.patch.yml`);
-            await writeFile(
-                this.compactionPatchPath,
-                "- id: compaction-basic\n  disabled: false\n\n- id: command-compact\n  disabled: false\n",
-                { encoding: "utf8", mode: 0o600 },
-            );
+            try {
+                await writeFile(
+                    this.compactionPatchPath,
+                    "- id: compaction-basic\n  disabled: false\n\n- id: command-compact\n  disabled: false\n",
+                    { encoding: "utf8", mode: 0o600 },
+                );
+            } catch (error) {
+                await this.releaseRuntimeLock();
+                throw error;
+            }
             args.push("--patch", this.compactionPatchPath);
             this.output.appendLine(`[dsh] compaction command enabled with patch: ${this.compactionPatchPath}`);
         }
 
         if (!args.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
-            args.push("--port", String(configuredPort));
+            // Port 0 asks Harness/the OS for a free port. This preserves the
+            // normal 3080 default for discovery while still working when it is
+            // occupied by another service or Runtime.
+            args.push("--port", String(configuredPort > 0 ? configuredPort : 0));
         }
 
         const candidatePort = portFromArgs(args);
@@ -738,6 +780,7 @@ export class DshRuntime implements vscode.Disposable {
             this.child = undefined;
             this.baseUrl = undefined;
             this.startedByExtension = false;
+            await this.releaseRuntimeLock();
             const message = error instanceof Error ? error.message : String(error);
             this.setStatus({ state: "error", message });
             throw error;
@@ -799,6 +842,83 @@ export class DshRuntime implements vscode.Disposable {
             return false;
         } finally {
             clearTimeout(timeout);
+        }
+    }
+
+    private async findExistingRuntime(configuredPort: number): Promise<string | undefined> {
+        const ports = (configuredPort > 0 ? [configuredPort, 3080] : [3080]).filter(
+            (port, index, all): port is number => Number.isInteger(port) && port > 0 && all.indexOf(port) === index,
+        );
+        for (const port of ports) {
+            const url = `http://127.0.0.1:${port}`;
+            if (await this.isHarnessHealthy(url)) return url;
+        }
+        return undefined;
+    }
+
+    private async isHarnessHealthy(url: string): Promise<boolean> {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1_500);
+        try {
+            const response = await fetch(`${url}/api/host.describe`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                    type: "client-request",
+                    rpcId: `dsh-vscode-probe-${process.pid}`,
+                    method: "host.describe",
+                    payload: {},
+                }),
+                signal: controller.signal,
+            });
+            if (!response.ok) return false;
+            const body: unknown = await response.json();
+            return typeof body === "object" && body !== null
+                && (body as { type?: unknown }).type === "server-response";
+        } catch {
+            return false;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+
+    private async acquireRuntimeLock(): Promise<boolean> {
+        const path = join(tmpdir(), "dsh-vscode-runtime.lock");
+        try {
+            const handle = await open(path, "wx", 0o600);
+            await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }), "utf8");
+            this.runtimeLock = { handle, path };
+            return true;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            try {
+                const contents = await readFile(path, "utf8");
+                const pid = Number((JSON.parse(contents) as { pid?: unknown }).pid);
+                if (Number.isInteger(pid) && pid > 0) {
+                    try {
+                        process.kill(pid, 0);
+                        return false;
+                    } catch (probeError) {
+                        if ((probeError as NodeJS.ErrnoException).code !== "ESRCH") return false;
+                    }
+                }
+                await unlink(path);
+                return this.acquireRuntimeLock();
+            } catch (staleError) {
+                if ((staleError as NodeJS.ErrnoException).code === "ENOENT") return this.acquireRuntimeLock();
+                return false;
+            }
+        }
+    }
+
+    private async releaseRuntimeLock(): Promise<void> {
+        const lock = this.runtimeLock;
+        this.runtimeLock = undefined;
+        if (!lock) return;
+        try {
+            await lock.handle.close();
+        } finally {
+            await unlink(lock.path).catch(() => undefined);
         }
     }
 

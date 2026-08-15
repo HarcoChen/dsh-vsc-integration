@@ -5,6 +5,7 @@
     "A changed path stopped being a regular file during capture: {path}": "捕获期间，变更路径不再是常规文件：{path}",
     "A single-choice question cannot have multiple selections.": "单选问题不能选择多个选项。",
     "Agent mode “{preset}” does not exist. Available modes: {available}.": "不存在 Agent 模式“{preset}”。可用模式：{available}。",
+    "Another dsh runtime is starting, but it did not become available.": "另一个 dsh Runtime 正在启动，但未能变为可用状态。",
     "Archive": "归档",
     "Archive session": "归档会话",
     "Archive the current session and hide it from the DSH IDE session list? Archived sessions can be managed in the official dsh Web UI.": "将当前会话归档并从 DSH IDE 会话列表隐藏？可在官方 dsh Web UI 中管理归档会话。",
