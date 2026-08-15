@@ -33,6 +33,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Click to start DSH Runtime": "点击启动 DSH Runtime",
     "Switch session": "切换会话",
     "No sessions": "暂无会话",
+    "Ungrouped sessions": "未分组会话",
     "New session": "新建会话",
     "Search sessions": "搜索会话",
     "More actions": "更多操作",

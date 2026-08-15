@@ -384,13 +384,23 @@ class TracePanelController implements vscode.Disposable {
         };
         const timelineStart = firstTime ?? 0;
         const timelineEnd = Math.max(lastTime ?? timelineStart, timelineStart + 1);
-        const timelineRows = allRows.slice(-180);
+        // Only include records that exist in the official Trajectory timeline.
+        // Boundary/step markers, request headers, retries and unknown events are
+        // not timeline cells; compaction belongs to the Model lane, not Input.
+        const timelineRows = allRows.filter((row) =>
+            row.category === "user" ||
+            row.category === "context" ||
+            row.category === "assistant" ||
+            row.category === "tool" ||
+            row.category === "subtool" ||
+            row.category === "compaction"
+        ).slice(-180);
         const blockWidth = Math.max(0.8, Math.min(8, (100 / Math.max(1, timelineRows.length)) * 0.72));
         const timeSpan = Math.max(1, timelineEnd - timelineStart);
         const timeline = timelineRows.map((row, index): TraceTimelineItem => ({
             id: row.id,
-            lane: row.category === "assistant" ? "model" :
-                row.category === "tool" || row.category === "subtool" || row.category === "error" ? "tools" : "input",
+            lane: row.category === "assistant" || row.category === "compaction" ? "model" :
+                row.category === "tool" || row.category === "subtool" ? "tools" : "input",
             slot: index,
             category: row.category,
             eventType: row.eventType,

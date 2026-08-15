@@ -34,6 +34,7 @@ import {
     DshSubagentHistoryResult,
     DshSubagentPromptResult,
     DshRpcReceipt,
+    DshWorkspaceCreateResult,
     RuntimeStatus,
 } from "./types";
 
@@ -398,9 +399,17 @@ export class DshRuntime implements vscode.Disposable {
         this.setStatus({ state: "stopped" });
     }
 
-    public async createSession(cwd: string, agentPreset?: string): Promise<DshSessionCreateResult> {
+    public createWorkspace(path: string): Promise<DshWorkspaceCreateResult> {
+        return this.apiClient.call("workspace.create", { path });
+    }
+
+    public async createSession(
+        cwd: string | undefined,
+        agentPreset?: string,
+        workspaceId?: string,
+    ): Promise<DshSessionCreateResult> {
         const result = await this.apiClient.call("session.create", {
-            cwd,
+            ...(workspaceId === undefined ? { cwd } : { workspaceId }),
             ...(agentPreset === undefined ? {} : { agentPreset }),
         });
         this.harnessState.catalog.upsertCreated(result.sessionId, cwd);

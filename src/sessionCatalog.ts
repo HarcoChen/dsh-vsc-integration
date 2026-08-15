@@ -364,6 +364,18 @@ export class HarnessCatalogStore {
         this.publish();
     }
 
+    /** Returns non-blank sessions registered for the canonical workspace path. */
+    public sessionsForWorkspace(path: string): readonly SessionCatalogItem[] {
+        const workspace = [...this.workspaces.values()].find((entry) => entry.value.path === path)?.value;
+        if (!workspace) return [];
+        const byId = new Map(
+            [...this.sessions.values()].map((entry) => [entry.value.sessionId, entry.value] as const),
+        );
+        return workspace.sessionIds
+            .map((sessionId) => byId.get(sessionId))
+            .filter((session): session is SessionCatalogItem => session !== undefined && !session.blank);
+    }
+
     public snapshot(): HarnessCatalogSnapshot {
         const sessions = [...this.sessions.values()]
             .map((entry) => this.withDerivedState(entry.value))

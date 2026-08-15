@@ -539,6 +539,11 @@ export interface DshWorkspaceListResult {
     archivedSessionIds: string[];
 }
 
+export interface DshWorkspaceCreateResult {
+    workspace: DshWorkspaceView;
+    created: boolean;
+}
+
 export interface DshHostWorkspaceChangedFrame {
     type: "host/workspace-changed";
     workspace: DshWorkspaceView;
@@ -613,6 +618,8 @@ export interface ChatViewState {
     sessions: Array<{
         sessionId: string;
         title: string;
+        workspaceId?: string;
+        workspaceTitle?: string;
         running: boolean;
         attention: boolean;
         archived: boolean;

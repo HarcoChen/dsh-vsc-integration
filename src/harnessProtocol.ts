@@ -19,6 +19,7 @@ import {
     DshSubagentHistoryResult,
     DshSubagentPromptResult,
     DshWorkspaceListResult,
+    DshWorkspaceCreateResult,
 } from "./types";
 
 /** Public DeepSeek Harness RPCs currently consumed by the extension foundation. */
@@ -93,6 +94,7 @@ export interface HarnessRpcMethodMap {
         { accepted: true }
     >;
     "workspace.list": RpcMethod<EmptyPayload, DshWorkspaceListResult>;
+    "workspace.create": RpcMethod<{ path: string }, DshWorkspaceCreateResult>;
     "workspace.archiveSession": RpcMethod<
         { sessionId: string },
         { archivedSessionIds: string[] }

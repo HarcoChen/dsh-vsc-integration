@@ -63,6 +63,17 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
     const statusTitle = status.message || turnTitle;
 
     const sessions = state.sessions;
+    const groupedSessions = new Map<string, typeof sessions>();
+    const ungroupedSessions: typeof sessions = [];
+    for (const session of sessions) {
+        if (!session.workspaceId || !session.workspaceTitle) {
+            ungroupedSessions.push(session);
+            continue;
+        }
+        const group = groupedSessions.get(session.workspaceId) ?? [];
+        group.push(session);
+        groupedSessions.set(session.workspaceId, group);
+    }
     const hasSession = Boolean(state.sessionId);
     const runtimeRunning = status.state === "running" || status.state === "starting";
 
@@ -124,12 +135,28 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                 {sessions.length === 0 ? (
                     <option value="">{t("No sessions")}</option>
                 ) : (
-                    sessions.map((session) => (
-                        <option key={session.sessionId} value={session.sessionId}>
-                            {session.attention ? "● " : session.running ? "▶ " : ""}
-                            {session.title}
-                        </option>
-                    ))
+                    <>
+                        {[...groupedSessions.entries()].map(([workspaceId, group]) => (
+                            <optgroup key={workspaceId} label={group[0]?.workspaceTitle ?? workspaceId}>
+                                {group.map((session) => (
+                                    <option key={session.sessionId} value={session.sessionId}>
+                                        {session.attention ? "● " : session.running ? "▶ " : ""}
+                                        {session.title}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        ))}
+                        {ungroupedSessions.length > 0 ? (
+                            <optgroup label={t("Ungrouped sessions")}>
+                                {ungroupedSessions.map((session) => (
+                                    <option key={session.sessionId} value={session.sessionId}>
+                                        {session.attention ? "● " : session.running ? "▶ " : ""}
+                                        {session.title}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        ) : null}
+                    </>
                 )}
             </select>
             <button
