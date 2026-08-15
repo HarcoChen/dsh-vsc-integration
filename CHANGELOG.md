@@ -26,7 +26,12 @@
 - 新增 `DSH: Diagnose Environment`：输出脱敏的 VS Code、Node、平台、工作区信任、命令发现、npm 全局目录、Runtime 健康状态和 API Key 引用诊断。
 - 修复 Windows 下 npm 全局前缀查询无法通过 `.cmd` 启动器执行的问题，并保留 `.cmd`/`.ps1` Runtime 启动兼容性。
 
-## [未发布]
+## [0.4.0] - 2026-08-15
+
+- 新增 Workspace 注册与 Session 归属：创建会话前自动注册当前工作区，避免新会话全部落入未分组状态。
+- 新增按 VS Code 文件夹自动发现并恢复已有 DSH Session；打开曾在 Web 中建立过工作区的文件夹时可继续使用原会话和历史记录。
+- 优化 Webview 会话选择器：按 Workspace 分组展示会话，并为历史或未关联工作区的会话提供“未分组会话”兜底分组。
+- 扩展 Harness Workspace RPC 集成，支持读取工作区列表及按工作区筛选会话，为跨 Web 与 VS Code 的工作区复用提供基础。
 
 ## [0.2.2] - 2026-08-14
 
@@ -52,7 +57,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
-[未发布]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.2...HEAD
+[0.4.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.1...v0.2.2
