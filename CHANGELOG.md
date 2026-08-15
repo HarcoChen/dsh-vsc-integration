@@ -32,6 +32,8 @@
 - 新增按 VS Code 文件夹自动发现并恢复已有 DSH Session；打开曾在 Web 中建立过工作区的文件夹时可继续使用原会话和历史记录。
 - 优化 Webview 会话选择器：按 Workspace 分组展示会话，并为历史或未关联工作区的会话提供“未分组会话”兜底分组。
 - 扩展 Harness Workspace RPC 集成，支持读取工作区列表及按工作区筛选会话，为跨 Web 与 VS Code 的工作区复用提供基础。
+- 增强 Trace Timeline：按可见事件的实际时间范围绘制时间轴，保留空闲间隔并改善 CSP 下的时间条定位。
+- 修复跨 DSH Workspace 切换 Session 后发送消息会因 VS Code 当前目录不同而误建新会话的问题。
 
 ## [0.2.2] - 2026-08-14
 

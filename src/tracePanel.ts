@@ -16,6 +16,7 @@ import {
     parseTraceLocation,
     parseTraceWebviewAction,
     TraceLocation,
+    TraceTimelineMode,
 } from "./traceProtocol";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
 import { t } from "./localize";
@@ -198,6 +199,7 @@ class TracePanelController implements vscode.Disposable {
     private offset = 0;
     private followLatest = true;
     private selectedId: string | undefined;
+    private timelineMode: TraceTimelineMode = "sequence";
     private pendingLocation: TraceLocation | undefined;
     private error: string | undefined;
     private updateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -319,6 +321,12 @@ class TracePanelController implements vscode.Disposable {
             this.publish();
         } else if (action.type === "page") {
             this.page(action.direction);
+        } else if (action.type === "setTimelineMode") {
+            this.timelineMode = action.mode;
+            this.publish();
+        } else if (action.type === "clearSelection") {
+            this.selectedId = undefined;
+            this.publish();
         }
     }
 
@@ -402,22 +410,30 @@ class TracePanelController implements vscode.Disposable {
         const timelineFirst = timelineRows[0]?.time ?? timelineStart;
         const timelineLast = timelineRows.at(-1)?.time ?? timelineEnd;
         const timeSpan = Math.max(1, timelineLast - timelineFirst);
-        const timeline = timelineRows.map((row, index): TraceTimelineItem => ({
-            id: row.id,
-            lane: row.category === "assistant" || row.category === "compaction" ? "model" :
-                row.category === "tool" || row.category === "subtool" ? "tools" : "input",
-            slot: index,
-            category: row.category,
-            eventType: row.eventType,
-            // Use wall-clock positions within the visible timeline domain so
-            // idle gaps stay visible and the lanes are not artificially filled.
-            left: Math.max(0, Math.min(100, ((row.time - timelineFirst) / timeSpan) * 100)),
-            width: row.durationMs === undefined
-                ? blockWidth
-                : Math.max(blockWidth, Math.min(100, (row.durationMs / timeSpan) * 100)),
-            ...(row.durationMs === undefined ? {} : { durationMs: row.durationMs }),
-            summary: row.summary,
-        }));
+        const useSequence = this.timelineMode === "sequence";
+        const timeline = timelineRows.map((row, index): TraceTimelineItem => {
+            const lane = row.category === "assistant" || row.category === "compaction" ? "model" :
+                row.category === "tool" || row.category === "subtool" ? "tools" : "input";
+            const left = useSequence
+                ? (timelineRows.length <= 1 ? 0 : (index / (timelineRows.length - 1)) * 100)
+                : Math.max(0, Math.min(100, ((row.time - timelineFirst) / timeSpan) * 100));
+            const width = useSequence
+                ? 100 / Math.max(1, timelineRows.length)
+                : row.durationMs === undefined
+                    ? blockWidth
+                    : Math.max(blockWidth, Math.min(100, (row.durationMs / timeSpan) * 100));
+            return {
+                id: row.id,
+                lane,
+                slot: index,
+                category: row.category,
+                eventType: row.eventType,
+                left,
+                width,
+                ...(row.durationMs === undefined ? {} : { durationMs: row.durationMs }),
+                summary: row.summary,
+            };
+        });
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const session = catalog.sessions.find((candidate) => candidate.sessionId === this.sessionId);
         const status: TracePanelStatus = {
@@ -437,6 +453,7 @@ class TracePanelController implements vscode.Disposable {
                 totalRows: this.projection.rows.length,
                 overview,
                 timeline,
+                timelineMode: this.timelineMode,
                 timelineStart: timelineFirst,
                 timelineEnd: timelineLast,
                 filteredRows: filtered.length,
@@ -566,6 +583,7 @@ function traceHtml(sessionId: string): string {
         followLive: t("follow live"),
         overview: t("Run overview"),
         timeline: t("Timeline"),
+        sequence: t("Sequence"),
         duration: t("Duration"),
         turns: t("Turns"),
         calls: t("Calls"),
@@ -592,6 +610,7 @@ function traceHtml(sessionId: string): string {
         button { border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; padding: 4px 8px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; }
         button.secondary { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground); }
         button:disabled { opacity: .5; cursor: default; }
+        button.active { outline: 1px solid var(--vscode-focusBorder); }
         .app { height: 100vh; display: grid; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
         header { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
         .title { font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -616,16 +635,18 @@ function traceHtml(sessionId: string): string {
         .timeline-item:hover { opacity: 1; outline: 1px solid var(--vscode-focusBorder); }
         .timeline-item.user { background: #4f8cca; } .timeline-item.assistant { background: #8d6bb3; } .timeline-item.tool, .timeline-item.subtool { background: #d88924; } .timeline-item.error { background: #d94c4c; } .timeline-item.compaction { background: #4ca879; } .timeline-item.context { background: #6a7178; } .timeline-item.boundary { background: #5d9a75; } .timeline-item.system { background: #7a8088; } .timeline-item.generic { background: #9b7b4a; }
         .timeline-scale { display: flex; justify-content: space-between; color: var(--vscode-descriptionForeground); font: 10px var(--vscode-editor-font-family); }
-        .layout { min-height: 0; display: grid; grid-template-columns: minmax(480px, 1fr) minmax(300px, 38%); }
-        .ledger-shell { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, auto) minmax(0, 1fr); border-right: 1px solid var(--vscode-panel-border); }
-        .section { padding: 7px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
+        .layout { min-height: 0; display: flex; align-items: stretch; overflow: hidden; }
+        .ledger-shell { flex: 1 1 60%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); border-right: 1px solid var(--vscode-panel-border); overflow: hidden; }
+        .section { min-width: 0; padding: 7px 10px; background: var(--vscode-editor-background); border-bottom: 1px solid var(--vscode-panel-border); overflow: hidden; }
+        .projection-section { height: 220px; }
         .section-title { color: var(--vscode-descriptionForeground); font-size: 11px; margin-bottom: 5px; }
-        .projections { max-height: 145px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 5px; }
-        .projection { min-width: 0; padding: 5px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; cursor: pointer; }
+        .projections { min-width: 0; min-height: 0; height: 195px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 5px; }
+        .projection { min-width: 0; min-height: 62px; max-width: 100%; padding: 6px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; cursor: pointer; overflow: hidden; }
         .projection.selected { outline: 1px solid var(--vscode-focusBorder); }
-        .projection-head { display: flex; justify-content: space-between; gap: 6px; }
-        .projection-key { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
-        .projection-value { margin-top: 3px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .projection-head { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 6px; }
+        .projection-key { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .projection-head .seq { flex: 0 0 auto; white-space: nowrap; }
+        .projection-value { display: -webkit-box; margin-top: 4px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: normal; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
         .ledger { min-height: 0; overflow: auto; }
         .ledger-head, .trace-row { display: grid; grid-template-columns: 70px minmax(155px, .7fr) 120px minmax(240px, 2fr) 110px; align-items: center; }
         .ledger-head { position: sticky; top: 0; z-index: 2; min-height: 28px; color: var(--vscode-descriptionForeground); background: var(--vscode-editor-background); border-bottom: 1px solid var(--vscode-panel-border); }
@@ -650,7 +671,8 @@ function traceHtml(sessionId: string): string {
         .trace-row.error .event, .trace-row.error .summary { color: var(--vscode-errorForeground); }
         .empty, .error-box { padding: 24px; color: var(--vscode-descriptionForeground); text-align: center; }
         .error-box { color: var(--vscode-errorForeground); }
-        .inspector { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
+        .inspector { display: none; flex: 0 0 clamp(260px, 30vw, 420px); min-width: 0; min-height: 0; background: var(--vscode-editor-background); grid-template-rows: auto auto minmax(0, 1fr); border-left: 1px solid var(--vscode-panel-border); }
+        .inspector.visible { display: grid; }
         .inspector-head { padding: 10px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
         .inspector-kind { color: var(--vscode-descriptionForeground); font-size: 10px; text-transform: uppercase; }
         .inspector-title { margin-top: 3px; font-weight: 600; overflow-wrap: anywhere; }
@@ -670,8 +692,10 @@ function traceHtml(sessionId: string): string {
             .app { height: auto; min-height: 100vh; }
             .layout { display: block; }
             .ledger-shell { min-height: 520px; border-right: 0; }
-            .inspector { min-height: 360px; border-top: 1px solid var(--vscode-panel-border); }
+            .inspector { display: none; flex: none; width: 100%; min-height: 360px; border-left: 0; border-top: 1px solid var(--vscode-panel-border); }
+            .inspector.visible { display: grid; }
             .overview { grid-template-columns: repeat(4, minmax(90px, 1fr)); }
+            .projections { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -681,13 +705,14 @@ function traceHtml(sessionId: string): string {
         <div class="toolbar">
             <input id="search" placeholder="${escapeHtml(strings.searchPlaceholder)}">
             <span id="counts" class="counts"></span>
+            <button id="timelineMode" class="secondary" title="${escapeHtml(strings.timeline)}">${escapeHtml(strings.sequence)}</button>
             <button id="older" class="secondary">${escapeHtml(strings.older)}</button><button id="newer" class="secondary">${escapeHtml(strings.newer)}</button><button id="latest" class="secondary">${escapeHtml(strings.followLatest)}</button>
         </div>
         <section class="overview"><div class="metric"><div class="metric-label">${escapeHtml(strings.duration)}</div><div id="metricDuration" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.turns)}</div><div id="metricTurns" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.calls)}</div><div id="metricCalls" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.errors)}</div><div id="metricErrors" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.inputTokens)}</div><div id="metricInput" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.outputTokens)}</div><div id="metricOutput" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.cacheRead)}</div><div id="metricCacheRead" class="metric-value">—</div></div><div class="metric"><div class="metric-label">${escapeHtml(strings.cacheWrite)}</div><div id="metricCacheWrite" class="metric-value">—</div></div></section>
         <section class="timeline"><div class="section-title">${escapeHtml(strings.timeline)}</div><div class="timeline-scale"><span id="timelineStart">—</span><span id="timelineEnd">—</span></div><div id="timelineLanes" class="timeline-lanes"></div></section>
         <div class="layout">
             <div class="ledger-shell">
-                <section class="section"><div class="section-title">${escapeHtml(strings.projectionInspector)}</div><div id="projections" class="projections"></div></section>
+                <section class="section projection-section"><div class="section-title">${escapeHtml(strings.projectionInspector)}</div><div id="projections" class="projections"></div></section>
                 <div class="ledger-head"><div># / seq</div><div>${escapeHtml(strings.event)}</div><div>${escapeHtml(strings.turnStep)}</div><div>${escapeHtml(strings.summary)}</div><div>${escapeHtml(strings.time)}</div></div>
                 <div id="ledger" class="ledger"></div>
             </div>
@@ -761,6 +786,11 @@ function traceHtml(sessionId: string): string {
             document.getElementById('metricOutput').textContent = compactNumber(overview.outputTokens);
             document.getElementById('metricCacheRead').textContent = compactNumber(overview.cacheReadTokens);
             document.getElementById('metricCacheWrite').textContent = compactNumber(overview.cacheWriteTokens);
+            const modeButton = document.getElementById('timelineMode');
+            if (modeButton) {
+                modeButton.textContent = state.timelineMode === 'duration' ? i18n.duration : i18n.sequence;
+                modeButton.classList.toggle('active', state.timelineMode === 'duration');
+            }
             const timeline = state.timeline || [];
             const lanes = [
                 ['input', 'Input'],
@@ -843,6 +873,8 @@ function traceHtml(sessionId: string): string {
             renderDetail();
         }
         function renderDetail() {
+            const inspector = document.querySelector('.inspector');
+            if (inspector) inspector.classList.toggle('visible', Boolean(detail));
             document.getElementById('detailKind').textContent = detail ? detail.kind : 'Inspector';
             document.getElementById('detailTitle').textContent = detail ? detail.title : i18n.selectRecord;
             const summary = document.getElementById('summaryDetail');
@@ -875,15 +907,42 @@ function traceHtml(sessionId: string): string {
                 return;
             }
             const row = event.target.closest('[data-row-id]');
-            if (row) vscode.postMessage({ type: 'selectRow', rowId: row.dataset.rowId });
+            if (row) {
+                if (state.selectedId === row.dataset.rowId) {
+                    detail = undefined;
+                    state.selectedId = undefined;
+                    vscode.postMessage({ type: 'clearSelection' });
+                    render();
+                } else {
+                    vscode.postMessage({ type: 'selectRow', rowId: row.dataset.rowId });
+                }
+            }
         });
         document.getElementById('timelineLanes').addEventListener('click', (event) => {
             const item = event.target.closest('[data-timeline-id]');
-            if (item) vscode.postMessage({ type: 'selectRow', rowId: item.dataset.timelineId });
+            if (item) {
+                if (state.selectedId === item.dataset.timelineId) {
+                    detail = undefined;
+                    state.selectedId = undefined;
+                    vscode.postMessage({ type: 'clearSelection' });
+                    render();
+                } else {
+                    vscode.postMessage({ type: 'selectRow', rowId: item.dataset.timelineId });
+                }
+            }
         });
         document.getElementById('projections').addEventListener('click', (event) => {
             const item = event.target.closest('[data-projection-key]');
-            if (item) vscode.postMessage({ type: 'selectProjection', key: item.dataset.projectionKey });
+            if (item) {
+                if (state.selectedId && document.querySelector('.projection.selected') === item) {
+                    detail = undefined;
+                    state.selectedId = undefined;
+                    vscode.postMessage({ type: 'clearSelection' });
+                    render();
+                } else {
+                    vscode.postMessage({ type: 'selectProjection', key: item.dataset.projectionKey });
+                }
+            }
         });
         document.querySelector('.tabs').addEventListener('click', (event) => {
             const tab = event.target.closest('[data-tab]');
@@ -895,12 +954,17 @@ function traceHtml(sessionId: string): string {
             clearTimeout(searchTimer);
             searchTimer = setTimeout(() => vscode.postMessage({ type: 'setQuery', query: event.target.value }), 120);
         });
+        document.getElementById('timelineMode').addEventListener('click', () => {
+            const next = state.timelineMode === 'duration' ? 'sequence' : 'duration';
+            vscode.postMessage({ type: 'setTimelineMode', mode: next });
+        });
         document.getElementById('older').addEventListener('click', () => vscode.postMessage({ type: 'page', direction: 'older' }));
         document.getElementById('newer').addEventListener('click', () => vscode.postMessage({ type: 'page', direction: 'newer' }));
         document.getElementById('latest').addEventListener('click', () => vscode.postMessage({ type: 'page', direction: 'latest' }));
         window.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'state') {
                 state = event.data.state;
+                if (state.selectedId === undefined || state.selectedId === null) detail = undefined;
                 render();
             } else if (event.data && event.data.type === 'detail') {
                 detail = event.data.detail;

@@ -11,13 +11,17 @@ export interface TraceLocation {
     step?: number;
 }
 
+export type TraceTimelineMode = "sequence" | "duration";
+
 export type TraceWebviewAction =
     | { type: "ready" }
     | { type: "selectRow"; rowId: string }
     | { type: "selectProjection"; key: string }
     | { type: "openFileLocation"; path: string; line: number; column?: number }
     | { type: "setQuery"; query: string }
-    | { type: "page"; direction: "older" | "newer" | "latest" };
+    | { type: "page"; direction: "older" | "newer" | "latest" }
+    | { type: "setTimelineMode"; mode: TraceTimelineMode }
+    | { type: "clearSelection" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -97,6 +101,12 @@ export function parseTraceWebviewAction(value: unknown): TraceWebviewAction | un
                 value.direction === "latest"
                 ? { type: "page", direction: value.direction }
                 : undefined;
+        case "setTimelineMode":
+            return value.mode === "sequence" || value.mode === "duration"
+                ? { type: "setTimelineMode", mode: value.mode }
+                : undefined;
+        case "clearSelection":
+            return { type: "clearSelection" };
         default:
             return undefined;
     }

@@ -235,6 +235,7 @@
     "dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”.": "dsh web 尚未启动。请开启 dsh.autoStart 或执行“DSH: Start dsh Web Runtime”。",
     "dsh.apiKeyEnv cannot be empty. Configure a credential reference name first.": "dsh.apiKeyEnv 不能为空，请先配置凭据引用名。",
     "history syncing": "history 同步中",
+    "Sequence": "顺序",
     "{count} sessions completed": "{count} 个会话已完成",
     "{count} sessions waiting for action": "{count} 个会话等待操作",
     "{count} session completed": "{count} 个会话已完成",

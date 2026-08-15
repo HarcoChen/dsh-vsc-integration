@@ -832,7 +832,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const persist = configuration.get<boolean>("persistSession", true);
         await this.restorePersistedSession(workspaceRoot);
 
-        if (!this.sessionId || this.sessionCwd !== workspaceRoot) {
+        // The selected DSH Session may belong to a different DSH Workspace than
+        // the folder currently open in VS Code. Once a Session is explicitly
+        // selected, keep using it; the VS Code folder only determines which
+        // Session is restored or created when there is no current selection.
+        if (!this.sessionId) {
             const workspace = await this.runtime.createWorkspace(workspaceRoot);
             const created = await this.runtime.createSession(
                 undefined,
