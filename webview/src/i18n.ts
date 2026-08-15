@@ -35,6 +35,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "No sessions": "暂无会话",
     "Ungrouped sessions": "未分组会话",
     "New session": "新建会话",
+    "New conversation": "新对话",
     "Search sessions": "搜索会话",
     "More actions": "更多操作",
     "Add one-shot IDE context": "添加一次性 IDE context",

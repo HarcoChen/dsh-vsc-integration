@@ -615,6 +615,8 @@ export interface ChatViewState {
     workspaceName?: string;
     host?: HostBaselineView;
     sessionId?: string;
+    draftWorkspaceId?: string;
+    draftWorkspaceTitle?: string;
     sessions: Array<{
         sessionId: string;
         title: string;

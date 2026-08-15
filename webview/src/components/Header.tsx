@@ -136,8 +136,12 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                     <option value="">{t("No sessions")}</option>
                 ) : (
                     <>
+                        {!state.sessionId && !state.draftWorkspaceId ? <option value="">{t("New conversation")}</option> : null}
                         {[...groupedSessions.entries()].map(([workspaceId, group]) => (
                             <optgroup key={workspaceId} label={group[0]?.workspaceTitle ?? workspaceId}>
+                                {!state.sessionId && state.draftWorkspaceId === workspaceId ? (
+                                    <option value="">{t("New conversation")}</option>
+                                ) : null}
                                 {group.map((session) => (
                                     <option key={session.sessionId} value={session.sessionId}>
                                         {session.attention ? "● " : session.running ? "▶ " : ""}
@@ -146,6 +150,11 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                                 ))}
                             </optgroup>
                         ))}
+                        {!state.sessionId && state.draftWorkspaceId && !groupedSessions.has(state.draftWorkspaceId) ? (
+                            <optgroup label={state.draftWorkspaceTitle || state.draftWorkspaceId}>
+                                <option value="">{t("New conversation")}</option>
+                            </optgroup>
+                        ) : null}
                         {ungroupedSessions.length > 0 ? (
                             <optgroup label={t("Ungrouped sessions")}>
                                 {ungroupedSessions.map((session) => (

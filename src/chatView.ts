@@ -219,6 +219,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private subagentPreviewGeneration = 0;
     private sessionId: string | undefined;
     private sessionCwd: string | undefined;
+    private newSessionDraft = false;
+    private pendingNewSessionPreset: string | undefined;
+    private pendingNewSessionWorkspaceId: string | undefined;
+    private pendingNewSessionWorkspacePath: string | undefined;
+    private pendingNewSessionWorkspaceTitle: string | undefined;
     private submitting = false;
     private cancelRequested = false;
     private selectionEnabled = true;
@@ -850,22 +855,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async getOrCreateSession(workspaceRoot: string): Promise<string> {
         const configuration = vscode.workspace.getConfiguration("dsh");
         const persist = configuration.get<boolean>("persistSession", true);
-        await this.restorePersistedSession(workspaceRoot);
+        if (!this.newSessionDraft) {
+            await this.restorePersistedSession(workspaceRoot);
+        }
 
         // The selected DSH Session may belong to a different DSH Workspace than
         // the folder currently open in VS Code. Once a Session is explicitly
         // selected, keep using it; the VS Code folder only determines which
         // Session is restored or created when there is no current selection.
         if (!this.sessionId) {
-            const workspace = await this.runtime.createWorkspace(workspaceRoot);
+            const workspace = this.pendingNewSessionWorkspaceId
+                ? {
+                      workspace: {
+                          workspaceId: this.pendingNewSessionWorkspaceId,
+                      },
+                  }
+                : await this.runtime.createWorkspace(workspaceRoot);
             const created = await this.runtime.createSession(
                 undefined,
-                undefined,
+                this.pendingNewSessionPreset,
                 workspace.workspace.workspaceId,
             );
             if (this.sessionId !== created.sessionId) this.discardSubagentPreview();
             this.sessionId = created.sessionId;
-            this.sessionCwd = workspaceRoot;
+            this.sessionCwd = this.pendingNewSessionWorkspacePath ?? workspaceRoot;
             if (persist) {
                 await this.extensionContext.workspaceState.update("session", {
                     sessionId: created.sessionId,
@@ -873,6 +886,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 } satisfies PersistedSession);
             }
             void this.refreshSubagentTree(created.sessionId);
+            this.newSessionDraft = false;
+            this.pendingNewSessionPreset = undefined;
+            this.pendingNewSessionWorkspaceId = undefined;
+            this.pendingNewSessionWorkspacePath = undefined;
+            this.pendingNewSessionWorkspaceTitle = undefined;
         }
 
         this.refreshModelCatalog(this.sessionId);
@@ -880,7 +898,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private restorePersistedSession(workspaceRoot: string | undefined): Promise<void> {
-        if (!workspaceRoot) {
+        if (!workspaceRoot || this.newSessionDraft) {
             return Promise.resolve();
         }
         if (this.restoringPersistedSession) {
@@ -945,13 +963,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const workspaceRoot = this.workspaceRoot();
         if (!workspaceRoot) throw new Error(t("Open a workspace first."));
         await this.runtime.start(workspaceRoot);
-        const workspace = await this.runtime.createWorkspace(workspaceRoot);
-        const created = await this.runtime.createSession(
-            undefined,
-            agentPreset,
-            workspace.workspace.workspaceId,
-        );
-        await this.switchSession(created.sessionId);
+        const catalog = this.runtime.getSessionCatalog().snapshot();
+        const selectedWorkspace = this.sessionId
+            ? catalog.workspaces.find((workspace) => workspace.sessionIds.includes(this.sessionId as string))
+            : undefined;
+        this.sessionId = undefined;
+        this.sessionCwd = undefined;
+        this.newSessionDraft = true;
+        this.pendingNewSessionPreset = agentPreset;
+        this.pendingNewSessionWorkspaceId = selectedWorkspace?.workspaceId;
+        this.pendingNewSessionWorkspacePath = selectedWorkspace?.path;
+        this.pendingNewSessionWorkspaceTitle = selectedWorkspace?.title;
+        this.optimisticPrompts.length = 0;
+        this.cancelRequested = false;
+        this.discardSubagentPreview();
+        await this.extensionContext.workspaceState.update("session", undefined);
+        this.postState();
         this.reveal();
     }
 
@@ -1217,6 +1244,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (this.sessionId !== sessionId) this.discardSubagentPreview();
         this.sessionId = sessionId;
         this.sessionCwd = session?.cwd ?? this.workspaceRoot();
+        this.newSessionDraft = false;
+        this.pendingNewSessionPreset = undefined;
+        this.pendingNewSessionWorkspaceId = undefined;
+        this.pendingNewSessionWorkspacePath = undefined;
+        this.pendingNewSessionWorkspaceTitle = undefined;
         if (vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true)) {
             await this.extensionContext.workspaceState.update("session", {
                 sessionId,
@@ -1878,6 +1910,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             workspaceName: workspaceFolder?.name,
             host,
             sessionId: this.sessionId,
+            ...(this.newSessionDraft && this.pendingNewSessionWorkspaceId
+                ? {
+                      draftWorkspaceId: this.pendingNewSessionWorkspaceId,
+                      draftWorkspaceTitle: this.pendingNewSessionWorkspaceTitle,
+                  }
+                : {}),
             sessions: catalog.sessions
                 .filter((item) => !archived.has(item.sessionId))
                 .map((item) => ({
