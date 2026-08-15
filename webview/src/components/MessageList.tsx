@@ -16,7 +16,7 @@ function closestElement(target: EventTarget | null, selector: string): HTMLEleme
 
 /**
  * Delegated handling for markdown HTML injected via dangerouslySetInnerHTML:
- * external links and copy-code buttons inside host pre-rendered content.
+ * external links and code-block actions inside host pre-rendered content.
  * Returns true when the event was consumed.
  */
 export function handleMarkdownClick(target: EventTarget | null): boolean {
@@ -44,23 +44,30 @@ export function handleMarkdownClick(target: EventTarget | null): boolean {
         postAction({ type: "openExternalLink", url: link.dataset.externalUrl });
         return true;
     }
-    const copy = closestElement(target, "[data-copy-code-id]");
-    const host = copy ? closestElement(copy, "[data-render-id]") : undefined;
+    const codeAction = closestElement(target, "[data-code-action]");
+    const host = codeAction ? closestElement(codeAction, "[data-render-id]") : undefined;
+    const action = codeAction?.dataset.codeAction;
+    const codeBlockId = codeAction?.dataset.codeBlockId ?? codeAction?.dataset.copyCodeId;
     if (
-        copy instanceof HTMLButtonElement &&
+        codeAction instanceof HTMLButtonElement &&
         host?.dataset.renderId &&
-        copy.dataset.copyCodeId &&
-        !copy.disabled
+        codeBlockId &&
+        (action === "copyCode" || action === "insertCode" || action === "openCode" || action === "applyCode") &&
+        !codeAction.disabled
     ) {
-        copy.disabled = true;
+        codeAction.disabled = true;
+        const language = codeAction.dataset.codeLanguage;
         postAction({
-            type: "copyCode",
+            type: action,
             renderId: host.dataset.renderId,
-            codeBlockId: copy.dataset.copyCodeId,
+            codeBlockId,
+            ...(action === "openCode" || action === "applyCode") && language
+                ? { language }
+                : {},
         });
         window.setTimeout(() => {
-            copy.disabled = false;
-        }, 750);
+            codeAction.disabled = false;
+        }, action === "applyCode" ? 2_000 : 750);
         return true;
     }
     return false;
@@ -72,6 +79,11 @@ export function handleMarkdownKeydown(event: React.KeyboardEvent): void {
     const target = event.target;
     if (!(target instanceof Element)) return;
     if (target.matches("[data-file-path]")) {
+        event.preventDefault();
+        handleMarkdownClick(target);
+        return;
+    }
+    if (target.matches("[data-code-action]")) {
         event.preventDefault();
         handleMarkdownClick(target);
         return;

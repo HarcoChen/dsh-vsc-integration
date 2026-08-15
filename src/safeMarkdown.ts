@@ -2,6 +2,7 @@ import {
     findFileLocations,
     renderFileLocationAnchor,
 } from "./fileLocations";
+import { t } from "./localize";
 
 export const MAX_EXTERNAL_URL_CHARACTERS = 4_096;
 export const MAX_COPIED_CODE_BYTES = 65_536;
@@ -288,7 +289,13 @@ function codeBlock(
     const label = language ? escapeHtml(language) : "Code";
     const id = canCopy ? `code-${codeBlocks.length}` : undefined;
     if (id) codeBlocks.push({ id, text: code });
-    return `<div class="markdown-code-block"><div class="markdown-code-head"><span>${label}</span><button type="button" class="markdown-code-copy"${id ? ` data-copy-code-id="${id}"` : " disabled title=\"Code block exceeds the copy limit\""}>${canCopy ? "Copy" : "Too large"}</button></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
+    if (!id) {
+        return `<div class="markdown-code-block"><div class="markdown-code-head"><span>${label}</span><button type="button" class="markdown-code-action markdown-code-copy" disabled title="${attribute(t("Code block exceeds the copy limit"))}">${escapeHtml(t("Too large"))}</button></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
+    }
+    const languageAttribute = language ? ` data-code-language="${attribute(language)}"` : "";
+    const action = (type: "copyCode" | "insertCode" | "openCode" | "applyCode", text: string): string =>
+        `<button type="button" class="markdown-code-action${type === "copyCode" ? " markdown-code-copy" : ""}" data-code-action="${type}" data-code-block-id="${id}"${type === "copyCode" ? ` data-copy-code-id="${id}"` : ""}${languageAttribute}>${escapeHtml(text)}</button>`;
+    return `<div class="markdown-code-block"><div class="markdown-code-head"><span>${label}</span><div class="markdown-code-actions">${action("copyCode", t("Copy"))}${action("insertCode", t("Insert"))}${action("openCode", t("Open"))}${action("applyCode", t("Apply"))}</div></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
 }
 
 function renderBlocks(source: string, codeBlocks: RenderedCodeBlock[], depth = 0): string {

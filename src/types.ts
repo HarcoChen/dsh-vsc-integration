@@ -199,6 +199,8 @@ export interface DshModelProviderModel {
     id: string;
     name?: string;
     reasoningEfforts?: string[];
+    /** Optional presentation assets keyed by the provider's effort id. */
+    reasoningEffortImages?: Record<string, string>;
     [key: string]: unknown;
 }
 
@@ -226,6 +228,18 @@ export interface DshSessionModelsResult {
 export interface DshSessionSelectModelResult {
     selected: DshModelSelection;
     [key: string]: unknown;
+}
+
+export interface DshReasoningEffortOption {
+    id: string;
+    label: string;
+    /** Optional webview-safe image URI for this effort. */
+    image?: string;
+}
+
+export interface ReasoningEffortView {
+    current?: string;
+    options: DshReasoningEffortOption[];
 }
 
 export interface DshAgentPresetEntry {
@@ -610,6 +624,7 @@ export interface ChatViewState {
         error?: string;
     };
     tokenUsage?: TokenUsageView;
+    reasoningEffort?: ReasoningEffortView;
     permissions?: PermissionProjectionView;
     interactions: Array<{
         key: string;

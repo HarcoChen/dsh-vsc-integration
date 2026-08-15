@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import * as vscode from "vscode";
 import { DeepSeekBalanceService } from "./balanceService";
@@ -49,6 +50,8 @@ import {
     DshContextItem,
     DshHistoryEntry,
     DshQuestionResponse,
+    DshReasoningEffortOption,
+    DshSessionModelsResult,
     DshSubagentAddress,
     DshSubagentCatalog,
     PermissionProjectionView,
@@ -86,6 +89,23 @@ const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, () => string>> = {
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+function containsPath(root: string, candidate: string): boolean {
+    const child = relative(root, candidate);
+    return child === "" || (!child.startsWith("..") && !isAbsolute(child));
+}
+
+function samePath(left: string, right: string): boolean {
+    return containsPath(left, right) && containsPath(right, left);
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+    if (left.byteLength !== right.byteLength) return false;
+    for (let index = 0; index < left.byteLength; index += 1) {
+        if (left[index] !== right[index]) return false;
+    }
+    return true;
 }
 
 function referencesSelection(text: string): boolean {
@@ -133,6 +153,32 @@ function permissionProjection(value: unknown): PermissionProjectionView | undefi
     };
 }
 
+function reasoningEffortOptions(
+    catalog: DshSessionModelsResult,
+    provider: string,
+    modelId: string,
+): DshReasoningEffortOption[] {
+    const group = catalog.groups.find((candidate) => candidate.provider === provider);
+    const model = group?.models.find((candidate) => candidate.id === modelId);
+    if (!model || !Array.isArray(model.reasoningEfforts)) return [];
+    const images = model.reasoningEffortImages;
+    const seen = new Set<string>();
+    return model.reasoningEfforts.flatMap((value) => {
+        if (typeof value !== "string") return [];
+        const id = value.trim();
+        if (!id || id.length > 128 || seen.has(id)) return [];
+        seen.add(id);
+        const image = images && typeof images[id] === "string" && images[id].length <= 4_096
+            ? images[id]
+            : undefined;
+        return [{
+            id,
+            label: id,
+            ...(image ? { image } : {}),
+        }];
+    });
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
     public static readonly viewType = "dsh.chatView";
 
@@ -171,6 +217,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly observedRunning = new Map<string, boolean>();
     private readonly completedWhileHidden = new Set<string>();
     private readonly selectedModels = new Map<string, SelectedModelSnapshot>();
+    private readonly modelCatalogs = new Map<string, DshSessionModelsResult>();
+    private readonly modelCatalogRequests = new Map<string, Promise<void>>();
     private readonly changeReviews: ChangeReviewStore;
 
     public constructor(
@@ -210,7 +258,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             runtime.onDidChange(() => this.schedulePostState()),
             runtime.onDidHarnessConnect(() => {
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
-                    if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
+                    if (this.sessionId) {
+                        this.refreshModelCatalog(this.sessionId);
+                        void this.refreshSubagentTree(this.sessionId);
+                    }
                 });
             }),
             contextStore.onDidChange(() => this.schedulePostState()),
@@ -515,6 +566,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "copyCode":
                     await this.copyCodeBlock(message.renderId, message.codeBlockId);
                     break;
+                case "insertCode":
+                    await this.insertCodeBlock(message.renderId, message.codeBlockId);
+                    break;
+                case "openCode":
+                    await this.openCodeBlock(message.renderId, message.codeBlockId, message.language);
+                    break;
+                case "applyCode":
+                    await this.applyCodeBlock(message.renderId, message.codeBlockId, message.language);
+                    break;
                 case "openTrace":
                     if (this.sessionId) {
                         await vscode.commands.executeCommand("dsh.openTrace", {
@@ -545,6 +605,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "selectModel":
                     await this.selectModel();
+                    break;
+                case "selectReasoningEffort":
+                    await this.selectReasoningEffort(message.effort);
                     break;
                 case "selectAgentPreset":
                     await this.selectAgentPreset(message.agentPreset);
@@ -747,6 +810,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             void this.refreshSubagentTree(created.sessionId);
         }
 
+        this.refreshModelCatalog(this.sessionId);
         return this.sessionId;
     }
 
@@ -786,6 +850,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.sessionCwd = workspaceRoot;
             this.postState();
             await this.runtime.syncSession(persisted.sessionId);
+            this.refreshModelCatalog(persisted.sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
             if (latest?.sessionId === persisted.sessionId && latest.cwd === persisted.cwd) {
@@ -840,9 +905,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!this.sessionId) throw new Error(t("There is no current session."));
         if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
         const catalog = await this.runtime.models(this.sessionId);
+        this.modelCatalogs.set(this.sessionId, catalog);
+        const currentEfforts = reasoningEffortOptions(
+            catalog,
+            catalog.current.provider,
+            catalog.current.model,
+        );
         this.selectedModels.set(this.sessionId, {
             selection: catalog.current,
             asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId)),
+            reasoningEfforts: currentEfforts,
         });
         this.schedulePostState();
         if (!catalog.routable) {
@@ -877,11 +949,47 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             model: picked.model,
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         });
+        const selectedEfforts = reasoningEffortOptions(catalog, picked.provider, picked.model);
         this.selectedModels.set(this.sessionId, {
             selection: result.selected,
             asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId)),
+            reasoningEfforts: selectedEfforts,
+        });
+        this.modelCatalogs.set(this.sessionId, {
+            ...catalog,
+            current: result.selected,
         });
         this.output.appendLine(`[dsh:model] selected ${result.selected.provider}/${result.selected.model}`);
+        this.postState();
+    }
+
+    private async selectReasoningEffort(effort: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
+        const catalog = this.modelCatalogs.get(sessionId) ?? await this.runtime.models(sessionId);
+        this.modelCatalogs.set(sessionId, catalog);
+        const current = catalog.current;
+        const options = reasoningEffortOptions(catalog, current.provider, current.model);
+        const selected = options.find((option) => option.id === effort);
+        if (!selected) {
+            throw new Error(t("The selected reasoning effort is not available for the current model."));
+        }
+        const result = await this.runtime.selectModel({
+            sessionId,
+            provider: current.provider,
+            model: current.model,
+            reasoningEffort: selected.id,
+        });
+        this.selectedModels.set(sessionId, {
+            selection: result.selected,
+            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(sessionId)),
+            reasoningEfforts: options,
+        });
+        this.modelCatalogs.set(sessionId, {
+            ...catalog,
+            current: result.selected,
+        });
         this.postState();
     }
 
@@ -1028,6 +1136,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             } satisfies PersistedSession);
         }
         await this.runtime.syncSession(sessionId);
+        this.refreshModelCatalog(sessionId);
         void this.refreshSubagentTree(sessionId);
         this.reveal();
     }
@@ -1559,6 +1668,55 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     }
 
+    private refreshModelCatalog(sessionId: string): void {
+        if (!this.runtime.getUrl() || this.modelCatalogs.has(sessionId) || this.modelCatalogRequests.has(sessionId)) {
+            return;
+        }
+        const request = this.runtime.models(sessionId)
+            .then((catalog) => {
+                this.modelCatalogs.set(sessionId, catalog);
+                const efforts = reasoningEffortOptions(
+                    catalog,
+                    catalog.current.provider,
+                    catalog.current.model,
+                );
+                const selected = this.selectedModels.get(sessionId);
+                if (!selected ||
+                    (selected.selection.provider === catalog.current.provider &&
+                        selected.selection.model === catalog.current.model)) {
+                    this.selectedModels.set(sessionId, {
+                        selection: catalog.current,
+                        asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(sessionId)),
+                        reasoningEfforts: efforts,
+                    });
+                }
+                if (this.sessionId === sessionId) this.postState();
+            })
+            .catch((error) => {
+                this.output.appendLine(`[dsh:model] catalog refresh failed: ${errorMessage(error)}`);
+            })
+            .finally(() => {
+                this.modelCatalogRequests.delete(sessionId);
+            });
+        this.modelCatalogRequests.set(sessionId, request);
+    }
+
+    private reasoningEffortView(): ChatViewState["reasoningEffort"] {
+        if (!this.sessionId) return undefined;
+        const selected = this.selectedModels.get(this.sessionId);
+        const catalog = this.modelCatalogs.get(this.sessionId);
+        const selection = selected?.selection ?? catalog?.current;
+        if (!selection) return undefined;
+        const options = selected?.reasoningEfforts ?? (catalog
+            ? reasoningEffortOptions(catalog, selection.provider, selection.model)
+            : []);
+        if (options.length === 0) return undefined;
+        return {
+            ...(selection.reasoningEffort === undefined ? {} : { current: selection.reasoningEffort }),
+            options,
+        };
+    }
+
     private insertComposerText(text: string): void {
         this.pendingComposerUpdate = { type: "insertText", text };
         this.reveal();
@@ -1656,6 +1814,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.sessionId ? this.selectedModels.get(this.sessionId) : undefined,
                 host,
             ),
+            reasoningEffort: this.reasoningEffortView(),
             permissions: permissionProjection(permissionsCell?.value),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
@@ -1848,11 +2007,126 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private async copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
+        const text = this.codeBlockText(renderId, codeBlockId);
+        await vscode.env.clipboard.writeText(text);
+    }
+
+    private codeBlockText(renderId: string, codeBlockId: string): string {
         const text = this.copyableCodeByRenderId.get(renderId)?.get(codeBlockId);
         if (text === undefined || !isCopyableCode(text)) {
             throw new Error(t("The code block does not exist or exceeds the copy size limit."));
         }
-        await vscode.env.clipboard.writeText(text);
+        return text;
+    }
+
+    private async insertCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) throw new Error(t("There is no active text editor."));
+        const text = this.codeBlockText(renderId, codeBlockId);
+        const applied = await editor.edit((edit) => {
+            for (const selection of editor.selections) {
+                if (selection.isEmpty) edit.insert(selection.active, text);
+                else edit.replace(selection, text);
+            }
+        });
+        if (!applied) throw new Error(t("VS Code could not insert the code block."));
+    }
+
+    private async openCodeBlock(
+        renderId: string,
+        codeBlockId: string,
+        language?: string,
+    ): Promise<void> {
+        const text = this.codeBlockText(renderId, codeBlockId);
+        const document = await vscode.workspace.openTextDocument({
+            content: text,
+            ...(language === undefined ? {} : { language }),
+        });
+        await vscode.window.showTextDocument(document, { preview: false });
+    }
+
+    private async applyCodeBlock(
+        renderId: string,
+        codeBlockId: string,
+        language?: string,
+    ): Promise<void> {
+        if (!vscode.workspace.isTrusted) {
+            throw new Error(t("Trust the current workspace before applying a code block."));
+        }
+        const text = this.codeBlockText(renderId, codeBlockId);
+        if (!(vscode.workspace.workspaceFolders?.length)) {
+            throw new Error(t("Open a workspace before applying a code block."));
+        }
+        const selected = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            openLabel: t("Select target file"),
+            title: t("Apply code block"),
+        });
+        const targetUri = selected?.[0];
+        if (!targetUri) return;
+        if (targetUri.scheme !== "file") {
+            throw new Error(t("Select a regular file inside the current workspace."));
+        }
+        const folder = vscode.workspace.getWorkspaceFolder(targetUri);
+        if (!folder) {
+            throw new Error(t("The target file is outside the current workspace."));
+        }
+        const [realRoot, realTarget] = await Promise.all([
+            realpath(folder.uri.fsPath),
+            realpath(targetUri.fsPath),
+        ]);
+        if (!containsPath(realRoot, realTarget)) {
+            throw new Error(t("The target file is outside the current workspace."));
+        }
+        const metadata = await vscode.workspace.fs.stat(targetUri);
+        if ((metadata.type & vscode.FileType.File) === 0) {
+            throw new Error(t("Select a regular file inside the current workspace."));
+        }
+        const document = await vscode.workspace.openTextDocument(targetUri);
+        if (document.isDirty) {
+            throw new Error(t("The target file has unsaved changes. Save or discard them before applying code."));
+        }
+        const beforeText = document.getText();
+        const beforeDisk = await vscode.workspace.fs.readFile(targetUri);
+        const proposed = await vscode.workspace.openTextDocument({
+            content: text,
+            ...(language === undefined ? {} : { language }),
+        });
+        const path = vscode.workspace.asRelativePath(targetUri, false).replace(/\\/gu, "/");
+        await vscode.commands.executeCommand(
+            "vscode.diff",
+            targetUri,
+            proposed.uri,
+            t("Apply code block to {path}", { path }),
+            { preview: true },
+        );
+        const applyLabel = t("Apply");
+        const confirmation = await vscode.window.showWarningMessage(
+            t("Apply this code block to {path}?", { path }),
+            { modal: true, detail: t("Review the proposed code block changes, then confirm to apply them.") },
+            applyLabel,
+        );
+        if (confirmation !== applyLabel) return;
+        const latestRealTarget = await realpath(targetUri.fsPath);
+        if (!containsPath(realRoot, latestRealTarget) || !samePath(realTarget, latestRealTarget)) {
+            throw new Error(t("The target file changed while the preview was open. No changes were applied."));
+        }
+        const latestDisk = await vscode.workspace.fs.readFile(targetUri);
+        if (document.isDirty || document.getText() !== beforeText || !sameBytes(latestDisk, beforeDisk)) {
+            throw new Error(t("The target file changed while the preview was open. No changes were applied."));
+        }
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(
+            targetUri,
+            new vscode.Range(document.positionAt(0), document.positionAt(beforeText.length)),
+            text,
+        );
+        if (!await vscode.workspace.applyEdit(edit) || !await document.save()) {
+            throw new Error(t("VS Code could not apply the code block."));
+        }
+        void vscode.window.showInformationMessage(t("Applied code block to {path}.", { path }));
     }
 
     private schedulePostState(): void {
@@ -1885,7 +2159,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
     <link rel="stylesheet" href="${styleUri}">
 </head>
 <body>

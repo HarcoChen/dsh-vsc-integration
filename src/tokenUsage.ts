@@ -1,5 +1,10 @@
 import { ProjectionCell, SessionStateSnapshot } from "./sessionStore";
-import { DshModelSelection, HostBaselineView, TokenUsageView } from "./types";
+import {
+    DshModelSelection,
+    DshReasoningEffortOption,
+    HostBaselineView,
+    TokenUsageView,
+} from "./types";
 
 interface UsageBuckets {
     inputTokens: number;
@@ -12,6 +17,7 @@ interface UsageBuckets {
 export interface SelectedModelSnapshot {
     selection: DshModelSelection;
     asOfSeq: number;
+    reasoningEfforts?: DshReasoningEffortOption[];
 }
 
 interface EventRoute {

@@ -23,6 +23,73 @@ interface ComposerProps {
     state: ChatViewState;
 }
 
+function ReasoningEffortControl({ state }: ComposerProps): React.JSX.Element | null {
+    const control = state.reasoningEffort;
+    const options = control?.options ?? [];
+    const currentIndex = control
+        ? Math.max(0, options.findIndex((option) => option.id === control.current))
+        : 0;
+    const current = options[currentIndex] ?? options[0];
+    const optionKey = options.map((option) => option.id).join("\u0000");
+    const [draftIndex, setDraftIndex] = useState(currentIndex);
+    const draftIndexRef = useRef(currentIndex);
+    useEffect(() => {
+        draftIndexRef.current = currentIndex;
+        setDraftIndex(currentIndex);
+    }, [currentIndex, optionKey, control?.current]);
+    if (!control || options.length === 0 || !current) return null;
+    const draft = options[draftIndex] ?? current;
+    const disabled = state.submitting || state.busy;
+    const commit = (): void => {
+        const option = options[draftIndexRef.current];
+        if (option && option.id !== control.current) {
+            postAction({ type: "selectReasoningEffort", effort: option.id });
+        }
+    };
+    return (
+        <div className="dsh-reasoning-control" aria-label={t("Set reasoning effort")}>
+            <div className="dsh-reasoning-control-head">
+                <span>{t("Reasoning effort")}</span>
+                <strong>{draft.label}</strong>
+            </div>
+            <div className="dsh-reasoning-slider-row">
+                {draft.image ? (
+                    <img
+                        className="dsh-reasoning-effort-image"
+                        src={draft.image}
+                        alt={draft.label}
+                    />
+                ) : null}
+                <input
+                    className="dsh-reasoning-slider"
+                    type="range"
+                    min={0}
+                    max={Math.max(0, control.options.length - 1)}
+                    step={1}
+                    value={draftIndex}
+                    disabled={disabled}
+                    aria-label={t("Reasoning effort")}
+                    onChange={(event) => {
+                        const index = Number(event.target.value);
+                        draftIndexRef.current = index;
+                        setDraftIndex(index);
+                    }}
+                    onPointerUp={commit}
+                    onKeyUp={(event) => {
+                        if (event.key.startsWith("Arrow") || event.key === "Home" || event.key === "End") {
+                            commit();
+                        }
+                    }}
+                />
+            </div>
+            <div className="dsh-reasoning-slider-labels" aria-hidden="true">
+                <span>{options[0]?.label}</span>
+                <span>{options[options.length - 1]?.label}</span>
+            </div>
+        </div>
+    );
+}
+
 export function Composer({ state }: ComposerProps): React.JSX.Element {
     const [text, setText] = useState("");
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
@@ -134,6 +201,13 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         ...state.context,
     ];
     const promptBytes = promptItems.reduce((total, item) => total + item.byteLength, 0);
+    const estimatedAttachmentTokens = Math.ceil(promptBytes / 4);
+    const contextWindow = state.tokenUsage?.context?.contextWindow;
+    const projectedTokens = state.tokenUsage?.context?.projectedTokens;
+    const projectedWithAttachments = (projectedTokens ?? 0) + estimatedAttachmentTokens;
+    const overContextWindow = contextWindow !== undefined && projectedTokens !== undefined && projectedWithAttachments > contextWindow;
+    const sensitiveItems = promptItems.filter((item) => /(^|[/\\.])(env|env\..*|pem|key|p12|pfx|secret|credentials?)([/\\.]|$)/iu.test(item.path ?? item.label));
+    const truncatedItems = promptItems.filter((item) => item.truncated);
     const referenceMatch = text.match(/(?:^|\s)@([^\s@]*)$/u);
     const referenceQuery = referenceMatch?.[1] ?? "";
     useEffect(() => {
@@ -189,6 +263,28 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     })}
                 </div>
             ) : null}
+            {promptItems.length ? (
+                <div className="dsh-context-notices" role="status">
+                    {overContextWindow ? (
+                        <div className="dsh-context-warning">
+                            {t("This send may exceed the model context window ({used} / {window} tokens). Remove a large attachment before sending.", {
+                                used: projectedWithAttachments.toLocaleString(),
+                                window: contextWindow!.toLocaleString(),
+                            })}
+                        </div>
+                    ) : null}
+                    {truncatedItems.length ? (
+                        <div className="dsh-context-warning">
+                            {t("{count} attachment(s) will be truncated before entering the prompt.", { count: truncatedItems.length })}
+                        </div>
+                    ) : null}
+                    {sensitiveItems.length ? (
+                        <div className="dsh-context-warning">
+                            {t("Check {count} attachment(s): their path looks like it may contain secrets or credentials.", { count: sensitiveItems.length })}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
             {referenceMatch && state.fileReferenceCandidates?.length ? (
                 <div className="dsh-file-reference-menu" role="listbox">
                     {state.fileReferenceCandidates.map((candidate) => (
@@ -202,6 +298,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     ))}
                 </div>
             ) : null}
+            <ReasoningEffortControl state={state} />
             {state.busy ? (
                 <div className="dsh-send-mode" aria-label={t("Runtime message mode")}>
                     <button

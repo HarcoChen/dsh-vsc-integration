@@ -24,6 +24,9 @@ export type ChatViewAction =
     | { type: "openExternalLink"; url: string }
     | { type: "openFileLocation"; path: string; line: number; column?: number }
     | { type: "copyCode"; renderId: string; codeBlockId: string }
+    | { type: "insertCode"; renderId: string; codeBlockId: string }
+    | { type: "openCode"; renderId: string; codeBlockId: string; language?: string }
+    | { type: "applyCode"; renderId: string; codeBlockId: string; language?: string }
     | { type: "openTrace"; seq?: number }
     | { type: "openChangeDiff"; turn: number; fileId: string }
     | { type: "restoreTurnChanges"; turn: number }
@@ -31,6 +34,7 @@ export type ChatViewAction =
     | { type: "newSession" }
     | { type: "searchSession" }
     | { type: "selectModel" }
+    | { type: "selectReasoningEffort"; effort: string }
     | { type: "selectAgentPreset"; agentPreset?: string }
     | { type: "renameSession" }
     | { type: "forkSession" }
@@ -140,6 +144,12 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                     hasAny(value, ["sessionId", "parentSessionId", "childSessionId", "mode", "provider"]))
             ) return undefined;
             return { type: value.type };
+        case "selectReasoningEffort":
+            return hasOnly(value, ["type", "effort"]) &&
+                nonEmptyString(value.effort) &&
+                value.effort.length <= 128
+                ? { type: "selectReasoningEffort", effort: value.effort.trim() }
+                : undefined;
         case "openTrace":
             if (
                 hasAny(value, ["sessionId", "callId", "turn", "step"]) ||
@@ -180,15 +190,45 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 ...(value.column === undefined ? {} : { column: value.column }),
             };
         case "copyCode":
-            return hasOnly(value, ["type", "renderId", "codeBlockId"]) &&
-                typeof value.renderId === "string" && /^[a-f0-9]{32}$/u.test(value.renderId) &&
-                nonEmptyString(value.codeBlockId) && /^code-\d{1,6}$/u.test(value.codeBlockId)
+        case "insertCode":
+        case "openCode":
+        case "applyCode": {
+            const hasLanguage = value.language !== undefined;
+            const allowedKeys = value.type === "copyCode" || value.type === "insertCode"
+                ? ["type", "renderId", "codeBlockId"]
+                : ["type", "renderId", "codeBlockId", "language"];
+            if (
+                !hasOnly(value, allowedKeys) ||
+                typeof value.renderId !== "string" ||
+                !/^[a-f0-9]{32}$/u.test(value.renderId) ||
+                !nonEmptyString(value.codeBlockId) ||
+                !/^code-\d{1,6}$/u.test(value.codeBlockId) ||
+                (hasLanguage && (
+                    typeof value.language !== "string" ||
+                    !/^[\p{L}\p{N}_+.#-]{1,40}$/u.test(value.language)
+                ))
+            ) return undefined;
+            if (value.type === "copyCode") {
+                return { type: "copyCode", renderId: value.renderId, codeBlockId: value.codeBlockId };
+            }
+            if (value.type === "insertCode") {
+                return { type: "insertCode", renderId: value.renderId, codeBlockId: value.codeBlockId };
+            }
+            const language = value.language as string | undefined;
+            return value.type === "openCode"
                 ? {
-                      type: "copyCode",
+                      type: "openCode",
                       renderId: value.renderId,
                       codeBlockId: value.codeBlockId,
+                      ...(language === undefined ? {} : { language }),
                   }
-                : undefined;
+                : {
+                      type: "applyCode",
+                      renderId: value.renderId,
+                      codeBlockId: value.codeBlockId,
+                      ...(language === undefined ? {} : { language }),
+                  };
+        }
         case "sendPrompt":
             return typeof value.text === "string" &&
                 (value.mode === "queue" || value.mode === "steer")
