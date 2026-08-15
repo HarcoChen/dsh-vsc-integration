@@ -37,6 +37,8 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Search sessions": "搜索会话",
     "More actions": "更多操作",
     "Add one-shot IDE context": "添加一次性 IDE context",
+    "Compact the current session history": "压缩当前会话历史",
+    "The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package.": "当前连接的 dsh server 未提供 /compact command。请更新 dsh 或启用 command-compact package。",
     "Select the current session model": "选择当前会话模型",
     "Select agent mode": "选择 Agent 模式",
     "Toggle focus mode": "切换 Focus 模式",

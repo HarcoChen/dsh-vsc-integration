@@ -158,23 +158,18 @@ function reasoningEffortOptions(
     provider: string,
     modelId: string,
 ): DshReasoningEffortOption[] {
-    const group = catalog.groups.find((candidate) => candidate.provider === provider);
+    const group = catalog.groups.find((candidate) => candidate.id === provider);
     const model = group?.models.find((candidate) => candidate.id === modelId);
-    if (!model || !Array.isArray(model.reasoningEfforts)) return [];
-    const images = model.reasoningEffortImages;
+    if (!model) return [];
     const seen = new Set<string>();
-    return model.reasoningEfforts.flatMap((value) => {
-        if (typeof value !== "string") return [];
-        const id = value.trim();
+    const efforts = model.reasoning?.efforts ?? [];
+    return efforts.flatMap((value) => {
+        const id = value.id.trim();
         if (!id || id.length > 128 || seen.has(id)) return [];
         seen.add(id);
-        const image = images && typeof images[id] === "string" && images[id].length <= 4_096
-            ? images[id]
-            : undefined;
         return [{
             id,
-            label: id,
-            ...(image ? { image } : {}),
+            label: value.name || id,
         }];
     });
 }
@@ -690,6 +685,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return;
         }
 
+        // Do not let a disabled optional command fall through as ordinary model input.
+        if (
+            /^\/compact$/u.test(text) &&
+            !vscode.workspace.getConfiguration("dsh").get<boolean>("enableCompaction", true)
+        ) {
+            this.reportError(new Error(t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package.")));
+            return;
+        }
+
         const workspaceRoot = this.workspaceRoot();
         if (!workspaceRoot) {
             this.reportError(new Error(t("Open a workspace before sending a task to dsh.")));
@@ -712,6 +716,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const session = await this.getOrCreateSession(workspaceRoot);
             if (/^\/ide(?:$|[\t\n\r ])/u.test(text)) {
                 await this.openIdeContextPicker();
+                return;
+            }
+
+            // Harness command adapters require the command line to be the complete
+            // prompt; never append IDE context to a slash command such as /compact.
+            if (/^\/compact$/u.test(text)) {
+                optimistic = {
+                    id: `optimistic:${randomUUID()}`,
+                    sessionId: session,
+                    displayText: text,
+                    wireText: text,
+                    afterSeq: highestKnownSeq(this.runtime.getSessionStore().get(session)),
+                    createdAt: Date.now(),
+                };
+                this.optimisticPrompts.push(optimistic);
+                this.postState();
+                const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
+                const commandResult = await this.runtime.prompt(session, text, mode);
+                if (commandResult.accepted === false) {
+                    throw new Error(t("The dsh runtime rejected this command."));
+                }
+                const command = commandResult.command;
+                if (!command || typeof command !== "object" || Array.isArray(command) ||
+                    (command as Record<string, unknown>).kind !== "success") {
+                    throw new Error(t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package."));
+                }
                 return;
             }
 
@@ -926,15 +956,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!catalog.routable) {
             throw new Error(t("The current session has no routable model."));
         }
-        const items = catalog.groups.flatMap((group) => group.models.map((model) => ({
-            label: `${group.name || group.provider} / ${model.name || model.id}`,
-            description: group.provider === catalog.current.provider && model.id === catalog.current.model
-                ? t("Current model")
-                : model.id,
-            provider: group.provider,
-            model: model.id,
-            efforts: model.reasoningEfforts ?? [],
-        })));
+        const items = catalog.groups.flatMap((group) => group.models.map((model) => {
+            const provider = group.id;
+            return {
+                label: `${group.name || provider} / ${model.name || model.id}`,
+                description: provider === catalog.current.provider && model.id === catalog.current.model
+                    ? t("Current model")
+                    : model.id,
+                provider,
+                model: model.id,
+                efforts: reasoningEffortOptions(catalog, provider, model.id),
+            };
+        }));
         if (items.length === 0) throw new Error(t("Harness returned no available models."));
         const picked = await vscode.window.showQuickPick(items, {
             title: t("Select Harness model"),
@@ -943,11 +976,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!picked) return;
         let reasoningEffort: string | undefined;
         if (picked.efforts.length > 0) {
-            reasoningEffort = await vscode.window.showQuickPick(picked.efforts, {
+            const effort = await vscode.window.showQuickPick(picked.efforts.map((option) => option.id), {
                 title: t("Select reasoning effort"),
                 placeHolder: catalog.current.reasoningEffort ?? t("Default"),
             });
-            if (reasoningEffort === undefined) return;
+            if (effort === undefined) return;
+            reasoningEffort = effort;
         }
         const result = await this.runtime.selectModel({
             sessionId: this.sessionId,

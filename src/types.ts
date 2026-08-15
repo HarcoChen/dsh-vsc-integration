@@ -197,24 +197,24 @@ export interface DshModelSelection {
 
 export interface DshModelProviderModel {
     id: string;
-    name?: string;
-    reasoningEfforts?: string[];
-    /** Optional presentation assets keyed by the provider's effort id. */
-    reasoningEffortImages?: Record<string, string>;
-    [key: string]: unknown;
+    name: string;
+    description?: string;
+    reasoning?: {
+        efforts: Array<{ id: string; name: string; description?: string }>;
+        defaultEffort?: string;
+    };
 }
 
 export interface DshModelProviderGroup {
-    provider: string;
-    name?: string;
+    id: string;
+    name: string;
     models: DshModelProviderModel[];
-    [key: string]: unknown;
 }
 
 export interface DshModelCatalogFailure {
-    provider?: string;
-    message?: string;
-    [key: string]: unknown;
+    id: string;
+    name: string;
+    message: string;
 }
 
 export interface DshSessionModelsResult {

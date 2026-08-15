@@ -1,6 +1,7 @@
 import { ChildProcess, execFile, spawn } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
@@ -207,6 +208,7 @@ export class DshRuntime implements vscode.Disposable {
     private baseUrl: string | undefined;
     private startPromise: Promise<string> | undefined;
     private startedByExtension = false;
+    private compactionPatchPath: string | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
     private hostDescription: HarnessHostDescription | undefined;
@@ -636,6 +638,7 @@ export class DshRuntime implements vscode.Disposable {
         const configuredArgs = this.configuration().get<string[]>("commandArgs", ["web"]);
         let args = [...configuredArgs];
         const configuredPort = this.configuration().get<number>("serverPort", 0);
+        const enableCompaction = this.configuration().get<boolean>("enableCompaction", true);
 
         let launcher: DshLauncher;
         try {
@@ -648,6 +651,16 @@ export class DshRuntime implements vscode.Disposable {
         command = launcher.command;
         args = [...launcher.args, ...args];
         this.output.appendLine(`[dsh] discovered executable: ${command} (${launcher.source})`);
+        if (enableCompaction && args.includes("web")) {
+            this.compactionPatchPath = join(tmpdir(), `dsh-vscode-${process.pid}-compaction.patch.yml`);
+            await writeFile(
+                this.compactionPatchPath,
+                "- id: compaction-basic\n  disabled: false\n\n- id: command-compact\n  disabled: false\n",
+                { encoding: "utf8", mode: 0o600 },
+            );
+            args.push("--patch", this.compactionPatchPath);
+            this.output.appendLine(`[dsh] compaction command enabled with patch: ${this.compactionPatchPath}`);
+        }
 
         if (!args.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
             args.push("--port", String(configuredPort));

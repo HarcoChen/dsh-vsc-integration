@@ -35,6 +35,7 @@
     "dsh.gitDiffTasks.label": "DSH Git Diff",
     "config.command.description": "Executable used to start dsh web when dsh.serverUrl is empty. The default uses the official npm entry point; use dsh or an absolute path if the CLI is installed locally. Arguments are configured separately; Windows batch and PowerShell launchers use the shell when required.",
     "config.commandArgs.description": "Arguments passed to dsh.command when dsh.serverUrl is empty. The default runs npx -y @deepseek-ai/dsh web. A --port argument is appended when no port is present.",
+    "config.enableCompaction.description": "Enable the official /compact command when the extension starts its own DSH web server.",
     "config.serverUrl.description": "Optional HTTP(S) URL for an already running, trusted dsh web runtime. When set, the extension attaches to it instead of spawning dsh.command.",
     "config.serverPort.description": "Port passed to dsh web when dsh.serverUrl is empty and dsh.commandArgs has no port. Zero asks dsh to choose a free port.",
     "config.autoStart.description": "Start or attach to dsh web automatically when the extension activates. If false, start it from the status label or with DSH: Start dsh Web Runtime.",

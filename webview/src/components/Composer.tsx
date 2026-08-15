@@ -9,6 +9,7 @@ const MIN_HEIGHT = 68;
 const MAX_HEIGHT = 180;
 
 const SLASH_COMMANDS = [
+    { name: "/compact", description: t("Compact the current session history"), action: { type: "sendPrompt", text: "/compact", mode: "queue" } },
     { name: "/ide", description: t("Add one-shot IDE context"), action: { type: "openIdeContextPicker" } },
     { name: "/new", description: t("New session"), action: { type: "newSession" } },
     { name: "/search", description: t("Search sessions"), action: { type: "searchSession" } },

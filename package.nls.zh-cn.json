@@ -35,6 +35,7 @@
     "dsh.gitDiffTasks.label": "DSH Git 变更",
     "config.command.description": "当 dsh.serverUrl 为空时用于启动 dsh web 的可执行文件。默认使用官方 npm 入口；如果本机已安装 CLI，也可填写 dsh 或绝对路径。参数单独配置；Windows 批处理和 PowerShell 启动器在需要时会通过 shell 执行。",
     "config.commandArgs.description": "当 dsh.serverUrl 为空时传给 dsh.command 的参数。默认运行 npx -y @deepseek-ai/dsh web；未提供端口时会自动追加 --port。",
+    "config.enableCompaction.description": "扩展自行启动 DSH Web server 时启用官方 /compact command。",
     "config.serverUrl.description": "已运行且受信任的 dsh web Runtime 的可选 HTTP(S) URL。设置后扩展会连接该地址，而不是启动 dsh.command。",
     "config.serverPort.description": "当 dsh.serverUrl 为空且 dsh.commandArgs 未指定端口时传给 dsh web 的端口。设为 0 表示自动选择空闲端口。",
     "config.autoStart.description": "扩展激活时自动启动或连接 dsh web。关闭后可点击状态标签，或执行“DSH：启动 dsh Web Runtime”。",
