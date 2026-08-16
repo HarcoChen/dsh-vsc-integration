@@ -10,6 +10,8 @@ import {
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
+    DshAgentPresetOpenResult,
+    DshAgentPresetReadResult,
     DshAgentPresetSelectResult,
     DshSessionRenameResult,
     DshSessionSearchResult,
@@ -75,6 +77,16 @@ export interface HarnessRpcMethodMap {
         sessionId: string;
         agentPreset: string;
     }, DshAgentPresetSelectResult>;
+    "agentPreset.read": RpcMethod<{ agentPreset: string }, DshAgentPresetReadResult>;
+    "agentPreset.copy": RpcMethod<
+        { from: string; agentPreset: string; name?: string },
+        { agentPreset: string }
+    >;
+    "agentPreset.openDocument": RpcMethod<
+        { agentPreset: string },
+        DshAgentPresetOpenResult
+    >;
+    "agentPreset.remove": RpcMethod<{ agentPreset: string }, Record<string, never>>;
     "session.updateQueue": RpcMethod<
         { sessionId: string; itemId: string; action: HarnessQueueAction },
         { accepted: true }
@@ -146,6 +158,11 @@ export interface HarnessRpcMethodMap {
     "llm.providers": RpcMethod<EmptyPayload, DshProviderListResult>;
     "settings.describe": RpcMethod<EmptyPayload, DshSettingsDescribeResult>;
     "settings.openDocument": RpcMethod<EmptyPayload, { opened: true }>;
+    "settings.update": RpcMethod<{
+        ns: string;
+        patch: Record<string, unknown>;
+        expectedRevision?: number;
+    }, DshSettingsNamespaceView>;
     "settings.mutate": RpcMethod<{
         ns: string;
         ops: DshSettingsPathOperation[];

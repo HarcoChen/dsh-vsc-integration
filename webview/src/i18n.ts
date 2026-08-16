@@ -28,6 +28,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Configure API key": "配置 API Key",
     "Manage providers": "管理提供商",
     "Manage workspaces": "管理工作区",
+    "Manage agent presets": "管理 Agent Preset",
     "Focus mode: on": "Focus 模式：开",
     "Focus mode: off": "Focus 模式：关",
     "Startup failed": "启动失败",

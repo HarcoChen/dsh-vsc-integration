@@ -94,6 +94,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         { key: "logs", label: t("Open runtime logs"), action: { type: "openLogs" } },
         { key: "browser", label: t("Open in browser"), action: { type: "openBrowser" } },
         { key: "workspaces", label: t("Manage workspaces"), action: { type: "manageWorkspaces" }, separatorBefore: true },
+        { key: "presets", label: t("Manage agent presets"), action: { type: "manageAgentPresets" } },
         { key: "providers", label: t("Manage providers"), action: { type: "manageProviders" } },
         { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" } },
         {

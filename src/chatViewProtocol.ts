@@ -14,6 +14,7 @@ export type ChatViewAction =
     | { type: "cancel" }
     | { type: "configureApiKey" }
     | { type: "manageProviders" }
+    | { type: "manageAgentPresets" }
     | { type: "manageWorkspaces" }
     | { type: "openIdeContextPicker" }
     | { type: "removeContext"; id: string }
@@ -150,6 +151,10 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                     hasAny(value, ["sessionId", "parentSessionId", "childSessionId", "mode", "provider"]))
             ) return undefined;
             return { type: value.type };
+        case "manageAgentPresets":
+            return hasOnly(value, ["type", "protocol"])
+                ? { type: "manageAgentPresets" }
+                : undefined;
         case "selectReasoningEffort":
             return hasOnly(value, ["type", "effort"]) &&
                 nonEmptyString(value.effort) &&

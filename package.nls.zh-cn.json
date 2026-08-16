@@ -23,6 +23,7 @@
     "command.configureApiKey.title": "DSH：配置 API Key",
     "command.manageProviders.title": "DSH：管理提供商",
     "command.manageWorkspaces.title": "DSH：管理工作区",
+    "command.manageAgentPresets.title": "DSH：管理 Agent Preset",
     "command.refreshBalance.title": "DSH：刷新 DeepSeek 余额",
     "command.diagnoseEnvironment.title": "DSH：诊断环境",
     "dsh.editorTask.explain.title": "解释当前文件或选区",

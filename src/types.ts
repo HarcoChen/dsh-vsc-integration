@@ -261,6 +261,18 @@ export interface DshAgentPresetSelectResult {
     agentPreset: string;
 }
 
+export interface DshAgentPresetReadResult {
+    agentPreset: string;
+    trust: "system" | "user";
+    content: string;
+    name?: string;
+    description?: string;
+}
+
+export type DshAgentPresetOpenResult =
+    | { opened: true }
+    | { opened: false; path: string };
+
 export interface DshSessionRenameResult {
     title: string;
     seq: number;

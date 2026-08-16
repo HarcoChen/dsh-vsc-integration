@@ -71,6 +71,7 @@
         "onCommand:dsh.configureApiKey",
         "onCommand:dsh.manageProviders",
         "onCommand:dsh.manageWorkspaces",
+        "onCommand:dsh.manageAgentPresets",
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
@@ -257,6 +258,12 @@
                 "title": "%command.manageWorkspaces.title%",
                 "category": "DSH",
                 "icon": "$(folder-library)"
+            },
+            {
+                "command": "dsh.manageAgentPresets",
+                "title": "%command.manageAgentPresets.title%",
+                "category": "DSH",
+                "icon": "$(symbol-misc)"
             },
             {
                 "command": "dsh.refreshBalance",

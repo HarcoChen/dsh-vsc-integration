@@ -115,6 +115,9 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.manageWorkspaces", () =>
             runCommand(t("Manage DSH Workspaces"), () => chatView.manageWorkspaces()),
         ),
+        vscode.commands.registerCommand("dsh.manageAgentPresets", () =>
+            runCommand(t("Manage Agent Presets"), () => chatView.manageAgentPresets()),
+        ),
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
         vscode.commands.registerCommand("dsh.diagnoseEnvironment", async () => {
             await runCommand(t("Diagnose environment"), async () => {

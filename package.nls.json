@@ -23,6 +23,7 @@
     "command.configureApiKey.title": "DSH: Configure API Key",
     "command.manageProviders.title": "DSH: Manage Providers",
     "command.manageWorkspaces.title": "DSH: Manage Workspaces",
+    "command.manageAgentPresets.title": "DSH: Manage Agent Presets",
     "command.refreshBalance.title": "DSH: Refresh DeepSeek Balance",
     "command.diagnoseEnvironment.title": "DSH: Diagnose Environment",
     "dsh.editorTask.explain.title": "Explain Current File or Selection",

@@ -46,6 +46,7 @@ import {
 import {
     ChatViewState,
     ChatMessage,
+    DshAgentPresetEntry,
     DshApprovalResponse,
     DshConfigurableProvider,
     DshContextItem,
@@ -91,6 +92,9 @@ const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, () => string>> = {
     review: () => t("Review the attached Git diff, focusing on defects, regression risk, security, and omissions."),
     docs: () => t("Generate or update relevant documentation from the attached Git diff, following the project's existing style."),
 };
+
+const AGENT_PRESET_ID = /^[a-z0-9][a-z0-9-]*$/u;
+const AGENT_PRESET_DOCUMENT_SCHEME = "dsh-agent-preset";
 
 
 function errorMessage(error: unknown): string {
@@ -285,6 +289,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogs = new Map<string, DshSkillEntry[]>();
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
+    private readonly agentPresetDocuments = new Map<string, string>();
     private readonly changeReviews: ChangeReviewStore;
 
     public constructor(
@@ -321,6 +326,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.scheduleSubagentRefresh();
         });
         this.disposables.push(
+            vscode.workspace.registerTextDocumentContentProvider(
+                AGENT_PRESET_DOCUMENT_SCHEME,
+                {
+                    provideTextDocumentContent: (uri) =>
+                        this.agentPresetDocuments.get(uri.toString()) ?? "",
+                },
+            ),
+            vscode.workspace.onDidCloseTextDocument((document) => {
+                if (document.uri.scheme === AGENT_PRESET_DOCUMENT_SCHEME) {
+                    this.agentPresetDocuments.delete(document.uri.toString());
+                }
+            }),
             runtime.onDidChange(() => this.schedulePostState()),
             runtime.onDidHarnessConnect(() => {
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
@@ -683,6 +700,201 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
+    public async manageAgentPresets(): Promise<void> {
+        await this.runtime.start(this.workspaceRoot());
+
+        while (true) {
+            const [catalog, settingsWritable] = await Promise.all([
+                this.runtime.agentPresets(),
+                this.runtime.describeSettings()
+                    .then((settings) => settings.writable)
+                    .catch((error) => {
+                        this.output.appendLine(`[dsh:agent-preset] settings status unavailable: ${errorMessage(error)}`);
+                        return false;
+                    }),
+            ]);
+            if (catalog.presets.length === 0) {
+                void vscode.window.showInformationMessage(t("Harness returned no Agent Presets to manage."));
+                return;
+            }
+            const selected = await vscode.window.showQuickPick(
+                catalog.presets.map((preset) => ({
+                    label: `${preset.broken ? "$(error)" : preset.trust === "system" ? "$(verified)" : "$(person)"} ${preset.name || preset.id}`,
+                    description: [
+                        preset.id,
+                        preset.trust === "system" ? t("System") : t("User"),
+                        ...(preset.isDefault ? [t("Default")] : []),
+                    ].join(" · "),
+                    detail: preset.broken
+                        ? t("Broken: {reason}", { reason: preset.broken })
+                        : preset.description,
+                    preset,
+                })),
+                {
+                    title: t("Manage Agent Presets"),
+                    placeHolder: t("Choose an Agent Preset to manage"),
+                    matchOnDescription: true,
+                    matchOnDetail: true,
+                },
+            );
+            if (!selected) return;
+
+            const action = await this.chooseAgentPresetAction(
+                selected.preset,
+                catalog.authorable,
+                settingsWritable,
+            );
+            if (!action) continue;
+            if (action === "view") {
+                await this.viewAgentPreset(selected.preset);
+            } else if (action === "copy") {
+                await this.copyAgentPreset(selected.preset, catalog.presets);
+            } else if (action === "open") {
+                await this.openAgentPresetLocation(selected.preset.id);
+            } else if (action === "default") {
+                await this.runtime.setDefaultAgentPreset(selected.preset.id);
+                void vscode.window.showInformationMessage(t("DSH: {preset} is now the default Agent Preset.", {
+                    preset: selected.preset.name || selected.preset.id,
+                }));
+            } else {
+                await this.removeAgentPreset(selected.preset);
+            }
+        }
+    }
+
+    private async chooseAgentPresetAction(
+        preset: DshAgentPresetEntry,
+        authorable: boolean,
+        settingsWritable: boolean,
+    ): Promise<"view" | "copy" | "open" | "default" | "remove" | undefined> {
+        const actions: Array<vscode.QuickPickItem & {
+            action: "view" | "copy" | "open" | "default" | "remove";
+        }> = [{
+            action: "view",
+            label: `$(preview) ${t("View composition")}`,
+            detail: t("Open a read-only snapshot of this Preset"),
+        }];
+        if (authorable) {
+            actions.push({
+                action: "copy",
+                label: `$(copy) ${t("Copy as a user Preset")}`,
+                detail: t("Create an editable Preset from this composition"),
+            });
+        }
+        if (!preset.broken && !preset.isDefault && settingsWritable) {
+            actions.push({
+                action: "default",
+                label: `$(star-full) ${t("Make default")}`,
+                detail: t("Use this Preset for future Sessions without an explicit mode"),
+            });
+        }
+        if (preset.trust === "user") {
+            actions.push({
+                action: "open",
+                label: `$(folder-opened) ${t("Open Preset files")}`,
+                detail: t("Edit this user Preset in its Harness-owned directory"),
+            });
+            actions.push({
+                action: "remove",
+                label: `$(trash) ${t("Delete user Preset")}`,
+                detail: t("Existing Sessions keep their mounted composition"),
+            });
+        }
+        const selected = await vscode.window.showQuickPick(actions, {
+            title: preset.name || preset.id,
+            placeHolder: preset.broken
+                ? t("Broken: {reason}", { reason: preset.broken })
+                : t("Choose an action"),
+        });
+        return selected?.action;
+    }
+
+    private async viewAgentPreset(preset: DshAgentPresetEntry): Promise<void> {
+        const result = await this.runtime.readAgentPreset(preset.id);
+        const uri = vscode.Uri.from({
+            scheme: AGENT_PRESET_DOCUMENT_SCHEME,
+            path: `/${preset.id}.yaml`,
+            query: `snapshot=${randomUUID()}`,
+        });
+        this.agentPresetDocuments.set(uri.toString(), result.content);
+        const document = await vscode.workspace.openTextDocument(uri);
+        await vscode.window.showTextDocument(document, { preview: true, preserveFocus: false });
+    }
+
+    private async copyAgentPreset(
+        source: DshAgentPresetEntry,
+        presets: readonly DshAgentPresetEntry[],
+    ): Promise<void> {
+        const id = await vscode.window.showInputBox({
+            title: t("Copy Agent Preset {preset}", { preset: source.name || source.id }),
+            prompt: t("Choose the new Preset ID used as its directory name"),
+            value: `${source.id}-copy`,
+            ignoreFocusOut: true,
+            validateInput: (value) => {
+                const normalized = value.trim();
+                if (!normalized) return t("Enter a Preset ID.");
+                if (normalized.length > 128 || !AGENT_PRESET_ID.test(normalized)) {
+                    return t("Use lowercase letters, numbers, and hyphens; start with a letter or number.");
+                }
+                if (presets.some((preset) => preset.id === normalized)) {
+                    return t("An Agent Preset with this ID already exists.");
+                }
+                return undefined;
+            },
+        });
+        if (id === undefined) return;
+        const name = await vscode.window.showInputBox({
+            title: t("Name the new Agent Preset"),
+            prompt: t("Optional display name; leave empty to use the Preset ID"),
+            ignoreFocusOut: true,
+        });
+        if (name === undefined) return;
+
+        const created = await this.runtime.copyAgentPreset(
+            source.id,
+            id.trim(),
+            name.trim() || undefined,
+        );
+        void vscode.window.showInformationMessage(t("DSH: Agent Preset {preset} was created.", {
+            preset: created,
+        }));
+        await this.openAgentPresetLocation(created);
+    }
+
+    private async openAgentPresetLocation(agentPreset: string): Promise<void> {
+        const result = await this.runtime.openAgentPresetDocument(agentPreset);
+        if (result.opened) return;
+        const copy = t("Copy path");
+        const selected = await vscode.window.showInformationMessage(
+            t("Agent Preset files: {path}", { path: result.path }),
+            copy,
+        );
+        if (selected === copy) await vscode.env.clipboard.writeText(result.path);
+    }
+
+    private async removeAgentPreset(preset: DshAgentPresetEntry): Promise<void> {
+        if (preset.trust !== "user") return;
+        const remove = t("Delete user Preset");
+        const confirmed = await vscode.window.showWarningMessage(
+            t("Delete user Agent Preset {preset}?", { preset: preset.name || preset.id }),
+            {
+                modal: true,
+                detail: t("Its files will be removed. Existing Sessions keep their currently mounted composition."),
+            },
+            remove,
+        );
+        if (confirmed !== remove) return;
+        await this.runtime.removeAgentPreset(preset.id);
+        if (this.pendingNewSessionPreset === preset.id) {
+            this.pendingNewSessionPreset = undefined;
+            this.pendingNewSessionSkills = undefined;
+            this.postState();
+        }
+        void vscode.window.showInformationMessage(t("DSH: Agent Preset {preset} was deleted.", {
+            preset: preset.name || preset.id,
+        }));
+    }
+
     public async manageProviders(): Promise<void> {
         await this.runtime.start(this.workspaceRoot());
 
@@ -1012,6 +1224,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "manageProviders":
                     await this.manageProviders();
+                    break;
+                case "manageAgentPresets":
+                    await this.manageAgentPresets();
                     break;
                 case "manageWorkspaces":
                     await this.manageWorkspaces();

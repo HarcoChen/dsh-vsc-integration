@@ -24,6 +24,8 @@ import {
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
+    DshAgentPresetOpenResult,
+    DshAgentPresetReadResult,
     DshAgentPresetSelectResult,
     DshSessionRenameResult,
     DshSessionSearchResult,
@@ -553,6 +555,34 @@ export class DshRuntime implements vscode.Disposable {
 
     public selectAgentPreset(sessionId: string, agentPreset: string): Promise<DshAgentPresetSelectResult> {
         return this.apiClient.call("agentPreset.select", { sessionId, agentPreset });
+    }
+
+    public readAgentPreset(agentPreset: string): Promise<DshAgentPresetReadResult> {
+        return this.apiClient.call("agentPreset.read", { agentPreset });
+    }
+
+    public async copyAgentPreset(from: string, agentPreset: string, name?: string): Promise<string> {
+        const result = await this.apiClient.call("agentPreset.copy", {
+            from,
+            agentPreset,
+            ...(name === undefined ? {} : { name }),
+        });
+        return result.agentPreset;
+    }
+
+    public openAgentPresetDocument(agentPreset: string): Promise<DshAgentPresetOpenResult> {
+        return this.apiClient.call("agentPreset.openDocument", { agentPreset });
+    }
+
+    public async removeAgentPreset(agentPreset: string): Promise<void> {
+        await this.apiClient.call("agentPreset.remove", { agentPreset });
+    }
+
+    public async setDefaultAgentPreset(agentPreset: string): Promise<void> {
+        await this.apiClient.call("settings.update", {
+            ns: "agent-presets",
+            patch: { default: agentPreset },
+        });
     }
 
     public async cancel(sessionId: string): Promise<void> {
