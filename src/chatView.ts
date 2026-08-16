@@ -1109,7 +1109,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public async selectAgentPreset(requestedPreset?: string): Promise<void> {
-        if (!this.sessionId) throw new Error(t("There is no current session."));
+        if (!this.sessionId && !this.newSessionDraft) {
+            throw new Error(t("There is no current session."));
+        }
         if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
         const catalog = await this.runtime.agentPresets();
         const available = catalog.presets.filter((preset) => !preset.broken);
@@ -1125,8 +1127,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }));
         }
         if (!target) {
-            const current = this.runtime.getSessionCatalog().snapshot().sessions
-                .find((session) => session.sessionId === this.sessionId)?.agentPreset;
+            const current = this.newSessionDraft
+                ? this.pendingNewSessionPreset
+                : this.runtime.getSessionCatalog().snapshot().sessions
+                    .find((session) => session.sessionId === this.sessionId)?.agentPreset;
             target = await vscode.window.showQuickPick(
                 available.map((preset) => ({
                     label: preset.name || preset.id,
@@ -1139,8 +1143,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         if (!target) return;
 
+        if (this.newSessionDraft && !this.sessionId) {
+            this.pendingNewSessionPreset = target.id;
+            this.output.appendLine(`[dsh:agent-preset] selected ${target.id} for new session`);
+            this.postState();
+            return;
+        }
+
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
         const currentSession = this.runtime.getSessionCatalog().snapshot().sessions
-            .find((session) => session.sessionId === this.sessionId);
+            .find((session) => session.sessionId === sessionId);
         if (currentSession?.blank === false) {
             const createWithMode = t("Create a session with {mode}", { mode: target.name || target.id });
             const choice = await vscode.window.showWarningMessage(
@@ -1153,7 +1166,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         let result;
         try {
-            result = await this.runtime.selectAgentPreset(this.sessionId, target.id);
+            result = await this.runtime.selectAgentPreset(sessionId, target.id);
         } catch (error) {
             if (!(error instanceof HarnessRpcError) || error.rpcError.code !== "agent-preset-locked") {
                 throw error;
