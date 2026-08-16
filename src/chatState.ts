@@ -1,4 +1,12 @@
-import { ChatMessage, ChatToolCall, DshQueuedInboxItem, TurnStatusView } from "./types";
+import {
+    ChatImageView,
+    ChatMessage,
+    ChatToolCall,
+    DshImageMediaType,
+    DshImageUpload,
+    DshQueuedInboxItem,
+    TurnStatusView,
+} from "./types";
 import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
@@ -10,6 +18,8 @@ export interface OptimisticPrompt {
     wireText: string;
     afterSeq: number;
     createdAt: number;
+    images?: ChatImageView[];
+    imageUploads?: DshImageUpload[];
     error?: string;
 }
 
@@ -82,6 +92,46 @@ export function contentChannels(value: unknown): ContentChannels {
 
 export function contentText(value: unknown): string {
     return contentChannels(value).text;
+}
+
+const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>([
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+]);
+
+export function contentImages(value: unknown): ChatImageView[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((part): ChatImageView[] => {
+        if (!isRecord(part) || part.type !== "image" || !isRecord(part.attachment)) return [];
+        const attachment = part.attachment;
+        if (
+            typeof attachment.attachmentId !== "string" ||
+            typeof attachment.mediaType !== "string" ||
+            !IMAGE_MEDIA_TYPES.has(attachment.mediaType as DshImageMediaType) ||
+            typeof attachment.bytes !== "number" ||
+            !Number.isSafeInteger(attachment.bytes) ||
+            attachment.bytes <= 0
+        ) return [];
+        const width = typeof attachment.width === "number" &&
+            Number.isSafeInteger(attachment.width) && attachment.width > 0
+            ? attachment.width
+            : undefined;
+        const height = typeof attachment.height === "number" &&
+            Number.isSafeInteger(attachment.height) && attachment.height > 0
+            ? attachment.height
+            : undefined;
+        return [{
+            attachmentId: attachment.attachmentId,
+            mediaType: attachment.mediaType as DshImageMediaType,
+            bytes: attachment.bytes,
+            ...(width === undefined ? {} : { width }),
+            ...(height === undefined ? {} : { height }),
+            ...(typeof attachment.name === "string" ? { name: attachment.name } : {}),
+            loadState: "idle",
+        }];
+    });
 }
 
 export function promptDisplayText(wireText: string): string {
@@ -316,6 +366,7 @@ export function projectChatMessages(
             id: item.id,
             role: item.error ? "system" : "user",
             text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
+            ...(item.images?.length ? { images: item.images.map((image) => ({ ...image })) } : {}),
             createdAt: item.createdAt,
             state: item.error ? "failed" : "pending",
         }));
@@ -353,10 +404,22 @@ export function projectChatMessages(
     for (const node of snapshot.surface.nodes) {
         if (directUser(node)) {
             const optimisticMatch = matchBySeq.get(node.event.seq);
+            const message = messageRecord(node);
+            const images = contentImages(message?.content);
             rows.push({
                 id: `event:${node.event.seq}`,
                 role: "user",
                 text: optimisticMatch?.displayText ?? promptDisplayText(eventText(node)),
+                ...(images.length
+                    ? {
+                          images: images.map((image, index) => ({
+                              ...image,
+                              ...(optimisticMatch?.images?.[index]?.src
+                                  ? { src: optimisticMatch.images[index].src }
+                                  : {}),
+                          })),
+                      }
+                    : {}),
                 createdAt: node.event.time,
                 seq: node.event.seq,
                 state: "committed",
@@ -365,11 +428,13 @@ export function projectChatMessages(
         } else if (node.event.type === "assistant/message") {
             const message = messageRecord(node);
             const content = contentChannels(message?.content ?? message?.text);
-            if (content.text || content.reasoning) {
+            const images = contentImages(message?.content);
+            if (content.text || content.reasoning || images.length) {
                 rows.push({
                     id: `event:${node.event.seq}`,
                     role: "assistant",
-                    text: content.text || noVisibleAssistantAnswer(),
+                    text: content.text || (images.length ? "" : noVisibleAssistantAnswer()),
+                    ...(images.length ? { images } : {}),
                     ...(content.reasoning
                         ? { reasoning: content.reasoning, reasoningState: "complete" as const }
                         : {}),
@@ -474,6 +539,7 @@ export function projectChatMessages(
             id: item.id,
             role: item.error ? "system" : "user",
             text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
+            ...(item.images?.length ? { images: item.images.map((image) => ({ ...image })) } : {}),
             createdAt: item.createdAt,
             state: item.error ? "failed" : "pending",
         });

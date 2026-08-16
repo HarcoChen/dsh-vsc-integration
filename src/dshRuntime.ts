@@ -21,6 +21,8 @@ import {
     DshSessionCreateResult,
     DshSessionForkResult,
     DshSessionPromptResult,
+    DshImageAttachmentResult,
+    DshImageUpload,
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
@@ -528,12 +530,25 @@ export class DshRuntime implements vscode.Disposable {
         sessionId: string,
         text: string,
         mode: "queue" | "steer" = "queue",
+        images: readonly DshImageUpload[] = [],
     ): Promise<DshSessionPromptResult> {
         return this.apiClient.call("session.prompt", {
             sessionId,
             mode,
-            content: [{ type: "text", text }],
+            content: [
+                ...images.map((image) => ({
+                    type: "image" as const,
+                    mediaType: image.mediaType,
+                    data: image.data,
+                    ...(image.name === undefined ? {} : { name: image.name }),
+                })),
+                ...(text ? [{ type: "text" as const, text }] : []),
+            ],
         });
+    }
+
+    public attachment(sessionId: string, attachmentId: string): Promise<DshImageAttachmentResult> {
+        return this.apiClient.call("session.attachment", { sessionId, attachmentId });
     }
 
     public models(sessionId: string): Promise<DshSessionModelsResult> {

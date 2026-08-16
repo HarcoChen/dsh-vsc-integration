@@ -20,6 +20,7 @@
 > - 在插件内查看 Provider 与 API Key 状态，并管理 Harness 凭据和自定义 Provider
 > - 浏览 Agent Preset、查看 composition、复制用户版本并设置默认 Preset
 > - Git Diff集成，长prompt自动转文件发送
+> - 支持选择、粘贴或拖放 PNG、JPEG、WebP、GIF 图片，并回看 Session 历史图片
 > - 在内建 Trace 中查看工具调用、结果和 Reasoning
 > - 支持文件路径与行号跳转
 > - 实时查看 Harness 当前任务清单的待处理、进行中和已完成状态
@@ -56,7 +57,7 @@ npm run package
 
 1. 打开一个已信任的工作区。
 2. 打开 DSH Chat（`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`）。
-3. 输入 `@` 搜索并引用工作区文件，输入 `$` 选择 Skill，附加选区、诊断信息或未暂存的 Git diff，也可以输入 `/` 打开命令与 Skill 菜单。
+3. 输入 `@` 搜索并引用工作区文件，输入 `$` 选择 Skill，附加选区、诊断信息、未暂存的 Git diff 或图片，也可以输入 `/` 打开命令与 Skill 菜单。图片还可直接粘贴或拖放到输入区。
 4. 发送 prompt，并直接在聊天视图内处理工具审批、问题和计划评审。
 
 资源管理器右键菜单提供 `DSH：询问此资源`，会将所选文件或目录及其工作区根目录预填到聊天，不会自动发送。执行 `DSH：诊断环境` 可在 DSH 输出通道中生成脱敏的 Runtime 与命令发现报告。

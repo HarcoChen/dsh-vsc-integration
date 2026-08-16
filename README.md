@@ -24,6 +24,7 @@ A full-featured community VS Code extension for connecting to DeepSeek Harness a
 > - Inspect Provider and API Key status and manage Harness credentials and custom Providers
 > - Browse Agent Presets, inspect their composition, copy user variants, and choose the default Preset
 > - Attach selections, diagnostics and Git diffs with byte-size and truncation feedback before sending
+> - Attach PNG, JPEG, WebP or GIF images by picker, paste or drag and drop, and reopen images from session history
 > - Inspect tool calls, results and reasoning in a built-in Trace, with clickable file and line locations
 > - Review per-turn file changes with native VS Code diffs before restoring anything
 > - Follow the current Harness todo plan with live pending, active and completed states
@@ -59,7 +60,7 @@ Install the generated `.vsix` via `Extensions: Install from VSIX...`.
 
 1. Open a trusted workspace.
 2. Open DSH Chat (`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`).
-3. Type `@` to search and reference workspace files, type `$` to select a Skill, attach selections, diagnostics or unstaged Git diffs, or type `/` to open the command and Skill menu.
+3. Type `@` to search and reference workspace files, type `$` to select a Skill, attach selections, diagnostics, unstaged Git diffs or images, or type `/` to open the command and Skill menu. Images can also be pasted or dropped into the composer.
 4. Send a prompt and handle tool approvals, questions and plan reviews directly in the chat view.
 
 The Explorer context menu includes `DSH: Ask About This Resource`, which pre-fills the selected file or directory and its workspace root without sending automatically. Use `DSH: Diagnose Environment` to write a redacted runtime and command-discovery report to the DSH output channel.

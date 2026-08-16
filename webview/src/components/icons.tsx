@@ -26,6 +26,16 @@ export function PlusIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function ImageIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+            <circle cx="5.5" cy="6" r="1.2" />
+            <path d="m3.5 12 3.2-3.2 2.1 2 1.5-1.5L13 12" />
+        </svg>
+    );
+}
+
 export function SearchIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>

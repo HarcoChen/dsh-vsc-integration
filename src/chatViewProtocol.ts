@@ -1,4 +1,4 @@
-import { DshApprovalOutcome, DshQuestionAnswerItem, DshQuestionItem } from "./types";
+import { DshApprovalOutcome, DshImageUpload, DshQuestionAnswerItem, DshQuestionItem } from "./types";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
 import {
@@ -8,7 +8,7 @@ import {
 
 export type ChatViewAction =
     | { type: "ready" }
-    | { type: "sendPrompt"; text: string; mode: "queue" | "steer" }
+    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[] }
     | { type: "retryPrompt"; id: string }
     | { type: "toggleFocus" }
     | { type: "cancel" }
@@ -18,6 +18,7 @@ export type ChatViewAction =
     | { type: "manageWorkspaces" }
     | { type: "openIdeContextPicker" }
     | { type: "removeContext"; id: string }
+    | { type: "loadImage"; attachmentId: string }
     | { type: "fileReferenceQuery"; query: string }
     | { type: "toggleSelection" }
     | { type: "start" }
@@ -88,6 +89,37 @@ function hasAny(value: Record<string, unknown>, keys: readonly string[]): boolea
 function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boolean {
     const allowed = new Set(keys);
     return Object.keys(value).every((key) => allowed.has(key));
+}
+
+const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const MAX_IMAGE_BASE64_CHARACTERS = 16 * 1024 * 1024;
+const MAX_MESSAGE_IMAGE_BASE64_CHARACTERS = 128 * 1024 * 1024;
+
+function imageUploads(value: unknown): DshImageUpload[] | undefined {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > 100) return undefined;
+    const images: DshImageUpload[] = [];
+    let totalCharacters = 0;
+    for (const candidate of value) {
+        if (!isRecord(candidate) || !hasOnly(candidate, ["mediaType", "data", "name"])) return undefined;
+        if (
+            typeof candidate.mediaType !== "string" ||
+            !IMAGE_MEDIA_TYPES.has(candidate.mediaType) ||
+            typeof candidate.data !== "string" ||
+            candidate.data.length === 0 ||
+            candidate.data.length > MAX_IMAGE_BASE64_CHARACTERS ||
+            (candidate.name !== undefined &&
+                (typeof candidate.name !== "string" || candidate.name.length > 512))
+        ) return undefined;
+        totalCharacters += candidate.data.length;
+        if (totalCharacters > MAX_MESSAGE_IMAGE_BASE64_CHARACTERS) return undefined;
+        images.push({
+            mediaType: candidate.mediaType as DshImageUpload["mediaType"],
+            data: candidate.data,
+            ...(candidate.name === undefined ? {} : { name: candidate.name }),
+        });
+    }
+    return images;
 }
 
 function questionAnswers(value: unknown): DshQuestionAnswerItem[] | undefined {
@@ -241,10 +273,19 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                   };
         }
         case "sendPrompt":
-            return typeof value.text === "string" &&
-                (value.mode === "queue" || value.mode === "steer")
-                ? { type: "sendPrompt", text: value.text, mode: value.mode }
-                : undefined;
+            if (!hasOnly(value, ["type", "text", "mode", "images"]) ||
+                typeof value.text !== "string" ||
+                (value.mode !== "queue" && value.mode !== "steer")) return undefined;
+            {
+                const images = imageUploads(value.images);
+                if (!images || (!value.text.trim() && images.length === 0)) return undefined;
+                return {
+                    type: "sendPrompt",
+                    text: value.text,
+                    mode: value.mode,
+                    ...(images.length === 0 ? {} : { images }),
+                };
+            }
         case "retryPrompt":
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "retryPrompt", id: value.id }
@@ -252,6 +293,11 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "removeContext":
             return nonEmptyString(value.id)
                 ? { type: "removeContext", id: value.id }
+                : undefined;
+        case "loadImage":
+            return hasOnly(value, ["type", "attachmentId"]) &&
+                nonEmptyString(value.attachmentId) && value.attachmentId.length <= 256
+                ? { type: "loadImage", attachmentId: value.attachmentId }
                 : undefined;
         case "fileReferenceQuery":
             return hasOnly(value, ["type", "query"]) && typeof value.query === "string" && value.query.length <= 256

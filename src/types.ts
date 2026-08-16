@@ -23,6 +23,26 @@ export interface DshContextItem {
 
 export type ChatRole = "user" | "assistant" | "system" | "tool";
 
+export type DshImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
+export interface DshImageUpload {
+    mediaType: DshImageMediaType;
+    data: string;
+    name?: string;
+}
+
+export interface ChatImageView {
+    attachmentId?: string;
+    mediaType: DshImageMediaType;
+    bytes: number;
+    width?: number;
+    height?: number;
+    name?: string;
+    src?: string;
+    loadState?: "idle" | "loading" | "error";
+    error?: string;
+}
+
 export interface ChatToolCall {
     callId: string;
     name: string;
@@ -42,6 +62,7 @@ export interface ChatMessage {
     reasoning?: string;
     reasoningState?: "streaming" | "complete";
     tool?: ChatToolCall;
+    images?: ChatImageView[];
     /** Fixed-vocabulary HTML produced by the extension-host safe Markdown renderer. */
     renderedHtml?: string;
     renderedReasoningHtml?: string;
@@ -151,6 +172,18 @@ export interface DshSessionCreateResult {
 export interface DshSessionPromptResult {
     accepted?: boolean;
     command?: unknown;
+}
+
+export interface DshImageAttachmentResult {
+    attachment: {
+        attachmentId: string;
+        mediaType: DshImageMediaType;
+        bytes: number;
+        width: number;
+        height: number;
+        name?: string;
+    };
+    data: string;
 }
 
 export interface DshSessionSummary {
@@ -698,6 +731,7 @@ export interface ChatViewState {
     reasoningEffort?: ReasoningEffortView;
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
+    imageLimits?: DshImageLimitsView;
     interactions: Array<{
         key: string;
         kind: "approval" | "question" | "plan-review";
@@ -727,6 +761,13 @@ export interface ChatViewState {
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
     changeReviews: ChangeReviewView[];
+}
+
+export interface DshImageLimitsView {
+    maxImageBytes: number;
+    maxImagesPerMessage: number;
+    maxMessageImageBytes: number;
+    mediaTypes: DshImageMediaType[];
 }
 
 export interface DshTodoItemView {

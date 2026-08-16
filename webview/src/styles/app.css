@@ -412,6 +412,80 @@ button {
     margin-bottom: 0;
 }
 
+.dsh-message-images {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: var(--dsh-space-2);
+    max-width: 460px;
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-role-user .dsh-message-images {
+    margin-left: auto;
+}
+
+.dsh-message-image {
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    aspect-ratio: 4 / 3;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    color: var(--vscode-descriptionForeground);
+    background: var(--dsh-surface);
+    cursor: pointer;
+}
+
+.dsh-message-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.dsh-image-placeholder {
+    align-content: center;
+    gap: var(--dsh-space-1);
+    padding: var(--dsh-space-3);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-image-placeholder small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-image-placeholder.error {
+    color: var(--vscode-errorForeground);
+    border-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.dsh-image-lightbox {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 32px;
+    background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
+}
+
+.dsh-image-lightbox img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.dsh-image-lightbox-close {
+    position: absolute;
+    top: var(--dsh-space-4);
+    right: var(--dsh-space-4);
+    background: var(--vscode-editorWidget-background);
+}
+
 .dsh-message-body h1,
 .dsh-message-body h2,
 .dsh-message-body h3,
@@ -1367,6 +1441,60 @@ button {
     border-top: 1px solid var(--dsh-border);
 }
 
+.dsh-image-drafts {
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-image-draft-rail {
+    display: flex;
+    gap: var(--dsh-space-2);
+    padding-bottom: var(--dsh-space-1);
+    overflow-x: auto;
+}
+
+.dsh-image-draft {
+    position: relative;
+    flex: 0 0 76px;
+    min-width: 0;
+}
+
+.dsh-image-draft img {
+    display: block;
+    width: 76px;
+    height: 56px;
+    object-fit: contain;
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    background: var(--dsh-surface);
+}
+
+.dsh-image-draft > button {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 20px;
+    height: 20px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editorWidget-background);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.dsh-image-draft > span {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-image-data-notice {
+    margin-top: var(--dsh-space-1);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
 .dsh-context-items {
     display: flex;
     flex-wrap: wrap;
@@ -1453,16 +1581,19 @@ button {
 }
 
 .dsh-reasoning-control {
+    width: min(100%, 320px);
     margin-bottom: var(--dsh-space-2);
-    padding: var(--dsh-space-2) var(--dsh-space-3);
+    margin-left: auto;
+    padding: var(--dsh-space-2) var(--dsh-space-3) var(--dsh-space-3);
     border: 1px solid var(--dsh-border);
-    border-radius: var(--dsh-radius-sm);
+    border-radius: var(--dsh-radius-md);
     background: var(--dsh-surface);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .dsh-reasoning-control-head,
-.dsh-reasoning-slider-row,
-.dsh-reasoning-slider-labels {
+.dsh-reasoning-control-actions,
+.dsh-reasoning-slider-row {
     display: flex;
     align-items: center;
     gap: var(--dsh-space-2);
@@ -1474,20 +1605,83 @@ button {
     font-size: var(--dsh-font-xs);
 }
 
-.dsh-reasoning-control-head strong {
+.dsh-reasoning-value {
+    padding: 1px var(--dsh-space-2);
+    border: 1px solid var(--dsh-border);
+    border-radius: 999px;
+    background: var(--vscode-editor-background);
     color: var(--vscode-foreground);
     font-weight: 600;
 }
 
+.dsh-reasoning-close {
+    width: 20px;
+    height: 20px;
+}
+
 .dsh-reasoning-slider-row {
-    margin-top: var(--dsh-space-1);
+    margin-top: var(--dsh-space-2);
+}
+
+.dsh-reasoning-slider-wrap {
+    position: relative;
+    min-width: 0;
+    flex: 1;
 }
 
 .dsh-reasoning-slider {
-    flex: 1;
-    min-width: 0;
-    accent-color: var(--vscode-progressBar-background);
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 26px;
+    margin: 0;
+    background: transparent;
     cursor: pointer;
+}
+
+.dsh-reasoning-slider::-webkit-slider-runnable-track {
+    height: 22px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--vscode-progressBar-background) 0%,
+        var(--vscode-progressBar-background) var(--dsh-slider-fill, 0%),
+        var(--dsh-border) var(--dsh-slider-fill, 0%),
+        var(--dsh-border) 100%
+    );
+}
+
+.dsh-reasoning-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px;
+    height: 26px;
+    margin-top: -2px;
+    border: 1px solid var(--dsh-border);
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.dsh-reasoning-slider::-moz-range-track {
+    height: 22px;
+    border-radius: 999px;
+    background: var(--dsh-border);
+}
+
+.dsh-reasoning-slider::-moz-range-progress {
+    height: 22px;
+    border-radius: 999px;
+    background: var(--vscode-progressBar-background);
+}
+
+.dsh-reasoning-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--dsh-border);
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
 .dsh-reasoning-slider:disabled {
@@ -1495,18 +1689,46 @@ button {
     cursor: default;
 }
 
-.dsh-reasoning-effort-image {
-    flex: none;
-    width: 28px;
-    height: 28px;
-    object-fit: cover;
-    border-radius: var(--dsh-radius-sm);
+.dsh-reasoning-slider-dots {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 13px;
+    right: 13px;
+    pointer-events: none;
 }
 
-.dsh-reasoning-slider-labels {
-    justify-content: space-between;
-    color: var(--vscode-descriptionForeground);
-    font-size: var(--dsh-font-xs);
+.dsh-reasoning-slider-dots button {
+    position: absolute;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--vscode-descriptionForeground);
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.dsh-reasoning-slider-dots button.filled {
+    background: rgba(255, 255, 255, 0.55);
+}
+
+.dsh-reasoning-slider-dots button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.dsh-reasoning-effort-image {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    object-fit: cover;
+    border: 1px solid var(--dsh-border);
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
 }
 
 .dsh-send-mode {
@@ -1597,6 +1819,21 @@ button {
     width: 30px;
     height: 34px;
     border: 1px solid var(--dsh-border);
+}
+
+.dsh-attachment-anchor {
+    align-self: flex-end;
+}
+
+.dsh-attachment-menu {
+    top: auto;
+    right: auto;
+    bottom: calc(100% + 4px);
+    left: 0;
+}
+
+.dsh-image-input {
+    display: none;
 }
 
 .dsh-prompt {

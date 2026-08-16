@@ -327,5 +327,14 @@
     "{currency}: total {total} · granted {granted} · topped up {toppedUp}": "{currency}：总额 {total} · 赠送 {granted} · 充值 {toppedUp}",
     "{message} Sending was refused.": "{message} 已拒绝发送。",
     "The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package.": "当前连接的 dsh server 未提供 /compact command。请更新 dsh 或启用 command-compact package。",
-    " and {count} more": "，以及另外 {count} 项"
+    " and {count} more": "，以及另外 {count} 项",
+    "A message can contain at most {count} images.": "每条消息最多可附加 {count} 张图片。",
+    "This image format is not supported: {type}.": "不支持此图片格式：{type}。",
+    "An attached image is not valid Base64 data.": "附件图片不是有效的 Base64 数据。",
+    "Image {name} exceeds the {size} byte limit.": "图片 {name} 超过 {size} 字节的单张限制。",
+    "Attached images exceed the {size} byte total limit.": "附件图片总大小超过 {size} 字节限制。",
+    "The connected Harness does not expose image attachment support.": "当前连接的 Harness 未提供图片附件能力。",
+    "Harness returned a different image attachment.": "Harness 返回了不匹配的图片附件。",
+    "Harness returned invalid image attachment data.": "Harness 返回了无效的图片附件数据。",
+    "image": "图片"
 }

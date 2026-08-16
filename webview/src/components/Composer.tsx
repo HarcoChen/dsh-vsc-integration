@@ -3,22 +3,28 @@ import type { ChatViewState } from "../../../src/types";
 import type { ChatViewAction } from "../../../src/chatViewProtocol";
 import { postAction, registerInsertTextHandler, registerSetTextHandler } from "../bridge";
 import { t } from "../i18n";
-import { CloseIcon, EyeIcon, EyeOffIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { CloseIcon, EyeIcon, EyeOffIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 
 const MIN_HEIGHT = 68;
 const MAX_HEIGHT = 180;
 
-const SLASH_COMMANDS = [
+const SLASH_COMMANDS: ReadonlyArray<{
+    name: string;
+    description: string;
+    action?: ChatViewAction;
+}> = [
     { name: "/compact", description: t("Compact the current session history"), action: { type: "sendPrompt", text: "/compact", mode: "queue" } },
     { name: "/ide", description: t("Add one-shot IDE context"), action: { type: "openIdeContextPicker" } },
     { name: "/new", description: t("New session"), action: { type: "newSession" } },
     { name: "/search", description: t("Search sessions"), action: { type: "searchSession" } },
     { name: "/model", description: t("Select the current session model"), action: { type: "selectModel" } },
+    { name: "/effort", description: t("Select reasoning effort") },
     { name: "/mode", description: t("Select agent mode"), action: { type: "selectAgentPreset" } },
     { name: "/focus", description: t("Toggle focus mode"), action: { type: "toggleFocus" } },
     { name: "/trace", description: t("Open the current session trace"), action: { type: "openTrace" } },
     { name: "/stop", description: t("Stop the dsh runtime"), action: { type: "stop" } },
-] satisfies ReadonlyArray<{ name: string; description: string; action: ChatViewAction }>;
+];
 
 interface ComposerProps {
     state: ChatViewState;
@@ -52,7 +58,11 @@ function sessionStatsGroups(state: ChatViewState): string[] {
     return groups;
 }
 
-function ReasoningEffortControl({ state }: ComposerProps): React.JSX.Element | null {
+function ReasoningEffortControl({
+    state,
+    onDismiss,
+}: ComposerProps & { onDismiss: () => void }): React.JSX.Element | null {
+    const panelRef = useRef<HTMLDivElement>(null);
     const control = state.reasoningEffort;
     const options = control?.options ?? [];
     const currentIndex = control
@@ -66,6 +76,22 @@ function ReasoningEffortControl({ state }: ComposerProps): React.JSX.Element | n
         draftIndexRef.current = currentIndex;
         setDraftIndex(currentIndex);
     }, [currentIndex, optionKey, control?.current]);
+    useEffect(() => {
+        const onPointerDown = (event: PointerEvent): void => {
+            if (event.target instanceof Node && !panelRef.current?.contains(event.target)) {
+                onDismiss();
+            }
+        };
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === "Escape") onDismiss();
+        };
+        document.addEventListener("pointerdown", onPointerDown);
+        document.addEventListener("keydown", onKeyDown);
+        return () => {
+            document.removeEventListener("pointerdown", onPointerDown);
+            document.removeEventListener("keydown", onKeyDown);
+        };
+    }, [onDismiss]);
     if (!control || options.length === 0 || !current) return null;
     const draft = options[draftIndex] ?? current;
     const disabled = state.submitting || state.busy;
@@ -75,11 +101,22 @@ function ReasoningEffortControl({ state }: ComposerProps): React.JSX.Element | n
             postAction({ type: "selectReasoningEffort", effort: option.id });
         }
     };
+    const fillPercent = options.length > 1 ? (draftIndex / (options.length - 1)) * 100 : 100;
     return (
-        <div className="dsh-reasoning-control" aria-label={t("Set reasoning effort")}>
+        <div ref={panelRef} className="dsh-reasoning-control" aria-label={t("Set reasoning effort")}>
             <div className="dsh-reasoning-control-head">
                 <span>{t("Reasoning effort")}</span>
-                <strong>{draft.label}</strong>
+                <span className="dsh-reasoning-control-actions">
+                    <span className="dsh-reasoning-value">{draft.label}</span>
+                    <button
+                        type="button"
+                        className="dsh-icon-button dsh-reasoning-close"
+                        title={t("Close")}
+                        onClick={onDismiss}
+                    >
+                        <CloseIcon />
+                    </button>
+                </span>
             </div>
             <div className="dsh-reasoning-slider-row">
                 {draft.image ? (
@@ -89,31 +126,53 @@ function ReasoningEffortControl({ state }: ComposerProps): React.JSX.Element | n
                         alt={draft.label}
                     />
                 ) : null}
-                <input
-                    className="dsh-reasoning-slider"
-                    type="range"
-                    min={0}
-                    max={Math.max(0, control.options.length - 1)}
-                    step={1}
-                    value={draftIndex}
-                    disabled={disabled}
-                    aria-label={t("Reasoning effort")}
-                    onChange={(event) => {
-                        const index = Number(event.target.value);
-                        draftIndexRef.current = index;
-                        setDraftIndex(index);
-                    }}
-                    onPointerUp={commit}
-                    onKeyUp={(event) => {
-                        if (event.key.startsWith("Arrow") || event.key === "Home" || event.key === "End") {
-                            commit();
-                        }
-                    }}
-                />
-            </div>
-            <div className="dsh-reasoning-slider-labels" aria-hidden="true">
-                <span>{options[0]?.label}</span>
-                <span>{options[options.length - 1]?.label}</span>
+                <div className="dsh-reasoning-slider-wrap">
+                    <input
+                        className="dsh-reasoning-slider"
+                        type="range"
+                        min={0}
+                        max={Math.max(0, control.options.length - 1)}
+                        step={1}
+                        value={draftIndex}
+                        disabled={disabled}
+                        aria-label={t("Reasoning effort")}
+                        style={{ "--dsh-slider-fill": `${fillPercent}%` } as React.CSSProperties}
+                        onChange={(event) => {
+                            const index = Number(event.target.value);
+                            draftIndexRef.current = index;
+                            setDraftIndex(index);
+                        }}
+                        onPointerUp={commit}
+                        onKeyUp={(event) => {
+                            if (event.key.startsWith("Arrow") || event.key === "Home" || event.key === "End") {
+                                commit();
+                            }
+                        }}
+                    />
+                    <div className="dsh-reasoning-slider-dots" aria-hidden="true">
+                        {options.map((option, index) => {
+                            if (index === draftIndex) return null;
+                            const left = options.length > 1 ? (index / (options.length - 1)) * 100 : 50;
+                            return (
+                                <button
+                                    type="button"
+                                    tabIndex={-1}
+                                    className={index < draftIndex ? "filled" : ""}
+                                    style={{ left: `${left}%` }}
+                                    disabled={disabled}
+                                    key={option.id}
+                                    onClick={() => {
+                                        draftIndexRef.current = index;
+                                        setDraftIndex(index);
+                                        if (option.id !== control.current) {
+                                            postAction({ type: "selectReasoningEffort", effort: option.id });
+                                        }
+                                    }}
+                                />
+                            );
+                        })}
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -123,12 +182,35 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const [text, setText] = useState("");
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
     const [slashIndex, setSlashIndex] = useState(0);
+    const [effortVisible, setEffortVisible] = useState(false);
+    const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const attachmentMenuRef = useRef<HTMLDivElement>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
+    const imageDrafts = useImageDrafts(state.imageLimits);
 
     // Legacy behavior: the queue/steer choice resets to queue once the session is idle.
     useEffect(() => {
         if (!state.busy) setPromptMode("queue");
     }, [state.busy]);
+    useEffect(() => setEffortVisible(false), [state.sessionId]);
+    useEffect(() => {
+        if (!attachmentMenuVisible) return;
+        const onPointerDown = (event: PointerEvent): void => {
+            if (event.target instanceof Node && !attachmentMenuRef.current?.contains(event.target)) {
+                setAttachmentMenuVisible(false);
+            }
+        };
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === "Escape") setAttachmentMenuVisible(false);
+        };
+        document.addEventListener("pointerdown", onPointerDown);
+        document.addEventListener("keydown", onKeyDown);
+        return () => {
+            document.removeEventListener("pointerdown", onPointerDown);
+            document.removeEventListener("keydown", onKeyDown);
+        };
+    }, [attachmentMenuVisible]);
 
     const autoGrow = useCallback((): void => {
         const textarea = textareaRef.current;
@@ -190,7 +272,11 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         }
         const command = SLASH_COMMANDS.find((candidate) => candidate.name === name.toLowerCase());
         if (!command) return false;
-        postAction(command.action);
+        if (command.name === "/effort") {
+            setEffortVisible(true);
+        } else if (command.action) {
+            postAction(command.action);
+        }
         setText("");
         setSlashIndex(0);
         return true;
@@ -199,15 +285,17 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const send = useCallback((): void => {
         if (state.submitting) return;
         const value = textareaRef.current?.value ?? text;
-        if (!value.trim()) return;
-        if (executeSlashCommand(value.trim())) return;
+        if (!value.trim() && imageDrafts.images.length === 0) return;
+        if (imageDrafts.images.length === 0 && executeSlashCommand(value.trim())) return;
         postAction({
             type: "sendPrompt",
             text: value,
             mode: state.busy ? promptMode : "queue",
+            images: imageDrafts.images.map((image) => image.upload),
         });
         setText("");
-    }, [executeSlashCommand, state.busy, state.submitting, promptMode, text]);
+        imageDrafts.clear();
+    }, [executeSlashCommand, imageDrafts, state.busy, state.submitting, promptMode, text]);
 
     const slashQuery = text.match(/^\/(\S*)$/u)?.[1]?.toLowerCase();
     const slashMatches = slashQuery === undefined
@@ -358,7 +446,9 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     ))}
                 </div>
             ) : null}
-            <ReasoningEffortControl state={state} />
+            {effortVisible ? (
+                <ReasoningEffortControl state={state} onDismiss={() => setEffortVisible(false)} />
+            ) : null}
             {state.busy ? (
                 <div className="dsh-send-mode" aria-label={t("Runtime message mode")}>
                     <button
@@ -379,15 +469,80 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     </button>
                 </div>
             ) : null}
-            <div className="dsh-composer-row">
-                <button
-                    type="button"
-                    className="dsh-icon-button dsh-add-context"
-                    title={t("Add one-shot IDE context (/ide)")}
-                    onClick={() => postAction({ type: "openIdeContextPicker" })}
-                >
-                    <PlusIcon />
-                </button>
+            <ImageDraftRail
+                images={imageDrafts.images}
+                error={imageDrafts.error}
+                onRemove={imageDrafts.remove}
+            />
+            <div
+                className="dsh-composer-row"
+                onDragOver={(event) => {
+                    if (Array.from(event.dataTransfer.items).some((item) => item.kind === "file")) {
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = "copy";
+                    }
+                }}
+                onDrop={(event) => {
+                    const files = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+                    if (files.length === 0) return;
+                    event.preventDefault();
+                    void imageDrafts.addFiles(files);
+                }}
+            >
+                <div className="dsh-menu-anchor dsh-attachment-anchor" ref={attachmentMenuRef}>
+                    <button
+                        type="button"
+                        className="dsh-icon-button dsh-add-context"
+                        title={t("Add attachment")}
+                        aria-haspopup="menu"
+                        aria-expanded={attachmentMenuVisible}
+                        disabled={state.submitting}
+                        onClick={() => setAttachmentMenuVisible((visible) => !visible)}
+                    >
+                        <PlusIcon />
+                    </button>
+                    {attachmentMenuVisible ? (
+                        <div className="dsh-menu dsh-attachment-menu" role="menu">
+                            <button
+                                type="button"
+                                className="dsh-menu-item"
+                                role="menuitem"
+                                onClick={() => {
+                                    setAttachmentMenuVisible(false);
+                                    postAction({ type: "openIdeContextPicker" });
+                                }}
+                            >
+                                <PlusIcon />
+                                {t("Add one-shot IDE context")}
+                            </button>
+                            <button
+                                type="button"
+                                className="dsh-menu-item"
+                                role="menuitem"
+                                onClick={() => {
+                                    setAttachmentMenuVisible(false);
+                                    imageInputRef.current?.click();
+                                }}
+                            >
+                                <ImageIcon />
+                                {t("Add images")}
+                            </button>
+                        </div>
+                    ) : null}
+                    <input
+                        ref={imageInputRef}
+                        className="dsh-image-input"
+                        type="file"
+                        accept={imageDrafts.accept}
+                        multiple
+                        tabIndex={-1}
+                        onChange={(event) => {
+                            const files = Array.from(event.target.files ?? []);
+                            event.target.value = "";
+                            void imageDrafts.addFiles(files);
+                        }}
+                    />
+                </div>
                 <textarea
                     ref={textareaRef}
                     className="dsh-prompt"
@@ -398,6 +553,12 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     onChange={(event) => {
                         setText(event.target.value);
                         setSlashIndex(0);
+                    }}
+                    onPaste={(event) => {
+                        const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+                        if (files.length === 0) return;
+                        event.preventDefault();
+                        void imageDrafts.addFiles(files);
                     }}
                     onKeyDown={(event) => {
                         if (skillMatches.length) {
@@ -514,7 +675,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     type="button"
                     className="dsh-send-button"
                     title={sendLabel}
-                    disabled={state.submitting || !text.trim()}
+                    disabled={state.submitting || (!text.trim() && imageDrafts.images.length === 0)}
                     onClick={send}
                 >
                     <SendIcon />

@@ -45,6 +45,7 @@ import {
 } from "./sessionFeatures";
 import {
     ChatViewState,
+    ChatImageView,
     ChatMessage,
     DshAgentPresetEntry,
     DshApprovalResponse,
@@ -52,6 +53,9 @@ import {
     DshContextItem,
     DshCredentialView,
     DshHistoryEntry,
+    DshImageLimitsView,
+    DshImageMediaType,
+    DshImageUpload,
     DshQuestionResponse,
     DshReasoningEffortOption,
     DshSessionModelsResult,
@@ -240,12 +244,92 @@ function todoProjection(value: unknown): DshTodoItemView[] | undefined {
     return todos;
 }
 
+const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>([
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+]);
+
+function imageLimitsProjection(value: unknown): DshImageLimitsView | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const positiveInteger = (candidate: unknown): candidate is number =>
+        typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate > 0;
+    if (
+        !positiveInteger(record.maxImageBytes) ||
+        !positiveInteger(record.maxImagesPerMessage) ||
+        !positiveInteger(record.maxMessageImageBytes) ||
+        !Array.isArray(record.mediaTypes)
+    ) return undefined;
+    const mediaTypes = record.mediaTypes.filter(
+        (mediaType): mediaType is DshImageMediaType =>
+            typeof mediaType === "string" && IMAGE_MEDIA_TYPES.has(mediaType as DshImageMediaType),
+    );
+    if (mediaTypes.length === 0) return undefined;
+    return {
+        maxImageBytes: record.maxImageBytes,
+        maxImagesPerMessage: record.maxImagesPerMessage,
+        maxMessageImageBytes: record.maxMessageImageBytes,
+        mediaTypes,
+    };
+}
+
+function prepareImageUploads(
+    images: readonly DshImageUpload[],
+    limits: DshImageLimitsView,
+): { uploads: DshImageUpload[]; views: ChatImageView[] } {
+    if (images.length > limits.maxImagesPerMessage) {
+        throw new Error(t("A message can contain at most {count} images.", {
+            count: limits.maxImagesPerMessage,
+        }));
+    }
+    let totalBytes = 0;
+    const uploads: DshImageUpload[] = [];
+    const views: ChatImageView[] = [];
+    for (const image of images) {
+        if (!limits.mediaTypes.includes(image.mediaType)) {
+            throw new Error(t("This image format is not supported: {type}.", { type: image.mediaType }));
+        }
+        const bytes = Buffer.from(image.data, "base64");
+        if (!image.data || bytes.toString("base64") !== image.data) {
+            throw new Error(t("An attached image is not valid Base64 data."));
+        }
+        if (bytes.byteLength > limits.maxImageBytes) {
+            throw new Error(t("Image {name} exceeds the {size} byte limit.", {
+                name: image.name || t("image"),
+                size: limits.maxImageBytes.toLocaleString(),
+            }));
+        }
+        totalBytes += bytes.byteLength;
+        uploads.push({ ...image });
+        views.push({
+            mediaType: image.mediaType,
+            bytes: bytes.byteLength,
+            ...(image.name === undefined ? {} : { name: image.name }),
+            src: `data:${image.mediaType};base64,${image.data}`,
+        });
+    }
+    if (totalBytes > limits.maxMessageImageBytes) {
+        throw new Error(t("Attached images exceed the {size} byte total limit.", {
+            size: limits.maxMessageImageBytes.toLocaleString(),
+        }));
+    }
+    return { uploads, views };
+}
+
+/**
+ * Per-effort images shown in the reasoning effort slider.
+ * Maps an effort id (e.g. "low") to an image file inside `resources/`;
+ * leave empty to render the slider without images.
+ */
+const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
+
 function reasoningEffortOptions(
     catalog: DshSessionModelsResult,
     provider: string,
     modelId: string,
-): DshReasoningEffortOption[] {
-    const group = catalog.groups.find((candidate) => candidate.id === provider);
+): DshReasoningEffortOption[] {    const group = catalog.groups.find((candidate) => candidate.id === provider);
     const model = group?.models.find((candidate) => candidate.id === modelId);
     if (!model) return [];
     const seen = new Set<string>();
@@ -310,6 +394,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
     private readonly agentPresetDocuments = new Map<string, string>();
+    private readonly imageCache = new Map<string, { src?: string; error?: string; loading?: boolean }>();
     private readonly changeReviews: ChangeReviewStore;
 
     public constructor(
@@ -1231,7 +1316,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
                     break;
                 case "sendPrompt":
-                    await this.sendPrompt(message.text ?? "", message.mode);
+                    await this.sendPrompt(message.text ?? "", message.mode, message.images ?? []);
                     break;
                 case "retryPrompt":
                     await this.retryPrompt(message.id);
@@ -1256,6 +1341,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "removeContext":
                     this.contextStore.remove(message.id);
+                    break;
+                case "loadImage":
+                    await this.loadImage(message.attachmentId);
                     break;
                 case "fileReferenceQuery":
                     await this.updateFileReferenceCandidates(message.query);
@@ -1419,15 +1507,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
     }
 
-    private async sendPrompt(rawText: string, requestedMode: "queue" | "steer"): Promise<void> {
+    private async sendPrompt(
+        rawText: string,
+        requestedMode: "queue" | "steer",
+        requestedImages: readonly DshImageUpload[] = [],
+    ): Promise<void> {
         const text = rawText.trim();
-        if (!text || this.submitting) {
+        if ((!text && requestedImages.length === 0) || this.submitting) {
             return;
         }
 
         // Do not let a disabled optional command fall through as ordinary model input.
         if (
-            /^\/compact$/u.test(text) &&
+            requestedImages.length === 0 && /^\/compact$/u.test(text) &&
             !vscode.workspace.getConfiguration("dsh").get<boolean>("enableCompaction", true)
         ) {
             this.reportError(new Error(t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package.")));
@@ -1454,14 +1546,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const session = await this.getOrCreateSession(workspaceRoot);
-            if (/^\/ide(?:$|[\t\n\r ])/u.test(text)) {
+            if (requestedImages.length === 0 && /^\/ide(?:$|[\t\n\r ])/u.test(text)) {
                 await this.openIdeContextPicker();
                 return;
             }
 
             // Harness command adapters require the command line to be the complete
             // prompt; never append IDE context to a slash command such as /compact.
-            if (/^\/compact$/u.test(text)) {
+            if (requestedImages.length === 0 && /^\/compact$/u.test(text)) {
                 optimistic = {
                     id: `optimistic:${randomUUID()}`,
                     sessionId: session,
@@ -1494,18 +1586,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 throw new Error(t("@selection has no current selection. Select text in the active editor first."));
             }
             const prompt = capture.text ? `${text}\n\n${capture.text}` : text;
+            let limits = imageLimitsProjection(
+                this.runtime.getSessionStore().get(session)?.projections
+                    .find((cell) => cell.key === "imageLimits")?.value,
+            );
+            if (requestedImages.length > 0 && !limits) {
+                await this.runtime.syncSession(session);
+                limits = imageLimitsProjection(
+                    this.runtime.getSessionStore().get(session)?.projections
+                        .find((cell) => cell.key === "imageLimits")?.value,
+                );
+            }
+            if (requestedImages.length > 0 && !limits) {
+                throw new Error(t("The connected Harness does not expose image attachment support."));
+            }
+            const prepared = requestedImages.length > 0
+                ? prepareImageUploads(requestedImages, limits as DshImageLimitsView)
+                : { uploads: [], views: [] };
             optimistic = {
                 id: `optimistic:${randomUUID()}`,
                 sessionId: session,
                 displayText: text,
                 wireText: prompt,
+                ...(prepared.views.length === 0 ? {} : { images: prepared.views }),
+                ...(prepared.uploads.length === 0 ? {} : { imageUploads: prepared.uploads }),
                 afterSeq: highestKnownSeq(this.runtime.getSessionStore().get(session)),
                 createdAt: Date.now(),
             };
             this.optimisticPrompts.push(optimistic);
             this.postState();
             const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
-            const promptResult = await this.runtime.prompt(session, prompt, mode);
+            const promptResult = await this.runtime.prompt(session, prompt, mode, prepared.uploads);
             if (promptResult.accepted === false) {
                 throw new Error(t("The dsh runtime rejected this prompt. Check the current model and API Key configuration."));
             }
@@ -1542,7 +1653,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         optimistic.createdAt = Date.now();
         this.postState();
         try {
-            const result = await this.runtime.prompt(this.sessionId, optimistic.wireText, "queue");
+            const result = await this.runtime.prompt(
+                this.sessionId,
+                optimistic.wireText,
+                "queue",
+                optimistic.imageUploads ?? [],
+            );
             if (result.accepted === false) throw new Error(t("The dsh runtime rejected this retry."));
         } catch (error) {
             optimistic.error = errorMessage(error);
@@ -2592,8 +2708,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (options.length === 0) return undefined;
         return {
             ...(selection.reasoningEffort === undefined ? {} : { current: selection.reasoningEffort }),
-            options,
+            options: options.map((option) => {
+                const image = this.reasoningEffortImage(option.id);
+                return image ? { ...option, image } : option;
+            }),
         };
+    }
+
+    /** Resolves the webview-safe image URI for an effort id, if one is configured. */
+    private reasoningEffortImage(effortId: string): string | undefined {
+        const file = REASONING_EFFORT_IMAGES[effortId];
+        if (!file || !this.view) return undefined;
+        return this.view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.extensionUri, "resources", file),
+        ).toString();
     }
 
     private insertComposerText(text: string): void {
@@ -2641,6 +2769,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const goalCell = session?.projections.find((cell) => cell.key === "goal");
         const permissionsCell = session?.projections.find((cell) => cell.key === "permissions");
         const todos = todoProjection(session?.projections.find((cell) => cell.key === "todos")?.value);
+        const imageLimits = imageLimitsProjection(
+            session?.projections.find((cell) => cell.key === "imageLimits")?.value,
+        );
         const sessionStats = sessionStatsProjection(
             session?.projections.find((cell) => cell.key === "sessionStats")?.value,
         );
@@ -2661,6 +2792,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.focusMode,
                 ),
                 `session:${this.sessionId ?? "none"}`,
+                this.sessionId,
             ),
             context: this.contextStore.snapshot(),
             fileReferenceCandidates: this.fileReferenceCandidates,
@@ -2735,6 +2867,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             reasoningEffort: this.reasoningEffortView(),
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
+            ...(imageLimits === undefined ? {} : { imageLimits }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {
@@ -2794,6 +2927,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                           messages: this.renderMessages(
                               this.subagentPreview.messages,
                               `subagent:${this.subagentPreview.childSessionId}`,
+                              this.subagentPreview.childSessionId,
                           ),
                       }
                     : undefined,
@@ -2843,8 +2977,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.view.badge = hiddenViewBadge(sessions, this.completedWhileHidden);
     }
 
-    private renderMessages(messages: readonly ChatMessage[], scope: string): ChatMessage[] {
-        return messages.map((message) => {
+    private renderMessages(
+        messages: readonly ChatMessage[],
+        scope: string,
+        imageSessionId?: string,
+    ): ChatMessage[] {
+        const hydrated = messages.map((message): ChatMessage => {
+            if (!imageSessionId || !message.images?.length) return message;
+            return {
+                ...message,
+                images: message.images.map((image) => {
+                    if (image.src || !image.attachmentId) return image;
+                    const cached = this.imageCache.get(`${imageSessionId}:${image.attachmentId}`);
+                    if (cached?.src) {
+                        return { ...image, src: cached.src, loadState: undefined, error: undefined };
+                    }
+                    if (cached?.error) {
+                        return { ...image, loadState: "error", error: cached.error };
+                    }
+                    return { ...image, loadState: cached?.loading ? "loading" : "idle" };
+                }),
+            };
+        });
+        return hydrated.map((message) => {
             const key = `${scope}:${message.role}:${message.id}`;
             const reasoningSource = message.role === "assistant" && message.reasoning
                 ? message.reasoning
@@ -2913,6 +3068,56 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 ...(reasoningRenderId === undefined ? {} : { reasoningRenderId }),
             };
         });
+    }
+
+    private async loadImage(attachmentId: string): Promise<void> {
+        const rootSessionId = this.sessionId;
+        if (!rootSessionId) return;
+        const referencedByRoot = projectChatMessages(
+            this.runtime.getSessionStore().get(rootSessionId),
+            this.optimisticPrompts,
+        ).some((message) => message.images?.some((image) => image.attachmentId === attachmentId));
+        const preview = this.subagentPreview;
+        const referencedByPreview = preview?.rootSessionId === rootSessionId &&
+            preview.messages.some((message) =>
+                message.images?.some((image) => image.attachmentId === attachmentId),
+            );
+        const sessionId = referencedByRoot
+            ? rootSessionId
+            : referencedByPreview
+              ? preview.childSessionId
+              : undefined;
+        if (!sessionId) return;
+
+        const key = `${sessionId}:${attachmentId}`;
+        const current = this.imageCache.get(key);
+        if (current?.src || current?.loading) return;
+        this.imageCache.set(key, { loading: true });
+        this.postState();
+        try {
+            const result = await this.runtime.attachment(sessionId, attachmentId);
+            if (result.attachment.attachmentId !== attachmentId) {
+                throw new Error(t("Harness returned a different image attachment."));
+            }
+            const bytes = Buffer.from(result.data, "base64");
+            if (!result.data || bytes.toString("base64") !== result.data ||
+                bytes.byteLength !== result.attachment.bytes ||
+                !IMAGE_MEDIA_TYPES.has(result.attachment.mediaType)) {
+                throw new Error(t("Harness returned invalid image attachment data."));
+            }
+            this.imageCache.delete(key);
+            this.imageCache.set(key, {
+                src: `data:${result.attachment.mediaType};base64,${result.data}`,
+            });
+            while (this.imageCache.size > 40) {
+                const oldest = this.imageCache.keys().next().value as string | undefined;
+                if (oldest === undefined) break;
+                this.imageCache.delete(oldest);
+            }
+        } catch (error) {
+            this.imageCache.set(key, { error: errorMessage(error) });
+        }
+        this.postState();
     }
 
     private discardMarkdownPayloads(cached: {

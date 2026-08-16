@@ -7,6 +7,7 @@ import {
     DshSessionForkResult,
     DshSessionListResult,
     DshSessionPromptResult,
+    DshImageAttachmentResult,
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
@@ -64,6 +65,10 @@ export interface HarnessRpcMethodMap {
             clientTimeZone?: string;
         },
         DshSessionPromptResult
+    >;
+    "session.attachment": RpcMethod<
+        { sessionId: string; attachmentId: string },
+        DshImageAttachmentResult
     >;
     "session.models": RpcMethod<{ sessionId: string }, DshSessionModelsResult>;
     "session.selectModel": RpcMethod<{

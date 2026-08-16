@@ -28,7 +28,7 @@
 - [x] **手动压缩上下文**：通过公开 `/compact` command 触发会话压缩，并确保命令不会混入 IDE context；后续补充专门的 compaction 状态和摘要展示。
 - [ ] **消息反馈**：接入 `feedback/record`，支持对消息点赞、点踩和文字反馈，并明确反馈是否写入 session 日志。
 - [x] **Todo 状态卡**：接入 `todo/write` projection/event，展示待办、进行中和完成状态，并处理历史回放与失效状态。
-- [ ] **图片附件**：使用官方 image content block 发送和回放图片，限制 MIME、大小和工作区外数据流。
+- [x] **图片附件**：使用官方 image content block 发送和回放图片，限制 MIME、大小和工作区外数据流。
 - [ ] **Web Search / Fetch 展示**：接入公开 web tool 结果，提供来源、域名、链接安全校验和失败状态；不从私有日志推断搜索结果。
 - ~~**MCP 工具来源**：展示 MCP server、工具来源、连接状态和错误；审批时明确区分 MCP 工具与内置工具。~~ **跳过**：当前公开 RPC 没有 MCP server 列表或连接状态契约，避免从工具名猜测来源。
 - [ ] **LSP 能力**：接入公开 LSP tool，支持诊断之外的符号、定义、引用和 hover 结果，并复用工作区边界校验。
