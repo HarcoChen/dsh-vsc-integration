@@ -8,12 +8,12 @@
 
 [English](README.md) | **简体中文**
 
-> [!WARN] 注意
+> [!WARNING]
 > 本项目为独立社区项目，并非 DeepSeek 官方项目，也未获得 DeepSeek 官方维护。
 > 需要任何信息或帮助、功能建议，欢迎留下issues！
 
 
-> [!NOTE] 亮点
+> [!NOTE]
 >
 > - 快速查看Key余额
 > - 内建Trace支持

@@ -12,11 +12,11 @@ A full-featured community VS Code Extension for DeepSeek Harness, supporting fou
 
 **English** | [简体中文](README.zh-CN.md)
 
-> [!WARN] Notice
+> [!WARNING]
 > This project is an independent community project. It is not an official DeepSeek project and is not maintained by DeepSeek.
 > For any information, help or feature suggestions, feel free to leave an issue!
 
-> [!NOTE] Highlights
+> [!NOTE]
 >
 > - Quickly view your API Key balance
 > - Built-in Trace support
