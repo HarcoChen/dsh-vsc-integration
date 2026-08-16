@@ -68,18 +68,6 @@ jobs:
       - name: Package extension
         run: npm run package -- --no-dependencies
 
-      - name: Publish to VS Code Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-          VSIX: ${{ steps.metadata.outputs.vsix }}
-        shell: bash
-        run: |
-          if [[ -z "${VSCE_PAT}" ]]; then
-            echo "The VSCE_PAT repository secret is required to publish to the VS Code Marketplace." >&2
-            exit 1
-          fi
-          npx vsce publish --packagePath "${VSIX}" --skip-duplicate
-
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:

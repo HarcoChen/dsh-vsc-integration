@@ -13,7 +13,7 @@
 - 新增 Preset 管理，支持创建和选择自定义 Agent Preset；`/preset` 可作为 `/mode` 别名使用，并显示当前 Preset。
 - 优化 Slash Command 在空工作区中的处理，支持 `/compact`，并修复 `/model` 在新对话中误创建空 Session 的问题。
 - 新增 effort 滑块和图片附件入口，改善发送前的任务参数配置。
-- 优化 Workspace 管理及 Runtime 发布流程，Marketplace 发布改用 PAT 校验。
+- 优化 Workspace 管理及 Runtime 发布流程。
 
 ## [0.3.0] - 2026-08-14
 
