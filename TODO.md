@@ -18,8 +18,9 @@
 - [x] **资源管理器入口**：文件和目录右键“使用 DSH 提问”，保留明确的目标路径与工作区根。
 - [x] **代码块操作**：复制、插入光标、打开新编辑器、应用到目标文件；写文件前显示 diff 并要求确认。
 - [x] **外部 Approval 接管**：接收 Runtime 的 `approval/requested`，在 VS Code 展示工具/原因并只允许一次性批准或拒绝；响应绑定 session、rpcId 和 approvalId，不提供持久权限提升 RPC。
-- [ ] **Skills 浏览与选择**：接入公开 `skill.list` 等能力，在 Composer 中展示本轮启用的 Skills；不直接扫描或解释私有 Runtime 目录。
-- [ ] **Provider、模型与 reasoning effort 状态**：在 Composer 附近展示当前路由，并统一 `/model`、`/mode` 与未来 provider/effort 选择体验。
+- [x] **Skills 浏览与选择**：接入公开 `skill.list`，通过 `$` 和 `/` 候选展示当前 Session 的 Skills，并使用官方 `/skill-name` 语法；不直接扫描或解释私有 Runtime 目录。
+- [x] **Provider、模型与 reasoning effort 状态**：展示当前路由与 reasoning effort，统一 `/model`、`/mode` 选择，并提供 Provider 与凭据管理入口。
+- [x] **Workspace 管理**：支持重命名和移除 DSH Workspace 分组，并调整 Workspace 与组内 Session 的显示顺序；不删除目录或 Session 日志。
 - [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；若没有公开协议，只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
 - [x] **文件 `@` 引用候选**：扫描工作区文件、排除常见目录、按路径片段匹配，并优先展示当前活动文件。
 - [ ] **扩展 `@` 引用类型**：在已有文件候选和 `@selection` 基础上增加目录、workspace symbol、diagnostics、终端选区，并显示实际捕获范围。

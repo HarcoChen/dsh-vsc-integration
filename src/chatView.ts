@@ -58,6 +58,7 @@ import {
     DshSkillEntry,
     DshSubagentAddress,
     DshSubagentCatalog,
+    DshWorkspaceView,
     PermissionProjectionView,
     SessionStatsView,
     SubagentHistoryPreview,
@@ -465,6 +466,223 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.reveal();
     }
 
+    public async manageWorkspaces(): Promise<void> {
+        const workspaceRoot = this.workspaceRoot();
+        await this.runtime.start(workspaceRoot);
+        await this.runtime.refreshSessions();
+
+        while (true) {
+            const catalog = this.runtime.getSessionCatalog().snapshot();
+            const currentRegistered = workspaceRoot
+                ? catalog.workspaces.some((workspace) => samePath(workspace.path, workspaceRoot))
+                : true;
+            type WorkspaceChoice = vscode.QuickPickItem &
+                ({ choiceType: "workspace"; workspace: DshWorkspaceView } | { choiceType: "register" });
+            const choices: WorkspaceChoice[] = [
+                ...(!currentRegistered && workspaceRoot ? [{
+                    choiceType: "register" as const,
+                    label: `$(add) ${t("Register current folder as a DSH Workspace")}`,
+                    detail: workspaceRoot,
+                    alwaysShow: true,
+                }] : []),
+                ...catalog.workspaces.map((workspace): WorkspaceChoice => ({
+                    choiceType: "workspace",
+                    workspace,
+                    label: `$(folder) ${workspace.title}`,
+                    description: t("{count} sessions", { count: workspace.sessionIds.length }),
+                    detail: workspace.path,
+                })),
+            ];
+            if (choices.length === 0) {
+                void vscode.window.showInformationMessage(t("No DSH Workspaces are registered."));
+                return;
+            }
+            const selected = await vscode.window.showQuickPick(choices, {
+                title: t("Manage DSH Workspaces"),
+                placeHolder: t("Choose a Workspace to manage"),
+                matchOnDescription: true,
+                matchOnDetail: true,
+            });
+            if (!selected) return;
+            if (selected.choiceType === "register") {
+                if (workspaceRoot) {
+                    await this.runtime.createWorkspace(workspaceRoot);
+                    await this.runtime.refreshSessions();
+                }
+                continue;
+            }
+
+            const action = await this.chooseWorkspaceAction(selected.workspace, catalog.workspaces);
+            if (!action) continue;
+            if (action === "rename") {
+                await this.renameWorkspace(selected.workspace);
+            } else if (action === "sessions") {
+                await this.reorderWorkspaceSession(selected.workspace);
+            } else if (action === "remove") {
+                await this.removeWorkspace(selected.workspace);
+            } else {
+                await this.reorderWorkspace(selected.workspace, catalog.workspaces, action);
+            }
+        }
+    }
+
+    private async chooseWorkspaceAction(
+        workspace: DshWorkspaceView,
+        workspaces: readonly DshWorkspaceView[],
+    ): Promise<"rename" | "top" | "up" | "down" | "bottom" | "sessions" | "remove" | undefined> {
+        const index = workspaces.findIndex((candidate) => candidate.workspaceId === workspace.workspaceId);
+        const actions: Array<vscode.QuickPickItem & {
+            action: "rename" | "top" | "up" | "down" | "bottom" | "sessions" | "remove";
+        }> = [{
+            action: "rename",
+            label: `$(edit) ${t("Rename Workspace")}`,
+            detail: workspace.path,
+        }];
+        if (index > 0) {
+            actions.push(
+                { action: "top", label: `$(fold-up) ${t("Move Workspace to top")}` },
+                { action: "up", label: `$(arrow-up) ${t("Move Workspace up")}` },
+            );
+        }
+        if (index >= 0 && index < workspaces.length - 1) {
+            actions.push(
+                { action: "down", label: `$(arrow-down) ${t("Move Workspace down")}` },
+                { action: "bottom", label: `$(fold-down) ${t("Move Workspace to bottom")}` },
+            );
+        }
+        if (workspace.sessionIds.length > 1) {
+            actions.push({
+                action: "sessions",
+                label: `$(list-ordered) ${t("Reorder sessions")}`,
+                detail: t("{count} sessions", { count: workspace.sessionIds.length }),
+            });
+        }
+        actions.push({
+            action: "remove",
+            label: `$(trash) ${t("Remove Workspace group")}`,
+            detail: t("Keep its directory and Session logs"),
+        });
+        const selected = await vscode.window.showQuickPick(actions, {
+            title: workspace.title,
+            placeHolder: t("Choose an action"),
+        });
+        return selected?.action;
+    }
+
+    private async renameWorkspace(workspace: DshWorkspaceView): Promise<void> {
+        const title = await vscode.window.showInputBox({
+            title: t("Rename DSH Workspace"),
+            value: workspace.title,
+            prompt: workspace.path,
+            ignoreFocusOut: true,
+            validateInput: (value) => value.trim() ? undefined : t("The title cannot be empty."),
+        });
+        if (title === undefined || title.trim() === workspace.title) return;
+        const renamed = await this.runtime.renameWorkspace(workspace.workspaceId, title.trim());
+        if (this.pendingNewSessionWorkspaceId === workspace.workspaceId) {
+            this.pendingNewSessionWorkspaceTitle = renamed.title;
+            this.postState();
+        }
+    }
+
+    private async reorderWorkspace(
+        workspace: DshWorkspaceView,
+        workspaces: readonly DshWorkspaceView[],
+        direction: "top" | "up" | "down" | "bottom",
+    ): Promise<void> {
+        const index = workspaces.findIndex((candidate) => candidate.workspaceId === workspace.workspaceId);
+        if (index < 0) return;
+        let beforeWorkspaceId: string | undefined;
+        if (direction === "top") {
+            beforeWorkspaceId = workspaces[0]?.workspaceId;
+        } else if (direction === "up") {
+            beforeWorkspaceId = workspaces[index - 1]?.workspaceId;
+        } else if (direction === "down") {
+            beforeWorkspaceId = workspaces[index + 2]?.workspaceId;
+        }
+        await this.runtime.moveWorkspace(workspace.workspaceId, beforeWorkspaceId);
+    }
+
+    private async reorderWorkspaceSession(workspace: DshWorkspaceView): Promise<void> {
+        const catalog = this.runtime.getSessionCatalog().snapshot();
+        const sessions = new Map(catalog.sessions.map((session) => [session.sessionId, session]));
+        const archived = new Set(catalog.archivedSessionIds);
+        const selected = await vscode.window.showQuickPick(
+            workspace.sessionIds.map((sessionId, index) => {
+                const session = sessions.get(sessionId);
+                return {
+                    label: `${archived.has(sessionId) ? "$(archive)" : "$(comment-discussion)"} ${session?.title || sessionId}`,
+                    description: t("Position {position}", { position: index + 1 }),
+                    detail: archived.has(sessionId) ? t("Archived Session") : session?.cwd,
+                    sessionId,
+                };
+            }),
+            {
+                title: t("Reorder sessions in {workspace}", { workspace: workspace.title }),
+                placeHolder: t("Choose a Session to move"),
+                matchOnDescription: true,
+                matchOnDetail: true,
+            },
+        );
+        if (!selected) return;
+
+        const index = workspace.sessionIds.indexOf(selected.sessionId);
+        const actions: Array<vscode.QuickPickItem & { direction: "top" | "up" | "down" | "bottom" }> = [];
+        if (index > 0) {
+            actions.push(
+                { direction: "top", label: `$(fold-up) ${t("Move Session to top")}` },
+                { direction: "up", label: `$(arrow-up) ${t("Move Session up")}` },
+            );
+        }
+        if (index >= 0 && index < workspace.sessionIds.length - 1) {
+            actions.push(
+                { direction: "down", label: `$(arrow-down) ${t("Move Session down")}` },
+                { direction: "bottom", label: `$(fold-down) ${t("Move Session to bottom")}` },
+            );
+        }
+        if (actions.length === 0) return;
+        const move = await vscode.window.showQuickPick(actions, {
+            title: sessions.get(selected.sessionId)?.title || selected.sessionId,
+            placeHolder: t("Choose a new position"),
+        });
+        if (!move) return;
+
+        let beforeSessionId: string | undefined;
+        if (move.direction === "top") {
+            beforeSessionId = workspace.sessionIds[0];
+        } else if (move.direction === "up") {
+            beforeSessionId = workspace.sessionIds[index - 1];
+        } else if (move.direction === "down") {
+            beforeSessionId = workspace.sessionIds[index + 2];
+        }
+        await this.runtime.moveWorkspaceSession(
+            workspace.workspaceId,
+            selected.sessionId,
+            beforeSessionId,
+        );
+    }
+
+    private async removeWorkspace(workspace: DshWorkspaceView): Promise<void> {
+        const remove = t("Remove Workspace group");
+        const confirmed = await vscode.window.showWarningMessage(
+            t("Remove DSH Workspace group {workspace}?", { workspace: workspace.title }),
+            {
+                modal: true,
+                detail: t("The directory and all Session logs will be kept. Its Sessions will appear as ungrouped."),
+            },
+            remove,
+        );
+        if (confirmed !== remove) return;
+        await this.runtime.deleteWorkspace(workspace.workspaceId);
+        if (this.pendingNewSessionWorkspaceId === workspace.workspaceId) {
+            this.pendingNewSessionWorkspaceId = undefined;
+            this.pendingNewSessionWorkspacePath = undefined;
+            this.pendingNewSessionWorkspaceTitle = undefined;
+            this.pendingNewSessionSkills = undefined;
+            this.postState();
+        }
+    }
+
     public async manageProviders(): Promise<void> {
         await this.runtime.start(this.workspaceRoot());
 
@@ -794,6 +1012,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "manageProviders":
                     await this.manageProviders();
+                    break;
+                case "manageWorkspaces":
+                    await this.manageWorkspaces();
                     break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();

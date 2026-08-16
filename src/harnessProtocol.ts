@@ -25,6 +25,7 @@ import {
     DshSubagentPromptResult,
     DshWorkspaceListResult,
     DshWorkspaceCreateResult,
+    DshWorkspaceView,
 } from "./types";
 
 /** Public DeepSeek Harness RPCs currently consumed by the extension foundation. */
@@ -100,6 +101,19 @@ export interface HarnessRpcMethodMap {
     >;
     "workspace.list": RpcMethod<EmptyPayload, DshWorkspaceListResult>;
     "workspace.create": RpcMethod<{ path: string }, DshWorkspaceCreateResult>;
+    "workspace.rename": RpcMethod<
+        { workspaceId: string; title: string },
+        { workspace: DshWorkspaceView }
+    >;
+    "workspace.delete": RpcMethod<{ workspaceId: string }, { deleted: true }>;
+    "workspace.insertBefore": RpcMethod<
+        { workspaceId: string; beforeWorkspaceId?: string },
+        { workspaceIds: string[] }
+    >;
+    "workspace.insertSessionBefore": RpcMethod<
+        { workspaceId: string; sessionId: string; beforeSessionId?: string },
+        { workspace: DshWorkspaceView }
+    >;
     "workspace.archiveSession": RpcMethod<
         { sessionId: string },
         { archivedSessionIds: string[] }

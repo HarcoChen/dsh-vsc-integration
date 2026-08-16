@@ -112,6 +112,9 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand("dsh.manageProviders", () =>
             runCommand(t("Manage providers"), () => chatView.manageProviders()),
         ),
+        vscode.commands.registerCommand("dsh.manageWorkspaces", () =>
+            runCommand(t("Manage DSH Workspaces"), () => chatView.manageWorkspaces()),
+        ),
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
         vscode.commands.registerCommand("dsh.diagnoseEnvironment", async () => {
             await runCommand(t("Diagnose environment"), async () => {

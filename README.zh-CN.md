@@ -15,6 +15,9 @@
 > - 快速查看Key余额
 > - 流式传输、队列、Steer、审批和计划评审支持
 > - 输入 `@` 实时搜索工作区文件，并插入明确的文件引用
+> - 输入 `$` 或 `/` 搜索 Harness Skills，并使用官方 `/skill-name` 语法调用
+> - 按 DSH Workspace 分组、恢复和管理 Session，可在不同 VS Code 文件夹间继续已有对话
+> - 在插件内查看 Provider 与 API Key 状态，并管理 Harness 凭据和自定义 Provider
 > - Git Diff集成，长prompt自动转文件发送
 > - 在内建 Trace 中查看工具调用、结果和 Reasoning
 > - 支持文件路径与行号跳转
@@ -51,12 +54,16 @@ npm run package
 
 1. 打开一个已信任的工作区。
 2. 打开 DSH Chat（`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`）。
-3. 输入 `@` 搜索并引用工作区文件，附加选区、诊断信息或未暂存的 Git diff，也可以输入 `/` 打开本地命令菜单。
+3. 输入 `@` 搜索并引用工作区文件，输入 `$` 选择 Skill，附加选区、诊断信息或未暂存的 Git diff，也可以输入 `/` 打开命令与 Skill 菜单。
 4. 发送 prompt，并直接在聊天视图内处理工具审批、问题和计划评审。
 
 资源管理器右键菜单提供 `DSH：询问此资源`，会将所选文件或目录及其工作区根目录预填到聊天，不会自动发送。执行 `DSH：诊断环境` 可在 DSH 输出通道中生成脱敏的 Runtime 与命令发现报告。
 
 如果 dsh 报告 API Key 缺失或无效，点击聊天头部的 `Key`，或运行 `DSH: Configure API Key`。密钥会交给 dsh 的凭据服务，并以 VS Code SecretStorage 加密保存一份给余额指示器使用；不会写入 prompt、扩展状态或日志。
+
+聊天菜单和命令面板中的 `DSH: Manage Providers` 可查看 Provider 是否启用、配置及其凭据来源，设置或移除 API Key，并打开 Harness 官方配置文件进行高级编辑。DSH Workspace 会根据目录自动发现；`DSH: Manage Workspaces` 支持重命名和移除分组，并调整 Workspace 与组内 Session 的显示顺序。移除分组不会删除目录或 Session 日志。
+
+多个 VS Code 窗口会优先复用同一个本地 Harness Runtime。扩展启动的 Runtime 使用进程锁公布其随机 loopback 端口，后续窗口经 `host.describe` 验证后连接，避免多个写进程竞争同一 Session 存储。
 
 ## 配置
 

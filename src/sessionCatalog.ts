@@ -364,6 +364,34 @@ export class HarnessCatalogStore {
         this.publish();
     }
 
+    public upsertWorkspace(workspace: DshWorkspaceView): void {
+        this.workspaces.set(workspace.workspaceId, {
+            value: { ...workspace, sessionIds: [...workspace.sessionIds] },
+            revision: ++this.revision,
+        });
+        if (!this.workspaceOrder.includes(workspace.workspaceId)) {
+            this.workspaceOrder.push(workspace.workspaceId);
+        }
+        this.publish();
+    }
+
+    public removeWorkspace(workspaceId: string): void {
+        this.workspaces.delete(workspaceId);
+        this.workspaceOrder = this.workspaceOrder.filter((id) => id !== workspaceId);
+        this.revision += 1;
+        this.publish();
+    }
+
+    public replaceWorkspaceOrder(ids: readonly string[]): void {
+        const known = ids.filter((id) => this.workspaces.has(id));
+        const missing = this.workspaceOrder.filter(
+            (id) => this.workspaces.has(id) && !known.includes(id),
+        );
+        this.workspaceOrder = [...known, ...missing];
+        this.revision += 1;
+        this.publish();
+    }
+
     /** Returns non-blank sessions registered for the canonical workspace path. */
     public sessionsForWorkspace(path: string): readonly SessionCatalogItem[] {
         const workspace = [...this.workspaces.values()].find((entry) => entry.value.path === path)?.value;

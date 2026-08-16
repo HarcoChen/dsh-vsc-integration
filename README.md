@@ -19,6 +19,9 @@ A full-featured community VS Code extension for connecting to DeepSeek Harness a
 >
 > - Stream tasks in persistent Harness sessions, with queueing, steering, approvals and plan reviews
 > - Type `@` to search workspace files in real time and insert an explicit file reference
+> - Type `$` or `/` to discover Harness Skills and invoke them with the official `/skill-name` syntax
+> - Group and resume sessions by DSH Workspace, including conversations created from other VS Code folders or the Web UI
+> - Inspect Provider and API Key status and manage Harness credentials and custom Providers
 > - Attach selections, diagnostics and Git diffs with byte-size and truncation feedback before sending
 > - Inspect tool calls, results and reasoning in a built-in Trace, with clickable file and line locations
 > - Review per-turn file changes with native VS Code diffs before restoring anything
@@ -54,12 +57,16 @@ Install the generated `.vsix` via `Extensions: Install from VSIX...`.
 
 1. Open a trusted workspace.
 2. Open DSH Chat (`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`).
-3. Type `@` to search and reference workspace files, attach selections, diagnostics or unstaged Git diffs, or type `/` to open the local command menu.
+3. Type `@` to search and reference workspace files, type `$` to select a Skill, attach selections, diagnostics or unstaged Git diffs, or type `/` to open the command and Skill menu.
 4. Send a prompt and handle tool approvals, questions and plan reviews directly in the chat view.
 
 The Explorer context menu includes `DSH: Ask About This Resource`, which pre-fills the selected file or directory and its workspace root without sending automatically. Use `DSH: Diagnose Environment` to write a redacted runtime and command-discovery report to the DSH output channel.
 
 If dsh reports a missing or invalid API key, click `Key` in the chat header or run `DSH: Configure API Key`. The key is passed to dsh's credential service, and an encrypted copy is stored in VS Code SecretStorage for the balance indicator. It is not written to prompts, extension state or logs.
+
+Use `DSH: Manage Providers` from the chat menu or Command Palette to inspect Provider activation, configuration and credential source, set or remove API Keys, and open the official Harness configuration document for advanced edits. DSH Workspaces are discovered from their directories; `DSH: Manage Workspaces` can rename or remove groups and reorder Workspaces or their Sessions. Removing a group never deletes its directory or Session logs.
+
+Multiple VS Code windows preferentially share one local Harness Runtime. A Runtime started by the extension publishes its random loopback port through a process lock; later windows validate it with `host.describe` before connecting, preventing competing writers from touching the same Session storage.
 
 ## Configuration
 

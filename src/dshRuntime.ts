@@ -40,6 +40,7 @@ import {
     DshSubagentPromptResult,
     DshRpcReceipt,
     DshWorkspaceCreateResult,
+    DshWorkspaceView,
     RuntimeStatus,
 } from "./types";
 
@@ -436,6 +437,38 @@ export class DshRuntime implements vscode.Disposable {
 
     public createWorkspace(path: string): Promise<DshWorkspaceCreateResult> {
         return this.apiClient.call("workspace.create", { path });
+    }
+
+    public async renameWorkspace(workspaceId: string, title: string): Promise<DshWorkspaceView> {
+        const result = await this.apiClient.call("workspace.rename", { workspaceId, title });
+        this.harnessState.catalog.upsertWorkspace(result.workspace);
+        return result.workspace;
+    }
+
+    public async deleteWorkspace(workspaceId: string): Promise<void> {
+        await this.apiClient.call("workspace.delete", { workspaceId });
+        this.harnessState.catalog.removeWorkspace(workspaceId);
+    }
+
+    public async moveWorkspace(workspaceId: string, beforeWorkspaceId?: string): Promise<void> {
+        const result = await this.apiClient.call("workspace.insertBefore", {
+            workspaceId,
+            ...(beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId }),
+        });
+        this.harnessState.catalog.replaceWorkspaceOrder(result.workspaceIds);
+    }
+
+    public async moveWorkspaceSession(
+        workspaceId: string,
+        sessionId: string,
+        beforeSessionId?: string,
+    ): Promise<void> {
+        const result = await this.apiClient.call("workspace.insertSessionBefore", {
+            workspaceId,
+            sessionId,
+            ...(beforeSessionId === undefined ? {} : { beforeSessionId }),
+        });
+        this.harnessState.catalog.upsertWorkspace(result.workspace);
     }
 
     public async createSession(

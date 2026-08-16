@@ -70,6 +70,7 @@
         "onCommand:dsh.openIdeContextPicker",
         "onCommand:dsh.configureApiKey",
         "onCommand:dsh.manageProviders",
+        "onCommand:dsh.manageWorkspaces",
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
@@ -250,6 +251,12 @@
                 "title": "%command.manageProviders.title%",
                 "category": "DSH",
                 "icon": "$(server-environment)"
+            },
+            {
+                "command": "dsh.manageWorkspaces",
+                "title": "%command.manageWorkspaces.title%",
+                "category": "DSH",
+                "icon": "$(folder-library)"
             },
             {
                 "command": "dsh.refreshBalance",

@@ -14,6 +14,7 @@ export type ChatViewAction =
     | { type: "cancel" }
     | { type: "configureApiKey" }
     | { type: "manageProviders" }
+    | { type: "manageWorkspaces" }
     | { type: "openIdeContextPicker" }
     | { type: "removeContext"; id: string }
     | { type: "fileReferenceQuery"; query: string }
@@ -121,6 +122,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "cancel":
         case "configureApiKey":
         case "manageProviders":
+        case "manageWorkspaces":
         case "openIdeContextPicker":
         case "toggleSelection":
         case "toggleFocus":
