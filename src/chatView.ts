@@ -47,11 +47,15 @@ import {
     ChatViewState,
     ChatMessage,
     DshApprovalResponse,
+    DshConfigurableProvider,
     DshContextItem,
+    DshCredentialView,
     DshHistoryEntry,
     DshQuestionResponse,
     DshReasoningEffortOption,
     DshSessionModelsResult,
+    DshSettingsNamespaceView,
+    DshSkillEntry,
     DshSubagentAddress,
     DshSubagentCatalog,
     PermissionProjectionView,
@@ -107,6 +111,44 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
         if (left[index] !== right[index]) return false;
     }
     return true;
+}
+
+function valueAtPath(value: unknown, path: readonly string[]): unknown {
+    let current = value;
+    for (const segment of path) {
+        if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+        current = (current as Record<string, unknown>)[segment];
+    }
+    return current;
+}
+
+function hasPath(value: unknown, path: readonly string[]): boolean {
+    let current = value;
+    for (const segment of path) {
+        if (
+            !current ||
+            typeof current !== "object" ||
+            Array.isArray(current) ||
+            !Object.prototype.hasOwnProperty.call(current, segment)
+        ) {
+            return false;
+        }
+        current = (current as Record<string, unknown>)[segment];
+    }
+    return true;
+}
+
+function deriveProviderKeyRef(provider: string): string {
+    return `${provider.toUpperCase().replace(/[^A-Z0-9]+/gu, "_")}_API_KEY`;
+}
+
+interface ProviderManagementRow {
+    entry: DshConfigurableProvider;
+    namespace?: DshSettingsNamespaceView;
+    configured: boolean;
+    removable: boolean;
+    apiKeyEnv?: string;
+    credential?: DshCredentialView;
 }
 
 function referencesSelection(text: string): boolean {
@@ -239,6 +281,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly selectedModels = new Map<string, SelectedModelSnapshot>();
     private readonly modelCatalogs = new Map<string, DshSessionModelsResult>();
     private readonly modelCatalogRequests = new Map<string, Promise<void>>();
+    private readonly skillCatalogs = new Map<string, DshSkillEntry[]>();
+    private readonly skillCatalogRequests = new Map<string, Promise<void>>();
+    private pendingNewSessionSkills: DshSkillEntry[] | undefined;
     private readonly changeReviews: ChangeReviewStore;
 
     public constructor(
@@ -280,6 +325,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
                         this.refreshModelCatalog(this.sessionId);
+                        this.refreshSkillCatalog(this.sessionId);
                         void this.refreshSubagentTree(this.sessionId);
                     }
                 });
@@ -419,6 +465,213 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.reveal();
     }
 
+    public async manageProviders(): Promise<void> {
+        await this.runtime.start(this.workspaceRoot());
+
+        while (true) {
+            const [providerResult, settings] = await Promise.all([
+                this.runtime.listProviders(),
+                this.runtime.describeSettings(),
+            ]);
+            const namespaces = new Map(settings.namespaces.map((namespace) => [namespace.ns, namespace]));
+            const rows: ProviderManagementRow[] = providerResult.providers.map((entry) => {
+                const namespace = namespaces.get(entry.settingsNs);
+                const profile = namespace ? valueAtPath(namespace.value, entry.settingsPath) : undefined;
+                const apiKeyEnv = profile && typeof profile === "object" && !Array.isArray(profile)
+                    ? (profile as Record<string, unknown>).apiKeyEnv
+                    : undefined;
+                return {
+                    entry,
+                    ...(namespace ? { namespace } : {}),
+                    configured: namespace !== undefined &&
+                        (entry.settingsPath.length === 0 || profile !== undefined),
+                    removable: namespace !== undefined &&
+                        entry.settingsPath.length > 0 &&
+                        hasPath(namespace.user, entry.settingsPath) &&
+                        !hasPath(namespace.base, entry.settingsPath),
+                    ...(typeof apiKeyEnv === "string" && apiKeyEnv.length > 0 ? { apiKeyEnv } : {}),
+                };
+            });
+
+            const credentialRefs = [...new Set(rows.flatMap((row) => row.apiKeyEnv ? [row.apiKeyEnv] : []))];
+            if (credentialRefs.length > 0) {
+                try {
+                    const result = await this.runtime.describeCredentials(credentialRefs);
+                    for (const row of rows) {
+                        if (row.apiKeyEnv && result.credentials[row.apiKeyEnv]) {
+                            row.credential = result.credentials[row.apiKeyEnv];
+                        }
+                    }
+                } catch (error) {
+                    this.output.appendLine(`[dsh:providers] credential status unavailable: ${errorMessage(error)}`);
+                }
+            }
+
+            type ProviderChoice = vscode.QuickPickItem &
+                ({ choiceType: "provider"; row: ProviderManagementRow } | { choiceType: "document" });
+            const choices: ProviderChoice[] = [
+                ...(settings.hasDocument ? [{
+                    choiceType: "document" as const,
+                    label: `$(settings-gear) ${t("Add or edit provider")}`,
+                    detail: t("Open the official Harness configuration file for advanced provider settings"),
+                    alwaysShow: true,
+                }] : []),
+                ...rows.map((row): ProviderChoice => ({
+                    choiceType: "provider",
+                    row,
+                    label: `${row.entry.active ? "$(check)" : "$(circle-slash)"} ${row.entry.displayName || row.entry.provider}`,
+                    description: `${row.entry.provider} · ${row.entry.active ? t("Active") : t("Inactive")}`,
+                    detail: this.providerStatusDetail(row),
+                })),
+            ];
+            const choice = await vscode.window.showQuickPick(choices, {
+                title: t("Manage providers"),
+                placeHolder: t("Choose a provider to manage"),
+                matchOnDescription: true,
+                matchOnDetail: true,
+            });
+            if (!choice) return;
+            if (choice.choiceType === "document") {
+                await this.runtime.openSettingsDocument();
+                return;
+            }
+
+            const action = await this.chooseProviderAction(choice.row, settings.writable, settings.hasDocument);
+            if (!action) continue;
+            if (action === "document") {
+                await this.runtime.openSettingsDocument();
+                return;
+            }
+            if (action === "set-key") {
+                await this.setProviderCredential(choice.row);
+                continue;
+            }
+            if (action === "unset-key") {
+                await this.unsetProviderCredential(choice.row);
+                continue;
+            }
+            await this.removeProvider(choice.row);
+        }
+    }
+
+    private providerStatusDetail(row: ProviderManagementRow): string {
+        const configuration = row.configured ? t("Configured") : t("Not configured");
+        if (!row.apiKeyEnv) return `${configuration} · ${t("Provider-native authentication")}`;
+        if (!row.credential) return `${configuration} · ${row.apiKeyEnv}: ${t("Credential status unavailable")}`;
+        if (!row.credential.configured) return `${configuration} · ${row.apiKeyEnv}: ${t("API Key missing")}`;
+        const source = row.credential.source ? ` (${row.credential.source})` : "";
+        return `${configuration} · ${row.apiKeyEnv}: ${t("API Key configured")}${source}`;
+    }
+
+    private async chooseProviderAction(
+        row: ProviderManagementRow,
+        settingsWritable: boolean,
+        hasDocument: boolean,
+    ): Promise<"set-key" | "unset-key" | "document" | "remove" | undefined> {
+        const actions: Array<vscode.QuickPickItem & {
+            action: "set-key" | "unset-key" | "document" | "remove";
+        }> = [];
+        if (row.apiKeyEnv && row.credential?.writable !== false) {
+            actions.push({
+                action: "set-key",
+                label: `$(key) ${t("Set API Key")}`,
+                detail: row.apiKeyEnv,
+            });
+        }
+        if (row.apiKeyEnv && row.credential?.configured && row.credential.writable) {
+            actions.push({
+                action: "unset-key",
+                label: `$(trash) ${t("Remove stored API Key")}`,
+                detail: row.apiKeyEnv,
+            });
+        }
+        if (hasDocument) {
+            actions.push({
+                action: "document",
+                label: `$(settings-gear) ${t("Open advanced configuration")}`,
+                detail: t("Edit endpoint, protocol, models, and other provider settings"),
+            });
+        }
+        if (settingsWritable && row.removable) {
+            actions.push({
+                action: "remove",
+                label: `$(trash) ${t("Delete provider")}`,
+                detail: t("Remove this user-defined provider configuration"),
+            });
+        }
+        if (actions.length === 0) {
+            void vscode.window.showInformationMessage(t("This provider has no settings that can be changed here."));
+            return undefined;
+        }
+        const selected = await vscode.window.showQuickPick(actions, {
+            title: row.entry.displayName || row.entry.provider,
+            placeHolder: t("Choose an action"),
+        });
+        return selected?.action;
+    }
+
+    private async setProviderCredential(row: ProviderManagementRow): Promise<void> {
+        const ref = row.apiKeyEnv;
+        if (!ref) return;
+        const value = await vscode.window.showInputBox({
+            title: t("Set API Key for {provider}", {
+                provider: row.entry.displayName || row.entry.provider,
+            }),
+            prompt: t("Store credential {reference} in the Harness credential provider.", { reference: ref }),
+            password: true,
+            ignoreFocusOut: true,
+            validateInput: (input) => input.trim() ? undefined : t("Enter an API Key."),
+        });
+        if (value === undefined) return;
+        await this.runtime.setCredential(ref, value.trim());
+        void vscode.window.showInformationMessage(t("DSH: {reference} was saved.", { reference: ref }));
+    }
+
+    private async unsetProviderCredential(row: ProviderManagementRow): Promise<void> {
+        const ref = row.apiKeyEnv;
+        if (!ref) return;
+        const remove = t("Remove API Key");
+        const confirmed = await vscode.window.showWarningMessage(
+            t("Remove the stored credential {reference}?", { reference: ref }),
+            { modal: true },
+            remove,
+        );
+        if (confirmed !== remove) return;
+        await this.runtime.unsetCredential(ref);
+        void vscode.window.showInformationMessage(t("DSH: {reference} was removed.", { reference: ref }));
+    }
+
+    private async removeProvider(row: ProviderManagementRow): Promise<void> {
+        const namespace = row.namespace;
+        if (!namespace || !row.removable) return;
+        const remove = t("Delete provider");
+        const confirmed = await vscode.window.showWarningMessage(
+            t("Delete provider {provider}? This removes its user configuration.", {
+                provider: row.entry.displayName || row.entry.provider,
+            }),
+            { modal: true },
+            remove,
+        );
+        if (confirmed !== remove) return;
+
+        const managedRef = deriveProviderKeyRef(row.entry.provider);
+        if (
+            row.apiKeyEnv === managedRef &&
+            row.credential?.configured === true &&
+            row.credential.writable
+        ) {
+            await this.runtime.unsetCredential(managedRef);
+        }
+        await this.runtime.mutateSettings(
+            row.entry.settingsNs,
+            [{ op: "unset", path: [...row.entry.settingsPath] }],
+            namespace.revision,
+        );
+        void vscode.window.showInformationMessage(t("DSH: Provider {provider} was deleted.", {
+            provider: row.entry.displayName || row.entry.provider,
+        }));
+    }
+
     public async openIdeContextPicker(): Promise<void> {
         const hasSelection = Boolean(this.contextStore.getCurrentSelectionMetadata());
         const choice = await vscode.window.showQuickPick(
@@ -539,6 +792,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "configureApiKey":
                     await this.configureApiKey();
                     break;
+                case "manageProviders":
+                    await this.manageProviders();
+                    break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
                     break;
@@ -619,6 +875,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "newSession":
                     await this.newSession();
+                    break;
+                case "newSessionInCurrentWorkspace":
+                    await this.newSession(undefined, true);
                     break;
                 case "searchSession":
                     await this.searchSession();
@@ -891,9 +1150,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.pendingNewSessionWorkspaceId = undefined;
             this.pendingNewSessionWorkspacePath = undefined;
             this.pendingNewSessionWorkspaceTitle = undefined;
+            this.pendingNewSessionSkills = undefined;
         }
 
         this.refreshModelCatalog(this.sessionId);
+        this.refreshSkillCatalog(this.sessionId);
         return this.sessionId;
     }
 
@@ -948,6 +1209,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.postState();
             await this.runtime.syncSession(sessionId);
             this.refreshModelCatalog(sessionId);
+            this.refreshSkillCatalog(sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
             if (latest?.sessionId === sessionId && latest.cwd === workspaceRoot) {
@@ -959,13 +1221,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
-    public async newSession(agentPreset?: string): Promise<void> {
+    public async newSession(agentPreset?: string, useCurrentWorkspace = false): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
         if (!workspaceRoot) throw new Error(t("Open a workspace first."));
         await this.runtime.start(workspaceRoot);
         const catalog = this.runtime.getSessionCatalog().snapshot();
-        const selectedWorkspace = this.sessionId
-            ? catalog.workspaces.find((workspace) => workspace.sessionIds.includes(this.sessionId as string))
+        const selectedWorkspace = useCurrentWorkspace
+            ? (await this.runtime.createWorkspace(workspaceRoot)).workspace
+            : this.sessionId
+                ? catalog.workspaces.find((workspace) => workspace.sessionIds.includes(this.sessionId as string))
+                : undefined;
+        this.pendingNewSessionSkills = this.sessionId && selectedWorkspace?.sessionIds.includes(this.sessionId)
+            ? this.skillCatalogs.get(this.sessionId)
             : undefined;
         this.sessionId = undefined;
         this.sessionCwd = undefined;
@@ -1145,6 +1412,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         if (this.newSessionDraft && !this.sessionId) {
             this.pendingNewSessionPreset = target.id;
+            this.pendingNewSessionSkills = undefined;
             this.output.appendLine(`[dsh:agent-preset] selected ${target.id} for new session`);
             this.postState();
             return;
@@ -1180,6 +1448,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return;
         }
         this.output.appendLine(`[dsh:agent-preset] selected ${result.agentPreset}`);
+        this.skillCatalogs.delete(sessionId);
+        this.refreshSkillCatalog(sessionId);
         await this.runtime.refreshSessions();
         this.postState();
     }
@@ -1262,6 +1532,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.pendingNewSessionWorkspaceId = undefined;
         this.pendingNewSessionWorkspacePath = undefined;
         this.pendingNewSessionWorkspaceTitle = undefined;
+        this.pendingNewSessionSkills = undefined;
         if (vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true)) {
             await this.extensionContext.workspaceState.update("session", {
                 sessionId,
@@ -1270,6 +1541,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         await this.runtime.syncSession(sessionId);
         this.refreshModelCatalog(sessionId);
+        this.refreshSkillCatalog(sessionId);
         void this.refreshSubagentTree(sessionId);
         this.reveal();
     }
@@ -1834,6 +2106,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.modelCatalogRequests.set(sessionId, request);
     }
 
+    private refreshSkillCatalog(sessionId: string): void {
+        if (!this.runtime.getUrl() || this.skillCatalogs.has(sessionId) || this.skillCatalogRequests.has(sessionId)) {
+            return;
+        }
+        const request = this.runtime.listSkills(sessionId)
+            .then((skills) => {
+                this.skillCatalogs.set(sessionId, skills);
+                if (this.sessionId === sessionId) this.postState();
+            })
+            .catch((error) => {
+                this.output.appendLine(`[dsh:skills] catalog refresh failed: ${errorMessage(error)}`);
+            })
+            .finally(() => {
+                this.skillCatalogRequests.delete(sessionId);
+            });
+        this.skillCatalogRequests.set(sessionId, request);
+    }
+
     private reasoningEffortView(): ChatViewState["reasoningEffort"] {
         if (!this.sessionId) return undefined;
         const selected = this.selectedModels.get(this.sessionId);
@@ -1878,6 +2168,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         const catalog = this.runtime.getSessionCatalog().snapshot();
+        const currentDshWorkspace = workspaceFolder
+            ? catalog.workspaces.find((workspace) => samePath(workspace.path, workspaceFolder.uri.fsPath))
+            : undefined;
         const archived = new Set(catalog.archivedSessionIds);
         const workspaceBySession = new Map(
             catalog.workspaces.flatMap((workspace) =>
@@ -1885,6 +2178,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ),
         );
         const selected = catalog.sessions.find((item) => item.sessionId === this.sessionId);
+        if (this.sessionId) this.refreshSkillCatalog(this.sessionId);
         const session = this.sessionId
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
@@ -1921,6 +2215,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,
             workspaceName: workspaceFolder?.name,
+            skills: this.sessionId
+                ? [...(this.skillCatalogs.get(this.sessionId) ?? [])]
+                : [...(this.pendingNewSessionSkills ?? [])],
+            ...(workspaceFolder === undefined
+                ? {}
+                : {
+                      currentWorkspace: {
+                          ...(currentDshWorkspace === undefined
+                              ? {}
+                              : { workspaceId: currentDshWorkspace.workspaceId }),
+                          title: currentDshWorkspace?.title || workspaceFolder.name,
+                      },
+                  }),
             host,
             sessionId: this.sessionId,
             ...(this.newSessionDraft && this.pendingNewSessionWorkspaceId

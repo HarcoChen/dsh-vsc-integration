@@ -19,6 +19,8 @@ interface MenuItem {
     separatorBefore?: boolean;
 }
 
+const NEW_CURRENT_WORKSPACE = "__dsh_new_current_workspace__";
+
 export function Header({ state }: HeaderProps): React.JSX.Element {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -91,7 +93,8 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         },
         { key: "logs", label: t("Open runtime logs"), action: { type: "openLogs" } },
         { key: "browser", label: t("Open in browser"), action: { type: "openBrowser" } },
-        { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" }, separatorBefore: true },
+        { key: "providers", label: t("Manage providers"), action: { type: "manageProviders" }, separatorBefore: true },
+        { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" } },
         {
             key: "focus",
             label: state.focusMode ? t("Focus mode: on") : t("Focus mode: off"),
@@ -125,15 +128,23 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                 className="dsh-session-select"
                 title={t("Switch session")}
                 value={state.sessionId ?? ""}
-                disabled={sessions.length === 0}
+                disabled={sessions.length === 0 && !state.currentWorkspace}
                 onChange={(event) => {
-                    if (event.target.value) {
+                    if (event.target.value === NEW_CURRENT_WORKSPACE) {
+                        postAction({ type: "newSessionInCurrentWorkspace" });
+                    } else if (event.target.value) {
                         postAction({ type: "switchSession", sessionId: event.target.value });
                     }
                 }}
             >
                 {sessions.length === 0 ? (
-                    <option value="">{t("No sessions")}</option>
+                    state.currentWorkspace ? (
+                        <optgroup label={state.currentWorkspace.title}>
+                            <option value={NEW_CURRENT_WORKSPACE}>{t("New conversation")}</option>
+                        </optgroup>
+                    ) : (
+                        <option value="">{t("No sessions")}</option>
+                    )
                 ) : (
                     <>
                         {!state.sessionId && !state.draftWorkspaceId ? <option value="">{t("New conversation")}</option> : null}
@@ -141,6 +152,8 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                             <optgroup key={workspaceId} label={group[0]?.workspaceTitle ?? workspaceId}>
                                 {!state.sessionId && state.draftWorkspaceId === workspaceId ? (
                                     <option value="">{t("New conversation")}</option>
+                                ) : state.currentWorkspace?.workspaceId === workspaceId ? (
+                                    <option value={NEW_CURRENT_WORKSPACE}>{t("New conversation")}</option>
                                 ) : null}
                                 {group.map((session) => (
                                     <option key={session.sessionId} value={session.sessionId}>
@@ -153,6 +166,12 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                         {!state.sessionId && state.draftWorkspaceId && !groupedSessions.has(state.draftWorkspaceId) ? (
                             <optgroup label={state.draftWorkspaceTitle || state.draftWorkspaceId}>
                                 <option value="">{t("New conversation")}</option>
+                            </optgroup>
+                        ) : null}
+                        {state.currentWorkspace &&
+                        (!state.currentWorkspace.workspaceId || !groupedSessions.has(state.currentWorkspace.workspaceId)) ? (
+                            <optgroup label={state.currentWorkspace.title}>
+                                <option value={NEW_CURRENT_WORKSPACE}>{t("New conversation")}</option>
                             </optgroup>
                         ) : null}
                         {ungroupedSessions.length > 0 ? (

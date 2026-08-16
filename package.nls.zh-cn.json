@@ -21,6 +21,7 @@
     "command.askAboutResource.title": "DSH：询问此资源",
     "command.openIdeContextPicker.title": "DSH：管理 IDE 上下文（/ide）",
     "command.configureApiKey.title": "DSH：配置 API Key",
+    "command.manageProviders.title": "DSH：管理提供商",
     "command.refreshBalance.title": "DSH：刷新 DeepSeek 余额",
     "command.diagnoseEnvironment.title": "DSH：诊断环境",
     "dsh.editorTask.explain.title": "解释当前文件或选区",

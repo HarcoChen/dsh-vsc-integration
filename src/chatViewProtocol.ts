@@ -13,6 +13,7 @@ export type ChatViewAction =
     | { type: "toggleFocus" }
     | { type: "cancel" }
     | { type: "configureApiKey" }
+    | { type: "manageProviders" }
     | { type: "openIdeContextPicker" }
     | { type: "removeContext"; id: string }
     | { type: "fileReferenceQuery"; query: string }
@@ -32,6 +33,7 @@ export type ChatViewAction =
     | { type: "restoreTurnChanges"; turn: number }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
+    | { type: "newSessionInCurrentWorkspace" }
     | { type: "searchSession" }
     | { type: "selectModel" }
     | { type: "selectReasoningEffort"; effort: string }
@@ -118,6 +120,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "ready":
         case "cancel":
         case "configureApiKey":
+        case "manageProviders":
         case "openIdeContextPicker":
         case "toggleSelection":
         case "toggleFocus":
@@ -126,6 +129,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "openLogs":
         case "openBrowser":
         case "newSession":
+        case "newSessionInCurrentWorkspace":
         case "searchSession":
         case "selectModel":
         case "renameSession":

@@ -5,6 +5,7 @@ webview/src/**
 webview/index.html
 node_modules/**
 deepseek-harness/**
+.dsh/**
 test/**
 *.ts
 *.map

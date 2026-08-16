@@ -29,6 +29,11 @@ import {
     DshSessionSearchResult,
     DshSkillEntry,
     DshSkillListResult,
+    DshProviderListResult,
+    DshCredentialDescribeResult,
+    DshSettingsDescribeResult,
+    DshSettingsNamespaceView,
+    DshSettingsPathOperation,
     DshSubagentAddress,
     DshSubagentCatalog,
     DshSubagentHistoryResult,
@@ -50,11 +55,37 @@ function normalizeUrl(value: string): string {
     return value.trim().replace(/\/+$/, "");
 }
 
+function loopbackRuntimeUrl(value: unknown): string | undefined {
+    if (typeof value !== "string") return undefined;
+    try {
+        const url = new URL(normalizeUrl(value));
+        if (
+            url.protocol !== "http:" ||
+            !url.port ||
+            (url.hostname !== "127.0.0.1" &&
+                url.hostname !== "localhost" &&
+                url.hostname !== "0.0.0.0" &&
+                url.hostname !== "[::1]") ||
+            (url.pathname !== "/" && url.pathname !== "") ||
+            url.username ||
+            url.password ||
+            url.search ||
+            url.hash
+        ) {
+            return undefined;
+        }
+        const hostname = url.hostname === "[::1]" ? "[::1]" : "127.0.0.1";
+        return `http://${hostname}:${url.port}`;
+    } catch {
+        return undefined;
+    }
+}
+
 function extractUrl(value: string): string | undefined {
     const match = value.match(
         /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):\d+/i,
     );
-    return match ? normalizeUrl(match[0]) : undefined;
+    return match ? loopbackRuntimeUrl(match[0]) : undefined;
 }
 
 function portFromArgs(args: string[]): number | undefined {
@@ -209,7 +240,8 @@ export class DshRuntime implements vscode.Disposable {
     private baseUrl: string | undefined;
     private startPromise: Promise<string> | undefined;
     private startedByExtension = false;
-    private runtimeLock: { handle: FileHandle; path: string } | undefined;
+    private runtimeLock: { handle: FileHandle; path: string; createdAt: number } | undefined;
+    private runtimeLockWrite: Promise<void> = Promise.resolve();
     private compactionPatchPath: string | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
@@ -587,6 +619,38 @@ export class DshRuntime implements vscode.Disposable {
         await this.apiClient.call("credentials.set", { ref, value });
     }
 
+    public listProviders(): Promise<DshProviderListResult> {
+        return this.apiClient.call("llm.providers", {});
+    }
+
+    public describeSettings(): Promise<DshSettingsDescribeResult> {
+        return this.apiClient.call("settings.describe", {});
+    }
+
+    public describeCredentials(refs: string[]): Promise<DshCredentialDescribeResult> {
+        return this.apiClient.call("credentials.describe", { refs });
+    }
+
+    public async unsetCredential(ref: string): Promise<void> {
+        await this.apiClient.call("credentials.unset", { ref });
+    }
+
+    public async openSettingsDocument(): Promise<void> {
+        await this.apiClient.call("settings.openDocument", {});
+    }
+
+    public mutateSettings(
+        ns: string,
+        ops: DshSettingsPathOperation[],
+        expectedRevision?: number,
+    ): Promise<DshSettingsNamespaceView> {
+        return this.apiClient.call("settings.mutate", {
+            ns,
+            ops,
+            ...(expectedRevision === undefined ? {} : { expectedRevision }),
+        });
+    }
+
     public async describeHost(): Promise<HarnessHostDescription> {
         return this.apiClient.describe();
     }
@@ -744,8 +808,11 @@ export class DshRuntime implements vscode.Disposable {
             this.output.append(`[dsh:${stream}] ${text}`);
 
             const discoveredUrl = extractUrl(text);
-            if (discoveredUrl) {
+            if (discoveredUrl && discoveredUrl !== this.baseUrl) {
                 this.baseUrl = discoveredUrl;
+                void this.publishRuntimeLockUrl(discoveredUrl).catch((error) => {
+                    this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
+                });
             }
         };
 
@@ -772,6 +839,11 @@ export class DshRuntime implements vscode.Disposable {
                 () => outputTail,
             );
             this.baseUrl = url;
+            try {
+                await this.publishRuntimeLockUrl(url);
+            } catch (error) {
+                this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
+            }
             this.setStatus({ state: "running", url });
             this.harnessState.start();
             return url;
@@ -846,6 +918,10 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     private async findExistingRuntime(configuredPort: number): Promise<string | undefined> {
+        const advertisedUrl = await this.readRuntimeLockUrl();
+        if (advertisedUrl && (await this.isHarnessHealthy(advertisedUrl))) {
+            return advertisedUrl;
+        }
         const ports = (configuredPort > 0 ? [configuredPort, 3080] : [3080]).filter(
             (port, index, all): port is number => Number.isInteger(port) && port > 0 && all.indexOf(port) === index,
         );
@@ -886,8 +962,9 @@ export class DshRuntime implements vscode.Disposable {
         const path = join(tmpdir(), "dsh-vscode-runtime.lock");
         try {
             const handle = await open(path, "wx", 0o600);
-            await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }), "utf8");
-            this.runtimeLock = { handle, path };
+            const createdAt = Date.now();
+            await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt }), "utf8");
+            this.runtimeLock = { handle, path, createdAt };
             return true;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -911,11 +988,45 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
+    private async readRuntimeLockUrl(): Promise<string | undefined> {
+        try {
+            const contents = await readFile(join(tmpdir(), "dsh-vscode-runtime.lock"), "utf8");
+            const record = JSON.parse(contents) as { url?: unknown };
+            return loopbackRuntimeUrl(record.url);
+        } catch {
+            // A missing, legacy, or concurrently updated lock has no advertised URL yet.
+            return undefined;
+        }
+    }
+
+    private publishRuntimeLockUrl(url: string): Promise<void> {
+        const lock = this.runtimeLock;
+        const advertisedUrl = loopbackRuntimeUrl(url);
+        if (!lock || !advertisedUrl) return Promise.resolve();
+
+        const write = this.runtimeLockWrite
+            .catch(() => undefined)
+            .then(async () => {
+                if (this.runtimeLock !== lock) return;
+                const contents = JSON.stringify({
+                    pid: process.pid,
+                    createdAt: lock.createdAt,
+                    url: advertisedUrl,
+                });
+                await lock.handle.truncate(0);
+                await lock.handle.write(contents, 0, "utf8");
+                await lock.handle.sync();
+            });
+        this.runtimeLockWrite = write;
+        return write;
+    }
+
     private async releaseRuntimeLock(): Promise<void> {
         const lock = this.runtimeLock;
         this.runtimeLock = undefined;
         if (!lock) return;
         try {
+            await this.runtimeLockWrite.catch(() => undefined);
             await lock.handle.close();
         } finally {
             await unlink(lock.path).catch(() => undefined);

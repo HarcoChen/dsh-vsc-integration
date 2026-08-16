@@ -26,6 +26,15 @@
 - 新增 `DSH: Diagnose Environment`：输出脱敏的 VS Code、Node、平台、工作区信任、命令发现、npm 全局目录、Runtime 健康状态和 API Key 引用诊断。
 - 修复 Windows 下 npm 全局前缀查询无法通过 `.cmd` 启动器执行的问题，并保留 `.cmd`/`.ps1` Runtime 启动兼容性。
 
+## [0.4.1] - 2026-08-16
+
+- 新增 Provider 管理：可查看 Provider 启用、配置及凭据状态，设置或移除 API Key，并从命令面板或聊天菜单打开 Harness 官方配置文件进行新增和高级编辑。
+- 支持安全删除纯用户层自定义 Provider；删除操作按 Harness 设置 revision 执行，并且仅清理由该 Provider 约定名称独占管理的凭据，避免误删共享 Key。
+- 新增 `$` Skill 候选，并在 `/` 候选中同时展示 Harness Skill；选择后插入官方 `/skill-name` 调用语法。
+- 修复新对话草稿态无法使用 `/mode`，以及尚未发送 prompt 时错误创建空 Session 的问题。
+- 优化新对话的 Workspace 归属：可在当前 VS Code 文件夹尚无 Session 时直接建立本 Workspace 对话，也可继承当前所选 DSH Workspace 创建新对话。
+- 修复第二个 VS Code 窗口无法复用随机端口 Runtime 的问题：启动者会把经过限制的 loopback URL 写入进程锁，后续窗口通过 `host.describe` 验证后连接已有 Harness，避免再次启动写进程。
+
 ## [0.4.0] - 2026-08-15
 
 - 新增 Workspace 注册与 Session 归属：创建会话前自动注册当前工作区，避免新会话全部落入未分组状态。
@@ -61,6 +70,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...v0.3.0

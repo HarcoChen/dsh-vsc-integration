@@ -351,6 +351,50 @@ export interface DshSkillListResult {
     [key: string]: unknown;
 }
 
+export interface DshConfigurableProvider {
+    provider: string;
+    displayName: string;
+    settingsNs: string;
+    settingsPath: string[];
+    active: boolean;
+    declared?: boolean;
+}
+
+export interface DshProviderListResult {
+    providers: DshConfigurableProvider[];
+}
+
+export interface DshCredentialView {
+    configured: boolean;
+    source?: string;
+    writable: boolean;
+}
+
+export interface DshCredentialDescribeResult {
+    credentials: Record<string, DshCredentialView>;
+}
+
+export interface DshSettingsNamespaceView {
+    ns: string;
+    schema: unknown;
+    value: unknown;
+    base?: unknown;
+    user?: unknown;
+    applies: "live" | "restart";
+    secrets: Array<{ path: string[]; set: boolean }>;
+    revision: number;
+}
+
+export interface DshSettingsDescribeResult {
+    writable: boolean;
+    hasDocument: boolean;
+    namespaces: DshSettingsNamespaceView[];
+}
+
+export type DshSettingsPathOperation =
+    | { op: "set"; path: string[]; value: unknown }
+    | { op: "unset"; path: string[] };
+
 export interface DshApprovalRequested {
     type: "approval/requested";
     sessionId: string;
@@ -613,6 +657,11 @@ export interface ChatViewState {
     cancelling: boolean;
     focusMode: boolean;
     workspaceName?: string;
+    currentWorkspace?: {
+        workspaceId?: string;
+        title: string;
+    };
+    skills: DshSkillEntry[];
     host?: HostBaselineView;
     sessionId?: string;
     draftWorkspaceId?: string;

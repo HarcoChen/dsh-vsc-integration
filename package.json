@@ -2,7 +2,7 @@
     "name": "dsh-vsc-integration",
     "displayName": "%extension.displayName%",
     "description": "%extension.description%",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "publisher": "harcochen",
     "license": "MIT",
     "repository": {
@@ -69,6 +69,7 @@
         "onCommand:dsh.gitDiffTask.docs",
         "onCommand:dsh.openIdeContextPicker",
         "onCommand:dsh.configureApiKey",
+        "onCommand:dsh.manageProviders",
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
@@ -243,6 +244,12 @@
                 "title": "%command.configureApiKey.title%",
                 "category": "DSH",
                 "icon": "$(key)"
+            },
+            {
+                "command": "dsh.manageProviders",
+                "title": "%command.manageProviders.title%",
+                "category": "DSH",
+                "icon": "$(server-environment)"
             },
             {
                 "command": "dsh.refreshBalance",

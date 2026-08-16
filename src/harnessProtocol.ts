@@ -14,6 +14,11 @@ import {
     DshSessionRenameResult,
     DshSessionSearchResult,
     DshSkillListResult,
+    DshProviderListResult,
+    DshCredentialDescribeResult,
+    DshSettingsDescribeResult,
+    DshSettingsNamespaceView,
+    DshSettingsPathOperation,
     DshSubagentAddress,
     DshSubagentCatalog,
     DshSubagentHistoryResult,
@@ -124,7 +129,17 @@ export interface HarnessRpcMethodMap {
         { cleared: true }
     >;
     "skill.list": RpcMethod<{ sessionId: string }, DshSkillListResult>;
+    "llm.providers": RpcMethod<EmptyPayload, DshProviderListResult>;
+    "settings.describe": RpcMethod<EmptyPayload, DshSettingsDescribeResult>;
+    "settings.openDocument": RpcMethod<EmptyPayload, { opened: true }>;
+    "settings.mutate": RpcMethod<{
+        ns: string;
+        ops: DshSettingsPathOperation[];
+        expectedRevision?: number;
+    }, DshSettingsNamespaceView>;
+    "credentials.describe": RpcMethod<{ refs: string[] }, DshCredentialDescribeResult>;
     "credentials.set": RpcMethod<{ ref: string; value: string }, Record<string, never>>;
+    "credentials.unset": RpcMethod<{ ref: string }, Record<string, never>>;
 }
 
 /** Marker used only to derive request and response types from the map. */

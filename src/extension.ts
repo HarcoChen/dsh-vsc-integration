@@ -109,6 +109,9 @@ export function activate(context: vscode.ExtensionContext): void {
                 void vscode.window.showErrorMessage(t("DSH: Failed to configure API Key: {message}", { message }));
             }),
         ),
+        vscode.commands.registerCommand("dsh.manageProviders", () =>
+            runCommand(t("Manage providers"), () => chatView.manageProviders()),
+        ),
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
         vscode.commands.registerCommand("dsh.diagnoseEnvironment", async () => {
             await runCommand(t("Diagnose environment"), async () => {

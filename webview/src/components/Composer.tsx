@@ -213,10 +213,41 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const slashMatches = slashQuery === undefined
         ? []
         : SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(slashQuery));
+    const slashSkillMatches = slashQuery === undefined
+        ? []
+        : state.skills.filter((skill) =>
+              skill.name.toLowerCase().startsWith(slashQuery) &&
+              !SLASH_COMMANDS.some((command) => command.name.slice(1) === skill.name.toLowerCase()),
+          );
+    const slashCandidateCount = slashMatches.length + slashSkillMatches.length;
+    const skillMatch = text.match(/(?:^|\s)\$([^\s$]*)$/u);
+    const skillQuery = skillMatch?.[1]?.toLowerCase();
+    const skillMatches = skillQuery === undefined
+        ? []
+        : state.skills.filter((skill) => {
+              const query = skillQuery.trim();
+              return !query || skill.name.toLowerCase().includes(query) ||
+                  skill.description.toLowerCase().includes(query) ||
+                  skill.whenToUse?.toLowerCase().includes(query);
+          });
     const chooseSlashCommand = useCallback((name: string): void => {
         executeSlashCommand(name);
         window.requestAnimationFrame(() => textareaRef.current?.focus());
     }, [executeSlashCommand]);
+    const chooseSkill = useCallback((name: string): void => {
+        const match = text.match(/(?:^|\s)\$([^\s$]*)$/u);
+        if (match && match.index !== undefined) {
+            const dollarOffset = match[0].lastIndexOf("$");
+            const start = match.index + dollarOffset;
+            setText(`${text.slice(0, start)}/${name} `);
+        } else if (/^\/\S*$/u.test(text)) {
+            setText(`/${name} `);
+        } else {
+            return;
+        }
+        setSlashIndex(0);
+        window.requestAnimationFrame(() => textareaRef.current?.focus());
+    }, [text]);
 
     const selection = state.selection;
     const selectionRange = selection?.range;
@@ -360,7 +391,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 <textarea
                     ref={textareaRef}
                     className="dsh-prompt"
-                    placeholder={t("Describe a task; use @ to reference files or selections...")}
+                    placeholder={t("Describe a task; use @ for files, $ for skills...")}
                     value={text}
                     disabled={state.submitting}
                     rows={3}
@@ -369,20 +400,42 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         setSlashIndex(0);
                     }}
                     onKeyDown={(event) => {
-                        if (slashMatches.length) {
+                        if (skillMatches.length) {
                             if (event.key === "ArrowDown") {
                                 event.preventDefault();
-                                setSlashIndex((current) => (current + 1) % slashMatches.length);
+                                setSlashIndex((current) => (current + 1) % skillMatches.length);
                                 return;
                             }
                             if (event.key === "ArrowUp") {
                                 event.preventDefault();
-                                setSlashIndex((current) => (current - 1 + slashMatches.length) % slashMatches.length);
+                                setSlashIndex((current) => (current - 1 + skillMatches.length) % skillMatches.length);
                                 return;
                             }
                             if (event.key === "Tab" || event.key === "Enter") {
                                 event.preventDefault();
-                                chooseSlashCommand(slashMatches[slashIndex].name);
+                                chooseSkill(skillMatches[slashIndex]?.name ?? skillMatches[0].name);
+                                return;
+                            }
+                        } else if (slashCandidateCount) {
+                            if (event.key === "ArrowDown") {
+                                event.preventDefault();
+                                setSlashIndex((current) => (current + 1) % slashCandidateCount);
+                                return;
+                            }
+                            if (event.key === "ArrowUp") {
+                                event.preventDefault();
+                                setSlashIndex((current) => (current - 1 + slashCandidateCount) % slashCandidateCount);
+                                return;
+                            }
+                            if (event.key === "Tab" || event.key === "Enter") {
+                                event.preventDefault();
+                                const command = slashMatches[slashIndex];
+                                if (command) {
+                                    chooseSlashCommand(command.name);
+                                } else {
+                                    const skill = slashSkillMatches[slashIndex - slashMatches.length];
+                                    if (skill) chooseSkill(skill.name);
+                                }
                                 return;
                             }
                         }
@@ -392,7 +445,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         }
                     }}
                 />
-                {slashMatches.length ? (
+                {slashCandidateCount ? (
                     <div className="dsh-slash-menu" role="listbox" aria-label="Slash commands">
                         {slashMatches.map((command, index) => (
                             <button
@@ -406,6 +459,41 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                             >
                                 <strong>{command.name}</strong>
                                 <span>{command.description}</span>
+                            </button>
+                        ))}
+                        {slashSkillMatches.map((skill, offset) => {
+                            const index = slashMatches.length + offset;
+                            return (
+                                <button
+                                    type="button"
+                                    role="option"
+                                    aria-selected={index === slashIndex}
+                                    className={index === slashIndex ? "active" : ""}
+                                    key={`skill:${skill.name}`}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => chooseSkill(skill.name)}
+                                >
+                                    <strong>/{skill.name}</strong>
+                                    <span>{skill.whenToUse || skill.description}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                ) : null}
+                {skillMatches.length ? (
+                    <div className="dsh-slash-menu" role="listbox" aria-label="Skill candidates">
+                        {skillMatches.map((skill, index) => (
+                            <button
+                                type="button"
+                                role="option"
+                                aria-selected={index === slashIndex}
+                                className={index === slashIndex ? "active" : ""}
+                                key={skill.name}
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => chooseSkill(skill.name)}
+                            >
+                                <strong>${skill.name}</strong>
+                                <span>{skill.whenToUse || skill.description}</span>
                             </button>
                         ))}
                     </div>
