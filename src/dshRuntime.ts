@@ -344,6 +344,33 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
     if (await executableExists(command)) {
         return { command, args: [], source: { kind: "configured", command, args: [] } };
     }
+    // `npx` is the packaged default command. If it is absent, treat that as
+    // a missing local toolchain so the managed Runtime fallback can run.
+    if (command === "npx") {
+        failures.push(t("npx: not found"));
+        if (options.allowManaged && options.storagePath && options.installWhenMissing) {
+            try {
+                return await discoverManagedRuntime(options);
+            } catch (error) {
+                if (error instanceof CanceledError) throw error;
+                const target = (() => {
+                    try {
+                        return resolveTarget();
+                    } catch {
+                        return "<unknown>";
+                    }
+                })();
+                failures.push(t("Managed Runtime {version} ({target}): {reason}", {
+                    version: options.runtimeVersion,
+                    target,
+                    reason: error instanceof Error ? error.message : String(error),
+                }));
+            }
+        } else if (options.allowManaged && !options.installWhenMissing) {
+            failures.push(t("Managed Runtime download is disabled by the dsh.installWhenMissing setting."));
+        }
+        throw new Error(t("Unable to start DSH Runtime.\n\n{reasons}", { reasons: failures.join("\n") }));
+    }
     if (command !== "dsh") {
         throw new Error(t("Start command “{command}” was not found. Configure an absolute dsh.command path or install the dsh CLI.", { command }));
     }

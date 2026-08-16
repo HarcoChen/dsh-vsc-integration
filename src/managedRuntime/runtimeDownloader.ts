@@ -23,7 +23,10 @@ export async function downloadRuntimeArchive(
     options?: { signal?: AbortSignal },
 ): Promise<DownloadedArchive> {
     const partPath = join(tmpDir, "archive.part");
-    const archivePath = join(tmpDir, "archive");
+    // Keep the archive suffix because the installer uses it to select the
+    // tar.gz versus ZIP extractor. The manifest filename is validated as a
+    // plain file name, so only its format suffix is used here.
+    const archivePath = join(tmpDir, asset.filename.toLowerCase().endsWith(".zip") ? "archive.zip" : "archive.tar.gz");
 
     const result = await provider.downloadAsset(asset, partPath, { signal: options?.signal });
 

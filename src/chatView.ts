@@ -1570,9 +1570,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     throw new Error(t("The dsh runtime rejected this command."));
                 }
                 const command = commandResult.command;
-                if (!command || typeof command !== "object" || Array.isArray(command) ||
-                    (command as Record<string, unknown>).kind !== "success") {
+                if (!command || typeof command !== "object" || Array.isArray(command)) {
                     throw new Error(t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package."));
+                }
+                const commandRecord = command as Record<string, unknown>;
+                if (commandRecord.kind === "error") {
+                    const message = typeof commandRecord.text === "string" && commandRecord.text.trim()
+                        ? commandRecord.text
+                        : t("The dsh server rejected the /compact command.");
+                    throw new Error(message);
+                }
+                if (commandRecord.kind !== "success") {
+                    throw new Error(t("The connected dsh server returned an invalid /compact command result."));
                 }
                 return;
             }

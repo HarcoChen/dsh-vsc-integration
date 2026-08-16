@@ -4,7 +4,7 @@
   <img src="resources/dsh.png" alt="DSH" width="128">
 </p>
 
-面向 DeepSeek Harness 社区版 VS Code Extension，支持四种模式切换、Trace Vscode内查看等特色功能
+面向 DeepSeek Harness 社区版 VS Code Extension，支持四种模式切换、Trace Vscode内查看、无npm环境自动下载runtime等特色功能
 
 [English](README.md) | **简体中文**
 
@@ -55,38 +55,13 @@ npm run package
 
 通过 `Extensions: Install from VSIX...` 安装生成的 `.vsix` 文件。
 
-## 使用方式
-
-1. 打开一个已信任的工作区。
-2. 打开 DSH Chat（`Ctrl+Shift+Alt+D` / `Cmd+Shift+Alt+D`）。
-3. 输入 `@` 搜索并引用工作区文件，输入 `$` 选择 Skill，附加选区、诊断信息、未暂存的 Git diff 或图片，也可以输入 `/` 打开命令与 Skill 菜单。图片还可直接粘贴或拖放到输入区。
-4. 发送 prompt，并直接在聊天视图内处理工具审批、问题和计划评审。
-
-资源管理器右键菜单提供 `DSH：询问此资源`，会将所选文件或目录及其工作区根目录预填到聊天，不会自动发送。执行 `DSH：诊断环境` 可在 DSH 输出通道中生成脱敏的 Runtime 与命令发现报告。
+## 详细说明
 
 如果 dsh 报告 API Key 缺失或无效，点击聊天头部的 `Key`，或运行 `DSH: Configure API Key`。密钥会交给 dsh 的凭据服务，并以 VS Code SecretStorage 加密保存一份给余额指示器使用；不会写入 prompt、扩展状态或日志。
 
 聊天菜单和命令面板中的 `DSH: Manage Providers` 可查看 Provider 是否启用、配置及其凭据来源，设置或移除 API Key，并打开 Harness 官方配置文件进行高级编辑。`DSH: Manage Agent Presets` 可列出 system/user Preset、显示损坏原因、打开只读 composition 快照，并通过 Harness 提供的操作复制、编辑、删除或设为默认 Preset。DSH Workspace 会根据目录自动发现；`DSH: Manage Workspaces` 支持重命名和移除分组，并调整 Workspace 与组内 Session 的显示顺序。移除分组不会删除目录或 Session 日志。
 
 多个 VS Code 窗口会优先复用同一个本地 Harness Runtime。扩展启动的 Runtime 使用进程锁公布其随机 loopback 端口，后续窗口经 `host.describe` 验证后连接，避免多个写进程竞争同一 Session 存储。
-
-## 配置
-
-```jsonc
-{
-  "dsh.command": "npx",
-  "dsh.commandArgs": ["-y", "@deepseek-ai/dsh", "web"]
-}
-```
-
-- `dsh.command` / `dsh.commandArgs`：用于启动 `dsh web` 的命令。
-- `dsh.serverUrl`：连接已有 runtime，而不是启动新进程。
-- `dsh.serverPort`：本地 runtime 端口；`0` 表示自动选择。
-- `dsh.maxContextBytes`：`<ide_context>` 区块的最大 UTF-8 字节数。
-- `dsh.apiKeyEnv`：`DSH: Configure API Key` 使用的凭据引用名，默认为 `DEEPSEEK_API_KEY`。
-- `dsh.balanceRefreshIntervalMs`：DeepSeek 余额刷新间隔，默认为 30 秒。
-
-余额指示器调用 DeepSeek 官方 `/user/balance` 接口。聊天凭据仍由 dsh runtime 管理；SecretStorage 中的加密副本仅用于只读余额查询。
 
 ## 开发
 
@@ -97,7 +72,7 @@ npm run compile    # 构建到 dist/
 npm run package    # 编译 + vsce 打包
 ```
 
-在 VS Code 中按 `F5` 启动 Extension Development Host。
+建议使用 VS Code.
 
 ## 更多信息
 

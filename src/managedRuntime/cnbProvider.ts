@@ -121,21 +121,50 @@ function httpGet(url: string, options: RequestOptions): Promise<IncomingMessage>
     });
 }
 
-function readBodyLimited(response: IncomingMessage, limitBytes: number): Promise<string> {
+function readBodyLimited(
+    response: IncomingMessage,
+    limitBytes: number,
+    options: { signal?: AbortSignal; totalTimeoutMs?: number } = {},
+): Promise<string> {
     return new Promise<string>((resolve, reject) => {
         const chunks: Buffer[] = [];
         let total = 0;
+        let settled = false;
+        const timer = options.totalTimeoutMs === undefined
+            ? undefined
+            : setTimeout(() => fail(new Error(t("The download timed out."))), options.totalTimeoutMs);
+        const onAbort = () => {
+            const reason = options.signal?.reason;
+            fail(reason instanceof Error ? reason : new Error(t("The download was canceled.")));
+        };
+        const cleanup = () => {
+            options.signal?.removeEventListener("abort", onAbort);
+            if (timer !== undefined) clearTimeout(timer);
+        };
+        const fail = (error: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            response.destroy();
+            reject(error instanceof Error ? error : new Error(String(error)));
+        };
+        options.signal?.addEventListener("abort", onAbort, { once: true });
         response.on("data", (chunk: Buffer) => {
+            if (settled) return;
             total += chunk.length;
             if (total > limitBytes) {
-                response.destroy();
-                reject(new Error(t("The server response exceeded the allowed size limit.")));
+                fail(new Error(t("The server response exceeded the allowed size limit.")));
                 return;
             }
             chunks.push(chunk);
         });
-        response.on("error", reject);
-        response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        response.on("error", fail);
+        response.on("end", () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(Buffer.concat(chunks).toString("utf8"));
+        });
     });
 }
 
@@ -223,7 +252,10 @@ export class CnbRuntimeProvider implements RuntimeDownloadProvider {
             totalTimeoutMs: MANIFEST_TOTAL_TIMEOUT_MS,
             maxRedirects: MAX_REDIRECTS,
         });
-        const body = await readBodyLimited(response, MAX_MANIFEST_BYTES);
+        const body = await readBodyLimited(response, MAX_MANIFEST_BYTES, {
+            signal,
+            totalTimeoutMs: MANIFEST_TOTAL_TIMEOUT_MS,
+        });
         let raw: unknown;
         try {
             raw = JSON.parse(body);
