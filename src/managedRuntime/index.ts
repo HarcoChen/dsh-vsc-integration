@@ -27,8 +27,12 @@ export interface AcquireManagedRuntimeOptions {
     signal?: AbortSignal;
     /** Report the current install phase for progress UI. */
     onPhase?: (phase: RuntimeInstallPhase) => void;
+    /** Report verified response bytes while the Runtime archive is downloading. */
+    onDownloadProgress?: (received: number, total: number) => void;
     /** Report while waiting for another window's install to finish. */
     onWaiting?: () => void;
+    /** HTTP(S) proxy URL (e.g. from the VS Code http.proxy setting). */
+    proxy?: string;
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -73,7 +77,7 @@ export async function acquireManagedRuntime(
         }
 
         options.onPhase?.("preparing");
-        const provider = new CnbRuntimeProvider(CNB_RUNTIME_BASE_URL, version);
+        const provider = new CnbRuntimeProvider(CNB_RUNTIME_BASE_URL, version, options.proxy);
 
         log("[dsh:runtime] downloading manifest from CNB");
         const manifest = await provider.getManifest(version, options.signal);
@@ -92,7 +96,10 @@ export async function acquireManagedRuntime(
 
         try {
             options.onPhase?.("downloading");
-            const downloaded = await downloadRuntimeArchive(provider, asset, tmpDir, { signal: options.signal });
+            const downloaded = await downloadRuntimeArchive(provider, asset, tmpDir, {
+                signal: options.signal,
+                onProgress: options.onDownloadProgress,
+            });
             log("[dsh:runtime] sha256 verified");
 
             options.onPhase?.("verifying");

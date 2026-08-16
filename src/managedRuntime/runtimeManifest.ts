@@ -12,10 +12,9 @@ function fail(reason: string): never {
  *
  * Minimal checks:
  *  - version: non-empty string
- *  - platforms: object
- *  - per-platform asset: filename is a plain file name (no separators,
- *    absolute paths or ".."), sha256 is a 64-char hex string, size is a
- *    positive integer.
+ *  - either the legacy `platforms` object or the release `artifacts` array
+ *  - per-platform asset: file name is plain (no separators, absolute paths
+ *    or ".."), sha256 is a 64-char hex string, size is a positive integer.
  *
  * Values taken from a remote manifest must never be used as extraction
  * destinations; the installer resolves every entry itself.
@@ -29,16 +28,40 @@ export function parseManifest(input: unknown): RuntimeManifest {
     if (typeof raw.version !== "string" || raw.version.length === 0) {
         fail("version must be a non-empty string");
     }
-    if (typeof raw.platforms !== "object" || raw.platforms === null || Array.isArray(raw.platforms)) {
-        fail("platforms must be an object");
-    }
-
     const platforms: Record<string, RuntimeAsset> = {};
-    for (const [target, value] of Object.entries(raw.platforms as Record<string, unknown>)) {
-        if (!/^[a-z0-9_-]+$/u.test(target)) {
-            fail(`platform key "${target}" is invalid`);
+    if (typeof raw.platforms === "object" && raw.platforms !== null && !Array.isArray(raw.platforms)) {
+        for (const [target, value] of Object.entries(raw.platforms as Record<string, unknown>)) {
+            if (!/^[a-z0-9_-]+$/u.test(target)) {
+                fail(`platform key "${target}" is invalid`);
+            }
+            platforms[target] = parseAsset(target, value);
         }
-        platforms[target] = parseAsset(target, value);
+    } else if (Array.isArray(raw.artifacts)) {
+        for (const value of raw.artifacts) {
+            if (typeof value !== "object" || value === null || Array.isArray(value)) {
+                fail("every artifact must be an object");
+            }
+            const artifact = value as Record<string, unknown>;
+            if (
+                typeof artifact.platform !== "string" ||
+                !/^[a-z0-9_-]+$/u.test(artifact.platform) ||
+                typeof artifact.arch !== "string" ||
+                !/^[a-z0-9_-]+$/u.test(artifact.arch)
+            ) {
+                fail("artifact platform and arch must be non-empty identifiers");
+            }
+            const target = `${artifact.platform}-${artifact.arch}`;
+            if (platforms[target]) {
+                fail(`platform "${target}" is duplicated`);
+            }
+            platforms[target] = parseAsset(target, {
+                filename: artifact.file,
+                sha256: artifact.sha256,
+                size: artifact.size,
+            });
+        }
+    } else {
+        fail("expected a platforms object or artifacts array");
     }
     if (Object.keys(platforms).length === 0) {
         fail("platforms must not be empty");

@@ -20,7 +20,10 @@ export async function downloadRuntimeArchive(
     provider: RuntimeDownloadProvider,
     asset: RuntimeAsset,
     tmpDir: string,
-    options?: { signal?: AbortSignal },
+    options?: {
+        signal?: AbortSignal;
+        onProgress?: (received: number, total: number) => void;
+    },
 ): Promise<DownloadedArchive> {
     const partPath = join(tmpDir, "archive.part");
     // Keep the archive suffix because the installer uses it to select the
@@ -28,7 +31,10 @@ export async function downloadRuntimeArchive(
     // plain file name, so only its format suffix is used here.
     const archivePath = join(tmpDir, asset.filename.toLowerCase().endsWith(".zip") ? "archive.zip" : "archive.tar.gz");
 
-    const result = await provider.downloadAsset(asset, partPath, { signal: options?.signal });
+    const result = await provider.downloadAsset(asset, partPath, {
+        signal: options?.signal,
+        onProgress: options?.onProgress,
+    });
 
     if (result.sha256.toLowerCase() !== asset.sha256.toLowerCase()) {
         throw new Error(

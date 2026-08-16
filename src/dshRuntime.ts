@@ -223,6 +223,8 @@ interface DiscoverDshOptions {
     runtimeVersion: string;
     /** Permit the managed Runtime fallback (may download). Disabled during diagnosis. */
     allowManaged: boolean;
+    /** HTTP(S) proxy URL, e.g. from the VS Code http.proxy setting. */
+    proxy?: string;
     onLog?: (message: string) => void;
 }
 
@@ -303,6 +305,7 @@ async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshL
             cancellable: true,
         },
         async (progress, token) => {
+            let reportedPercent = 0;
             if (token.isCancellationRequested) {
                 controller.abort();
             } else {
@@ -315,10 +318,19 @@ async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshL
                     log,
                     signal: controller.signal,
                     onPhase: (phase) => progress.report({ message: managedPhaseMessage(phase, version) }),
+                    onDownloadProgress: (received, total) => {
+                        const percent = Math.min(100, Math.floor((received / total) * 100));
+                        if (percent <= reportedPercent) return;
+                        progress.report({
+                            increment: percent - reportedPercent,
+                        });
+                        reportedPercent = percent;
+                    },
                     onWaiting: () =>
                         progress.report({
                             message: t("Waiting for another window to finish installing DSH Runtime {version}…", { version }),
                         }),
+                    proxy: options.proxy,
                 });
             } catch (error) {
                 if (controller.signal.aborted || token.isCancellationRequested) {
@@ -543,6 +555,7 @@ export class DshRuntime implements vscode.Disposable {
                 installWhenMissing,
                 runtimeVersion,
                 allowManaged: false,
+                proxy: this.httpProxy(),
             });
             discovery = `${launcher.command} (${describeSource(launcher.source)})`;
         } catch (error) {
@@ -1050,6 +1063,7 @@ export class DshRuntime implements vscode.Disposable {
                     this.configuration().get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION) ||
                     RUNTIME_DEFAULT_VERSION,
                 allowManaged: true,
+                proxy: this.httpProxy(),
                 onLog: (message) => this.output.appendLine(message),
             });
         } catch (error) {
@@ -1391,6 +1405,12 @@ export class DshRuntime implements vscode.Disposable {
 
     private configuration(): vscode.WorkspaceConfiguration {
         return vscode.workspace.getConfiguration("dsh");
+    }
+
+    /** Read the VS Code http.proxy setting so downloads honor it like curl. */
+    private httpProxy(): string | undefined {
+        const value = vscode.workspace.getConfiguration("http").get<string>("proxy", "");
+        return value.trim() || undefined;
     }
 
     private setStatus(status: RuntimeStatus): void {
