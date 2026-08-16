@@ -23,6 +23,7 @@
 > - 支持选择、粘贴或拖放 PNG、JPEG、WebP、GIF 图片，并回看 Session 历史图片
 > - 在内建 Trace 中查看工具调用、结果和 Reasoning
 > - 结构化展示 Web Search 来源与 Web Fetch 状态，并由 Host 校验外部链接
+> - 在工具卡中查看 LSP 定义、引用、实现与 Hover 结果，并跳转到工作区文件
 > - 支持文件路径与行号跳转
 > - 实时查看 Harness 当前任务清单的待处理、进行中和已完成状态
 > - 查看当前模型、Reasoning effort、计费 Token、缓存用量和估算上下文压力

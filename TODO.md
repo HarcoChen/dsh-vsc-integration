@@ -31,7 +31,7 @@
 - [x] **图片附件**：使用官方 image content block 发送和回放图片，限制 MIME、大小和工作区外数据流。
 - [x] **Web Search / Fetch 展示**：接入公开 web tool 结果，提供来源、域名、链接安全校验和失败状态；不从私有日志推断搜索结果。
 - ~~**MCP 工具来源**：展示 MCP server、工具来源、连接状态和错误；审批时明确区分 MCP 工具与内置工具。~~ **跳过**：当前公开 RPC 没有 MCP server 列表或连接状态契约，避免从工具名猜测来源。
-- [ ] **LSP 能力**：接入公开 LSP tool，支持诊断之外的符号、定义、引用和 hover 结果，并复用工作区边界校验。
+- [x] **LSP 能力**：接入公开 LSP tool，展示定义、引用、实现和 hover 结果，并复用工作区边界校验；当前公开协议不提供 workspace symbols 或 diagnostics 查询。
 - [ ] **Terminal / PTY context**：支持终端选区 `@` 引用、PTY 输出摘要和 persistent bash 状态；避免把完整终端历史静默注入 prompt。
 - [ ] **Hook 可观测性**：展示 Claude Code/Codex hook 的触发、结果和失败状态，并在 Trace 中关联对应 turn。
 - [ ] **Session 内容查询**：使用公开 session query/index，标题匹配后支持服务端全文搜索，索引不可用时明确回退本地匹配。

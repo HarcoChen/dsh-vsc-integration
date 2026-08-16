@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import type {
     ChatImageView,
+    ChatLspLocationView,
+    ChatLspResultView,
     ChatMessage,
     ChatToolCall,
     ChatWebResultView,
@@ -111,10 +113,66 @@ function WebToolResult({ web }: { web: ChatWebResultView }): React.JSX.Element {
     );
 }
 
+function LspLocationLink({ location }: { location: ChatLspLocationView }): React.JSX.Element {
+    return location.path && location.line ? (
+        <span
+            className="dsh-lsp-location"
+            role="link"
+            tabIndex={0}
+            data-file-path={location.path}
+            data-file-line={location.line}
+            {...(location.character === undefined
+                ? {}
+                : { "data-file-column": location.character })}
+        >
+            {location.label}
+        </span>
+    ) : <span>{location.label}</span>;
+}
+
+function lspOperationLabel(operation: ChatLspResultView["operation"]): string {
+    switch (operation) {
+        case "goToDefinition": return t("Definition");
+        case "findReferences": return t("References");
+        case "goToImplementation": return t("Implementations");
+        case "hover": return "Hover";
+    }
+}
+
+function LspToolResult({ lsp }: { lsp: ChatLspResultView }): React.JSX.Element {
+    return (
+        <div className="dsh-lsp-result">
+            <div className="dsh-lsp-head">
+                <strong>{lspOperationLabel(lsp.operation)}</strong>
+                <span>{t("Query")}: <LspLocationLink location={lsp.query} /></span>
+            </div>
+            {lsp.empty ? <div className="dsh-lsp-empty">{t("No LSP results")}</div> : null}
+            {lsp.kind === "locations" && lsp.locations.length ? (
+                <ol className="dsh-lsp-locations">
+                    {lsp.locations.map((location, index) => (
+                        <li key={`${location.label}:${index}`}>
+                            <LspLocationLink location={location} />
+                        </li>
+                    ))}
+                </ol>
+            ) : null}
+            {lsp.kind === "hover" && lsp.content ? (
+                <pre className="dsh-lsp-hover">{lsp.content}</pre>
+            ) : null}
+            {lsp.kind === "locations" && lsp.notices.length ? (
+                <div className="dsh-lsp-notices">
+                    {lsp.notices.map((notice, index) => <div key={`${notice}:${index}`}>{notice}</div>)}
+                </div>
+            ) : null}
+            {lsp.truncated ? <div className="dsh-lsp-truncated">{t("LSP result truncated")}</div> : null}
+        </div>
+    );
+}
+
 function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
     const status =
         tool.status === "running" ? t("Running") : tool.status === "failed" ? t("Failed") : t("Done");
-    const hasDetail = Boolean(tool.args || tool.result || tool.error || tool.web);
+    const hasDetail = Boolean(tool.args || tool.result || tool.error || tool.web || tool.lsp);
     return (
         <details className={`dsh-tool-card ${tool.status}`}>
             <summary>
@@ -128,13 +186,14 @@ function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
             {hasDetail ? (
                 <div className="dsh-tool-detail">
                     {tool.web ? <WebToolResult web={tool.web} /> : null}
-                    {tool.args ? (
+                    {tool.lsp ? <LspToolResult lsp={tool.lsp} /> : null}
+                    {tool.args && !tool.lsp ? (
                         <div className="dsh-tool-section">
                             <div className="dsh-tool-section-label">{t("Parameters")}</div>
                             <pre><LinkedFileLocations text={tool.args} /></pre>
                         </div>
                     ) : null}
-                    {tool.result && (!tool.web || tool.web.kind === "fetch") ? (
+                    {tool.result && !tool.lsp && (!tool.web || tool.web.kind === "fetch") ? (
                         <div className="dsh-tool-section">
                             <div className="dsh-tool-section-label">{t("Result")}</div>
                             <pre><LinkedFileLocations text={tool.result} /></pre>

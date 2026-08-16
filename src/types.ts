@@ -68,6 +68,38 @@ export type ChatWebResultView =
           truncated: boolean;
       };
 
+export type ChatLspOperation =
+    | "goToDefinition"
+    | "findReferences"
+    | "goToImplementation"
+    | "hover";
+
+export interface ChatLspLocationView {
+    label: string;
+    path?: string;
+    line?: number;
+    character?: number;
+}
+
+export type ChatLspResultView =
+    | {
+          kind: "locations";
+          operation: Exclude<ChatLspOperation, "hover">;
+          query: ChatLspLocationView;
+          locations: ChatLspLocationView[];
+          notices: string[];
+          empty: boolean;
+          truncated: boolean;
+      }
+    | {
+          kind: "hover";
+          operation: "hover";
+          query: ChatLspLocationView;
+          content?: string;
+          empty: boolean;
+          truncated: boolean;
+      };
+
 export interface ChatToolCall {
     callId: string;
     name: string;
@@ -78,6 +110,7 @@ export interface ChatToolCall {
     durationMs?: number;
     error?: string;
     web?: ChatWebResultView;
+    lsp?: ChatLspResultView;
 }
 
 export interface ChatMessage {

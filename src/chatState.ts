@@ -1,5 +1,7 @@
 import {
     ChatImageView,
+    ChatLspOperation,
+    ChatLspResultView,
     ChatMessage,
     ChatToolCall,
     ChatWebResultView,
@@ -13,6 +15,7 @@ import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
+import { parseFileLocation } from "./fileLocations";
 
 export interface OptimisticPrompt {
     id: string;
@@ -273,6 +276,102 @@ function toolArgumentsSummary(value: unknown): string | undefined {
     }
 }
 
+function toolArgumentsRecord(value: unknown): Record<string, unknown> | undefined {
+    if (isRecord(value)) return value;
+    if (typeof value !== "string") return undefined;
+    try {
+        const parsed: unknown = JSON.parse(value);
+        return isRecord(parsed) ? parsed : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function toolResultRawText(event: StoredSessionEvent | undefined): string | undefined {
+    if (!event || event.event.type !== "tool/result" || !isRecord(event.event.data)) return undefined;
+    const data = event.event.data;
+    const message = isRecord(data.message) ? data.message : undefined;
+    const block = Array.isArray(message?.content) && isRecord(message.content[0])
+        ? message.content[0]
+        : undefined;
+    const content = block?.content ?? data.content;
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return undefined;
+    const parts = content.flatMap((part): string[] =>
+        isRecord(part) && typeof part.text === "string" ? [part.text] : [],
+    );
+    return parts.length ? parts.join("") : undefined;
+}
+
+const LSP_OPERATIONS = new Set<ChatLspOperation>([
+    "goToDefinition",
+    "findReferences",
+    "goToImplementation",
+    "hover",
+]);
+
+function isLspOperation(value: unknown): value is ChatLspOperation {
+    return typeof value === "string" && LSP_OPERATIONS.has(value as ChatLspOperation);
+}
+
+function lspResultView(
+    name: string,
+    argumentsValue: unknown,
+    resultText: string | undefined,
+): ChatLspResultView | undefined {
+    if (name !== "lsp" || resultText === undefined || resultText.length > 16_000) return undefined;
+    const args = toolArgumentsRecord(argumentsValue);
+    const operation = args?.operation;
+    const filePath = args?.file_path;
+    const line = args?.line;
+    const character = args?.character;
+    if (
+        !isLspOperation(operation) ||
+        typeof filePath !== "string" || filePath.length === 0 || filePath.length > 4_096 ||
+        typeof line !== "number" || !Number.isSafeInteger(line) || line <= 0 || line > 100_000_000 ||
+        typeof character !== "number" || !Number.isSafeInteger(character) ||
+        character <= 0 || character > 100_000_000
+    ) return undefined;
+    const query = { label: `${filePath}:${line}:${character}`, path: filePath, line, character };
+    if (operation === "hover") {
+        const empty = resultText === "No hover information.";
+        return {
+            kind: "hover",
+            operation,
+            query,
+            ...(empty ? {} : { content: resultText }),
+            empty,
+            truncated: resultText.includes("hover truncated (limit "),
+        };
+    }
+    const locations = [];
+    const notices: string[] = [];
+    for (const row of resultText.split("\n")) {
+        if (!row) continue;
+        const location = parseFileLocation(row);
+        if (location) {
+            locations.push({
+                label: row,
+                path: location.path,
+                line: location.line,
+                ...(location.column === undefined ? {} : { character: location.column }),
+            });
+        } else if (row !== "No results.") {
+            notices.push(row);
+        }
+    }
+    return {
+        kind: "locations",
+        operation,
+        query,
+        locations,
+        notices,
+        empty: resultText === "No results.",
+        truncated: resultText.includes("locations truncated (limit ") ||
+            /more locations? omitted \(limit /u.test(resultText),
+    };
+}
+
 function toolResultFacts(event: StoredSessionEvent): {
     callId?: string;
     result?: string;
@@ -337,6 +436,9 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
             ? result.event.time - call.event.time
             : undefined;
         const web = facts?.error ? undefined : webResultView(resultPresentation);
+        const lsp = facts?.error
+            ? undefined
+            : lspResultView(name, data?.arguments, toolResultRawText(result));
         const tool: ChatToolCall = {
             callId,
             name,
@@ -347,6 +449,7 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
             ...(durationMs === undefined ? {} : { durationMs }),
             ...(facts?.error ? { error: facts.error } : {}),
             ...(web === undefined ? {} : { web }),
+            ...(lsp === undefined ? {} : { lsp }),
         };
         return [{
             id: `tool:${callId}`,
