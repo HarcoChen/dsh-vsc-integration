@@ -1852,18 +1852,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public async selectModel(): Promise<void> {
-        if (!this.sessionId) throw new Error(t("There is no current session."));
-        if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
-        const catalog = await this.runtime.models(this.sessionId);
-        this.modelCatalogs.set(this.sessionId, catalog);
+        const workspaceRoot = this.workspaceRoot();
+        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
+        if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
+
+        // Model selection is also a valid first action. The Harness model
+        // catalog is session-scoped, so materialize the pending/new session
+        // before requesting it instead of rejecting the command outright.
+        const sessionId = this.sessionId ?? await this.getOrCreateSession(workspaceRoot);
+        const catalog = await this.runtime.models(sessionId);
+        this.modelCatalogs.set(sessionId, catalog);
         const currentEfforts = reasoningEffortOptions(
             catalog,
             catalog.current.provider,
             catalog.current.model,
         );
-        this.selectedModels.set(this.sessionId, {
+        this.selectedModels.set(sessionId, {
             selection: catalog.current,
-            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId)),
+            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(sessionId)),
             reasoningEfforts: currentEfforts,
         });
         this.schedulePostState();
@@ -1898,18 +1904,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             reasoningEffort = effort;
         }
         const result = await this.runtime.selectModel({
-            sessionId: this.sessionId,
+            sessionId,
             provider: picked.provider,
             model: picked.model,
             ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         });
         const selectedEfforts = reasoningEffortOptions(catalog, picked.provider, picked.model);
-        this.selectedModels.set(this.sessionId, {
+        this.selectedModels.set(sessionId, {
             selection: result.selected,
-            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(this.sessionId)),
+            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(sessionId)),
             reasoningEfforts: selectedEfforts,
         });
-        this.modelCatalogs.set(this.sessionId, {
+        this.modelCatalogs.set(sessionId, {
             ...catalog,
             current: result.selected,
         });
