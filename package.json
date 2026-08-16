@@ -437,6 +437,12 @@
                     "default": true,
                     "description": "%config.installWhenMissing.description%"
                 },
+                "dsh.runtimeVersion": {
+                    "type": "string",
+                    "default": "0.1.0-rc.6",
+                    "pattern": "^[0-9A-Za-z.-]+$",
+                    "description": "%config.runtimeVersion.description%"
+                },
                 "dsh.startupTimeoutMs": {
                     "type": "number",
                     "default": 30000,

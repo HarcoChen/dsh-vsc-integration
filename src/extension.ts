@@ -10,7 +10,7 @@ import { parseTraceLocation } from "./traceProtocol";
 export function activate(context: vscode.ExtensionContext): void {
     configureLocalization((message, args) => vscode.l10n.t(message, args));
     const output = vscode.window.createOutputChannel("DeepSeek Harness");
-    const runtime = new DshRuntime(output);
+    const runtime = new DshRuntime(output, context.globalStorageUri.fsPath);
     const balanceService = new DeepSeekBalanceService(context, output);
     const contextStore = new ContextStore();
     const chatView = new ChatViewProvider(

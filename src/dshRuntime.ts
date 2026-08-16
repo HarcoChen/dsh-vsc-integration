@@ -15,6 +15,13 @@ import {
 import { HarnessStateCoordinator } from "./harnessState";
 import { t } from "./localize";
 import {
+    RUNTIME_DEFAULT_VERSION,
+    acquireManagedRuntime,
+    checkInstalled,
+    resolveTarget,
+} from "./managedRuntime";
+import type { ManagedRuntime, RuntimeInstallPhase } from "./managedRuntime";
+import {
     DshGoalRef,
     DshGoalRefResult,
     DshHistoryResult,
@@ -193,25 +200,160 @@ async function globalNpmPrefix(): Promise<string | undefined> {
     }
 }
 
-type DshLauncherSource = "configured" | "path" | "npm-prefix" | "npx";
+/**
+ * Where the launcher came from. `managed` runtimes are downloaded and cached
+ * by this extension; everything else is a local toolchain discovery.
+ */
+type DshRuntimeSource =
+    | { kind: "configured"; command: string; args: string[] }
+    | { kind: "path"; command: string; args: string[] }
+    | { kind: "npm-prefix"; command: string; args: string[] }
+    | { kind: "npx"; command: string; args: string[] }
+    | { kind: "managed"; command: string; args: string[]; version: string; target: string };
+
 interface DshLauncher {
     command: string;
     args: string[];
-    source: DshLauncherSource;
+    source: DshRuntimeSource;
 }
 
-async function discoverDsh(command: string): Promise<DshLauncher> {
+interface DiscoverDshOptions {
+    storagePath: string | undefined;
+    installWhenMissing: boolean;
+    runtimeVersion: string;
+    /** Permit the managed Runtime fallback (may download). Disabled during diagnosis. */
+    allowManaged: boolean;
+    onLog?: (message: string) => void;
+}
+
+function describeSource(source: DshRuntimeSource): string {
+    switch (source.kind) {
+        case "configured":
+            return source.command;
+        case "path":
+            return "PATH";
+        case "npm-prefix":
+            return "npm global prefix";
+        case "npx":
+            return "npx";
+        case "managed":
+            return t("managed Runtime {version} ({target})", { version: source.version, target: source.target });
+    }
+}
+
+class CanceledError extends Error {
+    constructor() {
+        super(t("Canceled."));
+    }
+}
+
+function managedPhaseMessage(phase: RuntimeInstallPhase, version: string): string {
+    switch (phase) {
+        case "preparing":
+            return t("Preparing DSH Runtime {version}…", { version });
+        case "downloading":
+            return t("Downloading DSH Runtime {version}…", { version });
+        case "verifying":
+            return t("Verifying the downloaded DSH Runtime…");
+        case "installing":
+            return t("Installing DSH Runtime {version}…", { version });
+    }
+}
+
+function managedLauncher(runtime: ManagedRuntime): DshLauncher {
+    return {
+        command: runtime.launcherPath,
+        args: [],
+        source: {
+            kind: "managed",
+            command: runtime.launcherPath,
+            args: [],
+            version: runtime.version,
+            target: runtime.target,
+        },
+    };
+}
+
+/**
+ * Fall back to the managed Runtime: reuse the local cache when healthy, or
+ * download and install it. Progress is shown in a cancellable notification.
+ */
+async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshLauncher> {
+    const storagePath = options.storagePath;
+    if (storagePath === undefined) {
+        throw new Error(t("The managed DSH Runtime requires a global storage directory."));
+    }
+    const version = options.runtimeVersion;
+    const log = options.onLog ?? (() => undefined);
+    const target = resolveTarget();
+
+    // Cached runtimes launch directly without any progress UI.
+    const cached = await checkInstalled(storagePath, target, version);
+    if (cached) {
+        log(`[dsh:runtime] using managed Runtime ${version} (${target})`);
+        return managedLauncher(cached);
+    }
+
+    log(`[dsh:runtime] managed Runtime ${version} (${target}) not cached; downloading`);
+    const controller = new AbortController();
+    const managed = await vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: t("DSH Runtime"),
+            cancellable: true,
+        },
+        async (progress, token) => {
+            if (token.isCancellationRequested) {
+                controller.abort();
+            } else {
+                token.onCancellationRequested(() => controller.abort());
+            }
+            try {
+                return await acquireManagedRuntime(storagePath, {
+                    version,
+                    target,
+                    log,
+                    signal: controller.signal,
+                    onPhase: (phase) => progress.report({ message: managedPhaseMessage(phase, version) }),
+                    onWaiting: () =>
+                        progress.report({
+                            message: t("Waiting for another window to finish installing DSH Runtime {version}…", { version }),
+                        }),
+                });
+            } catch (error) {
+                if (controller.signal.aborted || token.isCancellationRequested) {
+                    throw new CanceledError();
+                }
+                throw error;
+            }
+        },
+    );
+    log(`[dsh:runtime] using managed Runtime ${version} (${target})`);
+    return managedLauncher(managed);
+}
+
+/**
+ * Resolve the DSH launcher in order: configured command, PATH dsh, npm global
+ * prefix, non-installing npx, and finally the managed Runtime (cached, then
+ * downloaded). Every provider failure is aggregated into the final error so a
+ * failed download is never masked as a generic "dsh not available".
+ */
+async function discoverDsh(command: string, options: DiscoverDshOptions): Promise<DshLauncher> {
+    const failures: string[] = [];
+
     if (await executableExists(command)) {
-        return { command, args: [], source: "configured" };
+        return { command, args: [], source: { kind: "configured", command, args: [] } };
     }
     if (command !== "dsh") {
         throw new Error(t("Start command “{command}” was not found. Configure an absolute dsh.command path or install the dsh CLI.", { command }));
     }
+    failures.push(t("PATH dsh: not found"));
 
     if (await executableExists("dsh")) {
-        return { command: "dsh", args: [], source: "path" };
+        return { command: "dsh", args: [], source: { kind: "path", command: "dsh", args: [] } };
     }
 
+    let npmPrefixProbed = false;
     try {
         const result = await execFileAsync("npm", ["prefix", "-g"], {
             timeout: 10_000,
@@ -219,21 +361,57 @@ async function discoverDsh(command: string): Promise<DshLauncher> {
             shell: process.platform === "win32",
         });
         const prefix = result.stdout.trim();
-        const binDir = process.platform === "win32" ? prefix : join(prefix, "bin");
-        for (const name of process.platform === "win32" ? ["dsh.cmd", "dsh.exe", "dsh.ps1", "dsh"] : ["dsh"]) {
-            const candidate = join(binDir, name);
-            if (await executableExists(candidate)) {
-                return { command: candidate, args: [], source: "npm-prefix" };
+        if (prefix) {
+            npmPrefixProbed = true;
+            const binDir = process.platform === "win32" ? prefix : join(prefix, "bin");
+            for (const name of process.platform === "win32" ? ["dsh.cmd", "dsh.exe", "dsh.ps1", "dsh"] : ["dsh"]) {
+                const candidate = join(binDir, name);
+                if (await executableExists(candidate)) {
+                    return { command: candidate, args: [], source: { kind: "npm-prefix", command: candidate, args: [] } };
+                }
             }
         }
     } catch {
-        // npm is optional; continue to the non-installing npx probe.
+        failures.push(t("npm: unavailable"));
+    }
+    if (npmPrefixProbed) {
+        failures.push(t("No dsh executable was found in the npm global prefix."));
     }
 
     if (await executableExists("npx")) {
-        return { command: "npx", args: ["--no-install", "@deepseek-ai/dsh"], source: "npx" };
+        return { command: "npx", args: ["--no-install", "@deepseek-ai/dsh"], source: { kind: "npx", command: "npx", args: ["--no-install", "@deepseek-ai/dsh"] } };
     }
-    throw new Error(t("No dsh executable was found in PATH, the npm global prefix, or npx. Configure an absolute dsh.command path or install the dsh CLI."));
+    failures.push(t("npx: not found"));
+
+    if (options.allowManaged && options.storagePath) {
+        if (options.installWhenMissing) {
+            try {
+                return await discoverManagedRuntime(options);
+            } catch (error) {
+                if (error instanceof CanceledError) {
+                    throw error;
+                }
+                let target = "<unknown>";
+                try {
+                    target = resolveTarget();
+                } catch {
+                    // the failure reason below already describes the platform
+                }
+                const reason = error instanceof Error ? error.message : String(error);
+                failures.push(
+                    t("Managed Runtime {version} ({target}): {reason}", {
+                        version: options.runtimeVersion,
+                        target,
+                        reason,
+                    }),
+                );
+            }
+        } else {
+            failures.push(t("Managed Runtime download is disabled by the dsh.installWhenMissing setting."));
+        }
+    }
+
+    throw new Error(t("Unable to start DSH Runtime.\n\n{reasons}", { reasons: failures.join("\n") }));
 }
 
 export class DshRuntime implements vscode.Disposable {
@@ -252,7 +430,10 @@ export class DshRuntime implements vscode.Disposable {
     private status: RuntimeStatus = { state: "stopped" };
     private hostDescription: HarnessHostDescription | undefined;
 
-    public constructor(private readonly output: vscode.OutputChannel) {
+    public constructor(
+        private readonly output: vscode.OutputChannel,
+        private readonly storagePath: string,
+    ) {
         this.apiClient = new HarnessApiClient({
             baseUrl: () => this.baseUrl,
             timeoutMs: () =>
@@ -325,12 +506,35 @@ export class DshRuntime implements vscode.Disposable {
         const npmPath = await findExecutable("npm");
         const prefix = await globalNpmPrefix();
 
+        const installWhenMissing = configuration.get<boolean>("installWhenMissing", true);
+        const runtimeVersion = configuration.get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION) || RUNTIME_DEFAULT_VERSION;
+
         let discovery: string;
         try {
-            const launcher = await discoverDsh(command);
-            discovery = `${launcher.command} (${launcher.source})`;
+            const launcher = await discoverDsh(command, {
+                storagePath: this.storagePath,
+                installWhenMissing,
+                runtimeVersion,
+                allowManaged: false,
+            });
+            discovery = `${launcher.command} (${describeSource(launcher.source)})`;
         } catch (error) {
             discovery = `error: ${error instanceof Error ? error.message : String(error)}`;
+        }
+
+        let managedRuntime: string;
+        if (installWhenMissing) {
+            try {
+                const target = resolveTarget();
+                const cached = await checkInstalled(this.storagePath, target, runtimeVersion);
+                managedRuntime = cached
+                    ? `cached (${runtimeVersion}, ${target})`
+                    : `available, not cached (${runtimeVersion}, ${target})`;
+            } catch (error) {
+                managedRuntime = `unsupported: ${error instanceof Error ? error.message : String(error)}`;
+            }
+        } else {
+            managedRuntime = "disabled by dsh.installWhenMissing=false";
         }
 
         let health = "not running";
@@ -371,6 +575,7 @@ export class DshRuntime implements vscode.Disposable {
             `Resolved npx: ${npxPath ?? "<not found>"}`,
             `Resolved npm: ${npmPath ?? "<not found>"}`,
             `npm global prefix: ${prefix ?? "<unavailable>"}`,
+            `Managed Runtime: ${managedRuntime}`,
             `Discovered launcher: ${discovery}`,
             `Runtime status: ${this.status.state}`,
             `Runtime URL: ${this.baseUrl ? redactUrl(this.baseUrl) : "<none>"}`,
@@ -806,6 +1011,31 @@ export class DshRuntime implements vscode.Disposable {
         let args = [...configuredArgs];
         const enableCompaction = this.configuration().get<boolean>("enableCompaction", true);
 
+        // Discovery may trigger a managed Runtime download. This deliberately
+        // happens before the runtime start lock so one window can download or
+        // reuse the cache while another window keeps using an installed runtime.
+        let launcher: DshLauncher;
+        try {
+            launcher = await discoverDsh(command, {
+                storagePath: this.storagePath,
+                installWhenMissing: this.configuration().get<boolean>("installWhenMissing", true),
+                runtimeVersion:
+                    this.configuration().get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION) ||
+                    RUNTIME_DEFAULT_VERSION,
+                allowManaged: true,
+                onLog: (message) => this.output.appendLine(message),
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.setStatus({ state: "error", message });
+            throw error;
+        }
+        command = launcher.command;
+        // The managed launcher is an absolute path to the standalone runtime
+        // binary; the npx-style commandArgs do not apply to it.
+        args = [...launcher.args, ...(launcher.source.kind === "managed" ? ["web"] : [...configuredArgs])];
+        this.output.appendLine(`[dsh] discovered executable: ${command} (${describeSource(launcher.source)})`);
+
         if (!(await this.acquireRuntimeLock())) {
             const deadline = Date.now() + startupTimeout;
             while (Date.now() < deadline) {
@@ -823,19 +1053,6 @@ export class DshRuntime implements vscode.Disposable {
             this.setStatus({ state: "error", message });
             throw new Error(message);
         }
-
-        let launcher: DshLauncher;
-        try {
-            launcher = await discoverDsh(command);
-        } catch (error) {
-            await this.releaseRuntimeLock();
-            const message = error instanceof Error ? error.message : String(error);
-            this.setStatus({ state: "error", message });
-            throw error;
-        }
-        command = launcher.command;
-        args = [...launcher.args, ...args];
-        this.output.appendLine(`[dsh] discovered executable: ${command} (${launcher.source})`);
         if (enableCompaction && args.includes("web")) {
             this.compactionPatchPath = join(tmpdir(), `dsh-vscode-${process.pid}-compaction.patch.yml`);
             try {
@@ -931,9 +1148,17 @@ export class DshRuntime implements vscode.Disposable {
             this.baseUrl = undefined;
             this.startedByExtension = false;
             await this.releaseRuntimeLock();
-            const message = error instanceof Error ? error.message : String(error);
+            let message = error instanceof Error ? error.message : String(error);
+            if (launcher.source.kind === "managed") {
+                // Keep the freshly installed runtime in place for diagnosis.
+                message = t("Managed Runtime {version} ({target}) failed to become ready.\n\n{message}", {
+                    version: launcher.source.version,
+                    target: launcher.source.target,
+                    message,
+                });
+            }
             this.setStatus({ state: "error", message });
-            throw error;
+            throw new Error(message);
         }
     }
 
