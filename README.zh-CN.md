@@ -22,6 +22,7 @@
 > - Git Diff集成，长prompt自动转文件发送
 > - 在内建 Trace 中查看工具调用、结果和 Reasoning
 > - 支持文件路径与行号跳转
+> - 实时查看 Harness 当前任务清单的待处理、进行中和已完成状态
 > - 查看当前模型、Reasoning effort、计费 Token、缓存用量和估算上下文压力
 > - i18n支持
 

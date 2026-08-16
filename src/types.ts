@@ -697,6 +697,7 @@ export interface ChatViewState {
     sessionStats?: SessionStatsView;
     reasoningEffort?: ReasoningEffortView;
     permissions?: PermissionProjectionView;
+    todos?: DshTodoItemView[];
     interactions: Array<{
         key: string;
         kind: "approval" | "question" | "plan-review";
@@ -726,6 +727,11 @@ export interface ChatViewState {
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
     changeReviews: ChangeReviewView[];
+}
+
+export interface DshTodoItemView {
+    content: string;
+    status: "pending" | "in_progress" | "completed";
 }
 
 export interface ChangeReviewView {

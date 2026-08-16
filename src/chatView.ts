@@ -59,6 +59,7 @@ import {
     DshSkillEntry,
     DshSubagentAddress,
     DshSubagentCatalog,
+    DshTodoItemView,
     DshWorkspaceView,
     PermissionProjectionView,
     SessionStatsView,
@@ -218,6 +219,25 @@ function sessionStatsProjection(value: unknown): SessionStatsView | undefined {
         decodeMs: record.decodeMs as number,
         decodeTokens: record.decodeTokens as number,
     };
+}
+
+function todoProjection(value: unknown): DshTodoItemView[] | undefined {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 200) return undefined;
+    const todos: DshTodoItemView[] = [];
+    const seen = new Set<string>();
+    for (const candidate of value) {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
+        const item = candidate as Record<string, unknown>;
+        if (
+            typeof item.content !== "string" ||
+            !item.content.trim() ||
+            seen.has(item.content) ||
+            (item.status !== "pending" && item.status !== "in_progress" && item.status !== "completed")
+        ) return undefined;
+        seen.add(item.content);
+        todos.push({ content: item.content, status: item.status });
+    }
+    return todos;
 }
 
 function reasoningEffortOptions(
@@ -2620,6 +2640,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             : undefined;
         const goalCell = session?.projections.find((cell) => cell.key === "goal");
         const permissionsCell = session?.projections.find((cell) => cell.key === "permissions");
+        const todos = todoProjection(session?.projections.find((cell) => cell.key === "todos")?.value);
         const sessionStats = sessionStatsProjection(
             session?.projections.find((cell) => cell.key === "sessionStats")?.value,
         );
@@ -2713,6 +2734,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(sessionStats === undefined ? {} : { sessionStats }),
             reasoningEffort: this.reasoningEffortView(),
             permissions: permissionProjection(permissionsCell?.value),
+            ...(todos === undefined ? {} : { todos }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {

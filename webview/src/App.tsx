@@ -6,6 +6,7 @@ import { Interactions } from "./components/Interactions";
 import { ActivityDock } from "./components/ActivityDock";
 import { Composer } from "./components/Composer";
 import { TokenUsageBar } from "./components/TokenUsageBar";
+import { TodoPanel } from "./components/TodoPanel";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
@@ -15,6 +16,7 @@ export function App(): React.JSX.Element {
             <MessageList messages={state.messages} submitting={state.submitting} />
             <Interactions interactions={state.interactions} />
             <ActivityDock state={state} />
+            <TodoPanel todos={state.todos ?? []} />
             <TokenUsageBar usage={state.tokenUsage} />
             <Composer state={state} />
         </div>

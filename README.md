@@ -26,6 +26,7 @@ A full-featured community VS Code extension for connecting to DeepSeek Harness a
 > - Attach selections, diagnostics and Git diffs with byte-size and truncation feedback before sending
 > - Inspect tool calls, results and reasoning in a built-in Trace, with clickable file and line locations
 > - Review per-turn file changes with native VS Code diffs before restoring anything
+> - Follow the current Harness todo plan with live pending, active and completed states
 > - Monitor the active model, reasoning effort, billed tokens, cache usage and estimated context pressure
 
 The extension is designed as a complete working surface rather than a thin chat wrapper: session state, IDE context, runtime activity, approvals, traces and file changes stay connected throughout a task.
