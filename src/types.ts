@@ -43,6 +43,31 @@ export interface ChatImageView {
     error?: string;
 }
 
+export interface ChatWebSourceView {
+    url: string;
+    href?: string;
+    domain?: string;
+    title?: string;
+    snippet?: string;
+    publishedAt?: string;
+}
+
+export type ChatWebResultView =
+    | {
+          kind: "search";
+          sources: ChatWebSourceView[];
+          answer?: string;
+          truncated: boolean;
+      }
+    | {
+          kind: "fetch";
+          url: string;
+          href?: string;
+          domain?: string;
+          statusCode: number;
+          truncated: boolean;
+      };
+
 export interface ChatToolCall {
     callId: string;
     name: string;
@@ -52,6 +77,7 @@ export interface ChatToolCall {
     result?: string;
     durationMs?: number;
     error?: string;
+    web?: ChatWebResultView;
 }
 
 export interface ChatMessage {

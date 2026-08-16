@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { ChatImageView, ChatMessage, ChatToolCall } from "../../../src/types";
+import type {
+    ChatImageView,
+    ChatMessage,
+    ChatToolCall,
+    ChatWebResultView,
+    ChatWebSourceView,
+} from "../../../src/types";
 import { findFileLocations } from "../../../src/fileLocations";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
@@ -39,10 +45,76 @@ function LinkedFileLocations({ text }: { text: string }): React.JSX.Element {
     return <>{content}</>;
 }
 
+function WebLink({
+    location,
+    label,
+    className,
+}: {
+    location: Pick<ChatWebSourceView, "url" | "href">;
+    label: string;
+    className: string;
+}): React.JSX.Element {
+    return location.href ? (
+        <span
+            className={className}
+            role="link"
+            tabIndex={0}
+            data-external-url={location.href}
+            title={location.url}
+        >
+            {label}
+        </span>
+    ) : <span className={`${className} dsh-web-link-disabled`}>{label}</span>;
+}
+
+function WebToolResult({ web }: { web: ChatWebResultView }): React.JSX.Element {
+    if (web.kind === "fetch") {
+        return (
+            <div className="dsh-web-result dsh-web-fetch">
+                <WebLink location={web} label={web.url} className="dsh-web-fetch-url" />
+                <div className="dsh-web-meta">
+                    {web.domain ? <span>{web.domain}</span> : null}
+                    <span className={web.statusCode >= 400 ? "dsh-web-status-error" : ""}>
+                        HTTP {web.statusCode}
+                    </span>
+                    {web.truncated ? <span>{t("Content truncated")}</span> : null}
+                </div>
+            </div>
+        );
+    }
+    const empty = !web.answer && web.sources.length === 0;
+    return (
+        <div className="dsh-web-result dsh-web-search">
+            {web.answer ? <div className="dsh-web-answer">{web.answer}</div> : null}
+            {empty ? <div className="dsh-web-empty">{t("No results found")}</div> : (
+                <ol className="dsh-web-sources">
+                    {web.sources.map((source, index) => (
+                        <li key={`${source.url}:${index}`}>
+                            <WebLink
+                                location={source}
+                                label={source.title || source.domain || source.url}
+                                className="dsh-web-source-link"
+                            />
+                            {source.snippet ? <div className="dsh-web-snippet">{source.snippet}</div> : null}
+                            {source.domain || source.publishedAt ? (
+                                <div className="dsh-web-meta">
+                                    {source.domain ? <span>{source.domain}</span> : null}
+                                    {source.publishedAt ? <span>{source.publishedAt}</span> : null}
+                                </div>
+                            ) : null}
+                        </li>
+                    ))}
+                </ol>
+            )}
+            {web.truncated ? <div className="dsh-web-truncated">{t("Source list truncated")}</div> : null}
+        </div>
+    );
+}
+
 function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
     const status =
         tool.status === "running" ? t("Running") : tool.status === "failed" ? t("Failed") : t("Done");
-    const hasDetail = Boolean(tool.args || tool.result || tool.error);
+    const hasDetail = Boolean(tool.args || tool.result || tool.error || tool.web);
     return (
         <details className={`dsh-tool-card ${tool.status}`}>
             <summary>
@@ -55,13 +127,14 @@ function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
             </summary>
             {hasDetail ? (
                 <div className="dsh-tool-detail">
+                    {tool.web ? <WebToolResult web={tool.web} /> : null}
                     {tool.args ? (
                         <div className="dsh-tool-section">
                             <div className="dsh-tool-section-label">{t("Parameters")}</div>
                             <pre><LinkedFileLocations text={tool.args} /></pre>
                         </div>
                     ) : null}
-                    {tool.result ? (
+                    {tool.result && (!tool.web || tool.web.kind === "fetch") ? (
                         <div className="dsh-tool-section">
                             <div className="dsh-tool-section-label">{t("Result")}</div>
                             <pre><LinkedFileLocations text={tool.result} /></pre>

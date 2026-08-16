@@ -343,7 +343,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         ? Math.max(1, selectionRange.endLine - selectionRange.startLine + 1)
         : 0;
 
-    const sendLabel = state.busy ? (promptMode === "steer" ? t("Steer") : t("Queue")) : t("Send");
+    const sendLabel = t("Send");
     const promptItems = [
         ...(selection && state.selectionEnabled ? [selection] : []),
         ...state.context,
@@ -659,27 +659,25 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         ))}
                     </div>
                 ) : null}
-                {state.busy ? (
-                    <button
-                        type="button"
-                        className="dsh-send-button dsh-button-secondary"
-                        title={t("Stop")}
-                        disabled={state.cancelling}
-                        onClick={() => postAction({ type: "cancel" })}
-                    >
-                        <StopIcon />
-                        {state.cancelling ? t("Stopping...") : t("Stop")}
-                    </button>
-                ) : null}
                 <button
                     type="button"
-                    className="dsh-send-button"
-                    title={sendLabel}
-                    disabled={state.submitting || (!text.trim() && imageDrafts.images.length === 0)}
-                    onClick={send}
+                    className={`dsh-send-button${state.busy ? " dsh-button-secondary" : ""}`}
+                    title={state.busy ? t("Stop") : sendLabel}
+                    disabled={state.busy
+                        ? state.cancelling
+                        : state.submitting || (!text.trim() && imageDrafts.images.length === 0)}
+                    onClick={() => {
+                        if (state.busy) {
+                            postAction({ type: "cancel" });
+                        } else {
+                            send();
+                        }
+                    }}
                 >
-                    <SendIcon />
-                    {sendLabel}
+                    {state.busy ? <StopIcon /> : <SendIcon />}
+                    {state.busy
+                        ? state.cancelling ? t("Stopping...") : t("Stop")
+                        : sendLabel}
                 </button>
             </div>
             {(() => {

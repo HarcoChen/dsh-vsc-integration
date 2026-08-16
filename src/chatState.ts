@@ -2,6 +2,8 @@ import {
     ChatImageView,
     ChatMessage,
     ChatToolCall,
+    ChatWebResultView,
+    ChatWebSourceView,
     DshImageMediaType,
     DshImageUpload,
     DshQueuedInboxItem,
@@ -10,6 +12,7 @@ import {
 import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
+import { parseSafeHttpUrl } from "./safeMarkdown";
 
 export interface OptimisticPrompt {
     id: string;
@@ -198,6 +201,68 @@ function presentationSummary(view: Record<string, unknown> | undefined): string 
     return parts.length ? oneLine(parts.join(" · ")) : undefined;
 }
 
+function webText(value: unknown, maximum: number): string | undefined {
+    return typeof value === "string" && value.length <= maximum ? value : undefined;
+}
+
+function webLocation(value: unknown): Pick<ChatWebSourceView, "url" | "href" | "domain"> | undefined {
+    const url = webText(value, 4_096);
+    if (url === undefined || url.length === 0) return undefined;
+    const href = parseSafeHttpUrl(url);
+    if (!href) return { url };
+    return { url, href, domain: new URL(href).hostname };
+}
+
+/** Narrow the public card:'web' result view without interpreting raw tool output. */
+function webResultView(view: Record<string, unknown> | undefined): ChatWebResultView | undefined {
+    if (!view || view.card !== "web" || typeof view.truncated !== "boolean") return undefined;
+    if (view.kind === "search") {
+        if (!Array.isArray(view.sources) || view.sources.length > 100) return undefined;
+        const sources: ChatWebSourceView[] = [];
+        for (const candidate of view.sources) {
+            if (!isRecord(candidate)) return undefined;
+            const location = webLocation(candidate.url);
+            if (!location) return undefined;
+            const title = webText(candidate.title, 1_024);
+            const snippet = webText(candidate.snippet, 8_192);
+            const publishedAt = webText(candidate.publishedAt, 256);
+            if (
+                (candidate.title !== undefined && title === undefined) ||
+                (candidate.snippet !== undefined && snippet === undefined) ||
+                (candidate.publishedAt !== undefined && publishedAt === undefined)
+            ) return undefined;
+            sources.push({
+                ...location,
+                ...(title === undefined ? {} : { title }),
+                ...(snippet === undefined ? {} : { snippet }),
+                ...(publishedAt === undefined ? {} : { publishedAt }),
+            });
+        }
+        const answer = webText(view.answer, 100_000);
+        if (view.answer !== undefined && answer === undefined) return undefined;
+        return {
+            kind: "search",
+            sources,
+            truncated: view.truncated,
+            ...(answer === undefined ? {} : { answer }),
+        };
+    }
+    if (view.kind === "fetch") {
+        const location = webLocation(view.url);
+        if (!location || typeof view.statusCode !== "number" ||
+            !Number.isSafeInteger(view.statusCode) || view.statusCode < 100 || view.statusCode > 999) {
+            return undefined;
+        }
+        return {
+            kind: "fetch",
+            ...location,
+            statusCode: view.statusCode,
+            truncated: view.truncated,
+        };
+    }
+    return undefined;
+}
+
 function toolArgumentsSummary(value: unknown): string | undefined {
     if (value === undefined) return undefined;
     if (typeof value !== "string") return oneLine(safeTraceJson(value, 3_600));
@@ -259,13 +324,19 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
         const data = call && isRecord(call.event.data) ? call.event.data : undefined;
         const facts = result ? toolResultFacts(result) : undefined;
         const callPresentation = toolView(call, "call");
+        const resultPresentation = toolView(result, "result");
         const name = typeof data?.name === "string" ? data.name : "unknown tool";
-        const title = typeof callPresentation?.title === "string" ? callPresentation.title : name;
+        const title = typeof resultPresentation?.title === "string"
+            ? resultPresentation.title
+            : typeof callPresentation?.title === "string"
+              ? callPresentation.title
+              : name;
         const args = presentationSummary(callPresentation) ||
             toolArgumentsSummary(data?.arguments);
         const durationMs = call && result && result.event.time >= call.event.time
             ? result.event.time - call.event.time
             : undefined;
+        const web = facts?.error ? undefined : webResultView(resultPresentation);
         const tool: ChatToolCall = {
             callId,
             name,
@@ -275,6 +346,7 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
             ...(facts?.result ? { result: facts.result } : {}),
             ...(durationMs === undefined ? {} : { durationMs }),
             ...(facts?.error ? { error: facts.error } : {}),
+            ...(web === undefined ? {} : { web }),
         };
         return [{
             id: `tool:${callId}`,

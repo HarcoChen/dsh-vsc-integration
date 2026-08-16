@@ -724,6 +724,99 @@ button {
     font-size: var(--dsh-font-xs);
 }
 
+.dsh-web-result {
+    margin-top: var(--dsh-space-3);
+    min-width: 0;
+}
+
+.dsh-web-answer {
+    margin-bottom: var(--dsh-space-3);
+    color: var(--vscode-foreground);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.dsh-web-sources {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-3);
+    max-height: 320px;
+    margin: 0;
+    padding-left: 2.5em;
+    overflow-y: auto;
+}
+
+.dsh-web-sources li {
+    min-width: 0;
+}
+
+.dsh-web-source-link,
+.dsh-web-fetch-url {
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    overflow-wrap: anywhere;
+}
+
+.dsh-web-source-link:hover,
+.dsh-web-source-link:focus,
+.dsh-web-fetch-url:hover,
+.dsh-web-fetch-url:focus {
+    color: var(--vscode-textLink-activeForeground);
+    text-decoration: underline;
+    outline: none;
+}
+
+.dsh-web-link-disabled {
+    color: var(--vscode-descriptionForeground);
+    cursor: text;
+}
+
+.dsh-web-link-disabled:hover {
+    color: var(--vscode-descriptionForeground);
+    text-decoration: none;
+}
+
+.dsh-web-snippet {
+    margin-top: 2px;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-sm);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.dsh-web-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    margin-top: 2px;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-web-status-error {
+    color: var(--vscode-errorForeground);
+}
+
+.dsh-web-truncated,
+.dsh-web-empty {
+    margin-top: var(--dsh-space-3);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-web-fetch {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-1);
+}
+
+.dsh-web-fetch-url {
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-sm);
+    word-break: break-all;
+}
+
 /* ---------- interactions (sticky above the composer) ---------- */
 
 .dsh-interactions {
