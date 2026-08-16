@@ -153,7 +153,10 @@ function registerChatParticipant(chatView: ChatViewProvider, extensionUri: vscod
         if (token.isCancellationRequested) return;
         response.markdown(t("Task sent to the current dsh session. Continue in the DSH view for streaming output and approvals."));
     });
-    participant.iconPath = vscode.Uri.joinPath(extensionUri, "resources", "dsh.svg");
+    participant.iconPath = {
+        light: vscode.Uri.joinPath(extensionUri, "resources", "dsh.svg"),
+        dark: vscode.Uri.joinPath(extensionUri, "resources", "dsh-dark.svg"),
+    };
     return participant;
 }
 

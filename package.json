@@ -103,7 +103,10 @@
                 "command": "dsh.open",
                 "title": "%command.open.title%",
                 "category": "DSH",
-                "icon": "$(comment-discussion)"
+                "icon": {
+                    "light": "resources/dsh.svg",
+                    "dark": "resources/dsh-dark.svg"
+                }
             },
             {
                 "command": "dsh.openTrace",
@@ -302,6 +305,12 @@
             }
         ],
         "menus": {
+            "editor/title": [
+                {
+                    "command": "dsh.open",
+                    "group": "navigation@dsh"
+                }
+            ],
             "editor/context": [
                 {
                     "submenu": "dsh.editorTasks",
