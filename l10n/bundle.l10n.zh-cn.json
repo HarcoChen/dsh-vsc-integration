@@ -381,5 +381,9 @@
     "ZIP64 archives are not supported.": "不支持 ZIP64 归档。",
     "managed Runtime {version} ({target})": "托管 Runtime {version}（{target}）",
     "npm: unavailable": "npm：不可用",
-    "npx: not found": "npx：未找到"
+    "npx: not found": "npx：未找到",
+    "Context compaction failed": "上下文压缩失败",
+    "Context compacted": "上下文已压缩",
+    "Compacting context...": "正在压缩上下文…",
+    "There is no prior conversation in this session to compact.": "当前会话没有可压缩的历史记录。"
 }

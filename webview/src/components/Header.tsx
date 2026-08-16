@@ -63,7 +63,6 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         (turn && Number.isSafeInteger(turn.turn) ? `Turn ${turn.turn}` : "") +
         (turn?.detail ? ` · ${turn.detail}` : "");
     const statusTitle = status.message || turnTitle;
-
     const sessions = state.sessions;
     const groupedSessions = new Map<string, typeof sessions>();
     const ungroupedSessions: typeof sessions = [];

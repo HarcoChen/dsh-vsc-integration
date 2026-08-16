@@ -464,6 +464,81 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
     });
 }
 
+function projectCompactionRows(
+    snapshot: SessionStateSnapshot,
+): Array<ChatMessage & { order: number }> {
+    interface CompactionAccumulator {
+        start?: StoredSessionEvent;
+        summary?: StoredSessionEvent;
+        end?: StoredSessionEvent;
+    }
+    const byId = new Map<string, CompactionAccumulator>();
+    for (const event of snapshot.events) {
+        const data = isRecord(event.event.data) ? event.event.data : undefined;
+        const compactionId = typeof data?.compactionId === "string"
+            ? data.compactionId
+            : undefined;
+        if (compactionId === undefined) continue;
+        let acc = byId.get(compactionId);
+        if (!acc) {
+            acc = { start: undefined, summary: undefined, end: undefined };
+            byId.set(compactionId, acc);
+        }
+        if (event.event.type === "compaction/start") acc.start = event;
+        else if (event.event.type === "compaction/summary") acc.summary = event;
+        else if (event.event.type === "compaction/end") acc.end = event;
+    }
+    const rows: Array<ChatMessage & { order: number }> = [];
+    for (const [compactionId, acc] of byId) {
+        const startEvent = acc.start;
+        const endEvent = acc.end;
+        if (!startEvent && !acc.summary && !endEvent) continue;
+        const summaryText = (() => {
+            if (!acc.summary) return undefined;
+            const data = isRecord(acc.summary.event.data) ? acc.summary.event.data : undefined;
+            const summary = contentText(data?.summary);
+            return summary.trim() ? summary : undefined;
+        })();
+        const errorMessage = (() => {
+            if (!endEvent) return undefined;
+            const data = isRecord(endEvent.event.data) ? endEvent.event.data : undefined;
+            const error = data?.error;
+            if (typeof error === "string" && error.trim()) return error;
+            if (!isRecord(error)) return undefined;
+            if (typeof error.message === "string" && error.message.trim()) return error.message;
+            if (typeof error.code === "string" || typeof error.name === "string") {
+                return [error.name, error.code].filter(Boolean).join(" · ");
+            }
+            return undefined;
+        })();
+        const failed = Boolean(endEvent) && Boolean(errorMessage);
+        const status = failed ? "failed" as const : endEvent ? "success" as const : "running" as const;
+        const anchor = endEvent ?? acc.summary ?? startEvent;
+        if (!anchor) continue;
+        const text = failed
+            ? t("Context compaction failed")
+            : endEvent
+              ? t("Context compacted")
+              : t("Compacting context...");
+        rows.push({
+            id: `compaction:${compactionId}`,
+            role: "system",
+            text,
+            compaction: {
+                status,
+                compactionId,
+                ...(summaryText === undefined ? {} : { summary: summaryText }),
+                ...(errorMessage === undefined ? {} : { error: errorMessage }),
+            },
+            createdAt: anchor.event.time,
+            seq: anchor.event.seq,
+            state: "committed",
+            order: anchor.event.seq + 0.35,
+        });
+    }
+    return rows;
+}
+
 function assistantLocation(event: StoredSessionEvent): string | undefined {
     if (event.event.type !== "assistant/message" || !isRecord(event.event.data)) return undefined;
     const turn = event.event.data.turn;
@@ -622,6 +697,7 @@ export function projectChatMessages(
         }
     }
     rows.push(...projectToolRows(snapshot));
+    rows.push(...projectCompactionRows(snapshot));
 
     const partials = new Map<string, PartialMessage>();
     const endedTurns = new Set<number>();

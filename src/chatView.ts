@@ -392,6 +392,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly modelCatalogRequests = new Map<string, Promise<void>>();
     private readonly skillCatalogs = new Map<string, DshSkillEntry[]>();
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
+    private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
+    private agentPresetCatalogRequest: Promise<void> | undefined;
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
     private readonly agentPresetDocuments = new Map<string, string>();
     private readonly imageCache = new Map<string, { src?: string; error?: string; loading?: boolean }>();
@@ -818,6 +820,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         return false;
                     }),
             ]);
+            this.agentPresetCatalog = catalog.presets;
             if (catalog.presets.length === 0) {
                 void vscode.window.showInformationMessage(t("Harness returned no Agent Presets to manage."));
                 return;
@@ -1554,6 +1557,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             // Harness command adapters require the command line to be the complete
             // prompt; never append IDE context to a slash command such as /compact.
             if (requestedImages.length === 0 && /^\/compact$/u.test(text)) {
+                const hasConversationHistory = this.runtime.getSessionStore().get(session)?.events.some(
+                    (event) => event.event.type === "user/message" || event.event.type === "assistant/message",
+                ) === true;
+                if (!hasConversationHistory) {
+                    throw new Error(t("There is no prior conversation in this session to compact."));
+                }
                 optimistic = {
                     id: `optimistic:${randomUUID()}`,
                     sessionId: session,
@@ -1968,6 +1977,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         if (!this.runtime.getUrl()) await this.runtime.start(this.workspaceRoot());
         const catalog = await this.runtime.agentPresets();
+        this.agentPresetCatalog = catalog.presets;
         const available = catalog.presets.filter((preset) => !preset.broken);
         if (available.length === 0) throw new Error(t("Harness returned no available agent modes."));
 
@@ -2711,6 +2721,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.skillCatalogRequests.set(sessionId, request);
     }
 
+    private refreshAgentPresetCatalog(): void {
+        if (!this.runtime.getUrl() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
+        const request = this.runtime.agentPresets()
+            .then((catalog) => {
+                this.agentPresetCatalog = catalog.presets;
+                this.postState();
+            })
+            .catch((error) => {
+                this.output.appendLine(`[dsh:agent-preset] catalog refresh failed: ${errorMessage(error)}`);
+            })
+            .finally(() => {
+                this.agentPresetCatalogRequest = undefined;
+            });
+        this.agentPresetCatalogRequest = request;
+    }
+
     private reasoningEffortView(): ChatViewState["reasoningEffort"] {
         if (!this.sessionId) return undefined;
         const selected = this.selectedModels.get(this.sessionId);
@@ -2778,6 +2804,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         );
         const selected = catalog.sessions.find((item) => item.sessionId === this.sessionId);
         if (this.sessionId) this.refreshSkillCatalog(this.sessionId);
+        if (selected?.agentPreset) this.refreshAgentPresetCatalog();
+        const selectedAgentPreset = selected?.agentPreset;
+        const selectedAgentPresetLabel = this.agentPresetCatalog
+            ?.find((preset) => preset.id === selectedAgentPreset)?.name;
         const session = this.sessionId
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
@@ -2834,6 +2864,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                   }),
             host,
             sessionId: this.sessionId,
+            ...(selectedAgentPreset === undefined ? {} : { agentPreset: selectedAgentPreset }),
+            ...(selectedAgentPresetLabel === undefined ? {} : { agentPresetLabel: selectedAgentPresetLabel }),
             ...(this.newSessionDraft && this.pendingNewSessionWorkspaceId
                 ? {
                       draftWorkspaceId: this.pendingNewSessionWorkspaceId,

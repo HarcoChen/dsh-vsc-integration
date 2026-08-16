@@ -546,6 +546,10 @@ function ChangesPanel({
 
 export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Element | null {
     const [active, setActive] = useState<DockTab | null>(null);
+    const agentPresetLabel = state.agentPresetLabel?.trim();
+    const shortAgentPreset = agentPresetLabel
+        ? Array.from(agentPresetLabel).slice(0, 4).join("")
+        : undefined;
 
     const tabs: TabDef[] = [];
     if (state.goal) tabs.push({ id: "goal", label: "Goal" });
@@ -596,6 +600,15 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
                         ) : null}
                     </button>
                 ))}
+                {shortAgentPreset ? (
+                    <span
+                        className="dsh-dock-preset"
+                        title={agentPresetLabel}
+                        aria-label={t("Current preset: {preset}", { preset: agentPresetLabel })}
+                    >
+                        {shortAgentPreset}
+                    </span>
+                ) : null}
             </div>
             {active ? (
                 <div className="dsh-dock-panel" role="tabpanel">

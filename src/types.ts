@@ -113,6 +113,13 @@ export interface ChatToolCall {
     lsp?: ChatLspResultView;
 }
 
+export interface ChatCompactionView {
+    status: "running" | "success" | "failed";
+    compactionId?: string;
+    summary?: string;
+    error?: string;
+}
+
 export interface ChatMessage {
     id: string;
     role: ChatRole;
@@ -122,6 +129,8 @@ export interface ChatMessage {
     reasoningState?: "streaming" | "complete";
     tool?: ChatToolCall;
     images?: ChatImageView[];
+    /** Dedicated compaction-status/summary card rendered in the chat surface. */
+    compaction?: ChatCompactionView;
     /** Fixed-vocabulary HTML produced by the extension-host safe Markdown renderer. */
     renderedHtml?: string;
     renderedReasoningHtml?: string;
@@ -768,6 +777,8 @@ export interface ChatViewState {
     skills: DshSkillEntry[];
     host?: HostBaselineView;
     sessionId?: string;
+    agentPreset?: string;
+    agentPresetLabel?: string;
     draftWorkspaceId?: string;
     draftWorkspaceTitle?: string;
     sessions: Array<{

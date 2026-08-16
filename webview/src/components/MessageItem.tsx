@@ -210,6 +210,32 @@ function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
     );
 }
 
+function CompactionCard({ message }: { message: ChatMessage }): React.JSX.Element | null {
+    const compaction = message.compaction;
+    if (!compaction) return null;
+    const statusLabel =
+        compaction.status === "running"
+            ? t("Compacting")
+            : compaction.status === "failed"
+              ? t("Failed")
+              : t("Completed");
+    return (
+        <div className={`dsh-compaction-card ${compaction.status}`}>
+            <div className="dsh-compaction-head">
+                <span className="dsh-compaction-status" />
+                <span className="dsh-compaction-title">{message.text}</span>
+                <span className="dsh-compaction-meta">{statusLabel}</span>
+            </div>
+            {compaction.summary ? (
+                <div className="dsh-compaction-summary">{compaction.summary}</div>
+            ) : null}
+            {compaction.error ? (
+                <div className="dsh-compaction-error">{compaction.error}</div>
+            ) : null}
+        </div>
+    );
+}
+
 function MessageImages({ images }: { images: readonly ChatImageView[] }): React.JSX.Element | null {
     const galleryRef = useRef<HTMLDivElement>(null);
     const [preview, setPreview] = useState<ChatImageView>();
@@ -307,6 +333,9 @@ function MessageImages({ images }: { images: readonly ChatImageView[] }): React.
 export function MessageContent({ message }: { message: ChatMessage }): React.JSX.Element {
     if (message.role === "tool" && message.tool) {
         return <ToolCard tool={message.tool} />;
+    }
+    if (message.compaction) {
+        return <CompactionCard message={message} />;
     }
     const body = message.text ? (
         <div

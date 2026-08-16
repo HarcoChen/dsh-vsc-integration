@@ -724,6 +724,77 @@ button {
     font-size: var(--dsh-font-xs);
 }
 
+/* ---------- compaction card ---------- */
+
+.dsh-compaction-card {
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    background: var(--dsh-surface);
+    padding: var(--dsh-space-3) var(--dsh-space-4);
+    min-width: 0;
+}
+
+.dsh-compaction-card.running {
+    border-color: var(--dsh-status-busy);
+}
+
+.dsh-compaction-card.failed {
+    border-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.dsh-compaction-head {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-space-2);
+}
+
+.dsh-compaction-status {
+    width: 9px;
+    height: 9px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--dsh-status-ok);
+}
+
+.dsh-compaction-card.running .dsh-compaction-status {
+    background: var(--dsh-status-busy);
+    animation: dsh-pulse 1.2s ease-in-out infinite;
+}
+
+.dsh-compaction-card.failed .dsh-compaction-status {
+    background: var(--dsh-status-error);
+}
+
+.dsh-compaction-title {
+    min-width: 0;
+    flex: 1;
+    font-weight: 600;
+    font-size: var(--dsh-font-sm);
+    overflow-wrap: anywhere;
+}
+
+.dsh-compaction-meta {
+    flex: none;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-compaction-summary {
+    margin-top: var(--dsh-space-2);
+    color: var(--vscode-foreground);
+    font-size: var(--dsh-font-xs);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.dsh-compaction-error {
+    margin-top: var(--dsh-space-2);
+    color: var(--vscode-errorForeground);
+    font-size: var(--dsh-font-xs);
+    white-space: pre-wrap;
+}
+
 .dsh-web-result {
     margin-top: var(--dsh-space-3);
     min-width: 0;
@@ -1114,9 +1185,18 @@ button {
 
 .dsh-dock-tabs {
     display: flex;
+    align-items: center;
     flex-wrap: wrap;
     gap: var(--dsh-space-1);
     padding: var(--dsh-space-2) var(--dsh-space-4);
+}
+
+.dsh-dock-preset {
+    flex: none;
+    margin-left: auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    white-space: nowrap;
 }
 
 .dsh-dock-tab {
