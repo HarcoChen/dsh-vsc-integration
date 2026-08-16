@@ -5,6 +5,16 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-08-16
+
+- 新增深色模式适配，聊天、活动面板、Trace 和 Token 使用界面颜色与 VS Code 主题保持一致。
+- 新增从 CNB 安装完整 Runtime 与 Standalone 镜像的能力，并增强下载进度和 HTTP 请求结束处理。
+- 新增 LSP 集成、Web Search 卡片和 TODO 卡片展示，补充更多 Harness 任务状态反馈。
+- 新增 Preset 管理，支持创建和选择自定义 Agent Preset；`/preset` 可作为 `/mode` 别名使用，并显示当前 Preset。
+- 优化 Slash Command 在空工作区中的处理，支持 `/compact`，并修复 `/model` 在新对话中误创建空 Session 的问题。
+- 新增 effort 滑块和图片附件入口，改善发送前的任务参数配置。
+- 优化 Workspace 管理及 Runtime 发布流程，Marketplace 发布改用 PAT 校验。
+
 ## [0.3.0] - 2026-08-14
 
 - 新增紧凑的 Token 与上下文统计入口：使用环形进度展示估算占用，并在独立浮层中展示当前模型、reasoning effort、计费输入/输出、推理 Token 和缓存命中；数据来自 Harness 公开 usage/context projection，并明确区分计费值与估算值。
@@ -71,6 +81,7 @@
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
 [0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
+[0.5.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.1...v0.5.0
 [0.4.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...v0.3.0
