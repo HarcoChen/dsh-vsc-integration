@@ -1,0 +1,141 @@
+import * as vscode from "vscode";
+import { DshRuntime } from "./dshRuntime";
+import { ChatViewProvider } from "./chatView";
+import { StoredSessionEvent } from "./sessionStore";
+
+export interface ConversationNavigationEntry {
+    seq: number;
+    label: string;
+    detail?: string;
+}
+
+export interface ConversationNavigationApi {
+    registerConversationNavigation(
+        entries: readonly ConversationNavigationEntry[],
+    ): vscode.Disposable;
+}
+
+export class ConversationNavigationRegistry implements vscode.Disposable {
+    private readonly entries = new Map<number, readonly ConversationNavigationEntry[]>();
+    private readonly changeEmitter = new vscode.EventEmitter<void>();
+    private nextId = 0;
+    public readonly onDidChange = this.changeEmitter.event;
+
+    public registerConversationNavigation(entries: readonly ConversationNavigationEntry[]): vscode.Disposable {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            throw new Error("Conversation navigation registration must contain at least one entry.");
+        }
+        const id = this.nextId++;
+        for (const entry of entries) {
+            if (!Number.isSafeInteger(entry.seq) || entry.seq < 0 || !entry.label.trim()) {
+                throw new Error("Conversation navigation entries require a non-empty label and valid seq.");
+            }
+        }
+        this.entries.set(id, entries.map((entry) => ({ ...entry, label: entry.label.trim() })) as ConversationNavigationEntry[]);
+        this.changeEmitter.fire();
+        return new vscode.Disposable(() => {
+            if (this.entries.delete(id)) this.changeEmitter.fire();
+        });
+    }
+
+    public current(): ConversationNavigationEntry[] {
+        return [...this.entries.values()].flatMap((entries) => entries);
+    }
+
+    public dispose(): void {
+        this.entries.clear();
+        this.changeEmitter.dispose();
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function contentText(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (Array.isArray(value)) return value.map(contentText).filter(Boolean).join(" ");
+    if (!isRecord(value)) return "";
+    if (typeof value.text === "string") return value.text;
+    return contentText(value.content ?? value.message);
+}
+
+function userText(entry: StoredSessionEvent): string | undefined {
+    if (entry.event.type !== "user/message" || !isRecord(entry.event.data)) return undefined;
+    const message = isRecord(entry.event.data.message) ? entry.event.data.message : entry.event.data;
+    if (isRecord(message.source) && message.source.kind !== "user") return undefined;
+    const text = contentText(message.content ?? message.text).replace(/\s+/gu, " ").trim();
+    return text || undefined;
+}
+
+class ConversationNavigationItem extends vscode.TreeItem {
+    public constructor(public readonly entry: ConversationNavigationEntry) {
+        super(entry.label, vscode.TreeItemCollapsibleState.None);
+        this.description = entry.detail;
+        this.contextValue = "dshConversationMilestone";
+        this.iconPath = new vscode.ThemeIcon("symbol-event");
+        this.command = {
+            command: "dsh.revealConversationMilestone",
+            title: "Reveal conversation milestone",
+            arguments: [entry.seq],
+        };
+    }
+}
+
+export class ConversationNavigationProvider
+    implements vscode.TreeDataProvider<ConversationNavigationItem>, vscode.Disposable {
+    private readonly changeEmitter = new vscode.EventEmitter<void>();
+    private readonly disposables: vscode.Disposable[];
+
+    public readonly onDidChangeTreeData = this.changeEmitter.event;
+
+    public constructor(
+        private readonly runtime: DshRuntime,
+        private readonly chatView: ChatViewProvider,
+        private readonly registry?: ConversationNavigationRegistry,
+    ) {
+        const unsubscribe = runtime.getSessionStore().onDidChange((sessionId) => {
+            if (sessionId === chatView.getCurrentSessionId()) this.changeEmitter.fire();
+        });
+        const catalogUnsubscribe = runtime.getSessionCatalog().onDidChange(() => this.changeEmitter.fire());
+        this.disposables = [
+            new vscode.Disposable(unsubscribe),
+            new vscode.Disposable(catalogUnsubscribe),
+            ...(registry ? [registry.onDidChange(() => this.changeEmitter.fire())] : []),
+        ];
+    }
+
+    public getTreeItem(item: ConversationNavigationItem): vscode.TreeItem {
+        return item;
+    }
+
+    public getChildren(): ConversationNavigationItem[] {
+        const sessionId = this.chatView.getCurrentSessionId();
+        if (!sessionId) return [];
+        const snapshot = this.runtime.getSessionStore().get(sessionId);
+        if (!snapshot) return [];
+        const builtIn = snapshot.surface.nodes.flatMap((node) => {
+            const text = userText(node);
+            if (!text) return [];
+            const firstLine = text.split(/\r?\n/u, 1)[0].trim();
+            return [new ConversationNavigationItem({
+                seq: node.seq,
+                label: firstLine.length > 96 ? `${firstLine.slice(0, 95)}…` : firstLine,
+                detail: `#${node.seq}`,
+            })];
+        });
+        return [
+            ...builtIn,
+            ...(this.registry?.current() ?? []).map((entry) => new ConversationNavigationItem(entry)),
+        ];
+    }
+
+    public refresh(): void {
+        this.changeEmitter.fire();
+    }
+
+    public dispose(): void {
+        this.changeEmitter.dispose();
+        for (const disposable of this.disposables) disposable.dispose();
+    }
+}

@@ -3,6 +3,7 @@
     "extension.description": "A complete DeepSeek Harness Agent workflow for VS Code: persistent streaming sessions, @file references, IDE and Git context, tool approvals, plan reviews, Trace inspection, change review and restore safeguards, plus model, token, cache, and context observability.",
     "extension.untrustedWorkspace": "DSH IDE requires a trusted workspace before it can start an agent runtime.",
     "view.chat.name": "Chat",
+    "view.conversationNavigation.name": "Conversation Outline",
     "command.open.title": "DSH: Open Chat",
     "command.openTrace.title": "DSH: Open Session Trace",
     "command.newSession.title": "DSH: New Session",

@@ -55,6 +55,17 @@ npm run package
 
 多个 VS Code 窗口会优先复用同一个本地 Harness Runtime。扩展启动的 Runtime 使用进程锁公布其随机 loopback 端口，后续窗口经 `host.describe` 验证后连接，避免多个写进程竞争同一 Session 存储。
 
+### 对话大纲与导航 API
+
+DSH 侧栏提供原生“对话大纲” TreeView：当前会话的用户消息会按顺序列出，点击条目即可滚动到对应消息。其他扩展也可以通过导出的 API 注册自己的导航节点：
+
+```ts
+const registration = api.registerConversationNavigation([
+    { seq: 42, label: "检查 PPO 实现", detail: "训练配置" },
+]);
+context.subscriptions.push(registration);
+```
+
 ### 自定义 Agent 状态文案
 
 默认会在每轮流式输出开始时从 `dsh.agentStatusLabels` 随机选一句，并在这一轮保持不变。默认候选围绕“大肥鱼”梗，可直接在设置中改成自己的文案；设置 `dsh.agentStatusLabel` 则可改为始终显示固定文案。

@@ -1316,6 +1316,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return this.sessionId;
     }
 
+    public revealConversationMilestone(seq: number): void {
+        if (!Number.isSafeInteger(seq) || seq < 0) return;
+        this.reveal();
+        if (!this.view || !this.webviewReady) return;
+        void this.view.webview.postMessage({ type: "revealMessage", seq });
+    }
+
     public async openBrowser(): Promise<void> {
         const url = this.runtime.getUrl() ?? (await this.runtime.start(this.workspaceRoot()));
         await vscode.env.openExternal(vscode.Uri.parse(url));

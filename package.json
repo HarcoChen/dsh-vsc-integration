@@ -96,6 +96,12 @@
                     "name": "%view.chat.name%",
                     "icon": "resources/dsh.svg",
                     "visibility": "visible"
+                },
+                {
+                    "type": "tree",
+                    "id": "dsh.conversationNavigation",
+                    "name": "%view.conversationNavigation.name%",
+                    "icon": "$(list-tree)"
                 }
             ]
         },

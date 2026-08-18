@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { ConversationNavigationApi } from "./conversationNavigation";
 
 /** A plugin-provided label shown while the active DSH agent is streaming. */
 export interface AgentStatusPresentation {
@@ -7,7 +8,7 @@ export interface AgentStatusPresentation {
 }
 
 /** Public API exported by the DSH extension for companion extensions. */
-export interface DshExtensionApi {
+export interface DshExtensionApi extends ConversationNavigationApi {
     /**
      * Registers an agent-status label. The most recently registered label wins.
      * Dispose the returned registration to restore the prior label.

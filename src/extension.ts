@@ -5,6 +5,10 @@ import {
 } from "./agentStatusPresentation";
 import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider, QuickTaskKind } from "./chatView";
+import {
+    ConversationNavigationProvider,
+    ConversationNavigationRegistry,
+} from "./conversationNavigation";
 import { ContextStore } from "./contextStore";
 import { DshRuntime } from "./dshRuntime";
 import { configureLocalization, t } from "./localize";
@@ -18,6 +22,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     const balanceService = new DeepSeekBalanceService(context, output);
     const contextStore = new ContextStore();
     const agentStatusPresentations = new AgentStatusPresentationRegistry();
+    const conversationNavigationRegistry = new ConversationNavigationRegistry();
     const chatView = new ChatViewProvider(
         context,
         context.extensionUri,
@@ -28,13 +33,20 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         agentStatusPresentations,
     );
     const tracePanels = new TracePanelManager(runtime, output, workspaceRoot);
+    const conversationNavigation = new ConversationNavigationProvider(
+        runtime,
+        chatView,
+        conversationNavigationRegistry,
+    );
 
     context.subscriptions.push(
         output,
         balanceService,
         agentStatusPresentations,
+        conversationNavigationRegistry,
         chatView,
         tracePanels,
+        conversationNavigation,
         new vscode.Disposable(() => {
             void runtime.dispose();
         }),
@@ -42,6 +54,13 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             webviewOptions: {
                 retainContextWhenHidden: true,
             },
+        }),
+        vscode.window.registerTreeDataProvider(
+            "dsh.conversationNavigation",
+            conversationNavigation,
+        ),
+        vscode.commands.registerCommand("dsh.revealConversationMilestone", (seq?: unknown) => {
+            if (typeof seq === "number") chatView.revealConversationMilestone(seq);
         }),
         registerChatParticipant(chatView, context.extensionUri),
         vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
@@ -150,6 +169,8 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     return {
         registerAgentStatusPresentation: (presentation) =>
             agentStatusPresentations.registerAgentStatusPresentation(presentation),
+        registerConversationNavigation: (entries) =>
+            conversationNavigationRegistry.registerConversationNavigation(entries),
     };
 }
 

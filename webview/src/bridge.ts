@@ -83,6 +83,12 @@ function isSetTextMessage(value: unknown): value is { type: "setText"; text: str
     return message.type === "setText" && typeof message.text === "string";
 }
 
+function isRevealMessage(value: unknown): value is { type: "revealMessage"; seq: number } {
+    if (!value || typeof value !== "object") return false;
+    const message = value as Record<string, unknown>;
+    return message.type === "revealMessage" && typeof message.seq === "number" && Number.isSafeInteger(message.seq);
+}
+
 function isChatViewState(value: unknown): value is ChatViewState {
     if (!value || typeof value !== "object") return false;
     const state = value as Partial<ChatViewState>;
@@ -131,6 +137,11 @@ export function useHostState(): ChatViewState {
             }
             if (isSetTextMessage(data)) {
                 setTextHandler?.(data.text);
+                return;
+            }
+            if (isRevealMessage(data)) {
+                document.querySelector<HTMLElement>(`[data-message-seq="${data.seq}"]`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
             }
         };
         window.addEventListener("message", onMessage);

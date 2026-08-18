@@ -407,6 +407,7 @@ export function MessageItem({ message, submitting, agentStatusLabel }: MessageIt
             {...(typeof message.renderId === "string"
                 ? { "data-render-id": message.renderId }
                 : {})}
+            {...(Number.isSafeInteger(message.seq) ? { "data-message-seq": message.seq } : {})}
         >
             <div className="dsh-message-label">
                 {ROLE_LABELS[message.role]}
