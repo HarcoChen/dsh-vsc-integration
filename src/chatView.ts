@@ -1464,6 +1464,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "selectReasoningEffort":
                     await this.selectReasoningEffort(message.effort);
                     break;
+                case "openReasoningEffort":
+                    await this.openReasoningEffort();
+                    break;
                 case "selectAgentPreset":
                     await this.selectAgentPreset(message.agentPreset);
                     break;
@@ -1996,6 +1999,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.modelCatalogs.set(sessionId, {
             ...catalog,
             current: result.selected,
+        });
+        this.postState();
+    }
+
+    private async openReasoningEffort(): Promise<void> {
+        const workspaceRoot = this.workspaceRoot();
+        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
+        if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
+        const sessionId = this.sessionId ?? await this.getOrCreateSession(workspaceRoot);
+        const catalog = this.modelCatalogs.get(sessionId) ?? await this.runtime.models(sessionId);
+        this.modelCatalogs.set(sessionId, catalog);
+        const options = reasoningEffortOptions(catalog, catalog.current.provider, catalog.current.model);
+        if (options.length === 0) {
+            throw new Error(t("The current model does not expose reasoning effort options."));
+        }
+        this.selectedModels.set(sessionId, {
+            selection: catalog.current,
+            asOfSeq: highestKnownSeq(this.runtime.getSessionStore().get(sessionId)),
+            reasoningEfforts: options,
         });
         this.postState();
     }

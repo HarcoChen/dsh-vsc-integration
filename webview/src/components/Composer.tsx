@@ -226,7 +226,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         if (!textarea) return;
         textarea.style.height = "auto";
         textarea.style.height = `${Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, textarea.scrollHeight))}px`;
-    }, []);
+    }, [state.reasoningEffort]);
 
     useEffect(() => {
         autoGrow();
@@ -283,13 +283,16 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         if (!command) return false;
         if (command.name === "/effort") {
             setEffortVisible(true);
+            if (!state.reasoningEffort?.options.length) {
+                postAction({ type: "openReasoningEffort" });
+            }
         } else if (command.action) {
             postAction(command.action);
         }
         setText("");
         setSlashIndex(0);
         return true;
-    }, []);
+    }, [state.reasoningEffort]);
 
     const send = useCallback((): void => {
         if (state.submitting) return;

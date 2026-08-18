@@ -40,6 +40,7 @@ export type ChatViewAction =
     | { type: "searchSession" }
     | { type: "selectModel" }
     | { type: "selectReasoningEffort"; effort: string }
+    | { type: "openReasoningEffort" }
     | { type: "selectAgentPreset"; agentPreset?: string }
     | { type: "renameSession" }
     | { type: "forkSession" }
@@ -193,6 +194,8 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 value.effort.length <= 128
                 ? { type: "selectReasoningEffort", effort: value.effort.trim() }
                 : undefined;
+        case "openReasoningEffort":
+            return hasOnly(value, ["type", "protocol"]) ? { type: "openReasoningEffort" } : undefined;
         case "openTrace":
             if (
                 hasAny(value, ["sessionId", "callId", "turn", "step"]) ||
