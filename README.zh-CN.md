@@ -101,6 +101,10 @@ npm run package    # 编译 + vsce 打包
 - [产品 TODO](TODO.md)
 - [第三方资产说明](THIRD_PARTY_NOTICES.md)
 
+## 致谢
+
+感谢 [dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) 提供推理强度控件的 chibi runner 跑步 sprite 参考与素材。对话大纲则受到 `dsh-milestone` 项目启发，将 Hub 风格的里程碑导航转化为 VS Code 原生 TreeView。
+
 ## 许可证
 
 [MIT](LICENSE)

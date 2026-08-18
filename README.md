@@ -75,6 +75,10 @@ VS Code is recommended.
 - [Product TODO](TODO.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
+## Acknowledgments
+
+Thanks to [dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) for the chibi runner sprite reference and asset used by the reasoning-effort control. The conversation outline also takes inspiration from the `dsh-milestone` project; its Hub-style milestone idea led to the native VS Code TreeView implementation here.
+
 ## License
 
 [MIT](LICENSE)

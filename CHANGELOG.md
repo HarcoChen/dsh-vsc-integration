@@ -5,6 +5,14 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-08-18
+
+- 新增原生“对话大纲” TreeView：按当前会话的用户消息生成导航节点，点击即可跳转到对应消息。
+- 新增 `Conversation Navigation API`，允许配套扩展注册自定义对话里程碑。
+- 修复 `/effort` 在新会话或 effort 选项尚未加载时无法打开滑块的问题；现在会先加载选项，再打开聊天内控件。
+- 新增可配置的 Agent 状态文案，支持每轮流式输出随机选择候选文本，并保留插件覆盖 API。
+- 感谢 [dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) 提供跑步 sprite 参考与素材，也感谢 `dsh-milestone` 对对话里程碑导航设计的启发。
+
 ## [0.5.0] - 2026-08-16
 
 - 新增深色模式适配，聊天、活动面板、Trace 和 Token 使用界面颜色与 VS Code 主题保持一致。
@@ -82,6 +90,7 @@
 
 [0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
 [0.5.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.1...v0.5.0
+[0.5.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.0...v0.5.1
 [0.4.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.3.0...v0.3.2
 [0.3.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.2.2...v0.3.0
