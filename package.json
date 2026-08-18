@@ -512,6 +512,11 @@
                     "minimum": 10000,
                     "maximum": 3600000,
                     "description": "%config.balanceRefreshIntervalMs.description%"
+                },
+                "dsh.enableEffortKnob": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.enableEffortKnob.description%"
                 }
             }
         }

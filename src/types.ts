@@ -334,7 +334,7 @@ export interface DshSessionSelectModelResult {
 export interface DshReasoningEffortOption {
     id: string;
     label: string;
-    /** Optional webview-safe image URI for this effort. */
+    /** Optional webview-safe image URI used as the slider knob. */
     image?: string;
 }
 

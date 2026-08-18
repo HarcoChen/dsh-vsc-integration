@@ -37,6 +37,11 @@ function formatStatsDuration(milliseconds: number): string {
     return `${Math.floor(totalSeconds / 60)}m${totalSeconds % 60}s`;
 }
 
+/** Escapes a URL for safe embedding inside a CSS url("...") value. */
+function cssImageUrl(url: string): string {
+    return url.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function formatStatsThroughput(tokensPerSecond: number): string {
     const value = Math.max(0, tokensPerSecond);
     return value >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10);
@@ -120,13 +125,6 @@ function ReasoningEffortControl({
                 </span>
             </div>
             <div className="dsh-reasoning-slider-row">
-                {draft.image ? (
-                    <img
-                        className="dsh-reasoning-effort-image"
-                        src={draft.image}
-                        alt={draft.label}
-                    />
-                ) : null}
                 <div className="dsh-reasoning-slider-wrap">
                     <input
                         className="dsh-reasoning-slider"
@@ -173,6 +171,16 @@ function ReasoningEffortControl({
                             );
                         })}
                     </div>
+                    {draft.image ? (
+                        <span
+                            className="dsh-reasoning-knob"
+                            style={{
+                                left: `${fillPercent}%`,
+                                backgroundImage: `url("${cssImageUrl(draft.image)}")`,
+                            }}
+                            aria-hidden="true"
+                        />
+                    ) : null}
                 </div>
             </div>
         </div>

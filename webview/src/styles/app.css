@@ -1968,14 +1968,56 @@ button {
     opacity: 0.55;
 }
 
-.dsh-reasoning-effort-image {
-    flex: none;
-    width: 36px;
-    height: 36px;
-    object-fit: cover;
-    border: 1px solid var(--dsh-border);
-    border-radius: 50%;
-    background: var(--vscode-editor-background);
+.dsh-reasoning-knob {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 40px;
+    height: 55px;
+    border: 0;
+    border-radius: 8px;
+    background-repeat: no-repeat;
+    background-position: 0 0;
+    background-size: 800% 100%;
+    transform: translate(-50%, -50%);
+    transform-origin: 50% 68%;
+    animation: dsh-reasoning-run 720ms step-end infinite;
+    pointer-events: none;
+    image-rendering: pixelated;
+}
+
+.dsh-reasoning-slider-wrap:hover .dsh-reasoning-knob {
+    animation-duration: 420ms;
+}
+
+.dsh-reasoning-slider:disabled ~ .dsh-reasoning-knob {
+    animation-play-state: paused;
+    opacity: 0.55;
+}
+
+@keyframes dsh-reasoning-run {
+    0% {
+        background-position: 0 0;
+    }
+    14.285714% {
+        background-position: 14.285714% 0;
+    }
+    28.571429% {
+        background-position: 28.571429% 0;
+    }
+    42.857143% {
+        background-position: 42.857143% 0;
+    }
+    57.142857% {
+        background-position: 57.142857% 0;
+    }
+    71.428571% {
+        background-position: 71.428571% 0;
+    }
+    85.714286%,
+    100% {
+        background-position: 100% 0;
+    }
 }
 
 .dsh-send-mode {

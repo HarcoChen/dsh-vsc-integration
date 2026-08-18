@@ -51,5 +51,6 @@
     "config.apiKeyEnv.description": "Credential reference passed to dsh.credentials.set when using DSH: Configure API Key. The key is also encrypted in VS Code SecretStorage when balance display is enabled.",
     "config.agentStatusLabel.description": "Optional fixed text shown while DSH is streaming an assistant response. Leave empty to randomly choose an item from dsh.agentStatusLabels. A companion extension can temporarily override either setting through the exported API.",
     "config.agentStatusLabels.description": "Candidate labels randomly selected once per streaming agent turn when dsh.agentStatusLabel is empty.",
-    "config.balanceRefreshIntervalMs.description": "Interval for refreshing the DeepSeek balance status bar item."
+    "config.balanceRefreshIntervalMs.description": "Interval for refreshing the DeepSeek balance status bar item.",
+    "config.enableEffortKnob.description": "Show the chibi runner sprite as the reasoning effort slider knob. Disable to use the native slider handle."
 }

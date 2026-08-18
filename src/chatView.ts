@@ -328,9 +328,15 @@ function prepareImageUploads(
 }
 
 /**
- * Per-effort images shown in the reasoning effort slider.
- * Maps an effort id (e.g. "low") to an image file inside `resources/`;
- * leave empty to render the slider without images.
+ * Default sprite image used as the reasoning effort slider knob, e.g. the
+ * 8-frame "chibi runner" strip from the dsh-reasoning-effort plugin.
+ * Applied to every effort unless overridden per-id below.
+ */
+const REASONING_EFFORT_KNOB_IMAGE = "chibi-runner-strip.png";
+
+/**
+ * Per-effort knob image overrides.
+ * Maps an effort id (e.g. "low") to an image file inside `resources/`.
  */
 const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
 
@@ -347,10 +353,7 @@ function reasoningEffortOptions(
         const id = value.id.trim();
         if (!id || id.length > 128 || seen.has(id)) return [];
         seen.add(id);
-        return [{
-            id,
-            label: value.name || id,
-        }];
+        return [{ id, label: value.name || id }];
     });
 }
 
@@ -480,6 +483,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             vscode.window.onDidChangeActiveTextEditor(() => this.schedulePostState()),
             vscode.window.onDidChangeTextEditorSelection(() => this.schedulePostState()),
             this.changeReviews.onDidUpdate(() => this.schedulePostState()),
+            vscode.workspace.onDidChangeConfiguration((event) => {
+                if (event.affectsConfiguration("dsh.enableEffortKnob")) {
+                    this.schedulePostState();
+                }
+            }),
             new vscode.Disposable(unsubscribeSession),
             new vscode.Disposable(unsubscribeCatalog),
         );
@@ -2771,7 +2779,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return {
             ...(selection.reasoningEffort === undefined ? {} : { current: selection.reasoningEffort }),
             options: options.map((option) => {
-                const image = this.reasoningEffortImage(option.id);
+                if (!this.reasoningEffortKnobEnabled()) return option;
+                const image = this.reasoningEffortImage(option.id) ?? this.defaultEffortKnobImage();
                 return image ? { ...option, image } : option;
             }),
         };
@@ -2817,6 +2826,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!file || !this.view) return undefined;
         return this.view.webview.asWebviewUri(
             vscode.Uri.joinPath(this.extensionUri, "resources", file),
+        ).toString();
+    }
+
+    /** Whether the sprite-based reasoning effort knob is enabled via settings. */
+    private reasoningEffortKnobEnabled(): boolean {
+        return vscode.workspace.getConfiguration("dsh").get<boolean>("enableEffortKnob", true);
+    }
+
+    /** Resolves the default knob sprite URI, if configured. */
+    private defaultEffortKnobImage(): string | undefined {
+        if (!this.view) return undefined;
+        return this.view.webview.asWebviewUri(
+            vscode.Uri.joinPath(this.extensionUri, "resources", REASONING_EFFORT_KNOB_IMAGE),
         ).toString();
     }
 
