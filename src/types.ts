@@ -766,6 +766,8 @@ export interface ChatViewState {
     selectionEnabled: boolean;
     status: RuntimeStatus;
     busy: boolean;
+    /** Plugin-provided label for the current streaming assistant state. */
+    agentStatusLabel?: string;
     submitting: boolean;
     cancelling: boolean;
     focusMode: boolean;

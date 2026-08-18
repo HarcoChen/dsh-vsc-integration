@@ -49,5 +49,7 @@
     "config.maxContextBytes.description": "Maximum UTF-8 bytes of the assembled <ide_context> block included in one prompt.",
     "config.persistSession.description": "Reuse the last dsh session ID for the current workspace when possible. Chat messages and attached context are not persisted.",
     "config.apiKeyEnv.description": "Credential reference passed to dsh.credentials.set when using DSH: Configure API Key. The key is also encrypted in VS Code SecretStorage when balance display is enabled.",
+    "config.agentStatusLabel.description": "Optional fixed text shown while DSH is streaming an assistant response. Leave empty to randomly choose an item from dsh.agentStatusLabels. A companion extension can temporarily override either setting through the exported API.",
+    "config.agentStatusLabels.description": "Candidate labels randomly selected once per streaming agent turn when dsh.agentStatusLabel is empty.",
     "config.balanceRefreshIntervalMs.description": "Interval for refreshing the DeepSeek balance status bar item."
 }

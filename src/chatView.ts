@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import * as vscode from "vscode";
+import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
 import { DeepSeekBalanceService } from "./balanceService";
 import {
     highestKnownSeq,
@@ -100,6 +101,14 @@ const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, () => string>> = {
 
 const AGENT_PRESET_ID = /^[a-z0-9][a-z0-9-]*$/u;
 const AGENT_PRESET_DOCUMENT_SCHEME = "dsh-agent-preset";
+const DEFAULT_AGENT_STATUS_LABELS = [
+    "大肥鱼正在深潜…",
+    "大肥鱼摆摆尾巴，想想办法…",
+    "大肥鱼翻了个身，继续思考…",
+    "大肥鱼正在吞吐上下文…",
+    "大肥鱼在鱼缸里转圈…",
+    "大肥鱼：这题我会…",
+] as const;
 
 
 function errorMessage(error: unknown): string {
@@ -398,6 +407,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly agentPresetDocuments = new Map<string, string>();
     private readonly imageCache = new Map<string, { src?: string; error?: string; loading?: boolean }>();
     private readonly changeReviews: ChangeReviewStore;
+    private agentStatusChoice: { sessionId: string; candidateKey: string; label: string } | undefined;
 
     public constructor(
         private readonly extensionContext: vscode.ExtensionContext,
@@ -406,6 +416,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly contextStore: ContextStore,
         private readonly output: vscode.OutputChannel,
         private readonly balanceService?: DeepSeekBalanceService,
+        private readonly agentStatusPresentations?: AgentStatusPresentationRegistry,
     ) {
         this.changeReviews = new ChangeReviewStore(output);
         const unsubscribeSession = runtime.getSessionStore().onDidChange((sessionId, snapshot) => {
@@ -446,6 +457,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }),
             runtime.onDidChange(() => this.schedulePostState()),
+            agentStatusPresentations?.onDidChange(() => this.schedulePostState()) ?? new vscode.Disposable(() => {}),
             runtime.onDidHarnessConnect(() => {
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
@@ -456,6 +468,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 });
             }),
             contextStore.onDidChange(() => this.schedulePostState()),
+            vscode.workspace.onDidChangeConfiguration((event) => {
+                if (
+                    event.affectsConfiguration("dsh.agentStatusLabel") ||
+                    event.affectsConfiguration("dsh.agentStatusLabels")
+                ) {
+                    this.agentStatusChoice = undefined;
+                    this.schedulePostState();
+                }
+            }),
             vscode.window.onDidChangeActiveTextEditor(() => this.schedulePostState()),
             vscode.window.onDidChangeTextEditorSelection(() => this.schedulePostState()),
             this.changeReviews.onDidUpdate(() => this.schedulePostState()),
@@ -2756,6 +2777,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         };
     }
 
+    private agentStatusLabel(sessionId: string | undefined, busy: boolean): string | undefined {
+        const pluginLabel = this.agentStatusPresentations?.current()?.label;
+        if (pluginLabel) return pluginLabel;
+        const configured = vscode.workspace
+            .getConfiguration("dsh")
+            .get<string>("agentStatusLabel", "")
+            .trim();
+        if (configured) return configured;
+
+        const configuredCandidates = vscode.workspace
+            .getConfiguration("dsh")
+            .get<unknown>("agentStatusLabels", DEFAULT_AGENT_STATUS_LABELS);
+        const candidates = Array.isArray(configuredCandidates)
+            ? configuredCandidates.filter(
+                (candidate): candidate is string =>
+                    typeof candidate === "string" && candidate.trim().length > 0 && candidate.length <= 256,
+            ).map((candidate) => candidate.trim())
+            : [];
+        if (!sessionId || !busy || candidates.length === 0) {
+            this.agentStatusChoice = undefined;
+            return undefined;
+        }
+
+        const candidateKey = candidates.join("\0");
+        if (
+            this.agentStatusChoice?.sessionId === sessionId &&
+            this.agentStatusChoice.candidateKey === candidateKey
+        ) return this.agentStatusChoice.label;
+
+        const label = candidates[Math.floor(Math.random() * candidates.length)];
+        this.agentStatusChoice = { sessionId, candidateKey, label };
+        return label;
+    }
+
     /** Resolves the webview-safe image URI for an effort id, if one is configured. */
     private reasoningEffortImage(effortId: string): string | undefined {
         const file = REASONING_EFFORT_IMAGES[effortId];
@@ -2821,6 +2876,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             session?.projections.find((cell) => cell.key === "sessionStats")?.value,
         );
         const host = presentHostBaseline(this.runtime.getHostDescription());
+        const busy = selected?.running === true;
+        const agentStatusLabel = this.agentStatusLabel(this.sessionId, busy);
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -2844,7 +2901,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             selection: this.contextStore.getCurrentSelectionMetadata(),
             selectionEnabled: this.selectionEnabled,
             status: this.runtime.getStatus(),
-            busy: selected?.running === true,
+            busy,
+            ...(agentStatusLabel === undefined
+                ? {}
+                : { agentStatusLabel }),
             submitting: this.submitting,
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,

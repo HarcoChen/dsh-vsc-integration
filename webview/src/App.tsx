@@ -13,7 +13,11 @@ export function App(): React.JSX.Element {
     return (
         <div className="dsh-shell">
             <Header state={state} />
-            <MessageList messages={state.messages} submitting={state.submitting} />
+            <MessageList
+                messages={state.messages}
+                submitting={state.submitting}
+                agentStatusLabel={state.agentStatusLabel}
+            />
             <Interactions interactions={state.interactions} />
             <ActivityDock state={state} />
             <TodoPanel todos={state.todos ?? []} />

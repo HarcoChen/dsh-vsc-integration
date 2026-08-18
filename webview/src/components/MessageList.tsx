@@ -7,6 +7,7 @@ import { MessageItem } from "./MessageItem";
 interface MessageListProps {
     messages: ChatMessage[];
     submitting: boolean;
+    agentStatusLabel?: string;
 }
 
 function closestElement(target: EventTarget | null, selector: string): HTMLElement | undefined {
@@ -95,7 +96,7 @@ export function handleMarkdownKeydown(event: React.KeyboardEvent): void {
     postAction({ type: "openExternalLink", url });
 }
 
-export function MessageList({ messages, submitting }: MessageListProps): React.JSX.Element {
+export function MessageList({ messages, submitting, agentStatusLabel }: MessageListProps): React.JSX.Element {
     const listRef = useRef<HTMLDivElement>(null);
     const stickToBottomRef = useRef(true);
 
@@ -147,7 +148,12 @@ export function MessageList({ messages, submitting }: MessageListProps): React.J
                 </div>
             ) : (
                 messages.map((message) => (
-                    <MessageItem key={message.id} message={message} submitting={submitting} />
+                    <MessageItem
+                        key={message.id}
+                        message={message}
+                        submitting={submitting}
+                        agentStatusLabel={agentStatusLabel}
+                    />
                 ))
             )}
         </div>

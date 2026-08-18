@@ -17,6 +17,7 @@ import { CloseIcon } from "./icons";
 interface MessageItemProps {
     message: ChatMessage;
     submitting: boolean;
+    agentStatusLabel?: string;
 }
 
 function LinkedFileLocations({ text }: { text: string }): React.JSX.Element {
@@ -330,7 +331,13 @@ function MessageImages({ images }: { images: readonly ChatImageView[] }): React.
  * Body + optional reasoning fold. `renderedHtml` is fixed-vocabulary HTML produced
  * by the extension-host safe Markdown renderer, so it is injected verbatim.
  */
-export function MessageContent({ message }: { message: ChatMessage }): React.JSX.Element {
+export function MessageContent({
+    message,
+    agentStatusLabel,
+}: {
+    message: ChatMessage;
+    agentStatusLabel?: string;
+}): React.JSX.Element {
     if (message.role === "tool" && message.tool) {
         return <ToolCard tool={message.tool} />;
     }
@@ -368,7 +375,9 @@ export function MessageContent({ message }: { message: ChatMessage }): React.JSX
                     : {})}
             >
                 <summary>
-                    {message.reasoningState === "streaming" ? t("Thinking...") : t("Reasoning · complete")}
+                    {message.reasoningState === "streaming"
+                        ? agentStatusLabel ?? t("Thinking...")
+                        : t("Reasoning · complete")}
                 </summary>
                 {reasoningBody}
             </details>
@@ -376,7 +385,7 @@ export function MessageContent({ message }: { message: ChatMessage }): React.JSX
     );
 }
 
-export function MessageItem({ message, submitting }: MessageItemProps): React.JSX.Element {
+export function MessageItem({ message, submitting, agentStatusLabel }: MessageItemProps): React.JSX.Element {
     const stateClass =
         message.state === "streaming"
             ? " dsh-streaming"
@@ -386,8 +395,10 @@ export function MessageItem({ message, submitting }: MessageItemProps): React.JS
     const stateLabel =
         message.state === "pending"
             ? t(" · waiting for response")
-            : message.state === "streaming"
-              ? t(" · streaming")
+            : message.state === "streaming" && message.role === "assistant"
+              ? ` · ${agentStatusLabel ?? t("Thinking...")}`
+              : message.state === "streaming"
+                ? t(" · streaming")
               : "";
     const hasTrace = Number.isSafeInteger(message.seq) && (message.seq ?? -1) >= 0;
     return (
@@ -411,7 +422,7 @@ export function MessageItem({ message, submitting }: MessageItemProps): React.JS
                     </button>
                 ) : null}
             </div>
-            <MessageContent message={message} />
+            <MessageContent message={message} agentStatusLabel={agentStatusLabel} />
             {message.state === "failed" ? (
                 <button
                     type="button"

@@ -49,5 +49,7 @@
     "config.maxContextBytes.description": "单次 prompt 中组装后的 <ide_context> 块允许使用的最大 UTF-8 字节数。",
     "config.persistSession.description": "尽可能复用当前工作区上次使用的 dsh session ID。聊天消息和附件上下文本身不会由扩展持久化。",
     "config.apiKeyEnv.description": "执行“DSH：配置 API Key”时传给 dsh.credentials.set 的凭据引用名。启用余额显示时，Key 也会加密保存在 VS Code SecretStorage 中。",
+    "config.agentStatusLabel.description": "DSH 流式输出助手回复时显示的固定文字。留空时会从 dsh.agentStatusLabels 中随机选择；配套扩展可通过导出的 API 临时覆盖这两项设置。",
+    "config.agentStatusLabels.description": "当 dsh.agentStatusLabel 为空时，每轮流式 Agent 回复开始时随机选择一次的候选文案。",
     "config.balanceRefreshIntervalMs.description": "DeepSeek 余额状态栏项目的刷新间隔。"
 }

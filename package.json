@@ -41,6 +41,7 @@
         "chat"
     ],
     "main": "./dist/extension.js",
+    "types": "./dist/extension.d.ts",
     "activationEvents": [
         "onStartupFinished",
         "onView:dsh.chatView",
@@ -482,6 +483,28 @@
                     "type": "string",
                     "default": "DEEPSEEK_API_KEY",
                     "description": "%config.apiKeyEnv.description%"
+                },
+                "dsh.agentStatusLabel": {
+                    "type": "string",
+                    "default": "",
+                    "maxLength": 256,
+                    "description": "%config.agentStatusLabel.description%"
+                },
+                "dsh.agentStatusLabels": {
+                    "type": "array",
+                    "default": [
+                        "大肥鱼正在深潜…",
+                        "大肥鱼摆摆尾巴，想想办法…",
+                        "大肥鱼翻了个身，继续思考…",
+                        "大肥鱼正在吞吐上下文…",
+                        "大肥鱼在鱼缸里转圈…",
+                        "大肥鱼：这题我会…"
+                    ],
+                    "items": {
+                        "type": "string",
+                        "maxLength": 256
+                    },
+                    "description": "%config.agentStatusLabels.description%"
                 },
                 "dsh.balanceRefreshIntervalMs": {
                     "type": "number",

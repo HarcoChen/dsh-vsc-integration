@@ -1,4 +1,8 @@
 import * as vscode from "vscode";
+import {
+    AgentStatusPresentationRegistry,
+    DshExtensionApi,
+} from "./agentStatusPresentation";
 import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider, QuickTaskKind } from "./chatView";
 import { ContextStore } from "./contextStore";
@@ -7,12 +11,13 @@ import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
 import { parseTraceLocation } from "./traceProtocol";
 
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     configureLocalization((message, args) => vscode.l10n.t(message, args));
     const output = vscode.window.createOutputChannel("DeepSeek Harness");
     const runtime = new DshRuntime(output, context.globalStorageUri.fsPath);
     const balanceService = new DeepSeekBalanceService(context, output);
     const contextStore = new ContextStore();
+    const agentStatusPresentations = new AgentStatusPresentationRegistry();
     const chatView = new ChatViewProvider(
         context,
         context.extensionUri,
@@ -20,12 +25,14 @@ export function activate(context: vscode.ExtensionContext): void {
         contextStore,
         output,
         balanceService,
+        agentStatusPresentations,
     );
     const tracePanels = new TracePanelManager(runtime, output, workspaceRoot);
 
     context.subscriptions.push(
         output,
         balanceService,
+        agentStatusPresentations,
         chatView,
         tracePanels,
         new vscode.Disposable(() => {
@@ -139,6 +146,11 @@ export function activate(context: vscode.ExtensionContext): void {
             output.appendLine(`[dsh] automatic startup failed: ${message}`);
         });
     }
+
+    return {
+        registerAgentStatusPresentation: (presentation) =>
+            agentStatusPresentations.registerAgentStatusPresentation(presentation),
+    };
 }
 
 function registerChatParticipant(chatView: ChatViewProvider, extensionUri: vscode.Uri): vscode.Disposable {
