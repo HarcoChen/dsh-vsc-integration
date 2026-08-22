@@ -5,6 +5,14 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+- 修复交互卡片残留显示的问题：审批、计划评审和提问区域现在按顺序只展示当前待处理的卡片，已解决的卡片不再重复出现；提交中的卡片会保留到结果返回后，再自动切换到下一个等待项。
+- Runtime 启动默认改用 `pnpm dlx @deepseek-ai/dsh web --no-open`，以规避 npx 的依赖解析问题；pnpm 不可用时自动回退到 npx，且扩展自行拉起 Runtime 时不再打开浏览器窗口。
+- 新增 `dsh.npxTimeoutMs` 设置：控制等待包管理器下载 DSH 包并启动 Web 服务的最长时间。
+- 新增 `dsh.npmRegistry` 设置：下载或启动失败时自动改用备用 npm registry 重试一次（默认 npmmirror；当前已在使用 npmmirror 时改试官方源），留空可禁用回退。
+- 优化发版流程：新增 `npm run release` 脚本，统一完成测试、版本号提升、CHANGELOG 归档与打 tag；发布流水线支持手动按已有 tag 重跑，并新增 Open VSX 发布步骤。
+
 ## [0.5.1] - 2026-08-18
 
 - 新增原生“对话大纲” TreeView：按当前会话的用户消息生成导航节点，点击即可跳转到对应消息。

@@ -546,7 +546,8 @@
         "watch": "tsc -watch -p ./tsconfig.json",
         "check": "tsc --noEmit -p ./tsconfig.json",
         "test": "npm run compile && node --test test/*.test.js",
-        "package": "npm run compile && vsce package"
+        "package": "npm run compile && vsce package",
+        "release": "node ./scripts/release.mjs"
     },
     "devDependencies": {
         "@types/react": "^18.3.24",
