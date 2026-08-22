@@ -168,7 +168,8 @@ writeFileSync(changelogPath, nextChangelog, "utf8");
 
 run("git", ["add", "package.json", "package-lock.json", "CHANGELOG.md"]);
 run("git", ["commit", "-m", `release: ${tag}`]);
-run("git", ["tag", tag]);
+// Annotated tag: `git push --follow-tags` only pushes annotated tags.
+run("git", ["tag", "-a", tag, "-m", `release: ${tag}`]);
 
 if (push) {
     const branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"]);

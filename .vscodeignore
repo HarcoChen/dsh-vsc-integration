@@ -9,6 +9,12 @@ deepseek-harness/**
 test/**
 *.ts
 *.map
+*.vsix
+.github/**
+scripts/**
+tsconfig.json
+TODO.md
+AGENTS.md
 npm-debug.log*
 package-lock.json
 .gitignore
