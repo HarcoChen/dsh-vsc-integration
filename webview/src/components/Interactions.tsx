@@ -237,18 +237,28 @@ export function Interactions({
 }: {
     interactions: Interaction[];
 }): React.JSX.Element | null {
-    if (!interactions.length) return null;
+    // Keep the approval area sequential. Resolved interactions are retained by
+    // the session store for reconciliation, but they should not keep a card
+    // in the sticky layout. A submitting card remains visible until its
+    // authoritative resolution arrives; then the next waiting interaction is
+    // promoted automatically.
+    const interaction =
+        interactions.find(
+            (candidate) => candidate.status === "pending" || candidate.status === "submitting",
+        ) ??
+        interactions.find(
+            (candidate) => candidate.status === "failed" || candidate.status === "unavailable",
+        );
+    if (!interaction) return null;
     return (
         <div className="dsh-interactions">
-            {interactions.map((interaction) => {
-                if (interaction.kind === "approval") {
-                    return <ApprovalCard key={interaction.key} interaction={interaction} />;
-                }
-                if (interaction.kind === "plan-review") {
-                    return <PlanReviewCard key={interaction.key} interaction={interaction} />;
-                }
-                return <QuestionCard key={interaction.key} interaction={interaction} />;
-            })}
+            {interaction.kind === "approval" ? (
+                <ApprovalCard key={interaction.key} interaction={interaction} />
+            ) : interaction.kind === "plan-review" ? (
+                <PlanReviewCard key={interaction.key} interaction={interaction} />
+            ) : (
+                <QuestionCard key={interaction.key} interaction={interaction} />
+            )}
         </div>
     );
 }

@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -20,6 +26,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,7 +44,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           NAME="$(node -p "require('./package.json').name")"
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ inputs.tag || github.ref_name }}"
 
           if [[ "${TAG}" != "v${VERSION}" ]]; then
             echo "Tag ${TAG} does not match package.json version v${VERSION}." >&2
@@ -67,6 +75,12 @@ jobs:
 
       - name: Package extension
         run: npm run package -- --no-dependencies
+
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          VSIX: ${{ steps.metadata.outputs.vsix }}
+        run: npx --yes ovsx publish "${VSIX}" -p "${OVSX_PAT}"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
