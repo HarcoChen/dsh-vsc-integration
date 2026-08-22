@@ -58,6 +58,11 @@ import {
 type RuntimeListener = (status: RuntimeStatus) => void;
 type HarnessConnectedListener = () => void;
 const execFileAsync = promisify(execFile);
+const DEFAULT_NPX_TIMEOUT_MS = 120_000;
+const DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS = 30_000;
+const DEFAULT_NPM_REGISTRY = "https://registry.npmmirror.com";
+const OFFICIAL_NPM_REGISTRY = "https://registry.npmjs.org";
+const NPM_REGISTRY_QUERY_TIMEOUT_MS = 5_000;
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -185,6 +190,70 @@ function redactUrl(value: string): string {
     }
 }
 
+function normalizeNpmRegistry(value: string | undefined): string | undefined {
+    const candidate = value?.trim();
+    if (!candidate) return undefined;
+    try {
+        const url = new URL(candidate);
+        if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+        if (url.username || url.password || url.search || url.hash) return undefined;
+        return url.toString().replace(/\/$/u, "");
+    } catch {
+        return undefined;
+    }
+}
+
+function hasNpmRegistryArgument(args: string[]): boolean {
+    return args.some((argument) => argument === "--registry" || argument.startsWith("--registry="));
+}
+
+function hasNpmOptionArgument(args: string[], option: string): boolean {
+    return args.some((argument) => argument === option || argument.startsWith(`${option}=`));
+}
+
+function withNpmRegistry(args: string[], registry: string | undefined): string[] | undefined {
+    if (!registry || hasNpmRegistryArgument(args)) return undefined;
+    return ["--registry", registry, ...args];
+}
+
+function alternateNpmRegistry(
+    configuredRegistry: string | undefined,
+    activeRegistry: string | undefined,
+): string | undefined {
+    if (!configuredRegistry) return undefined;
+    if (!activeRegistry || configuredRegistry !== activeRegistry) return configuredRegistry;
+    return activeRegistry === DEFAULT_NPM_REGISTRY
+        ? OFFICIAL_NPM_REGISTRY
+        : DEFAULT_NPM_REGISTRY;
+}
+
+async function activeNpmRegistry(cwd?: string, packageManager = "npm"): Promise<string | undefined> {
+    const environmentRegistry = normalizeNpmRegistry(
+        process.env.npm_config_registry ?? process.env.NPM_CONFIG_REGISTRY,
+    );
+    if (environmentRegistry) return environmentRegistry;
+    const configCommand = packageManager === "pnpm" ? "pnpm" : "npm";
+    if (!(await executableExists(configCommand))) return undefined;
+    try {
+        const result = await execFileAsync(configCommand, ["config", "get", "registry"], {
+            cwd,
+            timeout: NPM_REGISTRY_QUERY_TIMEOUT_MS,
+            windowsHide: true,
+            shell: process.platform === "win32",
+        });
+        return normalizeNpmRegistry(result.stdout);
+    } catch {
+        return undefined;
+    }
+}
+
+function isLikelyNpmDownloadFailure(error: unknown, outputTail = ""): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /(?:npm\s+(?:err(?:or)?|warn)|npx\b|pnpm\b|err_pnpm|registry|download|fetch failed|network (?:error|request|timeout)|timed out waiting for dsh web|eai_again|etimedout|econnreset|enotfound|socket hang up)/iu.test(
+        `${message}\n${outputTail}`,
+    );
+}
+
 async function globalNpmPrefix(): Promise<string | undefined> {
     if (!(await executableExists("npm"))) return undefined;
     try {
@@ -209,23 +278,105 @@ type DshRuntimeSource =
     | { kind: "path"; command: string; args: string[] }
     | { kind: "npm-prefix"; command: string; args: string[] }
     | { kind: "npx"; command: string; args: string[] }
+    | { kind: "pnpm"; command: string; args: string[] }
     | { kind: "managed"; command: string; args: string[]; version: string; target: string };
 
 interface DshLauncher {
     command: string;
     args: string[];
     source: DshRuntimeSource;
+    /** False when args already contain the complete fallback invocation. */
+    usesConfiguredArgs?: boolean;
 }
 
 interface DiscoverDshOptions {
     storagePath: string | undefined;
     installWhenMissing: boolean;
     runtimeVersion: string;
+    configuredArgs: string[];
     /** Permit the managed Runtime fallback (may download). Disabled during diagnosis. */
     allowManaged: boolean;
     /** HTTP(S) proxy URL, e.g. from the VS Code http.proxy setting. */
     proxy?: string;
     onLog?: (message: string) => void;
+}
+
+function isPackageManagerSource(source: DshRuntimeSource): source is Extract<DshRuntimeSource, { kind: "npx" | "pnpm" }> {
+    return source.kind === "npx" || source.kind === "pnpm";
+}
+
+function isPackageManagerCommand(command: string): command is "npx" | "pnpm" {
+    return command === "npx" || command === "pnpm";
+}
+
+/** Convert the packaged dlx invocation when falling back between pnpm and npx. */
+function alternatePackageManagerArgs(
+    fromCommand: string,
+    toCommand: string,
+    configuredArgs: string[],
+): string[] | undefined {
+    if (fromCommand === "pnpm" && toCommand === "npx") {
+        const dlxIndex = configuredArgs.findIndex((argument) => argument === "dlx");
+        if (dlxIndex < 0) return undefined;
+        const pnpmOptions = configuredArgs.slice(0, dlxIndex);
+        return [...pnpmOptions, "--yes", ...configuredArgs.slice(dlxIndex + 1)];
+    }
+    if (fromCommand === "npx" && toCommand === "pnpm") {
+        const npxArgs = configuredArgs.filter((argument) => argument !== "-y" && argument !== "--yes");
+        return ["dlx", ...npxArgs];
+    }
+    return undefined;
+}
+
+function npxArgsForDsh(configuredArgs: string[]): string[] {
+    const dlxIndex = configuredArgs.findIndex((argument) => argument === "dlx");
+    if (dlxIndex >= 0) {
+        return ["--yes", ...configuredArgs.slice(dlxIndex + 1)];
+    }
+
+    const packageIndex = configuredArgs.findIndex((argument) =>
+        /^@deepseek-ai\/dsh(?:@|$)/u.test(argument),
+    );
+    if (packageIndex >= 0) {
+        const prefix = configuredArgs
+            .slice(0, packageIndex)
+            .filter((argument) => argument !== "-y" && argument !== "--yes");
+        return [...prefix, "--yes", ...configuredArgs.slice(packageIndex)];
+    }
+
+    return ["--yes", "@deepseek-ai/dsh", ...configuredArgs.filter(
+        (argument) => argument !== "-y" && argument !== "--yes",
+    )];
+}
+
+function isWebProfileArgs(args: string[]): boolean {
+    return args.some((argument, index) =>
+        argument === "web" ||
+        argument === "--profile=web" ||
+        (argument === "--profile" && args[index + 1] === "web"),
+    );
+}
+
+function ensureNoOpen(args: string[]): string[] {
+    if (!isWebProfileArgs(args) || args.some((argument) => argument === "--no-open")) {
+        return args;
+    }
+    return [...args, "--no-open"];
+}
+
+function packageManagerLauncher(
+    command: "npx" | "pnpm",
+    args: string[],
+    usesConfiguredArgs = true,
+): DshLauncher {
+    return {
+        command,
+        args,
+        source: command === "pnpm"
+            ? { kind: "pnpm", command, args }
+            : { kind: "npx", command, args },
+        usesConfiguredArgs,
+    };
 }
 
 function describeSource(source: DshRuntimeSource): string {
@@ -238,6 +389,8 @@ function describeSource(source: DshRuntimeSource): string {
             return "npm global prefix";
         case "npx":
             return "npx";
+        case "pnpm":
+            return "pnpm dlx";
         case "managed":
             return t("managed Runtime {version} ({target})", { version: source.version, target: source.target });
     }
@@ -246,6 +399,17 @@ function describeSource(source: DshRuntimeSource): string {
 class CanceledError extends Error {
     constructor() {
         super(t("Canceled."));
+    }
+}
+
+class RuntimeLaunchFailure extends Error {
+    public constructor(
+        public readonly outputTail: string,
+        cause: unknown,
+    ) {
+        super(cause instanceof Error ? cause.message : String(cause));
+        this.name = "RuntimeLaunchFailure";
+        this.cause = cause;
     }
 }
 
@@ -346,7 +510,7 @@ async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshL
 
 /**
  * Resolve the DSH launcher in order: configured command, PATH dsh, npm global
- * prefix, non-installing npx, and finally the managed Runtime (cached, then
+ * prefix, pnpm dlx/npx, and finally the managed Runtime (cached, then
  * downloaded). Every provider failure is aggregated into the final error so a
  * failed download is never masked as a generic "dsh not available".
  */
@@ -354,12 +518,27 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
     const failures: string[] = [];
 
     if (await executableExists(command)) {
-        return { command, args: [], source: { kind: "configured", command, args: [] } };
+        return isPackageManagerCommand(command)
+            ? packageManagerLauncher(command, [])
+            : { command, args: [], source: { kind: "configured", command, args: [] } };
     }
-    // `npx` is the packaged default command. If it is absent, treat that as
-    // a missing local toolchain so the managed Runtime fallback can run.
-    if (command === "npx") {
-        failures.push(t("npx: not found"));
+    // pnpm dlx and npx are interchangeable package-manager launchers for the
+    // published DSH package. Prefer the other one when the configured default
+    // is missing, converting the packaged arguments where possible.
+    if (isPackageManagerCommand(command)) {
+        failures.push(t("{command}: not found", { command }));
+        const alternateCommand = command === "pnpm" ? "npx" : "pnpm";
+        if (await executableExists(alternateCommand)) {
+            const alternateArgs = alternatePackageManagerArgs(command, alternateCommand, options.configuredArgs);
+            if (alternateArgs) {
+                return packageManagerLauncher(alternateCommand, alternateArgs, false);
+            }
+            failures.push(t("{command}: cannot reuse the configured package-manager arguments", {
+                command: alternateCommand,
+            }));
+        } else {
+            failures.push(t("{command}: not found", { command: alternateCommand }));
+        }
         if (options.allowManaged && options.storagePath && options.installWhenMissing) {
             try {
                 return await discoverManagedRuntime(options);
@@ -417,8 +596,14 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
         failures.push(t("No dsh executable was found in the npm global prefix."));
     }
 
+    if (await executableExists("pnpm")) {
+        const pnpmArgs = alternatePackageManagerArgs("npx", "pnpm", npxArgsForDsh(options.configuredArgs));
+        if (pnpmArgs) return packageManagerLauncher("pnpm", pnpmArgs, false);
+    }
+    failures.push(t("pnpm: not found"));
+
     if (await executableExists("npx")) {
-        return { command: "npx", args: ["--no-install", "@deepseek-ai/dsh"], source: { kind: "npx", command: "npx", args: ["--no-install", "@deepseek-ai/dsh"] } };
+        return packageManagerLauncher("npx", npxArgsForDsh(options.configuredArgs), false);
     }
     failures.push(t("npx: not found"));
 
@@ -532,7 +717,7 @@ export class DshRuntime implements vscode.Disposable {
     public async diagnoseEnvironment(workspaceRoot?: string): Promise<string> {
         const configuration = this.configuration();
         const command = configuration.get<string>("command", "dsh").trim() || "dsh";
-        const configuredArgs = configuration.get<string[]>("commandArgs", ["web"]);
+        const configuredArgs = configuration.get<string[]>("commandArgs", ["web", "--no-open"]);
         const args = Array.isArray(configuredArgs)
             ? configuredArgs.filter((argument): argument is string => typeof argument === "string")
             : [];
@@ -542,11 +727,23 @@ export class DshRuntime implements vscode.Disposable {
         const commandPath = await findExecutable(command);
         const dshPath = await findExecutable("dsh");
         const npxPath = await findExecutable("npx");
+        const pnpmPath = await findExecutable("pnpm");
         const npmPath = await findExecutable("npm");
         const prefix = await globalNpmPrefix();
 
         const installWhenMissing = configuration.get<boolean>("installWhenMissing", true);
         const runtimeVersion = configuration.get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION) || RUNTIME_DEFAULT_VERSION;
+        const npxTimeoutMs = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
+        const npmRegistry = normalizeNpmRegistry(
+            configuration.get<string>("npmRegistry", DEFAULT_NPM_REGISTRY),
+        );
+        const hasExplicitRegistry = hasNpmRegistryArgument(args);
+        const activeRegistry = isPackageManagerCommand(command) && !hasExplicitRegistry
+            ? await activeNpmRegistry(workspaceRoot, command)
+            : undefined;
+        const fallbackRegistry = hasExplicitRegistry
+            ? undefined
+            : alternateNpmRegistry(npmRegistry, activeRegistry);
 
         let discovery: string;
         try {
@@ -554,6 +751,7 @@ export class DshRuntime implements vscode.Disposable {
                 storagePath: this.storagePath,
                 installWhenMissing,
                 runtimeVersion,
+                configuredArgs: args,
                 allowManaged: false,
                 proxy: this.httpProxy(),
             });
@@ -610,9 +808,13 @@ export class DshRuntime implements vscode.Disposable {
             `Configured server URL: ${serverUrl ? redactUrl(serverUrl) : "<none>"}`,
             `Configured server port: ${configuredPort || "automatic"}`,
             `Configured command: ${command} ${redactArguments(args)}`.trim(),
+            `package-manager startup timeout: ${npxTimeoutMs} ms`,
+            `package-manager active registry: ${activeRegistry ? redactUrl(activeRegistry) : "<npm default>"}`,
+            `package-manager fallback registry: ${fallbackRegistry ? redactUrl(fallbackRegistry) : "<disabled>"}`,
             `Resolved command: ${commandPath ?? "<not found>"}`,
             `Resolved dsh: ${dshPath ?? "<not found>"}`,
             `Resolved npx: ${npxPath ?? "<not found>"}`,
+            `Resolved pnpm: ${pnpmPath ?? "<not found>"}`,
             `Resolved npm: ${npmPath ?? "<not found>"}`,
             `npm global prefix: ${prefix ?? "<unavailable>"}`,
             `Managed Runtime: ${managedRuntime}`,
@@ -991,8 +1193,9 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     private async startInternal(workspaceRoot?: string): Promise<string> {
-        const configuredUrl = this.configuration().get<string>("serverUrl", "").trim();
-        const startupTimeout = this.configuration().get<number>("startupTimeoutMs", 30_000);
+        const configuration = this.configuration();
+        const configuredUrl = configuration.get<string>("serverUrl", "").trim();
+        const startupTimeout = configuration.get<number>("startupTimeoutMs", 30_000);
 
         if (!vscode.workspace.isTrusted) {
             const message = t("Trust the current workspace before dsh can run agent operations.");
@@ -1047,7 +1250,7 @@ export class DshRuntime implements vscode.Disposable {
         }
 
         let command = this.configuration().get<string>("command", "dsh").trim() || "dsh";
-        const configuredArgs = this.configuration().get<string[]>("commandArgs", ["web"]);
+        const configuredArgs = this.configuration().get<string[]>("commandArgs", ["web", "--no-open"]);
         let args = [...configuredArgs];
         const enableCompaction = this.configuration().get<boolean>("enableCompaction", true);
 
@@ -1062,6 +1265,7 @@ export class DshRuntime implements vscode.Disposable {
                 runtimeVersion:
                     this.configuration().get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION) ||
                     RUNTIME_DEFAULT_VERSION,
+                configuredArgs,
                 allowManaged: true,
                 proxy: this.httpProxy(),
                 onLog: (message) => this.output.appendLine(message),
@@ -1073,8 +1277,11 @@ export class DshRuntime implements vscode.Disposable {
         }
         command = launcher.command;
         // The managed launcher is an absolute path to the standalone runtime
-        // binary; the npx-style commandArgs do not apply to it.
-        args = [...launcher.args, ...(launcher.source.kind === "managed" ? ["web"] : [...configuredArgs])];
+        // binary; package-manager commandArgs do not apply to it.
+        args = launcher.usesConfiguredArgs === false
+            ? [...launcher.args]
+            : [...launcher.args, ...(launcher.source.kind === "managed" ? ["web", "--no-open"] : [...configuredArgs])];
+        args = ensureNoOpen(args);
         this.output.appendLine(`[dsh] discovered executable: ${command} (${describeSource(launcher.source)})`);
 
         if (!(await this.acquireRuntimeLock())) {
@@ -1117,77 +1324,157 @@ export class DshRuntime implements vscode.Disposable {
             args.push("--port", String(configuredPort > 0 ? configuredPort : 0));
         }
 
-        const candidatePort = portFromArgs(args);
-        this.baseUrl = candidatePort
-            ? `http://127.0.0.1:${candidatePort}`
+        const configuredNpxTimeout = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
+        const npxTimeoutMs = Number.isFinite(configuredNpxTimeout) && configuredNpxTimeout > 0
+            ? configuredNpxTimeout
+            : DEFAULT_NPX_TIMEOUT_MS;
+        const packageManagerFetchTimeoutMs = Math.min(npxTimeoutMs, DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS);
+        const configuredNpmRegistry = normalizeNpmRegistry(
+            configuration.get<string>("npmRegistry", DEFAULT_NPM_REGISTRY),
+        );
+        const hasExplicitRegistry = hasNpmRegistryArgument(args);
+        const activeRegistry = isPackageManagerSource(launcher.source) && !hasExplicitRegistry
+            ? await activeNpmRegistry(workspaceRoot, launcher.source.kind)
             : undefined;
+        const npmRegistry = hasExplicitRegistry
+            ? undefined
+            : alternateNpmRegistry(configuredNpmRegistry, activeRegistry);
+        const readinessTimeout = isPackageManagerSource(launcher.source) ? npxTimeoutMs : startupTimeout;
 
-        this.output.appendLine(`[dsh] starting: ${command} ${args.join(" ")}`);
-        const child = spawn(command, args, {
-            cwd: workspaceRoot,
-            env: process.env,
-            // Windows batch and PowerShell launchers fail with EINVAL unless
-            // executed through the shell; native executables do not need it.
-            shell: launcherNeedsShell(command),
-            stdio: ["ignore", "pipe", "pipe"],
-            windowsHide: true,
-        });
-        this.child = child;
-        this.startedByExtension = true;
+        if (isPackageManagerSource(launcher.source)) {
+            this.output.appendLine(
+                `[dsh] ${launcher.source.kind} registry: ${activeRegistry ? redactUrl(activeRegistry) : "<npm default>"}; fallback: ${npmRegistry ? redactUrl(npmRegistry) : "<disabled>"}`,
+            );
+            this.output.appendLine(
+                `[dsh] ${launcher.source.kind} fetch timeout: ${packageManagerFetchTimeoutMs} ms; retries: 0 unless overridden by command or environment`,
+            );
+        }
 
-        let exited = false;
-        let launchError: Error | undefined;
-        let outputTail = "";
-        const recordOutput = (chunk: Buffer, stream: string): void => {
-            const text = chunk.toString("utf8");
-            outputTail = `${outputTail}${text}`.slice(-8_000);
-            this.output.append(`[dsh:${stream}] ${text}`);
+        const launchAttempt = async (attemptArgs: string[]): Promise<string> => {
+            const candidatePort = portFromArgs(attemptArgs);
+            this.baseUrl = candidatePort
+                ? `http://127.0.0.1:${candidatePort}`
+                : undefined;
 
-            const discoveredUrl = extractUrl(text);
-            if (discoveredUrl && discoveredUrl !== this.baseUrl) {
-                this.baseUrl = discoveredUrl;
-                void this.publishRuntimeLockUrl(discoveredUrl).catch((error) => {
+            this.output.appendLine(`[dsh] starting: ${command} ${attemptArgs.join(" ")}`);
+            const launchEnv: NodeJS.ProcessEnv = { ...process.env };
+            if (isPackageManagerSource(launcher.source)) {
+                if ((launcher.source.kind !== "npx" || !hasNpmOptionArgument(attemptArgs, "--fetch-timeout"))
+                    && !launchEnv.npm_config_fetch_timeout
+                    && !launchEnv.NPM_CONFIG_FETCH_TIMEOUT) {
+                    launchEnv.npm_config_fetch_timeout = String(packageManagerFetchTimeoutMs);
+                }
+                if ((launcher.source.kind !== "npx" || !hasNpmOptionArgument(attemptArgs, "--fetch-retries"))
+                    && !launchEnv.npm_config_fetch_retries
+                    && !launchEnv.NPM_CONFIG_FETCH_RETRIES) {
+                    launchEnv.npm_config_fetch_retries = "0";
+                }
+            }
+            const child = spawn(command, attemptArgs, {
+                cwd: workspaceRoot,
+                env: launchEnv,
+                // Windows batch and PowerShell launchers fail with EINVAL unless
+                // executed through the shell; native executables do not need it.
+                shell: launcherNeedsShell(command),
+                stdio: ["ignore", "pipe", "pipe"],
+                windowsHide: true,
+            });
+            this.child = child;
+            this.startedByExtension = true;
+
+            let exited = false;
+            let launchError: Error | undefined;
+            let outputTail = "";
+            const recordOutput = (chunk: Buffer, stream: string): void => {
+                const text = chunk.toString("utf8");
+                outputTail = `${outputTail}${text}`.slice(-8_000);
+                this.output.append(`[dsh:${stream}] ${text}`);
+
+                const discoveredUrl = extractUrl(text);
+                if (discoveredUrl && discoveredUrl !== this.baseUrl) {
+                    this.baseUrl = discoveredUrl;
+                    void this.publishRuntimeLockUrl(discoveredUrl).catch((error) => {
+                        this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
+                    });
+                }
+            };
+
+            child.stdout?.on("data", (chunk: Buffer) => recordOutput(chunk, "out"));
+            child.stderr?.on("data", (chunk: Buffer) => recordOutput(chunk, "err"));
+            child.once("error", (error) => {
+                launchError = error;
+                exited = true;
+            });
+            child.once("close", (code, signal) => {
+                exited = true;
+                this.output.appendLine(`[dsh] exited: code=${code ?? "null"}, signal=${signal ?? "null"}`);
+                if (this.child === child) {
+                    this.child = undefined;
+                }
+            });
+
+            const startedAt = Date.now();
+            const heartbeat = isPackageManagerSource(launcher.source)
+                ? setInterval(() => {
+                    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1_000);
+                    const timeoutSeconds = Math.ceil(readinessTimeout / 1_000);
+                    this.output.appendLine(
+                        `[dsh] ${launcher.source.kind} is still downloading/starting (${elapsedSeconds}s/${timeoutSeconds}s timeout)`,
+                    );
+                }, 15_000)
+                : undefined;
+            try {
+                const url = await this.waitForReady(
+                    undefined,
+                    readinessTimeout,
+                    () => exited,
+                    () => launchError,
+                    () => outputTail,
+                );
+                this.baseUrl = url;
+                try {
+                    await this.publishRuntimeLockUrl(url);
+                } catch (error) {
                     this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
-                });
+                }
+                return url;
+            } catch (error) {
+                await this.terminate(child);
+                this.child = undefined;
+                this.baseUrl = undefined;
+                this.startedByExtension = false;
+                throw new RuntimeLaunchFailure(outputTail, error);
+            } finally {
+                if (heartbeat !== undefined) clearInterval(heartbeat);
             }
         };
 
-        child.stdout?.on("data", (chunk: Buffer) => recordOutput(chunk, "out"));
-        child.stderr?.on("data", (chunk: Buffer) => recordOutput(chunk, "err"));
-        child.once("error", (error) => {
-            launchError = error;
-            exited = true;
-        });
-        child.once("close", (code, signal) => {
-            exited = true;
-            this.output.appendLine(`[dsh] exited: code=${code ?? "null"}, signal=${signal ?? "null"}`);
-            if (this.child === child) {
-                this.child = undefined;
-            }
-        });
-
+        let url: string;
         try {
-            const url = await this.waitForReady(
-                undefined,
-                startupTimeout,
-                () => exited,
-                () => launchError,
-                () => outputTail,
-            );
-            this.baseUrl = url;
             try {
-                await this.publishRuntimeLockUrl(url);
+                url = await launchAttempt(args);
             } catch (error) {
-                this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
+                const registry = npmRegistry;
+                if (!isPackageManagerSource(launcher.source) || registry === undefined) throw error;
+                const mirrorArgs = withNpmRegistry(args, registry);
+                if (!mirrorArgs || !isLikelyNpmDownloadFailure(error, error instanceof RuntimeLaunchFailure ? error.outputTail : "")) {
+                    throw error;
+                }
+
+                this.output.appendLine(
+                    `[dsh] ${launcher.source.kind} download/start failed; retrying with npm registry ${redactUrl(registry)}`,
+                );
+                try {
+                    url = await launchAttempt(mirrorArgs);
+                } catch (retryError) {
+                    const firstMessage = error instanceof Error ? error.message : String(error);
+                    const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
+                    throw new Error(
+                        `${firstMessage}\n\n${t("Retrying with the alternate npm registry also failed.")}\n\n${retryMessage}`,
+                    );
+                }
             }
-            this.setStatus({ state: "running", url });
-            this.harnessState.start();
-            return url;
         } catch (error) {
-            await this.terminate(child);
-            this.child = undefined;
-            this.baseUrl = undefined;
-            this.startedByExtension = false;
             await this.releaseRuntimeLock();
             let message = error instanceof Error ? error.message : String(error);
             if (launcher.source.kind === "managed") {
@@ -1201,6 +1488,11 @@ export class DshRuntime implements vscode.Disposable {
             this.setStatus({ state: "error", message });
             throw new Error(message);
         }
+
+        this.baseUrl = url;
+        this.setStatus({ state: "running", url });
+        this.harnessState.start();
+        return url;
     }
 
     private async waitForReady(

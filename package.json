@@ -411,7 +411,7 @@
             "properties": {
                 "dsh.command": {
                     "type": "string",
-                    "default": "npx",
+                    "default": "pnpm",
                     "description": "%config.command.description%"
                 },
                 "dsh.commandArgs": {
@@ -420,11 +420,24 @@
                         "type": "string"
                     },
                     "default": [
-                        "-y",
+                        "dlx",
                         "@deepseek-ai/dsh",
-                        "web"
+                        "web",
+                        "--no-open"
                     ],
                     "description": "%config.commandArgs.description%"
+                },
+                "dsh.npxTimeoutMs": {
+                    "type": "number",
+                    "default": 120000,
+                    "minimum": 10000,
+                    "maximum": 600000,
+                    "description": "%config.npxTimeoutMs.description%"
+                },
+                "dsh.npmRegistry": {
+                    "type": "string",
+                    "default": "https://registry.npmmirror.com",
+                    "description": "%config.npmRegistry.description%"
                 },
                 "dsh.enableCompaction": {
                     "type": "boolean",
