@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+<!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
+
+## [0.5.2] - 2026-08-22
+
 - 修复交互卡片残留显示的问题：审批、计划评审和提问区域现在按顺序只展示当前待处理的卡片，已解决的卡片不再重复出现；提交中的卡片会保留到结果返回后，再自动切换到下一个等待项。
 - Runtime 启动默认改用 `pnpm dlx @deepseek-ai/dsh web --no-open`，以规避 npx 的依赖解析问题；pnpm 不可用时自动回退到 npx，且扩展自行拉起 Runtime 时不再打开浏览器窗口。
 - 新增 `dsh.npxTimeoutMs` 设置：控制等待包管理器下载 DSH 包并启动 Web 服务的最长时间。
@@ -96,6 +100,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.5.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.1...v0.5.2
 [0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
 [0.5.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.1...v0.5.0
 [0.5.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.0...v0.5.1
