@@ -14,6 +14,14 @@ export type ChatViewAction =
     | { type: "cancel" }
     | { type: "configureApiKey" }
     | { type: "manageProviders" }
+    | { type: "manageSettings" }
+    | { type: "openSettingsDocument" }
+    | {
+          type: "mutateSettings";
+          ns: string;
+          revision: number;
+          changes: Array<{ path: string[]; value: string; clear: boolean }>;
+      }
     | { type: "manageAgentPresets" }
     | { type: "manageWorkspaces" }
     | { type: "openIdeContextPicker" }
@@ -156,6 +164,8 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "cancel":
         case "configureApiKey":
         case "manageProviders":
+        case "manageSettings":
+        case "openSettingsDocument":
         case "manageWorkspaces":
         case "openIdeContextPicker":
         case "toggleSelection":
@@ -183,7 +193,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 ((value.type === "refreshSubagents" || value.type === "closeSubagent") &&
                     hasAny(value, ["sessionId", "parentSessionId", "childSessionId", "mode", "provider"]))
             ) return undefined;
-            return { type: value.type };
+            return { type: value.type } as ChatViewAction;
         case "manageAgentPresets":
             return hasOnly(value, ["type", "protocol"])
                 ? { type: "manageAgentPresets" }
@@ -306,6 +316,27 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             return hasOnly(value, ["type", "query"]) && typeof value.query === "string" && value.query.length <= 256
                 ? { type: "fileReferenceQuery", query: value.query }
                 : undefined;
+        case "mutateSettings": {
+            if (
+                !hasOnly(value, ["type", "ns", "revision", "changes"]) ||
+                !nonEmptyString(value.ns) || value.ns.length > 256 ||
+                !nonNegativeInteger(value.revision) || !Array.isArray(value.changes) ||
+                value.changes.length === 0 || value.changes.length > 100
+            ) return undefined;
+            const changes: Array<{ path: string[]; value: string; clear: boolean }> = [];
+            for (const candidate of value.changes) {
+                if (
+                    !isRecord(candidate) || !Array.isArray(candidate.path) || candidate.path.length === 0 ||
+                    candidate.path.length > 32 || !candidate.path.every((segment) =>
+                        typeof segment === "string" && segment.length > 0 && segment.length <= 128 &&
+                        !segment.includes("\0"),
+                    ) || typeof candidate.value !== "string" || candidate.value.length > 16_384 ||
+                    typeof candidate.clear !== "boolean"
+                ) return undefined;
+                changes.push({ path: [...candidate.path] as string[], value: candidate.value, clear: candidate.clear });
+            }
+            return { type: "mutateSettings", ns: value.ns.trim(), revision: value.revision, changes };
+        }
         case "switchSession":
             return nonEmptyString(value.sessionId)
                 ? { type: "switchSession", sessionId: value.sessionId }

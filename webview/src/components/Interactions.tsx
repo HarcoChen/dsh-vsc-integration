@@ -137,6 +137,7 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
     const [submitted, markSubmitted] = useSubmitted(interaction);
     const [selections, setSelections] = useState<Record<string, string[]>>({});
     const [customs, setCustoms] = useState<Record<string, string>>({});
+    const [collapsed, setCollapsed] = useState(false);
     const disabled = submitted || interaction.status !== "pending";
     const questions = interaction.questions ?? [];
 
@@ -169,8 +170,23 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
 
     return (
         <div className="dsh-card dsh-interaction">
-            <div className="dsh-card-title">{t("dsh needs your answer")}</div>
-            {questions.map((question) => {
+            <div className="dsh-interaction-head">
+                <div className="dsh-card-title">{t("dsh needs your answer")}</div>
+                <button
+                    type="button"
+                    className="dsh-button dsh-button-secondary dsh-interaction-toggle"
+                    aria-expanded={!collapsed}
+                    aria-label={collapsed ? t("Expand question card") : t("Collapse question card")}
+                    onClick={() => setCollapsed((current) => !current)}
+                >
+                    {collapsed ? t("Expand") : t("Collapse")}
+                </button>
+            </div>
+            {collapsed ? (
+                <div className="dsh-card-detail">
+                    {t("{count} question(s) hidden", { count: questions.length })}
+                </div>
+            ) : questions.map((question) => {
                 const options = question.options ?? [];
                 const selected = selections[question.id] ?? [];
                 return (
@@ -202,9 +218,10 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
                                 {option.description ? ` — ${option.description}` : ""}
                             </label>
                         ))}
-                        <input
+                        <textarea
                             className="dsh-custom-answer"
                             placeholder={options.length ? t("Other answer (optional)") : t("Enter an answer")}
+                            aria-label={question.header || question.question}
                             value={customs[question.id] ?? ""}
                             disabled={disabled}
                             onChange={(event) =>

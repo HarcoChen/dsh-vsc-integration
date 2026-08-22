@@ -58,9 +58,16 @@ import {
     DshImageMediaType,
     DshImageUpload,
     DshQuestionResponse,
+    DshReferenceCandidate,
     DshReasoningEffortOption,
+    DshSessionSearchItem,
     DshSessionModelsResult,
+    DshSettingFieldType,
+    DshSettingFieldView,
+    DshSettingsCardView,
+    DshSettingsPanelView,
     DshSettingsNamespaceView,
+    DshSettingsPathOperation,
     DshSkillEntry,
     DshSubagentAddress,
     DshSubagentCatalog,
@@ -155,6 +162,151 @@ function hasPath(value: unknown, path: readonly string[]): boolean {
         current = (current as Record<string, unknown>)[segment];
     }
     return true;
+}
+
+function settingsRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+interface SettingsSchemaNode {
+    type?: string;
+    dict?: Record<string, SettingsSchemaNode>;
+    inner?: SettingsSchemaNode;
+    meta?: Record<string, unknown>;
+    description?: string;
+}
+
+function settingsSchemaNode(value: unknown): SettingsSchemaNode | undefined {
+    if (!settingsRecord(value)) return undefined;
+    return {
+        ...(typeof value.type === "string" ? { type: value.type } : {}),
+        ...(settingsRecord(value.dict) ? { dict: value.dict as Record<string, SettingsSchemaNode> } : {}),
+        ...(settingsRecord(value.inner) ? { inner: value.inner as SettingsSchemaNode } : {}),
+        ...(settingsRecord(value.meta) ? { meta: value.meta } : {}),
+        ...(typeof value.description === "string" ? { description: value.description } : {}),
+    };
+}
+
+function settingsSchemaRoot(value: unknown): SettingsSchemaNode | undefined {
+    if (!settingsRecord(value)) return undefined;
+    if (typeof value.uid === "number" && settingsRecord(value.refs)) {
+        return settingsSchemaNode(value.refs[String(value.uid)]);
+    }
+    return settingsSchemaNode(value);
+}
+
+function settingLabel(path: readonly string[]): string {
+    const leaf = path[path.length - 1] ?? "Setting";
+    return leaf
+        .replace(/([a-z0-9])([A-Z])/gu, "$1 $2")
+        .replace(/[_-]+/gu, " ")
+        .replace(/^./u, (character) => character.toLocaleUpperCase());
+}
+
+function settingDescription(node: SettingsSchemaNode | undefined): string | undefined {
+    const value = node?.description ?? node?.meta?.description;
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function settingType(value: unknown, node: SettingsSchemaNode | undefined): DshSettingFieldType {
+    if (typeof value === "boolean" || node?.type === "boolean") return "boolean";
+    if (typeof value === "number" || node?.type === "number" || node?.type === "integer") return "number";
+    if (typeof value === "string" || node?.type === "string") return "string";
+    return "json";
+}
+
+function settingText(value: unknown): string {
+    if (value === undefined) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    try {
+        return JSON.stringify(value) ?? "";
+    } catch {
+        return "";
+    }
+}
+
+function sensitiveSettingPath(path: readonly string[]): boolean {
+    const leaf = path[path.length - 1] ?? "";
+    return /(?:api[_-]?key|token|password|secret|credential|private[_-]?key)$/iu.test(leaf);
+}
+
+function presentSettingsFields(namespace: DshSettingsNamespaceView): DshSettingFieldView[] {
+    const fields = new Map<string, DshSettingFieldView>();
+    const secrets = new Map(namespace.secrets.map((secret) => [secret.path.join("\0"), secret]));
+    const schema = settingsSchemaRoot(namespace.schema);
+    const add = (path: string[], node?: SettingsSchemaNode): void => {
+        if (path.length === 0) return;
+        const key = path.join("\0");
+        const secretEntry = secrets.get(key);
+        const value = valueAtPath(namespace.value, path);
+        const base = valueAtPath(namespace.base, path);
+        const user = valueAtPath(namespace.user, path);
+        const secret = secretEntry !== undefined || sensitiveSettingPath(path);
+        if (fields.has(key)) return;
+        fields.set(key, {
+            path,
+            label: settingLabel(path),
+            ...(settingDescription(node) === undefined ? {} : { description: settingDescription(node) }),
+            type: settingType(secret ? undefined : value ?? base ?? user, node),
+            value: secret ? "" : settingText(value),
+            overridden: hasPath(namespace.user, path),
+            secret,
+            secretSet: secretEntry?.set === true || (secret && value !== undefined),
+        });
+    };
+    const visitSchema = (node: SettingsSchemaNode | undefined, path: string[], depth: number): void => {
+        if (depth > 8) return;
+        const secret = secrets.get(path.join("\0"));
+        if (secret) {
+            add(path, node);
+            return;
+        }
+        const dictValue = valueAtPath(namespace.value, path);
+        const children = node?.type === "object" && node.dict
+            ? Object.entries(node.dict)
+            : node?.type === "dict" && node.inner
+              ? Object.keys(settingsRecord(dictValue) ? dictValue : {})
+                  .map((key) => [key, node.inner] as const)
+              : [];
+        if (children.length > 0) {
+            for (const [key, child] of children) visitSchema(child, [...path, key], depth + 1);
+            return;
+        }
+        add(path, node);
+    };
+    visitSchema(schema, [], 0);
+    const visitValue = (value: unknown, path: string[], depth: number): void => {
+        if (depth > 8 || value === undefined) return;
+        if (settingsRecord(value)) {
+            for (const [key, child] of Object.entries(value)) visitValue(child, [...path, key], depth + 1);
+            return;
+        }
+        add(path);
+    };
+    visitValue(namespace.value, [], 0);
+    visitValue(namespace.base, [], 0);
+    visitValue(namespace.user, [], 0);
+    for (const secret of namespace.secrets) add([...secret.path]);
+    return [...fields.values()].sort((left, right) => left.path.join(".").localeCompare(right.path.join(".")));
+}
+
+function presentSettingsPanel(
+    result: { writable: boolean; hasDocument: boolean; namespaces: DshSettingsNamespaceView[] },
+): DshSettingsPanelView {
+    return {
+        open: true,
+        writable: result.writable,
+        hasDocument: result.hasDocument,
+        cards: result.namespaces.map((namespace) => ({
+            ns: namespace.ns,
+            title: namespace.ns.replace(/[-_]+/gu, " ").replace(/^./u, (character) => character.toLocaleUpperCase()),
+            applies: namespace.applies,
+            writable: result.writable,
+            revision: namespace.revision,
+            fields: presentSettingsFields(namespace),
+        })),
+    };
 }
 
 function deriveProviderKeyRef(provider: string): string {
@@ -391,7 +543,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private cancelRequested = false;
     private selectionEnabled = true;
     private focusMode = false;
-    private fileReferenceCandidates: string[] = [];
+    private fileReferenceCandidates: DshReferenceCandidate[] = [];
+    private fileReferenceQueryGeneration = 0;
     private pendingComposerUpdate: { type: "insertText" | "setText"; text: string } | undefined;
     private webviewReady = false;
     private restoringPersistedSession: Promise<void> | undefined;
@@ -409,6 +562,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
     private readonly agentPresetDocuments = new Map<string, string>();
     private readonly imageCache = new Map<string, { src?: string; error?: string; loading?: boolean }>();
+    private settingsPanel: DshSettingsPanelView | undefined;
+    private readonly settingsNamespaces = new Map<string, DshSettingsNamespaceView>();
+    private settingsPanelGeneration = 0;
     private readonly changeReviews: ChangeReviewStore;
     private agentStatusChoice: { sessionId: string; candidateKey: string; label: string } | undefined;
 
@@ -1032,6 +1188,93 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }));
     }
 
+    private async toggleSettingsPanel(): Promise<void> {
+        if (this.settingsPanel?.open) {
+            this.settingsPanel = undefined;
+            this.settingsNamespaces.clear();
+            this.postState();
+            return;
+        }
+        const generation = ++this.settingsPanelGeneration;
+        this.settingsPanel = {
+            open: true,
+            loading: true,
+            writable: false,
+            hasDocument: false,
+            cards: [],
+        };
+        this.postState();
+        try {
+            await this.runtime.start(this.workspaceRoot());
+            const result = await this.runtime.describeSettings();
+            if (generation !== this.settingsPanelGeneration) return;
+            this.settingsNamespaces.clear();
+            for (const namespace of result.namespaces) this.settingsNamespaces.set(namespace.ns, namespace);
+            this.settingsPanel = presentSettingsPanel(result);
+        } catch (error) {
+            if (generation !== this.settingsPanelGeneration) return;
+            this.settingsPanel = {
+                open: true,
+                writable: false,
+                hasDocument: false,
+                cards: [],
+                error: errorMessage(error),
+            };
+        }
+        this.postState();
+    }
+
+    private async mutateSettings(
+        namespaceId: string,
+        revision: number,
+        changes: Array<{ path: string[]; value: string; clear: boolean }>,
+    ): Promise<void> {
+        const panel = this.settingsPanel;
+        const namespace = this.settingsNamespaces.get(namespaceId);
+        const card = panel?.cards.find((candidate) => candidate.ns === namespaceId);
+        if (!panel?.open || !panel.writable || !namespace || !card || card.revision !== revision) {
+            throw new Error(t("Settings are out of date. Close and reopen the settings cards."));
+        }
+        const fields = new Map(card.fields.map((field) => [field.path.join("\0"), field]));
+        const ops: DshSettingsPathOperation[] = [];
+        for (const change of changes) {
+            const field = fields.get(change.path.join("\0"));
+            if (!field || field.secret) continue;
+            if (change.clear) {
+                ops.push({ op: "unset", path: [...field.path] });
+                continue;
+            }
+            let value: unknown;
+            if (field.type === "boolean") {
+                if (change.value !== "true" && change.value !== "false") {
+                    throw new Error(t("Boolean settings must be true or false."));
+                }
+                value = change.value === "true";
+            } else if (field.type === "number") {
+                value = Number(change.value.trim());
+                if (!Number.isFinite(value)) throw new Error(t("Number settings must contain a finite number."));
+            } else if (field.type === "json") {
+                try {
+                    value = JSON.parse(change.value);
+                } catch {
+                    throw new Error(t("JSON settings must contain valid JSON."));
+                }
+            } else {
+                value = change.value;
+            }
+            ops.push({ op: "set", path: [...field.path], value });
+        }
+        if (ops.length === 0) return;
+        const updated = await this.runtime.mutateSettings(namespaceId, ops, revision);
+        this.settingsNamespaces.set(namespaceId, updated);
+        this.settingsPanel = presentSettingsPanel({
+            writable: panel.writable,
+            hasDocument: panel.hasDocument,
+            namespaces: [...this.settingsNamespaces.values()],
+        });
+        this.postState();
+    }
+
     public async manageProviders(): Promise<void> {
         await this.runtime.start(this.workspaceRoot());
 
@@ -1369,6 +1612,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "manageProviders":
                     await this.manageProviders();
                     break;
+                case "manageSettings":
+                    await this.toggleSettingsPanel();
+                    break;
+                case "openSettingsDocument":
+                    await this.runtime.start(this.workspaceRoot());
+                    await this.runtime.openSettingsDocument();
+                    break;
+                case "mutateSettings":
+                    await this.mutateSettings(message.ns, message.revision, message.changes);
+                    break;
                 case "manageAgentPresets":
                     await this.manageAgentPresets();
                     break;
@@ -1527,25 +1780,73 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private async updateFileReferenceCandidates(query: string): Promise<void> {
+        const generation = ++this.fileReferenceQueryGeneration;
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder || !query.trim()) {
-            this.fileReferenceCandidates = [];
-            this.postState();
-            return;
-        }
         const normalizedQuery = query.trim().replaceAll("\\", "/").toLowerCase();
-        const uris = await vscode.workspace.findFiles("**/*", "**/{.git,node_modules,.DS_Store}/**", 2_000);
+        const filesPromise = workspaceFolder
+            ? Promise.resolve(vscode.workspace.findFiles("**/*", "**/{.git,node_modules,.DS_Store}/**", 2_000)).catch(() => [] as vscode.Uri[])
+            : Promise.resolve([] as vscode.Uri[]);
+        const searchPromise: Promise<DshSessionSearchItem[]> = normalizedQuery && this.runtime.getUrl()
+            ? this.runtime.searchSessions(query.trim()).then((result) => result.items).catch(() => [])
+            : Promise.resolve([]);
+        const [uris, searchItems] = await Promise.all([filesPromise, searchPromise]);
+        if (generation !== this.fileReferenceQueryGeneration) return;
         const active = vscode.window.activeTextEditor?.document.uri;
-        const candidates = uris
+        const fileCandidates = uris
             .map((uri) => vscode.workspace.asRelativePath(uri, false).replaceAll("\\", "/"))
-            .filter((relative) => relative.toLowerCase().includes(normalizedQuery));
+            .filter((relative) => !normalizedQuery || relative.toLowerCase().includes(normalizedQuery))
+            .map((relative): DshReferenceCandidate => ({
+                kind: "file",
+                label: relative,
+                insertText: relative,
+            }));
         const activeRelative = active
             ? vscode.workspace.asRelativePath(active, false).replaceAll("\\", "/")
             : undefined;
-        const ordered = activeRelative && activeRelative.toLowerCase().includes(normalizedQuery)
-            ? [activeRelative, ...candidates.filter((candidate) => candidate !== activeRelative)]
-            : candidates;
-        this.fileReferenceCandidates = ordered.slice(0, 40);
+        const orderedFiles = activeRelative && (!normalizedQuery || activeRelative.toLowerCase().includes(normalizedQuery))
+            ? [
+                  { kind: "file", label: activeRelative, insertText: activeRelative } satisfies DshReferenceCandidate,
+                  ...fileCandidates.filter((candidate) => candidate.insertText !== activeRelative),
+              ]
+            : fileCandidates;
+
+        const remoteById = new Map(searchItems.map((item) => [item.sessionId, item]));
+        const sessionById = new Map<string, { sessionId: string; title?: string; cwd?: string; blank?: boolean }>();
+        for (const session of this.runtime.getSessionCatalog().snapshot().sessions) {
+            sessionById.set(session.sessionId, session);
+        }
+        for (const item of searchItems) {
+            if (!sessionById.has(item.sessionId)) sessionById.set(item.sessionId, { sessionId: item.sessionId });
+        }
+        const sessionCandidates = [...sessionById.values()]
+            .filter((session) => session.blank !== true && session.sessionId !== this.sessionId)
+            .filter((session) => {
+                if (!normalizedQuery) return true;
+                const remote = remoteById.get(session.sessionId);
+                const searchable = [session.sessionId, session.title, session.cwd, remote?.snippet]
+                    .filter((part): part is string => typeof part === "string")
+                    .join("\\n")
+                    .toLowerCase();
+                return searchable.includes(normalizedQuery);
+            })
+            .map((session): DshReferenceCandidate => {
+                const label = session.title?.trim() || session.sessionId;
+                const escapedLabel = label.replace(/[\x5c\]]/gu, (match) => `\x5c${match}`);
+                const payload = Buffer.from(JSON.stringify(session.sessionId), "utf8").toString("base64url");
+                const remote = remoteById.get(session.sessionId);
+                const description = [
+                    session.sessionId,
+                    session.cwd,
+                    remote?.snippet,
+                ].filter((part): part is string => typeof part === "string" && part.length > 0).join(" · ");
+                return {
+                    kind: "session",
+                    label,
+                    insertText: `@[${escapedLabel}](dsh-session:${payload})`,
+                    ...(description ? { description } : {}),
+                };
+            });
+        this.fileReferenceCandidates = [...orderedFiles, ...sessionCandidates].slice(0, 40);
         this.postState();
     }
 
@@ -2949,6 +3250,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ),
             context: this.contextStore.snapshot(),
             fileReferenceCandidates: this.fileReferenceCandidates,
+            ...(this.settingsPanel === undefined ? {} : { settings: this.settingsPanel }),
             selection: this.contextStore.getCurrentSelectionMetadata(),
             selectionEnabled: this.selectionEnabled,
             status: this.runtime.getStatus(),
@@ -3141,10 +3443,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         imageSessionId?: string,
     ): ChatMessage[] {
         const hydrated = messages.map((message): ChatMessage => {
-            if (!imageSessionId || !message.images?.length) return message;
-            return {
-                ...message,
-                images: message.images.map((image) => {
+            if (!imageSessionId) return message;
+            const hydrateImages = (images: readonly ChatImageView[] | undefined): ChatImageView[] | undefined =>
+                images?.map((image) => {
                     if (image.src || !image.attachmentId) return image;
                     const cached = this.imageCache.get(`${imageSessionId}:${image.attachmentId}`);
                     if (cached?.src) {
@@ -3154,7 +3455,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         return { ...image, loadState: "error", error: cached.error };
                     }
                     return { ...image, loadState: cached?.loading ? "loading" : "idle" };
-                }),
+                });
+            const images = hydrateImages(message.images);
+            const toolImages = hydrateImages(message.tool?.images);
+            if (!images && !toolImages) return message;
+            return {
+                ...message,
+                ...(images === undefined ? {} : { images }),
+                ...(message.tool === undefined || toolImages === undefined
+                    ? {}
+                    : { tool: { ...message.tool, images: toolImages } }),
             };
         });
         return hydrated.map((message) => {
@@ -3234,11 +3544,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const referencedByRoot = projectChatMessages(
             this.runtime.getSessionStore().get(rootSessionId),
             this.optimisticPrompts,
-        ).some((message) => message.images?.some((image) => image.attachmentId === attachmentId));
+        ).some((message) =>
+            message.images?.some((image) => image.attachmentId === attachmentId) === true ||
+            message.tool?.images?.some((image) => image.attachmentId === attachmentId) === true,
+        );
         const preview = this.subagentPreview;
         const referencedByPreview = preview?.rootSessionId === rootSessionId &&
             preview.messages.some((message) =>
-                message.images?.some((image) => image.attachmentId === attachmentId),
+                message.images?.some((image) => image.attachmentId === attachmentId) === true ||
+                message.tool?.images?.some((image) => image.attachmentId === attachmentId) === true,
             );
         const sessionId = referencedByRoot
             ? rootSessionId

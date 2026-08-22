@@ -1,6 +1,20 @@
 # TODO
 
-更新时间：2026-08-14。
+更新时间：2026-08-22。
+
+## DSH rc2 对齐（CNB 已核对）
+
+CNB `harcochen/dsh-runtime` 的 `latest` manifest 当前为 `0.1.1-rc.2`，包含
+macOS arm64/x64、Linux arm64/x64 和 Windows x64 五个平台资产。
+
+- [x] **托管 Runtime 升级**：将默认 pin 从 `0.1.0-rc.6` 更新到 `0.1.1-rc.2`；设置说明提示 SQLite/Runtime 数据格式兼容性，下载时校验 manifest 版本与请求版本一致。
+- [x] **问题卡片体验**：支持折叠、多行回答、`Shift+Enter` 换行和草稿保留。
+- [x] **Job Panel 展示对齐**：显示后台任务的 kind、job id、状态、持续时间、所有者和输出摘要；上游公开 API 目前只提供 `session/jobs` 推送，没有安全的单任务 `job.kill` 客户端 RPC，因此不伪造停止按钮。
+- [x] **会话 `@` 引用**：在文件候选之外加入 Session 候选，并复用公开 Session 查询能力；选中后插入规范 `@[label](dsh-session:<base64url>)` mention。
+- [x] **嵌套图片**：递归提取 MCP/ACP/PTC 和子代理内容中的持久图片附件，复用既有懒加载、缓存和附件权限校验。
+- [x] **插件设置卡片**：基于公开 `settings.describe/mutate` 提供通用命名空间卡片、revision 冲突保护和重置；敏感字段保持脱敏并继续交给凭据提供器。
+- [x] **Markdown 表格**：补充安全表格渲染、单元格内联 Markdown 和窄侧栏横向滚动布局。
+- [ ] **兼容性回归**：验证 rc2 的 V4 Vision、Files API 图片复用、Windows PTY 和沙箱修复；不新增单元测试，使用现有检查与手动 smoke 流程。
 
 
 ## P0：日常使用闭环

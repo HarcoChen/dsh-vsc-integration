@@ -9,6 +9,18 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- 托管 Runtime 默认 pin 更新至 CNB 已发布的 `0.1.1-rc.2`，覆盖 macOS、Linux 和 Windows 五个平台资产；安装时校验 manifest 版本必须与请求版本一致，并在设置说明中提示预览版存储格式兼容性。
+- 提问卡片支持折叠、多行自定义回答和草稿保留，便于处理较长的 `ask_user_question` 内容。
+- Job Center 补充后台任务 kind、job id、实时持续时间、所有者和输出摘要；单任务停止继续等待 Harness 公开控制 RPC。
+- `@` 候选菜单现在同时支持工作区文件和 Session；Session 按公开目录/搜索结果匹配，并插入官方 `dsh-session:` Markdown mention。
+- 递归渲染嵌套 MCP/ACP/PTC 内容中的持久图片附件，工具卡也复用现有附件懒加载与缓存。
+- 新增通用插件设置卡片：基于公开 `settings.describe/mutate` 编辑非敏感字段，使用 revision 防止并发覆盖，密钥字段只显示配置状态。
+- 安全 Markdown 渲染器支持表格、对齐和单元格内联 Markdown；窄侧栏自动提供横向滚动。
+
+## [0.5.3] - 2026-08-22
+
+- 修复 pnpm 启动 DSH 时 compaction 的 `--patch` 参数顺序错误：现在会在 Web 参数前传给 DSH 启动器，不再被 Web 命令误报为未知选项。
+
 ## [0.5.2] - 2026-08-22
 
 - 修复交互卡片残留显示的问题：审批、计划评审和提问区域现在按顺序只展示当前待处理的卡片，已解决的卡片不再重复出现；提交中的卡片会保留到结果返回后，再自动切换到下一个等待项。
@@ -100,6 +112,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.5.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.1...v0.5.2
 [0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
 [0.5.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.1...v0.5.0

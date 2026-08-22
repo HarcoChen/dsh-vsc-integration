@@ -448,12 +448,14 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
             {referenceMatch && state.fileReferenceCandidates?.length ? (
                 <div className="dsh-file-reference-menu" role="listbox">
                     {state.fileReferenceCandidates.map((candidate) => (
-                        <button type="button" key={candidate} onMouseDown={(event) => event.preventDefault()} onClick={() => {
-                            const prefix = text.slice(0, text.length - referenceQuery.length);
-                            setText(`${prefix}${candidate} `);
+                        <button type="button" key={`${candidate.kind}:${candidate.insertText}`} onMouseDown={(event) => event.preventDefault()} onClick={() => {
+                            const referenceStart = text.length - referenceQuery.length - 1;
+                            const prefix = text.slice(0, Math.max(0, referenceStart));
+                            setText(`${prefix}${candidate.insertText} `);
                             window.requestAnimationFrame(() => textareaRef.current?.focus());
                         }}>
-                            @{candidate}
+                            <span className="dsh-reference-label">@{candidate.label}</span>
+                            {candidate.description ? <small>{candidate.description}</small> : null}
                         </button>
                     ))}
                 </div>

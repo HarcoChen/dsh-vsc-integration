@@ -173,7 +173,7 @@ function LspToolResult({ lsp }: { lsp: ChatLspResultView }): React.JSX.Element {
 function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
     const status =
         tool.status === "running" ? t("Running") : tool.status === "failed" ? t("Failed") : t("Done");
-    const hasDetail = Boolean(tool.args || tool.result || tool.error || tool.web || tool.lsp);
+    const hasDetail = Boolean(tool.args || tool.result || tool.error || tool.web || tool.lsp || tool.images?.length);
     return (
         <details className={`dsh-tool-card ${tool.status}`}>
             <summary>
@@ -186,6 +186,7 @@ function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
             </summary>
             {hasDetail ? (
                 <div className="dsh-tool-detail">
+                    {tool.images?.length ? <MessageImages images={tool.images} /> : null}
                     {tool.web ? <WebToolResult web={tool.web} /> : null}
                     {tool.lsp ? <LspToolResult lsp={tool.lsp} /> : null}
                     {tool.args && !tool.lsp ? (

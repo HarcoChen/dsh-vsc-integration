@@ -349,12 +349,48 @@ function npxArgsForDsh(configuredArgs: string[]): string[] {
     )];
 }
 
-function isWebProfileArgs(args: string[]): boolean {
-    return args.some((argument, index) =>
+function webProfileIndex(args: string[]): number {
+    return args.findIndex((argument, index) =>
         argument === "web" ||
         argument === "--profile=web" ||
         (argument === "--profile" && args[index + 1] === "web"),
     );
+}
+
+function isWebProfileArgs(args: string[]): boolean {
+    return webProfileIndex(args) >= 0;
+}
+
+/**
+ * Insert a DSH launcher flag before the first Web-app argument. DSH stops
+ * parsing its own flags at the first unknown token, so app flags such as
+ * `--no-open` must not precede a later launcher-level `--patch`.
+ */
+function insertWebLauncherPatch(args: string[], patchPath: string): void {
+    const profileIndex = webProfileIndex(args);
+    if (profileIndex < 0) {
+        args.push("--patch", patchPath);
+        return;
+    }
+
+    let insertionIndex = profileIndex + 1;
+    while (insertionIndex < args.length) {
+        const argument = args[insertionIndex];
+        if (argument === "--patch") {
+            insertionIndex += 2;
+            continue;
+        }
+        if (argument.startsWith("--patch=")) {
+            insertionIndex += 1;
+            continue;
+        }
+        if (argument === "--dump-config" || argument === "--dump-default-config") {
+            insertionIndex += 1;
+            continue;
+        }
+        break;
+    }
+    args.splice(insertionIndex, 0, "--patch", patchPath);
 }
 
 function ensureNoOpen(args: string[]): string[] {
@@ -1281,7 +1317,6 @@ export class DshRuntime implements vscode.Disposable {
         args = launcher.usesConfiguredArgs === false
             ? [...launcher.args]
             : [...launcher.args, ...(launcher.source.kind === "managed" ? ["web", "--no-open"] : [...configuredArgs])];
-        args = ensureNoOpen(args);
         this.output.appendLine(`[dsh] discovered executable: ${command} (${describeSource(launcher.source)})`);
 
         if (!(await this.acquireRuntimeLock())) {
@@ -1301,7 +1336,7 @@ export class DshRuntime implements vscode.Disposable {
             this.setStatus({ state: "error", message });
             throw new Error(message);
         }
-        if (enableCompaction && args.includes("web")) {
+        if (enableCompaction && isWebProfileArgs(args)) {
             this.compactionPatchPath = join(tmpdir(), `dsh-vscode-${process.pid}-compaction.patch.yml`);
             try {
                 await writeFile(
@@ -1313,9 +1348,10 @@ export class DshRuntime implements vscode.Disposable {
                 await this.releaseRuntimeLock();
                 throw error;
             }
-            args.push("--patch", this.compactionPatchPath);
+            insertWebLauncherPatch(args, this.compactionPatchPath);
             this.output.appendLine(`[dsh] compaction command enabled with patch: ${this.compactionPatchPath}`);
         }
+        args = ensureNoOpen(args);
 
         if (!args.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
             // Port 0 asks Harness/the OS for a free port. This preserves the

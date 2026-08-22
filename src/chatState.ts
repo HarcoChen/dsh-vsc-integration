@@ -77,22 +77,28 @@ interface ContentChannels {
 
 /** Preserve per-channel ContentBlock order without leaking reasoning into visible text. */
 export function contentChannels(value: unknown): ContentChannels {
-    if (typeof value === "string") {
-        return { text: value, reasoning: "" };
-    }
-    if (!Array.isArray(value)) {
-        const object = isRecord(value) ? value : undefined;
-        const content = typeof object?.text === "string" ? object.text : "";
-        return object?.type === "reasoning"
-            ? { text: "", reasoning: content }
-            : { text: content, reasoning: "" };
-    }
     const channels: ContentChannels = { text: "", reasoning: "" };
-    for (const part of value) {
-        if (!isRecord(part) || typeof part.text !== "string") continue;
-        if (part.type === "text") channels.text += part.text;
-        else if (part.type === "reasoning") channels.reasoning += part.text;
-    }
+    const seen = new WeakSet<object>();
+    const visit = (candidate: unknown, depth: number): void => {
+        if (depth > 16 || candidate === null || candidate === undefined) return;
+        if (typeof candidate === "string") {
+            channels.text += candidate;
+            return;
+        }
+        if (typeof candidate !== "object") return;
+        if (seen.has(candidate)) return;
+        seen.add(candidate);
+        if (Array.isArray(candidate)) {
+            for (const part of candidate) visit(part, depth + 1);
+            return;
+        }
+        const object = candidate as Record<string, unknown>;
+        const text = typeof object.text === "string" ? object.text : "";
+        if (object.type === "reasoning") channels.reasoning += text;
+        else if (text) channels.text += text;
+        if (object.content !== undefined) visit(object.content, depth + 1);
+    };
+    visit(value, 0);
     return channels;
 }
 
@@ -108,36 +114,60 @@ const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>([
 ]);
 
 export function contentImages(value: unknown): ChatImageView[] {
-    if (!Array.isArray(value)) return [];
-    return value.flatMap((part): ChatImageView[] => {
-        if (!isRecord(part) || part.type !== "image" || !isRecord(part.attachment)) return [];
-        const attachment = part.attachment;
-        if (
-            typeof attachment.attachmentId !== "string" ||
-            typeof attachment.mediaType !== "string" ||
-            !IMAGE_MEDIA_TYPES.has(attachment.mediaType as DshImageMediaType) ||
-            typeof attachment.bytes !== "number" ||
-            !Number.isSafeInteger(attachment.bytes) ||
-            attachment.bytes <= 0
-        ) return [];
-        const width = typeof attachment.width === "number" &&
-            Number.isSafeInteger(attachment.width) && attachment.width > 0
-            ? attachment.width
-            : undefined;
-        const height = typeof attachment.height === "number" &&
-            Number.isSafeInteger(attachment.height) && attachment.height > 0
-            ? attachment.height
-            : undefined;
-        return [{
-            attachmentId: attachment.attachmentId,
-            mediaType: attachment.mediaType as DshImageMediaType,
-            bytes: attachment.bytes,
-            ...(width === undefined ? {} : { width }),
-            ...(height === undefined ? {} : { height }),
-            ...(typeof attachment.name === "string" ? { name: attachment.name } : {}),
-            loadState: "idle",
-        }];
-    });
+    const images: ChatImageView[] = [];
+    const seen = new WeakSet<object>();
+    const seenAttachmentIds = new Set<string>();
+    const visit = (candidate: unknown, depth: number): void => {
+        if (depth > 16 || candidate === null || candidate === undefined || typeof candidate !== "object") return;
+        if (seen.has(candidate)) return;
+        seen.add(candidate);
+        if (Array.isArray(candidate)) {
+            for (const part of candidate) {
+                if (images.length >= 100) return;
+                visit(part, depth + 1);
+            }
+            return;
+        }
+        const object = candidate as Record<string, unknown>;
+        if (object.type === "image" && isRecord(object.attachment)) {
+            const attachment = object.attachment;
+            if (
+                typeof attachment.attachmentId === "string" &&
+                !seenAttachmentIds.has(attachment.attachmentId) &&
+                typeof attachment.mediaType === "string" &&
+                IMAGE_MEDIA_TYPES.has(attachment.mediaType as DshImageMediaType) &&
+                typeof attachment.bytes === "number" &&
+                Number.isSafeInteger(attachment.bytes) &&
+                attachment.bytes > 0
+            ) {
+                seenAttachmentIds.add(attachment.attachmentId);
+                const width = typeof attachment.width === "number" &&
+                    Number.isSafeInteger(attachment.width) && attachment.width > 0
+                    ? attachment.width
+                    : undefined;
+                const height = typeof attachment.height === "number" &&
+                    Number.isSafeInteger(attachment.height) && attachment.height > 0
+                    ? attachment.height
+                    : undefined;
+                images.push({
+                    attachmentId: attachment.attachmentId,
+                    mediaType: attachment.mediaType as DshImageMediaType,
+                    bytes: attachment.bytes,
+                    ...(width === undefined ? {} : { width }),
+                    ...(height === undefined ? {} : { height }),
+                    ...(typeof attachment.name === "string" ? { name: attachment.name } : {}),
+                    loadState: "idle",
+                });
+            }
+        }
+        for (const [key, child] of Object.entries(object)) {
+            if (key === "attachment") continue;
+            visit(child, depth + 1);
+            if (images.length >= 100) return;
+        }
+    };
+    visit(value, 0);
+    return images;
 }
 
 export function promptDisplayText(wireText: string): string {
@@ -177,6 +207,16 @@ function toolView(event: StoredSessionEvent | undefined, target: "call" | "resul
         return undefined;
     }
     return event.view.view;
+}
+
+function toolResultContent(event: StoredSessionEvent | undefined): unknown {
+    if (!event || event.event.type !== "tool/result" || !isRecord(event.event.data)) return undefined;
+    const data = event.event.data;
+    const message = isRecord(data.message) ? data.message : undefined;
+    const block = Array.isArray(message?.content) && isRecord(message.content[0])
+        ? message.content[0]
+        : undefined;
+    return block?.content ?? data.content;
 }
 
 function contentSummary(value: unknown): string {
@@ -288,13 +328,7 @@ function toolArgumentsRecord(value: unknown): Record<string, unknown> | undefine
 }
 
 function toolResultRawText(event: StoredSessionEvent | undefined): string | undefined {
-    if (!event || event.event.type !== "tool/result" || !isRecord(event.event.data)) return undefined;
-    const data = event.event.data;
-    const message = isRecord(data.message) ? data.message : undefined;
-    const block = Array.isArray(message?.content) && isRecord(message.content[0])
-        ? message.content[0]
-        : undefined;
-    const content = block?.content ?? data.content;
+    const content = toolResultContent(event);
     if (typeof content === "string") return content;
     if (!Array.isArray(content)) return undefined;
     const parts = content.flatMap((part): string[] =>
@@ -391,7 +425,7 @@ function toolResultFacts(event: StoredSessionEvent): {
             ? data.callId
             : undefined;
     const result = presentationSummary(toolView(event, "result")) ||
-        contentSummary(block?.content ?? data?.content) || undefined;
+        contentSummary(toolResultContent(event)) || undefined;
     const structuredError = isRecord(data?.error)
         ? [data.error.code, data.error.message].filter((part) => typeof part === "string").join(" · ")
         : typeof data?.error === "string" ? data.error : undefined;
@@ -439,6 +473,7 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
         const lsp = facts?.error
             ? undefined
             : lspResultView(name, data?.arguments, toolResultRawText(result));
+        const images = contentImages(toolResultContent(result));
         const tool: ChatToolCall = {
             callId,
             name,
@@ -448,6 +483,7 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
             ...(facts?.result ? { result: facts.result } : {}),
             ...(durationMs === undefined ? {} : { durationMs }),
             ...(facts?.error ? { error: facts.error } : {}),
+            ...(images.length ? { images } : {}),
             ...(web === undefined ? {} : { web }),
             ...(lsp === undefined ? {} : { lsp }),
         };

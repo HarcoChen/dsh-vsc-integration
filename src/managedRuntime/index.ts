@@ -82,6 +82,14 @@ export async function acquireManagedRuntime(
         log("[dsh:runtime] downloading manifest from CNB");
         const manifest = await provider.getManifest(version, options.signal);
         throwIfAborted(options.signal);
+        if (manifest.version !== version) {
+            throw new Error(
+                t("The Runtime manifest version {manifest} does not match requested version {version}.", {
+                    manifest: manifest.version,
+                    version,
+                }),
+            );
+        }
         const asset = manifest.platforms[target];
         if (!asset) {
             throw new Error(

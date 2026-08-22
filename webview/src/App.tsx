@@ -7,12 +7,14 @@ import { ActivityDock } from "./components/ActivityDock";
 import { Composer } from "./components/Composer";
 import { TokenUsageBar } from "./components/TokenUsageBar";
 import { TodoPanel } from "./components/TodoPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
     return (
         <div className="dsh-shell">
             <Header state={state} />
+            {state.settings ? <SettingsPanel settings={state.settings} /> : null}
             <MessageList
                 messages={state.messages}
                 submitting={state.submitting}

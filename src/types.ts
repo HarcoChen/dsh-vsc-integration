@@ -21,6 +21,16 @@ export interface DshContextItem {
     truncated?: boolean;
 }
 
+/** One host-resolved candidate shown by the composer `@` reference menu. */
+export interface DshReferenceCandidate {
+    kind: "file" | "session";
+    /** Readable label shown to the user. */
+    label: string;
+    /** Exact text inserted into the prompt when selected. */
+    insertText: string;
+    description?: string;
+}
+
 export type ChatRole = "user" | "assistant" | "system" | "tool";
 
 export type DshImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
@@ -109,6 +119,7 @@ export interface ChatToolCall {
     result?: string;
     durationMs?: number;
     error?: string;
+    images?: ChatImageView[];
     web?: ChatWebResultView;
     lsp?: ChatLspResultView;
 }
@@ -504,6 +515,37 @@ export interface DshSettingsDescribeResult {
     namespaces: DshSettingsNamespaceView[];
 }
 
+export type DshSettingFieldType = "boolean" | "number" | "string" | "json";
+
+export interface DshSettingFieldView {
+    path: string[];
+    label: string;
+    description?: string;
+    type: DshSettingFieldType;
+    value: string;
+    overridden: boolean;
+    secret: boolean;
+    secretSet: boolean;
+}
+
+export interface DshSettingsCardView {
+    ns: string;
+    title: string;
+    applies: "live" | "restart";
+    writable: boolean;
+    revision: number;
+    fields: DshSettingFieldView[];
+}
+
+export interface DshSettingsPanelView {
+    open: boolean;
+    loading?: boolean;
+    writable: boolean;
+    hasDocument: boolean;
+    cards: DshSettingsCardView[];
+    error?: string;
+}
+
 export type DshSettingsPathOperation =
     | { op: "set"; path: string[]; value: unknown }
     | { op: "unset"; path: string[] };
@@ -761,7 +803,8 @@ export interface DshAssistantMessage {
 export interface ChatViewState {
     messages: ChatMessage[];
     context: DshContextItem[];
-    fileReferenceCandidates?: string[];
+    fileReferenceCandidates?: DshReferenceCandidate[];
+    settings?: DshSettingsPanelView;
     selection?: DshContextItem;
     selectionEnabled: boolean;
     status: RuntimeStatus;

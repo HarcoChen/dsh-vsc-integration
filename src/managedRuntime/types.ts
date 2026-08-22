@@ -16,7 +16,7 @@
  */
 
 export interface RuntimeAsset {
-    /** Plain file name of the asset, e.g. dsh-runtime-v0.1.0-rc.6-linux-x64.tar.gz */
+    /** Plain file name of the asset, e.g. dsh-runtime-v0.1.1-rc.2-linux-x64.tar.gz */
     filename: string;
     /** Lowercase hex SHA-256 of the archive file. */
     sha256: string;
@@ -62,7 +62,7 @@ export interface RuntimeDownloadProvider {
 }
 
 /** Pinned runtime version; never request "latest" from a remote manifest. */
-export const RUNTIME_DEFAULT_VERSION = "0.1.0-rc.6";
+export const RUNTIME_DEFAULT_VERSION = "0.1.1-rc.2";
 
 /** Download source for the first version; reserved for a future GitHub provider. */
 export const RUNTIME_DOWNLOAD_SOURCE = "cnb" as const;

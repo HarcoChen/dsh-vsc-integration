@@ -265,6 +265,75 @@ function blockquoteItem(line: string): string | undefined {
     return match?.[1];
 }
 
+function tableCells(line: string): string[] | undefined {
+    const trimmed = line.trim();
+    if (!trimmed.includes("|")) return undefined;
+    const source = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+    const withoutTrailingPipe = source.endsWith("|") ? source.slice(0, -1) : source;
+    const cells: string[] = [];
+    let cell = "";
+    for (let index = 0; index < withoutTrailingPipe.length; index += 1) {
+        const character = withoutTrailingPipe[index];
+        if (character === "\\" && withoutTrailingPipe[index + 1] === "|") {
+            cell += "\\|";
+            index += 1;
+        } else if (character === "|") {
+            cells.push(cell.trim());
+            cell = "";
+        } else {
+            cell += character;
+        }
+    }
+    cells.push(cell.trim());
+    return cells.length > 1 ? cells : undefined;
+}
+
+type TableAlignment = "left" | "center" | "right";
+
+function tableAlignment(cell: string): TableAlignment | undefined {
+    const value = cell.trim();
+    if (!/^:?-{3,}:?$/u.test(value)) return undefined;
+    return value.startsWith(":")
+        ? value.endsWith(":") ? "center" : "left"
+        : value.endsWith(":") ? "right" : "left";
+}
+
+function tableStart(lines: readonly string[], index: number): boolean {
+    const header = tableCells(lines[index] as string);
+    const separator = index + 1 < lines.length ? tableCells(lines[index + 1] as string) : undefined;
+    return header !== undefined && separator !== undefined &&
+        header.length === separator.length && separator.every((cell) => tableAlignment(cell) !== undefined);
+}
+
+function tableBlock(
+    lines: readonly string[],
+    index: number,
+): { html: string; nextIndex: number } | undefined {
+    if (!tableStart(lines, index)) return undefined;
+    const header = tableCells(lines[index] as string) as string[];
+    const separator = tableCells(lines[index + 1] as string) as string[];
+    const alignments = separator.map((cell) => tableAlignment(cell) as TableAlignment);
+    const rows: string[][] = [];
+    let nextIndex = index + 2;
+    while (nextIndex < lines.length) {
+        const row = tableCells(lines[nextIndex] as string);
+        if (row === undefined || !(lines[nextIndex] as string).trim()) break;
+        rows.push(row);
+        nextIndex += 1;
+    }
+    const cell = (tag: "th" | "td", value: string, column: number): string =>
+        `<${tag} class="markdown-table-cell-${alignments[column]}">${renderInline(value)}</${tag}>`;
+    const headerHtml = header.map((value, column) => cell("th", value, column)).join("");
+    const bodyHtml = rows.map((row) => {
+        const values = alignments.map((_alignment, column) => row[column] ?? "");
+        return `<tr>${values.map((value, column) => cell("td", value, column)).join("")}</tr>`;
+    }).join("");
+    return {
+        html: `<div class="markdown-table-wrap"><table><thead><tr>${headerHtml}</tr></thead>${bodyHtml ? `<tbody>${bodyHtml}</tbody>` : ""}</table></div>`,
+        nextIndex,
+    };
+}
+
 function heading(line: string): { level: number; content: string } | undefined {
     const match = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(line);
     return match ? { level: (match[1] as string).length, content: match[2] as string } : undefined;
@@ -321,6 +390,12 @@ function renderBlocks(source: string, codeBlocks: RenderedCodeBlock[], depth = 0
             blocks.push(codeBlock(code.join("\n"), fence.language, codeBlocks));
             continue;
         }
+        const table = tableBlock(lines, index);
+        if (table) {
+            blocks.push(table.html);
+            index = table.nextIndex;
+            continue;
+        }
         const title = heading(line);
         if (title) {
             blocks.push(`<h${title.level}>${renderInline(title.content)}</h${title.level}>`);
@@ -371,7 +446,8 @@ function renderBlocks(source: string, codeBlocks: RenderedCodeBlock[], depth = 0
         while (
             index < lines.length &&
             (lines[index] as string).trim() &&
-            !startsBlock(lines[index] as string)
+            !startsBlock(lines[index] as string) &&
+            !tableStart(lines, index)
         ) {
             paragraph.push(lines[index] as string);
             index += 1;
