@@ -148,11 +148,9 @@ export function SettingsPanel({ settings }: { settings: DshSettingsPanelView }):
             <div className="dsh-settings-cards">
                 {settings.cards.map((card) => <SettingsCard key={card.ns} card={card} writable={settings.writable} />)}
             </div>
-            {settings.hasDocument ? (
-                <button type="button" className="dsh-settings-document" onClick={() => postAction({ type: "openSettingsDocument" })}>
-                    {t("Open advanced configuration")}
-                </button>
-            ) : null}
+            <button type="button" className="dsh-settings-document" onClick={() => postAction({ type: "openBrowser" })}>
+                {t("Open advanced configuration in the dsh Web UI")}
+            </button>
         </section>
     );
 }

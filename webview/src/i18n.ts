@@ -44,6 +44,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Save": "保存",
     "Discard": "放弃修改",
     "Open advanced configuration": "打开高级配置",
+    "Open advanced configuration in the dsh Web UI": "在 dsh Web UI 中打开高级配置",
     "Manage workspaces": "管理工作区",
     "Manage agent presets": "管理 Agent Preset",
     "Todo list": "任务清单",

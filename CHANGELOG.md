@@ -16,6 +16,10 @@
 - 递归渲染嵌套 MCP/ACP/PTC 内容中的持久图片附件，工具卡也复用现有附件懒加载与缓存。
 - 新增通用插件设置卡片：基于公开 `settings.describe/mutate` 编辑非敏感字段，使用 revision 防止并发覆盖，密钥字段只显示配置状态。
 - 安全 Markdown 渲染器支持表格、对齐和单元格内联 Markdown；窄侧栏自动提供横向滚动。
+- 修复 `zh-Hans` VS Code 语言环境下命令面板仍显示英文的问题，并保留 `zh-cn` 语言包兼容。
+- Provider 管理在加载 Runtime/配置时显示进度；没有可枚举 Provider 时提供明确的 Web UI 入口，不再静默无响应。
+- Provider 管理列表现在只显示已配置路由；未配置 Provider 统一引导到 dsh Web UI。
+- “高级配置”统一打开 dsh Web UI；即使 Runtime 尚未启动，扩展也会先启动并再打开浏览器。
 
 ## [0.5.3] - 2026-08-22
 

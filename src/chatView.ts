@@ -1276,32 +1276,50 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public async manageProviders(): Promise<void> {
-        await this.runtime.start(this.workspaceRoot());
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: t("Loading provider configuration..."),
+                cancellable: false,
+            },
+            () => this.runtime.start(this.workspaceRoot()),
+        );
 
         while (true) {
-            const [providerResult, settings] = await Promise.all([
-                this.runtime.listProviders(),
-                this.runtime.describeSettings(),
-            ]);
+            const [providerResult, settings] = await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: t("Loading provider configuration..."),
+                    cancellable: false,
+                },
+                () => Promise.all([
+                    this.runtime.listProviders(),
+                    this.runtime.describeSettings(),
+                ]),
+            );
             const namespaces = new Map(settings.namespaces.map((namespace) => [namespace.ns, namespace]));
-            const rows: ProviderManagementRow[] = providerResult.providers.map((entry) => {
-                const namespace = namespaces.get(entry.settingsNs);
-                const profile = namespace ? valueAtPath(namespace.value, entry.settingsPath) : undefined;
-                const apiKeyEnv = profile && typeof profile === "object" && !Array.isArray(profile)
-                    ? (profile as Record<string, unknown>).apiKeyEnv
-                    : undefined;
-                return {
-                    entry,
-                    ...(namespace ? { namespace } : {}),
-                    configured: namespace !== undefined &&
-                        (entry.settingsPath.length === 0 || profile !== undefined),
-                    removable: namespace !== undefined &&
-                        entry.settingsPath.length > 0 &&
-                        hasPath(namespace.user, entry.settingsPath) &&
-                        !hasPath(namespace.base, entry.settingsPath),
-                    ...(typeof apiKeyEnv === "string" && apiKeyEnv.length > 0 ? { apiKeyEnv } : {}),
-                };
-            });
+            const rows: ProviderManagementRow[] = providerResult.providers
+                .map((entry) => {
+                    const namespace = namespaces.get(entry.settingsNs);
+                    const profile = namespace ? valueAtPath(namespace.value, entry.settingsPath) : undefined;
+                    const apiKeyEnv = profile && typeof profile === "object" && !Array.isArray(profile)
+                        ? (profile as Record<string, unknown>).apiKeyEnv
+                        : undefined;
+                    return {
+                        entry,
+                        ...(namespace ? { namespace } : {}),
+                        configured: namespace !== undefined &&
+                            (entry.settingsPath.length === 0 || profile !== undefined),
+                        removable: namespace !== undefined &&
+                            entry.settingsPath.length > 0 &&
+                            hasPath(namespace.user, entry.settingsPath) &&
+                            !hasPath(namespace.base, entry.settingsPath),
+                        ...(typeof apiKeyEnv === "string" && apiKeyEnv.length > 0 ? { apiKeyEnv } : {}),
+                    };
+                })
+                // Unconfigured catalog entries belong in the Web UI onboarding flow,
+                // not in the already-configured provider management list.
+                .filter((row) => row.configured);
 
             const credentialRefs = [...new Set(rows.flatMap((row) => row.apiKeyEnv ? [row.apiKeyEnv] : []))];
             if (credentialRefs.length > 0) {
@@ -1318,14 +1336,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             type ProviderChoice = vscode.QuickPickItem &
-                ({ choiceType: "provider"; row: ProviderManagementRow } | { choiceType: "document" });
+                ({ choiceType: "provider"; row: ProviderManagementRow } | { choiceType: "web" });
             const choices: ProviderChoice[] = [
-                ...(settings.hasDocument ? [{
-                    choiceType: "document" as const,
-                    label: `$(settings-gear) ${t("Add or edit provider")}`,
-                    detail: t("Open the official Harness configuration file for advanced provider settings"),
+                {
+                    choiceType: "web" as const,
+                    label: `$(link-external) ${t("Open dsh Web UI")}`,
+                    detail: t("Configure providers, endpoints, models, and credentials in the official Web UI"),
                     alwaysShow: true,
-                }] : []),
+                },
                 ...rows.map((row): ProviderChoice => ({
                     choiceType: "provider",
                     row,
@@ -1341,15 +1359,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 matchOnDetail: true,
             });
             if (!choice) return;
-            if (choice.choiceType === "document") {
-                await this.runtime.openSettingsDocument();
+            if (choice.choiceType === "web") {
+                await this.openBrowser();
                 return;
             }
 
             const action = await this.chooseProviderAction(choice.row, settings.writable, settings.hasDocument);
             if (!action) continue;
             if (action === "document") {
-                await this.runtime.openSettingsDocument();
+                await this.openBrowser();
                 return;
             }
             if (action === "set-key") {
@@ -1616,8 +1634,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     await this.toggleSettingsPanel();
                     break;
                 case "openSettingsDocument":
-                    await this.runtime.start(this.workspaceRoot());
-                    await this.runtime.openSettingsDocument();
+                    await this.openBrowser();
                     break;
                 case "mutateSettings":
                     await this.mutateSettings(message.ns, message.revision, message.changes);
@@ -1658,9 +1675,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.output.show(true);
                     break;
                 case "openBrowser":
-                    if (this.runtime.getUrl()) {
-                        await vscode.env.openExternal(vscode.Uri.parse(this.runtime.getUrl() as string));
-                    }
+                    await this.openBrowser();
                     break;
                 case "openExternalLink": {
                     const url = parseSafeHttpUrl(message.url);
