@@ -129,6 +129,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.openIdeContextPicker", () =>
             chatView.openIdeContextPicker(),
         ),
+        vscode.commands.registerCommand("dsh.captureAppShot", () =>
+            runCommand(t("Capture AppShot"), () => chatView.captureAppShot()),
+        ),
         vscode.commands.registerCommand("dsh.configureApiKey", () =>
             chatView.configureApiKey().catch((error) => {
                 const message = error instanceof Error ? error.message : String(error);

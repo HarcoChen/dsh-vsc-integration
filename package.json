@@ -69,6 +69,7 @@
         "onCommand:dsh.gitDiffTask.review",
         "onCommand:dsh.gitDiffTask.docs",
         "onCommand:dsh.openIdeContextPicker",
+        "onCommand:dsh.captureAppShot",
         "onCommand:dsh.configureApiKey",
         "onCommand:dsh.manageProviders",
         "onCommand:dsh.manageWorkspaces",
@@ -250,6 +251,12 @@
                 "title": "%command.openIdeContextPicker.title%",
                 "category": "DSH",
                 "icon": "$(settings)"
+            },
+            {
+                "command": "dsh.captureAppShot",
+                "title": "%command.captureAppShot.title%",
+                "category": "DSH",
+                "icon": "$(device-camera)"
             },
             {
                 "command": "dsh.configureApiKey",

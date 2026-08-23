@@ -3,6 +3,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import * as vscode from "vscode";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
+import { captureAppShot as captureNativeAppShot } from "./appShot";
 import { DeepSeekBalanceService } from "./balanceService";
 import {
     highestKnownSeq,
@@ -546,6 +547,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private fileReferenceCandidates: DshReferenceCandidate[] = [];
     private fileReferenceQueryGeneration = 0;
     private pendingComposerUpdate: { type: "insertText" | "setText"; text: string } | undefined;
+    private readonly pendingComposerImages: DshImageUpload[] = [];
     private webviewReady = false;
     private restoringPersistedSession: Promise<void> | undefined;
     private stateUpdateTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1545,6 +1547,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.reveal();
     }
 
+    public async captureAppShot(): Promise<void> {
+        this.reveal();
+        const image = await captureNativeAppShot();
+        if (!image) return;
+        this.pendingComposerImages.push(image);
+        this.flushPendingComposerImages();
+    }
+
     private async openWorkspaceFileReferencePicker(): Promise<void> {
         const uris = await vscode.workspace.findFiles(
             "**/*",
@@ -1613,6 +1623,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.webviewReady = true;
                     this.postState();
                     this.flushPendingComposerUpdate();
+                    this.flushPendingComposerImages();
                     if (this.sessionId) void this.refreshSubagentTree(this.sessionId);
                     break;
                 case "sendPrompt":
@@ -1647,6 +1658,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
+                    break;
+                case "captureAppShot":
+                    await this.captureAppShot();
                     break;
                 case "removeContext":
                     this.contextStore.remove(message.id);
@@ -3206,6 +3220,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const update = this.pendingComposerUpdate;
         this.pendingComposerUpdate = undefined;
         void this.view.webview.postMessage(update);
+    }
+
+    private flushPendingComposerImages(): void {
+        if (!this.view || !this.webviewReady) return;
+        for (const image of this.pendingComposerImages.splice(0)) {
+            void this.view.webview.postMessage({ type: "addImageDraft", image });
+        }
     }
 
     private postState(): void {

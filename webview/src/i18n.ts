@@ -138,6 +138,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Images are uploaded to Harness when this message is sent.": "图片将在发送本条消息时上传到 Harness。",
     "Only PNG, JPEG, WebP, and GIF images are supported.": "仅支持 PNG、JPEG、WebP 和 GIF 图片。",
     "Add images": "添加图片",
+    "Capture AppShot": "截取 AppShot",
     "Add attachment": "添加附件",
     "A message can contain at most {count} images.": "每条消息最多可附加 {count} 张图片。",
     "Image {name} exceeds the {size} byte limit.": "图片 {name} 超过 {size} 字节的单张限制。",

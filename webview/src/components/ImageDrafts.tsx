@@ -42,6 +42,7 @@ export function useImageDrafts(limitsValue?: DshImageLimitsView): {
     error?: string;
     accept: string;
     addFiles: (files: readonly File[]) => Promise<void>;
+    addUploads: (uploads: readonly DshImageUpload[]) => void;
     remove: (id: string) => void;
     clear: () => void;
 } {
@@ -94,11 +95,50 @@ export function useImageDrafts(limitsValue?: DshImageLimitsView): {
         }
         setImages((current) => [...current, ...additions]);
     }, [images, limits.maxImageBytes, limits.maxImagesPerMessage, limits.maxMessageImageBytes, limits.mediaTypes]);
+    const addUploads = useCallback((uploads: readonly DshImageUpload[]): void => {
+        setError(undefined);
+        const existingBytes = images.reduce((sum, image) => sum + image.bytes, 0);
+        const additions: DraftImage[] = [];
+        let addedBytes = 0;
+        if (images.length + uploads.length > limits.maxImagesPerMessage) {
+            setError(t("A message can contain at most {count} images.", { count: limits.maxImagesPerMessage }));
+            return;
+        }
+        for (const upload of uploads) {
+            if (!limits.mediaTypes.includes(upload.mediaType)) {
+                setError(t("Only PNG, JPEG, WebP, and GIF images are supported."));
+                return;
+            }
+            const bytes = Math.floor(upload.data.length * 3 / 4);
+            if (bytes > limits.maxImageBytes) {
+                setError(t("Image {name} exceeds the {size} byte limit.", {
+                    name: upload.name || t("image"),
+                    size: limits.maxImageBytes.toLocaleString(),
+                }));
+                return;
+            }
+            addedBytes += bytes;
+            if (existingBytes + addedBytes > limits.maxMessageImageBytes) {
+                setError(t("Attached images exceed the {size} byte total limit.", {
+                    size: limits.maxMessageImageBytes.toLocaleString(),
+                }));
+                return;
+            }
+            additions.push({
+                id: crypto.randomUUID(),
+                upload,
+                bytes,
+                src: `data:${upload.mediaType};base64,${upload.data}`,
+            });
+        }
+        setImages((current) => [...current, ...additions]);
+    }, [images, limits.maxImageBytes, limits.maxImagesPerMessage, limits.maxMessageImageBytes, limits.mediaTypes]);
     return {
         images,
         error,
         accept: limits.mediaTypes.join(","),
         addFiles,
+        addUploads,
         remove: (id) => setImages((current) => current.filter((image) => image.id !== id)),
         clear: () => {
             setImages([]);

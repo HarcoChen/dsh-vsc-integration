@@ -170,6 +170,8 @@
     "A parent path is not a real directory: {path}": "父路径不是真实目录：{path}",
     "Open a workspace before reading the Git diff.": "请先打开一个工作区，才能读取 Git diff。",
     "Open a workspace before sending a task to dsh.": "请先打开一个工作区，再向 dsh 发送任务。",
+    "Capture AppShot": "截取 AppShot",
+    "AppShot is currently available only when the extension host runs on macOS.": "AppShot 当前仅在扩展宿主运行于 macOS 时可用。",
     "Open a workspace before starting dsh with it as the working directory.": "请先打开一个工作区，dsh 才能以该目录作为工作目录启动。",
     "Open a workspace first.": "请先打开一个工作区。",
     "Open dsh Web UI": "打开 dsh Web UI",

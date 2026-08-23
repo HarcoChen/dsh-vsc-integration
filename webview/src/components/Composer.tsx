@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatViewState } from "../../../src/types";
 import type { ChatViewAction } from "../../../src/chatViewProtocol";
-import { postAction, registerInsertTextHandler, registerSetTextHandler } from "../bridge";
+import { postAction, registerAddImageDraftHandler, registerInsertTextHandler, registerSetTextHandler } from "../bridge";
 import { t } from "../i18n";
-import { CloseIcon, EyeIcon, EyeOffIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { AppShotIcon, CloseIcon, EyeIcon, EyeOffIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 
 const MIN_HEIGHT = 68;
@@ -197,6 +197,11 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const imageDrafts = useImageDrafts(state.imageLimits);
+
+    useEffect(() => {
+        registerAddImageDraftHandler((image) => imageDrafts.addUploads([image]));
+        return () => registerAddImageDraftHandler(undefined);
+    }, [imageDrafts.addUploads]);
 
     // Legacy behavior: the queue/steer choice resets to queue once the session is idle.
     useEffect(() => {
@@ -540,6 +545,18 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                             >
                                 <ImageIcon />
                                 {t("Add images")}
+                            </button>
+                            <button
+                                type="button"
+                                className="dsh-menu-item"
+                                role="menuitem"
+                                onClick={() => {
+                                    setAttachmentMenuVisible(false);
+                                    postAction({ type: "captureAppShot" });
+                                }}
+                            >
+                                <AppShotIcon />
+                                {t("Capture AppShot")}
                             </button>
                         </div>
                     ) : null}

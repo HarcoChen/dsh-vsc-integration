@@ -36,6 +36,16 @@ export function ImageIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function AppShotIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <rect x="1.5" y="3" width="13" height="10" rx="1.5" />
+            <path d="M1.5 6h13M4 4.5h.01M6 4.5h.01" />
+            <circle cx="8" cy="9.5" r="2" />
+        </svg>
+    );
+}
+
 export function SearchIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>

@@ -21,6 +21,7 @@
     "command.insertEditorReference.title": "插入当前编辑器引用",
     "command.askAboutResource.title": "询问此资源",
     "command.openIdeContextPicker.title": "管理 IDE 上下文（/ide）",
+    "command.captureAppShot.title": "截取 AppShot",
     "command.configureApiKey.title": "配置 API Key",
     "command.manageProviders.title": "管理提供商",
     "command.manageWorkspaces.title": "管理工作区",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChatViewState } from "../../src/types";
+import type { ChatViewState, DshImageUpload } from "../../src/types";
 import type { ChatViewAction } from "../../src/chatViewProtocol";
 import { DEFAULT_STATE } from "./state";
 
@@ -83,6 +83,15 @@ function isSetTextMessage(value: unknown): value is { type: "setText"; text: str
     return message.type === "setText" && typeof message.text === "string";
 }
 
+function isAddImageDraftMessage(value: unknown): value is { type: "addImageDraft"; image: DshImageUpload } {
+    if (!value || typeof value !== "object") return false;
+    const message = value as Record<string, unknown>;
+    if (message.type !== "addImageDraft" || !message.image || typeof message.image !== "object") return false;
+    const image = message.image as Record<string, unknown>;
+    return image.mediaType === "image/png" && typeof image.data === "string" && image.data.length > 0 &&
+        (image.name === undefined || typeof image.name === "string");
+}
+
 function isRevealMessage(value: unknown): value is { type: "revealMessage"; seq: number } {
     if (!value || typeof value !== "object") return false;
     const message = value as Record<string, unknown>;
@@ -97,9 +106,12 @@ function isChatViewState(value: unknown): value is ChatViewState {
 
 export type InsertTextHandler = (text: string) => void;
 export type SetTextHandler = (text: string) => void;
+export type AddImageDraftHandler = (image: DshImageUpload) => void;
 
 let insertTextHandler: InsertTextHandler | undefined;
 let setTextHandler: SetTextHandler | undefined;
+let addImageDraftHandler: AddImageDraftHandler | undefined;
+const pendingImageDrafts: DshImageUpload[] = [];
 
 /** Called by the composer to own host-initiated cursor insertions. */
 export function registerInsertTextHandler(handler: InsertTextHandler | undefined): void {
@@ -109,6 +121,13 @@ export function registerInsertTextHandler(handler: InsertTextHandler | undefined
 /** Called by the composer to own host-initiated draft replacements. */
 export function registerSetTextHandler(handler: SetTextHandler | undefined): void {
     setTextHandler = handler;
+}
+
+/** Called by the composer to receive screenshots captured by the extension host. */
+export function registerAddImageDraftHandler(handler: AddImageDraftHandler | undefined): void {
+    addImageDraftHandler = handler;
+    if (!handler) return;
+    for (const image of pendingImageDrafts.splice(0)) handler(image);
 }
 
 /**
@@ -137,6 +156,11 @@ export function useHostState(): ChatViewState {
             }
             if (isSetTextMessage(data)) {
                 setTextHandler?.(data.text);
+                return;
+            }
+            if (isAddImageDraftMessage(data)) {
+                if (addImageDraftHandler) addImageDraftHandler(data.image);
+                else pendingImageDrafts.push(data.image);
                 return;
             }
             if (isRevealMessage(data)) {

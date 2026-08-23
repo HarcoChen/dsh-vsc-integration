@@ -9,6 +9,7 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- 新增 macOS AppShot：从附件菜单或命令面板选择应用窗口截图，并作为一次性图片草稿随消息发送。
 - 托管 Runtime 默认 pin 更新至 CNB 已发布的 `0.1.1-rc.2`，覆盖 macOS、Linux 和 Windows 五个平台资产；安装时校验 manifest 版本必须与请求版本一致，并在设置说明中提示预览版存储格式兼容性。
 - 提问卡片支持折叠、多行自定义回答和草稿保留，便于处理较长的 `ask_user_question` 内容。
 - Job Center 补充后台任务 kind、job id、实时持续时间、所有者和输出摘要；单任务停止继续等待 Harness 公开控制 RPC。

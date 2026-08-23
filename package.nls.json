@@ -21,6 +21,7 @@
     "command.insertEditorReference.title": "Insert Current Editor Reference",
     "command.askAboutResource.title": "Ask About This Resource",
     "command.openIdeContextPicker.title": "Manage IDE Context (/ide)",
+    "command.captureAppShot.title": "Capture AppShot",
     "command.configureApiKey.title": "Configure API Key",
     "command.manageProviders.title": "Manage Providers",
     "command.manageWorkspaces.title": "Manage Workspaces",
