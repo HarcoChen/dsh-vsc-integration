@@ -29,6 +29,18 @@ import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
 import {
+    imageLimitsProjection,
+    IMAGE_MEDIA_TYPES,
+    hasPath,
+    permissionProjection,
+    prepareImageUploads,
+    presentSettingsPanel,
+    reasoningEffortOptions,
+    sessionStatsProjection,
+    todoProjection,
+    valueAtPath,
+} from "./chatViewPresentation";
+import {
     isCopyableCode,
     parseSafeHttpUrl,
     renderMarkdownMessage,
@@ -140,176 +152,6 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
     return true;
 }
 
-function valueAtPath(value: unknown, path: readonly string[]): unknown {
-    let current = value;
-    for (const segment of path) {
-        if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
-        current = (current as Record<string, unknown>)[segment];
-    }
-    return current;
-}
-
-function hasPath(value: unknown, path: readonly string[]): boolean {
-    let current = value;
-    for (const segment of path) {
-        if (
-            !current ||
-            typeof current !== "object" ||
-            Array.isArray(current) ||
-            !Object.prototype.hasOwnProperty.call(current, segment)
-        ) {
-            return false;
-        }
-        current = (current as Record<string, unknown>)[segment];
-    }
-    return true;
-}
-
-function settingsRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-interface SettingsSchemaNode {
-    type?: string;
-    dict?: Record<string, SettingsSchemaNode>;
-    inner?: SettingsSchemaNode;
-    meta?: Record<string, unknown>;
-    description?: string;
-}
-
-function settingsSchemaNode(value: unknown): SettingsSchemaNode | undefined {
-    if (!settingsRecord(value)) return undefined;
-    return {
-        ...(typeof value.type === "string" ? { type: value.type } : {}),
-        ...(settingsRecord(value.dict) ? { dict: value.dict as Record<string, SettingsSchemaNode> } : {}),
-        ...(settingsRecord(value.inner) ? { inner: value.inner as SettingsSchemaNode } : {}),
-        ...(settingsRecord(value.meta) ? { meta: value.meta } : {}),
-        ...(typeof value.description === "string" ? { description: value.description } : {}),
-    };
-}
-
-function settingsSchemaRoot(value: unknown): SettingsSchemaNode | undefined {
-    if (!settingsRecord(value)) return undefined;
-    if (typeof value.uid === "number" && settingsRecord(value.refs)) {
-        return settingsSchemaNode(value.refs[String(value.uid)]);
-    }
-    return settingsSchemaNode(value);
-}
-
-function settingLabel(path: readonly string[]): string {
-    const leaf = path[path.length - 1] ?? "Setting";
-    return leaf
-        .replace(/([a-z0-9])([A-Z])/gu, "$1 $2")
-        .replace(/[_-]+/gu, " ")
-        .replace(/^./u, (character) => character.toLocaleUpperCase());
-}
-
-function settingDescription(node: SettingsSchemaNode | undefined): string | undefined {
-    const value = node?.description ?? node?.meta?.description;
-    return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function settingType(value: unknown, node: SettingsSchemaNode | undefined): DshSettingFieldType {
-    if (typeof value === "boolean" || node?.type === "boolean") return "boolean";
-    if (typeof value === "number" || node?.type === "number" || node?.type === "integer") return "number";
-    if (typeof value === "string" || node?.type === "string") return "string";
-    return "json";
-}
-
-function settingText(value: unknown): string {
-    if (value === undefined) return "";
-    if (typeof value === "string") return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-    try {
-        return JSON.stringify(value) ?? "";
-    } catch {
-        return "";
-    }
-}
-
-function sensitiveSettingPath(path: readonly string[]): boolean {
-    const leaf = path[path.length - 1] ?? "";
-    return /(?:api[_-]?key|token|password|secret|credential|private[_-]?key)$/iu.test(leaf);
-}
-
-function presentSettingsFields(namespace: DshSettingsNamespaceView): DshSettingFieldView[] {
-    const fields = new Map<string, DshSettingFieldView>();
-    const secrets = new Map(namespace.secrets.map((secret) => [secret.path.join("\0"), secret]));
-    const schema = settingsSchemaRoot(namespace.schema);
-    const add = (path: string[], node?: SettingsSchemaNode): void => {
-        if (path.length === 0) return;
-        const key = path.join("\0");
-        const secretEntry = secrets.get(key);
-        const value = valueAtPath(namespace.value, path);
-        const base = valueAtPath(namespace.base, path);
-        const user = valueAtPath(namespace.user, path);
-        const secret = secretEntry !== undefined || sensitiveSettingPath(path);
-        if (fields.has(key)) return;
-        fields.set(key, {
-            path,
-            label: settingLabel(path),
-            ...(settingDescription(node) === undefined ? {} : { description: settingDescription(node) }),
-            type: settingType(secret ? undefined : value ?? base ?? user, node),
-            value: secret ? "" : settingText(value),
-            overridden: hasPath(namespace.user, path),
-            secret,
-            secretSet: secretEntry?.set === true || (secret && value !== undefined),
-        });
-    };
-    const visitSchema = (node: SettingsSchemaNode | undefined, path: string[], depth: number): void => {
-        if (depth > 8) return;
-        const secret = secrets.get(path.join("\0"));
-        if (secret) {
-            add(path, node);
-            return;
-        }
-        const dictValue = valueAtPath(namespace.value, path);
-        const children = node?.type === "object" && node.dict
-            ? Object.entries(node.dict)
-            : node?.type === "dict" && node.inner
-              ? Object.keys(settingsRecord(dictValue) ? dictValue : {})
-                  .map((key) => [key, node.inner] as const)
-              : [];
-        if (children.length > 0) {
-            for (const [key, child] of children) visitSchema(child, [...path, key], depth + 1);
-            return;
-        }
-        add(path, node);
-    };
-    visitSchema(schema, [], 0);
-    const visitValue = (value: unknown, path: string[], depth: number): void => {
-        if (depth > 8 || value === undefined) return;
-        if (settingsRecord(value)) {
-            for (const [key, child] of Object.entries(value)) visitValue(child, [...path, key], depth + 1);
-            return;
-        }
-        add(path);
-    };
-    visitValue(namespace.value, [], 0);
-    visitValue(namespace.base, [], 0);
-    visitValue(namespace.user, [], 0);
-    for (const secret of namespace.secrets) add([...secret.path]);
-    return [...fields.values()].sort((left, right) => left.path.join(".").localeCompare(right.path.join(".")));
-}
-
-function presentSettingsPanel(
-    result: { writable: boolean; hasDocument: boolean; namespaces: DshSettingsNamespaceView[] },
-): DshSettingsPanelView {
-    return {
-        open: true,
-        writable: result.writable,
-        hasDocument: result.hasDocument,
-        cards: result.namespaces.map((namespace) => ({
-            ns: namespace.ns,
-            title: namespace.ns.replace(/[-_]+/gu, " ").replace(/^./u, (character) => character.toLocaleUpperCase()),
-            applies: namespace.applies,
-            writable: result.writable,
-            revision: namespace.revision,
-            fields: presentSettingsFields(namespace),
-        })),
-    };
-}
-
 function deriveProviderKeyRef(provider: string): string {
     return `${provider.toUpperCase().replace(/[^A-Z0-9]+/gu, "_")}_API_KEY`;
 }
@@ -345,141 +187,6 @@ function isCredentialIssue(error: unknown): boolean {
     );
 }
 
-function permissionProjection(value: unknown): PermissionProjectionView | undefined {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const record = value as Record<string, unknown>;
-    if (typeof record.currentValue !== "string" || !Array.isArray(record.options)) return undefined;
-    const options = record.options.flatMap((option): PermissionProjectionView["options"] => {
-        if (!option || typeof option !== "object" || Array.isArray(option)) return [];
-        const item = option as Record<string, unknown>;
-        if (typeof item.value !== "string" || typeof item.name !== "string") return [];
-        return [{
-            value: item.value,
-            label: item.name,
-            ...(typeof item.description === "string" ? { description: item.description } : {}),
-        }];
-    });
-    const current = options.find((option) => option.value === record.currentValue);
-    if (!current) return undefined;
-    return {
-        currentValue: record.currentValue,
-        currentLabel: current.label,
-        options,
-    };
-}
-
-function sessionStatsProjection(value: unknown): SessionStatsView | undefined {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const record = value as Record<string, unknown>;
-    const fields = ["turns", "steps", "llmMs", "toolMs", "ttftMs", "ttftSteps", "decodeMs", "decodeTokens"] as const;
-    if (!fields.every((field) => typeof record[field] === "number" && Number.isFinite(record[field]) && record[field] >= 0)) {
-        return undefined;
-    }
-    return {
-        turns: record.turns as number,
-        steps: record.steps as number,
-        llmMs: record.llmMs as number,
-        toolMs: record.toolMs as number,
-        ttftMs: record.ttftMs as number,
-        ttftSteps: record.ttftSteps as number,
-        decodeMs: record.decodeMs as number,
-        decodeTokens: record.decodeTokens as number,
-    };
-}
-
-function todoProjection(value: unknown): DshTodoItemView[] | undefined {
-    if (!Array.isArray(value) || value.length === 0 || value.length > 200) return undefined;
-    const todos: DshTodoItemView[] = [];
-    const seen = new Set<string>();
-    for (const candidate of value) {
-        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return undefined;
-        const item = candidate as Record<string, unknown>;
-        if (
-            typeof item.content !== "string" ||
-            !item.content.trim() ||
-            seen.has(item.content) ||
-            (item.status !== "pending" && item.status !== "in_progress" && item.status !== "completed")
-        ) return undefined;
-        seen.add(item.content);
-        todos.push({ content: item.content, status: item.status });
-    }
-    return todos;
-}
-
-const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>([
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-]);
-
-function imageLimitsProjection(value: unknown): DshImageLimitsView | undefined {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const record = value as Record<string, unknown>;
-    const positiveInteger = (candidate: unknown): candidate is number =>
-        typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate > 0;
-    if (
-        !positiveInteger(record.maxImageBytes) ||
-        !positiveInteger(record.maxImagesPerMessage) ||
-        !positiveInteger(record.maxMessageImageBytes) ||
-        !Array.isArray(record.mediaTypes)
-    ) return undefined;
-    const mediaTypes = record.mediaTypes.filter(
-        (mediaType): mediaType is DshImageMediaType =>
-            typeof mediaType === "string" && IMAGE_MEDIA_TYPES.has(mediaType as DshImageMediaType),
-    );
-    if (mediaTypes.length === 0) return undefined;
-    return {
-        maxImageBytes: record.maxImageBytes,
-        maxImagesPerMessage: record.maxImagesPerMessage,
-        maxMessageImageBytes: record.maxMessageImageBytes,
-        mediaTypes,
-    };
-}
-
-function prepareImageUploads(
-    images: readonly DshImageUpload[],
-    limits: DshImageLimitsView,
-): { uploads: DshImageUpload[]; views: ChatImageView[] } {
-    if (images.length > limits.maxImagesPerMessage) {
-        throw new Error(t("A message can contain at most {count} images.", {
-            count: limits.maxImagesPerMessage,
-        }));
-    }
-    let totalBytes = 0;
-    const uploads: DshImageUpload[] = [];
-    const views: ChatImageView[] = [];
-    for (const image of images) {
-        if (!limits.mediaTypes.includes(image.mediaType)) {
-            throw new Error(t("This image format is not supported: {type}.", { type: image.mediaType }));
-        }
-        const bytes = Buffer.from(image.data, "base64");
-        if (!image.data || bytes.toString("base64") !== image.data) {
-            throw new Error(t("An attached image is not valid Base64 data."));
-        }
-        if (bytes.byteLength > limits.maxImageBytes) {
-            throw new Error(t("Image {name} exceeds the {size} byte limit.", {
-                name: image.name || t("image"),
-                size: limits.maxImageBytes.toLocaleString(),
-            }));
-        }
-        totalBytes += bytes.byteLength;
-        uploads.push({ ...image });
-        views.push({
-            mediaType: image.mediaType,
-            bytes: bytes.byteLength,
-            ...(image.name === undefined ? {} : { name: image.name }),
-            src: `data:${image.mediaType};base64,${image.data}`,
-        });
-    }
-    if (totalBytes > limits.maxMessageImageBytes) {
-        throw new Error(t("Attached images exceed the {size} byte total limit.", {
-            size: limits.maxMessageImageBytes.toLocaleString(),
-        }));
-    }
-    return { uploads, views };
-}
-
 /**
  * Default sprite image used as the reasoning effort slider knob, e.g. the
  * 8-frame "chibi runner" strip from the dsh-reasoning-effort plugin.
@@ -492,23 +199,6 @@ const REASONING_EFFORT_KNOB_IMAGE = "chibi-runner-strip.png";
  * Maps an effort id (e.g. "low") to an image file inside `resources/`.
  */
 const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
-
-function reasoningEffortOptions(
-    catalog: DshSessionModelsResult,
-    provider: string,
-    modelId: string,
-): DshReasoningEffortOption[] {    const group = catalog.groups.find((candidate) => candidate.id === provider);
-    const model = group?.models.find((candidate) => candidate.id === modelId);
-    if (!model) return [];
-    const seen = new Set<string>();
-    const efforts = model.reasoning?.efforts ?? [];
-    return efforts.flatMap((value) => {
-        const id = value.id.trim();
-        if (!id || id.length > 128 || seen.has(id)) return [];
-        seen.add(id);
-        return [{ id, label: value.name || id }];
-    });
-}
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
     public static readonly viewType = "dsh.chatView";

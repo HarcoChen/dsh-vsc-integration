@@ -187,6 +187,8 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Goal objective": "Goal 目标",
     "Edit Goal objective": "编辑 Goal objective",
     "Clear the current Goal?": "清除当前 Goal？",
+    "Confirm": "确认",
+    "Cancel": "取消",
     "Phase {phase} · revision {revision} · round {started}/{maximum}": "阶段 {phase} · revision {revision} · round {started}/{maximum}",
     "Running {operation}; waiting for the projection to converge...": "正在执行 {operation}，等待 projection 收敛…",
     "mutation": "mutation",

@@ -9,6 +9,9 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- 推进 Webview UI 重构：拆分 Composer 与消息渲染子组件，稳定流式消息引用以减少无关行重渲染，移除阻塞式原生对话框，并补齐 Focus Mode、错误横幅和键盘可访问性。
+- 将 ActivityDock 拆为独立壳层及 Goal、Queue、Subagents、Jobs、Permissions、Changes 六个面板模块，移除跨消息列表的反向依赖。
+- 将设置、权限、统计、Todo、图片附件和推理强度的纯投影/校验逻辑从 ChatViewProvider 迁至独立呈现模块，收窄宿主 God Object。
 - 新增 macOS AppShot：从附件菜单或命令面板选择应用窗口截图，并作为一次性图片草稿随消息发送。
 - 托管 Runtime 默认 pin 更新至 CNB 已发布的 `0.1.1-rc.2`，覆盖 macOS、Linux 和 Windows 五个平台资产；安装时校验 manifest 版本必须与请求版本一致，并在设置说明中提示预览版存储格式兼容性。
 - 提问卡片支持折叠、多行自定义回答和草稿保留，便于处理较长的 `ask_user_question` 内容。

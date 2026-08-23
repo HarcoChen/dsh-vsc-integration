@@ -37,6 +37,27 @@ button {
     min-height: 0;
 }
 
+.dsh-status-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dsh-space-3);
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border-bottom: 1px solid var(--vscode-inputValidation-errorBorder);
+    color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
+    background: var(--vscode-inputValidation-errorBackground);
+    font-size: var(--dsh-font-sm);
+}
+
+.dsh-status-banner > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.dsh-focus-mode .dsh-messages {
+    padding-top: var(--dsh-space-4);
+}
+
 /* ---------- shared controls ---------- */
 
 .dsh-button {
@@ -576,6 +597,10 @@ button {
 }
 
 .file-location-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
     color: var(--vscode-textLink-foreground);
     text-decoration: underline;
     text-decoration-style: dotted;
@@ -864,6 +889,11 @@ button {
 
 .dsh-web-source-link,
 .dsh-web-fetch-url {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    text-align: left;
     color: var(--vscode-textLink-foreground);
     cursor: pointer;
     overflow-wrap: anywhere;
@@ -952,6 +982,10 @@ button {
 }
 
 .dsh-lsp-location {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
     color: var(--vscode-textLink-foreground);
     cursor: pointer;
     font-family: var(--vscode-editor-font-family);
@@ -1357,6 +1391,45 @@ button {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     margin-bottom: var(--dsh-space-2);
+}
+
+/* dock inline forms (goal create/edit, queue edit, inline confirm) */
+
+.dsh-dock-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-2);
+    margin: var(--dsh-space-2) 0;
+}
+
+.dsh-dock-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--dsh-space-2);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+}
+
+.dsh-dock-confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    margin-top: var(--dsh-space-3);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-dock-confirm span {
+    flex: 1;
+    min-width: 120px;
+}
+
+.dsh-queue-edit {
+    grid-column: 1 / -1;
+    margin: 0;
 }
 
 /* queue */

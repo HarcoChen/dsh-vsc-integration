@@ -1,7 +1,8 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useLayoutEffect, useMemo, useRef } from "react";
 import type { ChatMessage } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
+import { closestElement, handleMarkdownClick, handleMarkdownKeydown } from "./markdownEvents";
 import { MessageItem } from "./MessageItem";
 
 interface MessageListProps {
@@ -10,102 +11,70 @@ interface MessageListProps {
     agentStatusLabel?: string;
 }
 
-function closestElement(target: EventTarget | null, selector: string): HTMLElement | undefined {
-    if (!(target instanceof Element)) return undefined;
-    return target.closest<HTMLElement>(selector) ?? undefined;
+/** Structural equality for plain host-projected data (no functions, no cycles). */
+function deepEqual(left: unknown, right: unknown): boolean {
+    if (left === right) return true;
+    if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) {
+        return false;
+    }
+    if (Array.isArray(left) || Array.isArray(right)) {
+        return (
+            Array.isArray(left) &&
+            Array.isArray(right) &&
+            left.length === right.length &&
+            left.every((item, index) => deepEqual(item, right[index]))
+        );
+    }
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord);
+    return (
+        leftKeys.length === Object.keys(rightRecord).length &&
+        leftKeys.every((key) => deepEqual(leftRecord[key], rightRecord[key]))
+    );
 }
 
 /**
- * Delegated handling for markdown HTML injected via dangerouslySetInnerHTML:
- * external links and code-block actions inside host pre-rendered content.
- * Returns true when the event was consumed.
+ * The host rebuilds every ChatMessage object on each full-state push, so
+ * reference equality never holds. Reconcile incoming messages against the
+ * previous push and reuse unchanged object (and array) references, which lets
+ * the memoized MessageItem rows skip re-rendering during streaming and on
+ * unrelated updates such as token usage refreshes.
  */
-export function handleMarkdownClick(target: EventTarget | null): boolean {
-    const file = closestElement(target, "[data-file-path]");
-    const line = Number(file?.dataset.fileLine);
-    const column = file?.dataset.fileColumn === undefined
-        ? undefined
-        : Number(file.dataset.fileColumn);
-    if (
-        file?.dataset.filePath &&
-        Number.isSafeInteger(line) &&
-        line > 0 &&
-        (column === undefined || (Number.isSafeInteger(column) && column > 0))
-    ) {
-        postAction({
-            type: "openFileLocation",
-            path: file.dataset.filePath,
-            line,
-            ...(column === undefined ? {} : { column }),
+function useStableMessages(messages: ChatMessage[]): ChatMessage[] {
+    const previousRef = useRef<ChatMessage[]>([]);
+    return useMemo(() => {
+        const previous = previousRef.current;
+        const byId = new Map(previous.map((message) => [message.id, message]));
+        const reconciled = messages.map((message) => {
+            const prior = byId.get(message.id);
+            return prior && deepEqual(prior, message) ? prior : message;
         });
-        return true;
-    }
-    const link = closestElement(target, "[data-external-url]");
-    if (link?.dataset.externalUrl) {
-        postAction({ type: "openExternalLink", url: link.dataset.externalUrl });
-        return true;
-    }
-    const codeAction = closestElement(target, "[data-code-action]");
-    const host = codeAction ? closestElement(codeAction, "[data-render-id]") : undefined;
-    const action = codeAction?.dataset.codeAction;
-    const codeBlockId = codeAction?.dataset.codeBlockId ?? codeAction?.dataset.copyCodeId;
-    if (
-        codeAction instanceof HTMLButtonElement &&
-        host?.dataset.renderId &&
-        codeBlockId &&
-        (action === "copyCode" || action === "insertCode" || action === "openCode" || action === "applyCode") &&
-        !codeAction.disabled
-    ) {
-        codeAction.disabled = true;
-        const language = codeAction.dataset.codeLanguage;
-        postAction({
-            type: action,
-            renderId: host.dataset.renderId,
-            codeBlockId,
-            ...(action === "openCode" || action === "applyCode") && language
-                ? { language }
-                : {},
-        });
-        window.setTimeout(() => {
-            codeAction.disabled = false;
-        }, action === "applyCode" ? 2_000 : 750);
-        return true;
-    }
-    return false;
+        const stable =
+            reconciled.length === previous.length &&
+            reconciled.every((message, index) => message === previous[index])
+                ? previous
+                : reconciled;
+        previousRef.current = stable;
+        return stable;
+    }, [messages]);
 }
 
-/** Keyboard activation for links inside injected markdown (Enter / Space). */
-export function handleMarkdownKeydown(event: React.KeyboardEvent): void {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (target.matches("[data-file-path]")) {
-        event.preventDefault();
-        handleMarkdownClick(target);
-        return;
-    }
-    if (target.matches("[data-code-action]")) {
-        event.preventDefault();
-        handleMarkdownClick(target);
-        return;
-    }
-    if (!target.matches("[data-external-url]")) return;
-    const url = (target as HTMLElement).dataset.externalUrl;
-    if (!url) return;
-    event.preventDefault();
-    postAction({ type: "openExternalLink", url });
-}
-
-export function MessageList({ messages, submitting, agentStatusLabel }: MessageListProps): React.JSX.Element {
+export const MessageList = React.memo(function MessageList({
+    messages,
+    submitting,
+    agentStatusLabel,
+}: MessageListProps): React.JSX.Element {
     const listRef = useRef<HTMLDivElement>(null);
     const stickToBottomRef = useRef(true);
+    const stableMessages = useStableMessages(messages);
 
     useLayoutEffect(() => {
         const list = listRef.current;
         if (list && stickToBottomRef.current) {
             list.scrollTop = list.scrollHeight;
         }
-    }, [messages]);
+    }, [stableMessages]);
 
     const onScroll = (): void => {
         const list = listRef.current;
@@ -137,7 +106,7 @@ export function MessageList({ messages, submitting, agentStatusLabel }: MessageL
             onClick={onClick}
             onKeyDown={handleMarkdownKeydown}
         >
-            {messages.length === 0 ? (
+            {stableMessages.length === 0 ? (
                 <div className="dsh-empty">
                     <div className="dsh-empty-title">{t("Describe a task.")}</div>
                     <div className="dsh-empty-detail">
@@ -147,7 +116,7 @@ export function MessageList({ messages, submitting, agentStatusLabel }: MessageL
                     </div>
                 </div>
             ) : (
-                messages.map((message) => (
+                stableMessages.map((message) => (
                     <MessageItem
                         key={message.id}
                         message={message}
@@ -158,4 +127,4 @@ export function MessageList({ messages, submitting, agentStatusLabel }: MessageL
             )}
         </div>
     );
-}
+});
