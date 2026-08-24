@@ -1,25 +1,36 @@
 import React from "react";
-import type { ChatViewState } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
+import type { ContextChipsState } from "../state";
 import { CloseIcon, EyeIcon, EyeOffIcon } from "./icons";
 
+interface ContextChipsProps {
+    context: ContextChipsState["context"];
+    selection: ContextChipsState["selection"];
+    selectionEnabled: ContextChipsState["selectionEnabled"];
+    tokenUsage: ContextChipsState["tokenUsage"];
+}
+
 /** Renders the context attachment chips plus the summary and warning notices. */
-export function ContextChips({ state }: { state: ChatViewState }): React.JSX.Element {
-    const selection = state.selection;
+export function ContextChips({
+    context,
+    selection,
+    selectionEnabled,
+    tokenUsage,
+}: ContextChipsProps): React.JSX.Element {
     const selectionRange = selection?.range;
     const selectionLines = selectionRange
         ? Math.max(1, selectionRange.endLine - selectionRange.startLine + 1)
         : 0;
 
     const promptItems = [
-        ...(selection && state.selectionEnabled ? [selection] : []),
-        ...state.context,
+        ...(selection && selectionEnabled ? [selection] : []),
+        ...context,
     ];
     const promptBytes = promptItems.reduce((total, item) => total + item.byteLength, 0);
     const estimatedAttachmentTokens = Math.ceil(promptBytes / 4);
-    const contextWindow = state.tokenUsage?.context?.contextWindow;
-    const projectedTokens = state.tokenUsage?.context?.projectedTokens;
+    const contextWindow = tokenUsage?.context?.contextWindow;
+    const projectedTokens = tokenUsage?.context?.projectedTokens;
     const projectedWithAttachments = (projectedTokens ?? 0) + estimatedAttachmentTokens;
     const overContextWindow = contextWindow !== undefined && projectedTokens !== undefined && projectedWithAttachments > contextWindow;
     const sensitiveItems = promptItems.filter((item) => /(^|[/\\.])(env|env\..*|pem|key|p12|pfx|secret|credentials?)([/\\.]|$)/iu.test(item.path ?? item.label));
@@ -27,11 +38,11 @@ export function ContextChips({ state }: { state: ChatViewState }): React.JSX.Ele
 
     return (
         <>
-            {selection || state.context.length ? (
+            {selection || context.length ? (
                 <div className="dsh-context-items">
                     {selection ? (
                         <div
-                            className={`dsh-chip${state.selectionEnabled ? "" : " dsh-chip-disabled"}`}
+                            className={`dsh-chip${selectionEnabled ? "" : " dsh-chip-disabled"}`}
                             title={t("The current selection is read again when sending")}
                         >
                             <span className="dsh-chip-label">
@@ -44,11 +55,11 @@ export function ContextChips({ state }: { state: ChatViewState }): React.JSX.Ele
                                 title={t("Toggle automatic selection context")}
                                 onClick={() => postAction({ type: "toggleSelection" })}
                             >
-                                {state.selectionEnabled ? <EyeIcon /> : <EyeOffIcon />}
+                                {selectionEnabled ? <EyeIcon /> : <EyeOffIcon />}
                             </button>
                         </div>
                     ) : null}
-                    {state.context.map((item) => (
+                    {context.map((item) => (
                         <div className="dsh-chip" title={t("One-shot attachment")} key={item.id}>
                             <span className="dsh-chip-label">
                                 {item.label} · {item.byteLength.toLocaleString()} B

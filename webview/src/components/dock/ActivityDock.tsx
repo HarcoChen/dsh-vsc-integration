@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { ChatViewState } from "../../../../src/types";
 import { t } from "../../i18n";
+import type { ActivityDockState } from "../../state";
 import { ChangesPanel } from "./ChangesPanel";
 import { GoalPanel } from "./GoalPanel";
 import { JobsPanel } from "./JobsPanel";
@@ -16,25 +16,49 @@ interface TabDef {
     count?: number;
 }
 
-export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Element | null {
+interface ActivityDockProps {
+    goal: ActivityDockState["goal"];
+    queue: ActivityDockState["queue"];
+    changeReviews: ActivityDockState["changeReviews"];
+    subagents: ActivityDockState["subagents"];
+    subagentPreview: ActivityDockState["subagentPreview"];
+    jobs: ActivityDockState["jobs"];
+    permissions: ActivityDockState["permissions"];
+    sessionId: ActivityDockState["sessionId"];
+    sessionRunning: boolean;
+    agentPresetLabel: ActivityDockState["agentPresetLabel"];
+}
+
+export const ActivityDock = React.memo(function ActivityDock({
+    goal,
+    queue,
+    changeReviews,
+    subagents,
+    subagentPreview,
+    jobs,
+    permissions,
+    sessionId,
+    sessionRunning,
+    agentPresetLabel,
+}: ActivityDockProps): React.JSX.Element | null {
     const [active, setActive] = useState<DockTab | null>(null);
     const [collapsed, setCollapsed] = useState(true);
     const tabRefs = useRef(new Map<DockTab, HTMLButtonElement>());
-    const agentPresetLabel = state.agentPresetLabel?.trim();
-    const shortAgentPreset = agentPresetLabel ? Array.from(agentPresetLabel).slice(0, 4).join("") : undefined;
+    const trimmedAgentPresetLabel = agentPresetLabel?.trim();
+    const shortAgentPreset = trimmedAgentPresetLabel ? Array.from(trimmedAgentPresetLabel).slice(0, 4).join("") : undefined;
 
     const tabs: TabDef[] = [];
-    if (state.goal) tabs.push({ id: "goal", label: "Goal" });
-    if (state.queue.length) tabs.push({ id: "queue", label: t("Queue"), count: state.queue.length });
-    if (state.changeReviews.length) {
-        const count = state.changeReviews.reduce((total, review) => total + review.files.length, 0);
+    if (goal) tabs.push({ id: "goal", label: "Goal" });
+    if (queue.length) tabs.push({ id: "queue", label: t("Queue"), count: queue.length });
+    if (changeReviews.length) {
+        const count = changeReviews.reduce((total, review) => total + review.files.length, 0);
         tabs.push({ id: "changes", label: t("Changes"), count: count || undefined });
     }
-    if (state.subagents && state.sessionId) {
-        tabs.push({ id: "subagents", label: t("Subagents"), count: state.subagents.nodes.length || undefined });
+    if (subagents && sessionId) {
+        tabs.push({ id: "subagents", label: t("Subagents"), count: subagents.nodes.length || undefined });
     }
-    if (state.jobs.length) tabs.push({ id: "jobs", label: "Jobs", count: state.jobs.length });
-    if (state.permissions) tabs.push({ id: "permissions", label: t("Permissions") });
+    if (jobs.length) tabs.push({ id: "jobs", label: "Jobs", count: jobs.length });
+    if (permissions) tabs.push({ id: "permissions", label: t("Permissions") });
 
     const available = tabs.map((tab) => tab.id).join(",");
     useEffect(() => {
@@ -63,7 +87,7 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
         tabRefs.current.get(next.id)?.focus();
     };
 
-    const preview = state.subagentPreview?.rootSessionId === state.sessionId ? state.subagentPreview : undefined;
+    const preview = subagentPreview?.rootSessionId === sessionId ? subagentPreview : undefined;
 
     return (
         <div className="dsh-dock">
@@ -105,8 +129,8 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
                 {shortAgentPreset ? (
                     <span
                         className="dsh-dock-preset"
-                        title={agentPresetLabel}
-                        aria-label={t("Current preset: {preset}", { preset: agentPresetLabel })}
+                        title={trimmedAgentPresetLabel}
+                        aria-label={t("Current preset: {preset}", { preset: trimmedAgentPresetLabel ?? "" })}
                     >
                         {shortAgentPreset}
                     </span>
@@ -121,14 +145,14 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
                     aria-labelledby={`dsh-dock-tab-${tab.id}`}
                     hidden={collapsed || selectedTab !== tab.id}
                 >
-                    {!collapsed && selectedTab === "goal" && tab.id === "goal" && state.goal ? <GoalPanel goal={state.goal} /> : null}
-                    {!collapsed && selectedTab === "queue" && tab.id === "queue" ? <QueuePanel queue={state.queue} running={state.sessionStatus?.running === true} /> : null}
-                    {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={state.changeReviews} running={state.sessionStatus?.running === true} /> : null}
-                    {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && state.subagents ? <SubagentsPanel tree={state.subagents} preview={preview} /> : null}
-                    {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={state.jobs} /> : null}
-                    {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && state.permissions ? <PermissionsPanel permissions={state.permissions} /> : null}
+                    {!collapsed && selectedTab === "goal" && tab.id === "goal" && goal ? <GoalPanel goal={goal} /> : null}
+                    {!collapsed && selectedTab === "queue" && tab.id === "queue" ? <QueuePanel queue={queue} running={sessionRunning} /> : null}
+                    {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={changeReviews} running={sessionRunning} /> : null}
+                    {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && subagents ? <SubagentsPanel tree={subagents} preview={preview} /> : null}
+                    {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={jobs} /> : null}
+                    {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && permissions ? <PermissionsPanel permissions={permissions} /> : null}
                 </div>
             ))}
         </div>
     );
-}
+});

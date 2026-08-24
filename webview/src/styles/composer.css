@@ -1,0 +1,545 @@
+@import "./usage.css";
+
+/* ---------- composer ---------- */
+
+.dsh-composer {
+    padding: var(--dsh-space-3) var(--dsh-space-4) var(--dsh-space-4);
+    border-top: 1px solid var(--dsh-border);
+}
+
+.dsh-image-drafts {
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-image-draft-rail {
+    display: flex;
+    gap: var(--dsh-space-2);
+    padding-bottom: var(--dsh-space-1);
+    overflow-x: auto;
+}
+
+.dsh-image-draft {
+    position: relative;
+    flex: 0 0 76px;
+    min-width: 0;
+}
+
+.dsh-image-draft img {
+    display: block;
+    width: 76px;
+    height: 56px;
+    object-fit: contain;
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    background: var(--dsh-surface);
+}
+
+.dsh-image-draft > button {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 20px;
+    height: 20px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editorWidget-background);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--vscode-editor-background) 35%, transparent);
+}
+
+.dsh-image-draft > span {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-image-data-notice {
+    margin-top: var(--dsh-space-1);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-context-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-context-summary {
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    padding: 2px 8px 6px;
+}
+
+.dsh-context-notices {
+    display: grid;
+    gap: 4px;
+    margin: 4px 0 8px;
+}
+
+.dsh-context-warning {
+    color: var(--dsh-status-warning);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.dsh-file-reference-menu {
+    display: flex;
+    flex-direction: column;
+    max-height: 160px;
+    overflow: auto;
+    padding: 4px;
+    border: 1px solid var(--dsh-border);
+    background: var(--vscode-sideBar-background);
+}
+
+.dsh-file-reference-menu button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    padding: 5px 8px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dsh-file-reference-menu button:hover {
+    background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.dsh-file-reference-menu button.active {
+    background: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.dsh-reference-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-file-reference-menu button small {
+    color: var(--vscode-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+
+
+/* ---------- context chips and reasoning control ---------- */
+
+.dsh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dsh-space-1);
+    max-width: 100%;
+    padding: var(--dsh-space-1) var(--dsh-space-2);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-chip);
+    background: var(--vscode-input-background);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-chip-disabled {
+    opacity: 0.58;
+}
+
+.dsh-chip-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-chip-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 2px;
+    border: 0;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    cursor: pointer;
+}
+
+.dsh-chip-button:hover {
+    color: var(--vscode-foreground);
+}
+
+.dsh-reasoning-control {
+    width: min(100%, 320px);
+    margin-bottom: var(--dsh-space-2);
+    margin-left: auto;
+    padding: var(--dsh-space-2) var(--dsh-space-3) var(--dsh-space-3);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    background: var(--dsh-surface);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--vscode-editor-background) 18%, transparent);
+}
+
+.dsh-reasoning-control-head,
+.dsh-reasoning-control-actions,
+.dsh-reasoning-slider-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-space-2);
+}
+
+.dsh-reasoning-control-head {
+    justify-content: space-between;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-reasoning-value {
+    padding: 1px var(--dsh-space-2);
+    border: 1px solid var(--dsh-border);
+    border-radius: 999px;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    font-weight: 600;
+}
+
+.dsh-reasoning-close {
+    width: 20px;
+    height: 20px;
+}
+
+.dsh-reasoning-slider-row {
+    margin-top: var(--dsh-space-2);
+}
+
+.dsh-reasoning-slider-wrap {
+    position: relative;
+    min-width: 0;
+    flex: 1;
+}
+
+.dsh-reasoning-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 26px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.dsh-reasoning-slider::-webkit-slider-runnable-track {
+    height: 22px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--vscode-progressBar-background) 0%,
+        var(--vscode-progressBar-background) var(--dsh-slider-fill, 0%),
+        var(--dsh-border) var(--dsh-slider-fill, 0%),
+        var(--dsh-border) 100%
+    );
+}
+
+.dsh-reasoning-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px;
+    height: 26px;
+    margin-top: -2px;
+    border: 1px solid var(--dsh-border);
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--vscode-editor-background) 25%, transparent);
+}
+
+.dsh-reasoning-slider::-moz-range-track {
+    height: 22px;
+    border-radius: 999px;
+    background: var(--dsh-border);
+}
+
+.dsh-reasoning-slider::-moz-range-progress {
+    height: 22px;
+    border-radius: 999px;
+    background: var(--vscode-progressBar-background);
+}
+
+.dsh-reasoning-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--dsh-border);
+    border-radius: 50%;
+    background: var(--vscode-editor-background);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--vscode-editor-background) 25%, transparent);
+}
+
+.dsh-reasoning-slider:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.dsh-reasoning-slider-dots {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 13px;
+    right: 13px;
+    pointer-events: none;
+}
+
+.dsh-reasoning-slider-dots button {
+    position: absolute;
+    top: 50%;
+    width: 6px;
+    height: 6px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--vscode-descriptionForeground);
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.dsh-reasoning-slider-dots button.filled {
+    background: color-mix(in srgb, var(--vscode-foreground) 55%, transparent);
+}
+
+.dsh-reasoning-slider-dots button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.dsh-reasoning-knob {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 40px;
+    height: 55px;
+    border: 0;
+    border-radius: 8px;
+    background-repeat: no-repeat;
+    background-position: 0 0;
+    background-size: 800% 100%;
+    transform: translate(-50%, -50%);
+    transform-origin: 50% 68%;
+    animation: dsh-reasoning-run 720ms step-end infinite;
+    pointer-events: none;
+    image-rendering: pixelated;
+}
+
+.dsh-reasoning-slider-wrap:hover .dsh-reasoning-knob {
+    animation-duration: 420ms;
+}
+
+.dsh-reasoning-slider:disabled ~ .dsh-reasoning-knob {
+    animation-play-state: paused;
+    opacity: 0.55;
+}
+
+@keyframes dsh-reasoning-run {
+    0% {
+        background-position: 0 0;
+    }
+    14.285714% {
+        background-position: 14.285714% 0;
+    }
+    28.571429% {
+        background-position: 28.571429% 0;
+    }
+    42.857143% {
+        background-position: 42.857143% 0;
+    }
+    57.142857% {
+        background-position: 57.142857% 0;
+    }
+    71.428571% {
+        background-position: 71.428571% 0;
+    }
+    85.714286%,
+    100% {
+        background-position: 100% 0;
+    }
+}
+
+
+
+/* ---------- composer controls and statistics ---------- */
+
+.dsh-send-mode {
+    display: inline-flex;
+    margin-bottom: var(--dsh-space-2);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    overflow: hidden;
+}
+
+.dsh-send-mode button {
+    border: 0;
+    border-radius: 0;
+    padding: var(--dsh-space-1) var(--dsh-space-3);
+    cursor: pointer;
+    font-size: var(--dsh-font-xs);
+    color: var(--vscode-foreground);
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.dsh-send-mode button.active {
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+}
+
+.dsh-send-mode button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.dsh-composer-row {
+    position: relative;
+    display: flex;
+    gap: var(--dsh-space-2);
+    align-items: flex-end;
+}
+
+.dsh-slash-menu {
+    position: absolute;
+    right: var(--dsh-space-4);
+    bottom: calc(100% + var(--dsh-space-2));
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    max-width: min(320px, calc(100vw - 24px));
+    padding: var(--dsh-space-1);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    background: var(--vscode-menu-background, var(--dsh-surface));
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--vscode-editor-background) 28%, transparent);
+}
+
+.dsh-slash-menu button {
+    display: flex;
+    align-items: baseline;
+    gap: var(--dsh-space-3);
+    width: 100%;
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border: 0;
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+}
+
+.dsh-slash-menu button.active,
+.dsh-slash-menu button:hover {
+    color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+    background: var(--vscode-menu-selectionBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.dsh-slash-menu strong {
+    flex: none;
+    font-size: var(--dsh-font-sm);
+}
+
+.dsh-slash-menu span {
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-add-context {
+    width: 30px;
+    height: 34px;
+    border: 1px solid var(--dsh-border);
+}
+
+.dsh-attachment-anchor {
+    align-self: flex-end;
+}
+
+.dsh-attachment-menu {
+    top: auto;
+    right: auto;
+    bottom: calc(100% + 4px);
+    left: 0;
+}
+
+.dsh-image-input {
+    display: none;
+}
+
+.dsh-prompt {
+    flex: 1;
+    min-height: 68px;
+    max-height: 180px;
+    resize: none;
+    padding: var(--dsh-space-4);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+    line-height: 1.45;
+}
+
+.dsh-prompt:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+}
+
+.dsh-send-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dsh-space-1);
+    min-width: 54px;
+    min-height: 34px;
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border: 0;
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    cursor: pointer;
+    font-size: var(--dsh-font-sm);
+}
+
+.dsh-send-button:hover:not(:disabled) {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.dsh-send-button.dsh-button-secondary {
+    color: var(--vscode-foreground);
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.dsh-send-button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.dsh-stats {
+    padding-top: var(--dsh-space-2);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-align: center;
+}
+
+.dsh-stats-top {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--dsh-space-2);
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.dsh-stats-bottom {
+    margin-top: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}

@@ -1,13 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { ChatViewState } from "../../../src/types";
 import type { ChatViewAction } from "../../../src/chatViewProtocol";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
+import type { HeaderState } from "../state";
 import { statusLabel, TURN_LABELS } from "../state";
 import { CheckIcon, MoreIcon, PlusIcon, SearchIcon } from "./icons";
 
 interface HeaderProps {
-    state: ChatViewState;
+    status: HeaderState["status"];
+    sessionStatus: HeaderState["sessionStatus"];
+    sessions: HeaderState["sessions"];
+    sessionId: HeaderState["sessionId"];
+    currentWorkspace: HeaderState["currentWorkspace"];
+    draftWorkspaceId: HeaderState["draftWorkspaceId"];
+    draftWorkspaceTitle: HeaderState["draftWorkspaceTitle"];
+    focusMode: HeaderState["focusMode"];
+    pendingRequestCount: number;
 }
 
 interface MenuItem {
@@ -21,7 +29,17 @@ interface MenuItem {
 
 const NEW_CURRENT_WORKSPACE = "__dsh_new_current_workspace__";
 
-export function Header({ state }: HeaderProps): React.JSX.Element {
+export const Header = React.memo(function Header({
+    status,
+    sessionStatus,
+    sessions,
+    sessionId,
+    currentWorkspace,
+    draftWorkspaceId,
+    draftWorkspaceTitle,
+    focusMode,
+    pendingRequestCount,
+}: HeaderProps): React.JSX.Element {
     const [menuOpen, setMenuOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -43,8 +61,6 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         };
     }, [menuOpen]);
 
-    const status = state.status;
-    const sessionStatus = state.sessionStatus;
     const turn = sessionStatus?.turn;
     const runtimeReady = status.state === "running";
     const dotClass = !runtimeReady
@@ -63,7 +79,6 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         (turn && Number.isSafeInteger(turn.turn) ? `Turn ${turn.turn}` : "") +
         (turn?.detail ? ` · ${turn.detail}` : "");
     const statusTitle = status.message || turnTitle;
-    const sessions = state.sessions;
     const groupedSessions = new Map<string, typeof sessions>();
     const ungroupedSessions: typeof sessions = [];
     for (const session of sessions) {
@@ -75,7 +90,7 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         group.push(session);
         groupedSessions.set(session.workspaceId, group);
     }
-    const hasSession = Boolean(state.sessionId);
+    const hasSession = Boolean(sessionId);
     const runtimeRunning = status.state === "running" || status.state === "starting";
 
     const menuItems: MenuItem[] = [
@@ -99,9 +114,9 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
         { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" } },
         {
             key: "focus",
-            label: state.focusMode ? t("Focus mode: on") : t("Focus mode: off"),
+            label: focusMode ? t("Focus mode: on") : t("Focus mode: off"),
             action: { type: "toggleFocus" },
-            active: state.focusMode,
+            active: focusMode,
         },
     ];
 
@@ -129,8 +144,8 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
             <select
                 className="dsh-session-select"
                 title={t("Switch session")}
-                value={state.sessionId ?? ""}
-                disabled={sessions.length === 0 && !state.currentWorkspace}
+                value={sessionId ?? ""}
+                disabled={sessions.length === 0 && !currentWorkspace}
                 onChange={(event) => {
                     if (event.target.value === NEW_CURRENT_WORKSPACE) {
                         postAction({ type: "newSessionInCurrentWorkspace" });
@@ -140,8 +155,8 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                 }}
             >
                 {sessions.length === 0 ? (
-                    state.currentWorkspace ? (
-                        <optgroup label={state.currentWorkspace.title}>
+                    currentWorkspace ? (
+                        <optgroup label={currentWorkspace.title}>
                             <option value={NEW_CURRENT_WORKSPACE}>{t("New conversation")}</option>
                         </optgroup>
                     ) : (
@@ -149,12 +164,12 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                     )
                 ) : (
                     <>
-                        {!state.sessionId && !state.draftWorkspaceId ? <option value="">{t("New conversation")}</option> : null}
+                        {!sessionId && !draftWorkspaceId ? <option value="">{t("New conversation")}</option> : null}
                         {[...groupedSessions.entries()].map(([workspaceId, group]) => (
                             <optgroup key={workspaceId} label={group[0]?.workspaceTitle ?? workspaceId}>
-                                {!state.sessionId && state.draftWorkspaceId === workspaceId ? (
+                                {!sessionId && draftWorkspaceId === workspaceId ? (
                                     <option value="">{t("New conversation")}</option>
-                                ) : state.currentWorkspace?.workspaceId === workspaceId ? (
+                                ) : currentWorkspace?.workspaceId === workspaceId ? (
                                     <option value={NEW_CURRENT_WORKSPACE}>{t("New conversation")}</option>
                                 ) : null}
                                 {group.map((session) => (
@@ -165,14 +180,14 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                                 ))}
                             </optgroup>
                         ))}
-                        {!state.sessionId && state.draftWorkspaceId && !groupedSessions.has(state.draftWorkspaceId) ? (
-                            <optgroup label={state.draftWorkspaceTitle || state.draftWorkspaceId}>
+                        {!sessionId && draftWorkspaceId && !groupedSessions.has(draftWorkspaceId) ? (
+                            <optgroup label={draftWorkspaceTitle || draftWorkspaceId}>
                                 <option value="">{t("New conversation")}</option>
                             </optgroup>
                         ) : null}
-                        {state.currentWorkspace &&
-                        (!state.currentWorkspace.workspaceId || !groupedSessions.has(state.currentWorkspace.workspaceId)) ? (
-                            <optgroup label={state.currentWorkspace.title}>
+                        {currentWorkspace &&
+                        (!currentWorkspace.workspaceId || !groupedSessions.has(currentWorkspace.workspaceId)) ? (
+                            <optgroup label={currentWorkspace.title}>
                                 <option value={NEW_CURRENT_WORKSPACE}>{t("New conversation")}</option>
                             </optgroup>
                         ) : null}
@@ -189,6 +204,16 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
                     </>
                 )}
             </select>
+            {focusMode && pendingRequestCount > 0 ? (
+                <span
+                    className="dsh-focus-badge"
+                    role="status"
+                    aria-label={t("{count} pending request(s)", { count: pendingRequestCount })}
+                    title={t("{count} pending request(s)", { count: pendingRequestCount })}
+                >
+                    {pendingRequestCount}
+                </span>
+            ) : null}
             <button
                 type="button"
                 className="dsh-icon-button"
@@ -243,4 +268,4 @@ export function Header({ state }: HeaderProps): React.JSX.Element {
             </div>
         </header>
     );
-}
+});

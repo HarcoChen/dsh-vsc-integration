@@ -284,3 +284,238 @@
     color: var(--vscode-textLink-foreground);
     font-weight: 600;
 }
+
+/* ---------- interactions and current todo projection ---------- */
+
+.dsh-interactions {
+    max-height: 45vh;
+    overflow-y: auto;
+    padding: var(--dsh-space-2) var(--dsh-space-4);
+    border-top: 1px solid var(--dsh-border);
+    background: var(--vscode-sideBar-background);
+}
+
+.dsh-interactions .dsh-card:first-child {
+    margin-top: var(--dsh-space-1);
+}
+
+/* ---------- current todo projection ---------- */
+
+.dsh-todo-panel {
+    flex: none;
+    margin: var(--dsh-space-2) var(--dsh-space-4);
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    background: var(--dsh-surface);
+}
+
+.dsh-todo-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 26px;
+    gap: var(--dsh-space-3);
+    padding: 0;
+    border: 0;
+    color: var(--vscode-foreground);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.dsh-todo-lead,
+.dsh-todo-chevron {
+    flex: none;
+    color: var(--vscode-descriptionForeground);
+}
+
+.dsh-todo-lead {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+}
+
+.dsh-todo-lead::after {
+    position: absolute;
+    top: 1px;
+    left: 3px;
+    width: 6px;
+    height: 3px;
+    border-bottom: 1px solid currentColor;
+    border-left: 1px solid currentColor;
+    content: "";
+    transform: rotate(-45deg);
+}
+
+.dsh-todo-chevron {
+    width: 7px;
+    height: 7px;
+    margin-right: 2px;
+    border-right: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+}
+
+.dsh-todo-chevron.collapsed {
+    transform: rotate(45deg);
+}
+
+.dsh-todo-chevron.expanded {
+    transform: rotate(225deg);
+}
+
+.dsh-todo-title {
+    flex: none;
+    font-size: var(--dsh-font-sm);
+    font-weight: 600;
+}
+
+.dsh-todo-progress {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-todo-items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-2);
+    max-height: 180px;
+    margin: var(--dsh-space-3) 0 var(--dsh-space-1);
+    padding: var(--dsh-space-1) 0 0;
+    overflow-y: auto;
+    border-top: 1px solid var(--dsh-border);
+    list-style: none;
+}
+
+.dsh-todo-item {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: var(--dsh-space-3);
+    color: var(--vscode-foreground);
+    font-size: var(--dsh-font-sm);
+}
+
+.dsh-todo-status {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border: 1px dashed var(--vscode-descriptionForeground);
+    border-radius: 50%;
+}
+
+.dsh-todo-item.in_progress .dsh-todo-status {
+    border: 2px solid var(--vscode-progressBar-background);
+    animation: dsh-pulse 1.2s ease-in-out infinite;
+}
+
+.dsh-todo-item.completed {
+    color: var(--vscode-descriptionForeground);
+    text-decoration: line-through;
+}
+
+.dsh-todo-item.completed .dsh-todo-status {
+    position: relative;
+    border: 0;
+    background: var(--dsh-status-ok);
+}
+
+.dsh-todo-item.completed .dsh-todo-status::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 6px;
+    height: 3px;
+    border-bottom: 1px solid var(--vscode-editor-background);
+    border-left: 1px solid var(--vscode-editor-background);
+    content: "";
+    transform: rotate(-45deg);
+}
+
+.dsh-todo-content {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-plan-review {
+    border-left: 3px solid var(--vscode-focusBorder);
+}
+
+.dsh-plan-review-body {
+    max-height: 45vh;
+    overflow: auto;
+    padding: var(--dsh-space-4);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+}
+
+.dsh-plan-review-body .markdown-code-copy {
+    display: none;
+}
+
+.dsh-plan-feedback {
+    width: 100%;
+    min-height: 58px;
+    margin-top: var(--dsh-space-3);
+    padding: var(--dsh-space-2);
+    resize: vertical;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+}
+
+.dsh-interaction-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dsh-space-3);
+}
+
+.dsh-interaction-head .dsh-card-title {
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.dsh-interaction-toggle {
+    flex: none;
+    padding: var(--dsh-space-1) var(--dsh-space-2);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-question {
+    margin: var(--dsh-space-3) 0;
+}
+
+.dsh-question-title {
+    margin-bottom: var(--dsh-space-1);
+}
+
+.dsh-option {
+    display: block;
+    margin: var(--dsh-space-1) 0;
+    font-size: var(--dsh-font-sm);
+}
+
+.dsh-custom-answer {
+    width: 100%;
+    min-height: 58px;
+    padding: var(--dsh-space-2);
+    margin-top: var(--dsh-space-1);
+    resize: vertical;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+}

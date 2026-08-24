@@ -24,11 +24,11 @@
     --dsh-font-badge: 10px;
 
     /* Semantic status colors */
-    --dsh-status-ok: var(--vscode-testing-iconPassed, #4ec994);
-    --dsh-status-busy: var(--vscode-progressBar-background, #0e70c0);
-    --dsh-status-warning: var(--vscode-editorWarning-foreground, #e5b567);
-    --dsh-status-error: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, #f14c4c));
-    --dsh-status-off: var(--vscode-descriptionForeground, #888888);
+    --dsh-status-ok: var(--vscode-testing-iconPassed, var(--vscode-charts-green, var(--vscode-foreground)));
+    --dsh-status-busy: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+    --dsh-status-warning: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, var(--vscode-foreground)));
+    --dsh-status-error: var(--vscode-testing-iconFailed, var(--vscode-errorForeground, var(--vscode-foreground)));
+    --dsh-status-off: var(--vscode-descriptionForeground, var(--vscode-foreground));
 
     /* Surfaces */
     --dsh-surface: var(--vscode-editorWidget-background);

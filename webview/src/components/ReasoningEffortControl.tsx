@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { ChatViewState } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
+import type { ReasoningEffortState } from "../state";
 import { CloseIcon } from "./icons";
 
 /** Escapes a URL for safe embedding inside a CSS url("...") value. */
@@ -10,11 +10,17 @@ function cssImageUrl(url: string): string {
 }
 
 export function ReasoningEffortControl({
-    state,
+    control,
+    submitting,
+    busy,
     onDismiss,
-}: { state: ChatViewState; onDismiss: () => void }): React.JSX.Element | null {
+}: {
+    control: ReasoningEffortState["reasoningEffort"];
+    submitting: ReasoningEffortState["submitting"];
+    busy: ReasoningEffortState["busy"];
+    onDismiss: () => void;
+}): React.JSX.Element | null {
     const panelRef = useRef<HTMLDivElement>(null);
-    const control = state.reasoningEffort;
     const options = control?.options ?? [];
     const currentIndex = control
         ? Math.max(0, options.findIndex((option) => option.id === control.current))
@@ -45,7 +51,7 @@ export function ReasoningEffortControl({
     }, [onDismiss]);
     if (!control || options.length === 0 || !current) return null;
     const draft = options[draftIndex] ?? current;
-    const disabled = state.submitting || state.busy;
+    const disabled = submitting || busy;
     const commit = (): void => {
         const option = options[draftIndexRef.current];
         if (option && option.id !== control.current) {

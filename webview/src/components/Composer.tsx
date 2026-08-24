@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatViewState } from "../../../src/types";
 import type { DshReferenceCandidate } from "../../../src/types";
-import { postAction, registerAddImageDraftHandler, registerInsertTextHandler, registerSetTextHandler } from "../bridge";
+import { postAction, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
 import { t } from "../i18n";
+import type { ComposerState } from "../state";
 import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 import { ContextChips } from "./ContextChips";
@@ -16,10 +16,36 @@ const MIN_HEIGHT = 68;
 const MAX_HEIGHT = 180;
 
 interface ComposerProps {
-    state: ChatViewState;
+    context: ComposerState["context"];
+    selection: ComposerState["selection"];
+    selectionEnabled: ComposerState["selectionEnabled"];
+    fileReferenceCandidates: ComposerState["fileReferenceCandidates"];
+    skills: ComposerState["skills"];
+    tokenUsage: ComposerState["tokenUsage"];
+    sessionStats: ComposerState["sessionStats"];
+    reasoningEffort: ComposerState["reasoningEffort"];
+    imageLimits: ComposerState["imageLimits"];
+    busy: ComposerState["busy"];
+    submitting: ComposerState["submitting"];
+    cancelling: ComposerState["cancelling"];
+    sessionId: ComposerState["sessionId"];
 }
 
-export function Composer({ state }: ComposerProps): React.JSX.Element {
+export const Composer = React.memo(function Composer({
+    context,
+    selection,
+    selectionEnabled,
+    fileReferenceCandidates,
+    skills,
+    tokenUsage,
+    sessionStats,
+    reasoningEffort,
+    imageLimits,
+    busy,
+    submitting,
+    cancelling,
+    sessionId,
+}: ComposerProps): React.JSX.Element {
     const [text, setText] = useState("");
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
     const [effortVisible, setEffortVisible] = useState(false);
@@ -29,11 +55,10 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
-    const imageDrafts = useImageDrafts(state.imageLimits);
+    const imageDrafts = useImageDrafts(imageLimits);
 
     useEffect(() => {
-        registerAddImageDraftHandler((image) => imageDrafts.addUploads([image]));
-        return () => registerAddImageDraftHandler(undefined);
+        return subscribeAddImageDraft((image) => imageDrafts.addUploads([image]));
     }, [imageDrafts.addUploads]);
 
     const focusTextarea = useCallback((): void => {
@@ -43,17 +68,17 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const completion = useSlashCompletion({
         text,
         setText,
-        skills: state.skills,
-        reasoningEffort: state.reasoningEffort,
+        skills,
+        reasoningEffort,
         onShowEffort,
         focusTextarea,
     });
 
     // Legacy behavior: the queue/steer choice resets to queue once the session is idle.
     useEffect(() => {
-        if (!state.busy) setPromptMode("queue");
-    }, [state.busy]);
-    useEffect(() => setEffortVisible(false), [state.sessionId]);
+        if (!busy) setPromptMode("queue");
+    }, [busy]);
+    useEffect(() => setEffortVisible(false), [sessionId]);
     useEffect(() => {
         if (!attachmentMenuVisible) return;
         const onPointerDown = (event: PointerEvent): void => {
@@ -77,7 +102,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
         if (!textarea) return;
         textarea.style.height = "auto";
         textarea.style.height = `${Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, textarea.scrollHeight))}px`;
-    }, [state.reasoningEffort]);
+    }, [reasoningEffort]);
 
     useEffect(() => {
         autoGrow();
@@ -86,7 +111,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     // Host-initiated insertion (dsh.insertEditorReference): insert at the caret,
     // separated by a space when the preceding char is not whitespace, then focus.
     useEffect(() => {
-        registerInsertTextHandler((insertion) => {
+        return subscribeInsertText((insertion) => {
             const textarea = textareaRef.current;
             if (!textarea) return;
             const start = textarea.selectionStart;
@@ -101,11 +126,10 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 textarea.focus();
             });
         });
-        return () => registerInsertTextHandler(undefined);
     }, []);
 
     useEffect(() => {
-        registerSetTextHandler((draft) => {
+        return subscribeSetText((draft) => {
             setText(draft);
             completion.resetSlashIndex();
             window.requestAnimationFrame(() => {
@@ -115,29 +139,28 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 textarea.focus();
             });
         });
-        return () => registerSetTextHandler(undefined);
     }, [completion.resetSlashIndex]);
 
     const send = useCallback((): void => {
-        if (state.submitting) return;
+        if (submitting) return;
         const value = textareaRef.current?.value ?? text;
         if (!value.trim() && imageDrafts.images.length === 0) return;
         if (imageDrafts.images.length === 0 && completion.executeSlashCommand(value.trim())) return;
         postAction({
             type: "sendPrompt",
             text: value,
-            mode: state.busy ? promptMode : "queue",
+            mode: busy ? promptMode : "queue",
             images: imageDrafts.images.map((image) => image.upload),
         });
         setText("");
         imageDrafts.clear();
-    }, [completion.executeSlashCommand, imageDrafts, state.busy, state.submitting, promptMode, text]);
+    }, [completion.executeSlashCommand, imageDrafts, busy, submitting, promptMode, text]);
 
     const sendLabel = t("Send");
     const referenceMatch = text.match(/(?:^|\s)@([^\s@]*)$/u);
     const referenceQuery = referenceMatch?.[1] ?? "";
-    const referenceCandidates = referenceMatch && state.fileReferenceCandidates?.length
-        ? state.fileReferenceCandidates
+    const referenceCandidates = referenceMatch && fileReferenceCandidates?.length
+        ? fileReferenceCandidates
         : [];
     const referenceCandidateKey = referenceCandidates
         .map((candidate) => `${candidate.kind}:${candidate.insertText}`)
@@ -200,7 +223,12 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
 
     return (
         <div className="dsh-composer">
-            <ContextChips state={state} />
+            <ContextChips
+                context={context}
+                selection={selection}
+                selectionEnabled={selectionEnabled}
+                tokenUsage={tokenUsage}
+            />
             {referenceMenuVisible ? (
                 <FileReferenceMenu
                     candidates={referenceCandidates}
@@ -209,14 +237,19 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 />
             ) : null}
             {effortVisible ? (
-                <ReasoningEffortControl state={state} onDismiss={() => setEffortVisible(false)} />
+                <ReasoningEffortControl
+                    control={reasoningEffort}
+                    submitting={submitting}
+                    busy={busy}
+                    onDismiss={() => setEffortVisible(false)}
+                />
             ) : null}
-            {state.busy ? (
+            {busy ? (
                 <div className="dsh-send-mode" aria-label={t("Runtime message mode")}>
                     <button
                         type="button"
                         className={promptMode === "queue" ? "active" : ""}
-                        disabled={state.submitting}
+                        disabled={submitting}
                         onClick={() => setPromptMode("queue")}
                     >
                         {t("Queue")}
@@ -224,7 +257,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     <button
                         type="button"
                         className={promptMode === "steer" ? "active" : ""}
-                        disabled={state.submitting}
+                        disabled={submitting}
                         onClick={() => setPromptMode("steer")}
                     >
                         {t("Steer")}
@@ -258,7 +291,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         title={t("Add attachment")}
                         aria-haspopup="menu"
                         aria-expanded={attachmentMenuVisible}
-                        disabled={state.submitting}
+                        disabled={submitting}
                         onClick={() => setAttachmentMenuVisible((visible) => !visible)}
                     >
                         <PlusIcon />
@@ -322,7 +355,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     className="dsh-prompt"
                     placeholder={t("Describe a task; use @ for files, $ for skills...")}
                     value={text}
-                    disabled={state.submitting}
+                    disabled={submitting}
                     rows={3}
                     aria-expanded={activeMenuId !== undefined}
                     aria-controls={activeMenuId}
@@ -360,26 +393,26 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                 />
                 <button
                     type="button"
-                    className={`dsh-send-button${state.busy ? " dsh-button-secondary" : ""}`}
-                    title={state.busy ? t("Stop") : sendLabel}
-                    disabled={state.busy
-                        ? state.cancelling
-                        : state.submitting || (!text.trim() && imageDrafts.images.length === 0)}
+                    className={`dsh-send-button${busy ? " dsh-button-secondary" : ""}`}
+                    title={busy ? t("Stop") : sendLabel}
+                    disabled={busy
+                        ? cancelling
+                        : submitting || (!text.trim() && imageDrafts.images.length === 0)}
                     onClick={() => {
-                        if (state.busy) {
+                        if (busy) {
                             postAction({ type: "cancel" });
                         } else {
                             send();
                         }
                     }}
                 >
-                    {state.busy ? <StopIcon /> : <SendIcon />}
-                    {state.busy
-                        ? state.cancelling ? t("Stopping...") : t("Stop")
+                    {busy ? <StopIcon /> : <SendIcon />}
+                    {busy
+                        ? cancelling ? t("Stopping...") : t("Stop")
                         : sendLabel}
                 </button>
             </div>
-            <SessionStats state={state} />
+            <SessionStats stats={sessionStats} />
         </div>
     );
-}
+});

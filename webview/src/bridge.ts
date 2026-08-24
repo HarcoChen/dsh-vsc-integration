@@ -107,27 +107,48 @@ function isChatViewState(value: unknown): value is ChatViewState {
 export type InsertTextHandler = (text: string) => void;
 export type SetTextHandler = (text: string) => void;
 export type AddImageDraftHandler = (image: DshImageUpload) => void;
+export type RevealMessageHandler = (seq: number) => void;
 
-let insertTextHandler: InsertTextHandler | undefined;
-let setTextHandler: SetTextHandler | undefined;
-let addImageDraftHandler: AddImageDraftHandler | undefined;
+const insertTextSubscribers = new Set<InsertTextHandler>();
+const setTextSubscribers = new Set<SetTextHandler>();
+const addImageDraftSubscribers = new Set<AddImageDraftHandler>();
+const revealMessageSubscribers = new Set<RevealMessageHandler>();
 const pendingImageDrafts: DshImageUpload[] = [];
+const pendingRevealMessages: number[] = [];
 
-/** Called by the composer to own host-initiated cursor insertions. */
-export function registerInsertTextHandler(handler: InsertTextHandler | undefined): void {
-    insertTextHandler = handler;
+function subscribe<T>(subscribers: Set<T>, handler: T): () => void {
+    subscribers.add(handler);
+    return () => {
+        subscribers.delete(handler);
+    };
 }
 
-/** Called by the composer to own host-initiated draft replacements. */
-export function registerSetTextHandler(handler: SetTextHandler | undefined): void {
-    setTextHandler = handler;
+function notify<T>(subscribers: Set<T>, dispatch: (handler: T) => void): void {
+    for (const handler of [...subscribers]) dispatch(handler);
 }
 
-/** Called by the composer to receive screenshots captured by the extension host. */
-export function registerAddImageDraftHandler(handler: AddImageDraftHandler | undefined): void {
-    addImageDraftHandler = handler;
-    if (!handler) return;
+/** Subscribe to host-initiated cursor insertions; returns an idempotent unsubscribe function. */
+export function subscribeInsertText(handler: InsertTextHandler): () => void {
+    return subscribe(insertTextSubscribers, handler);
+}
+
+/** Subscribe to host-initiated draft replacements; returns an idempotent unsubscribe function. */
+export function subscribeSetText(handler: SetTextHandler): () => void {
+    return subscribe(setTextSubscribers, handler);
+}
+
+/** Subscribe to screenshots captured by the extension host. */
+export function subscribeAddImageDraft(handler: AddImageDraftHandler): () => void {
+    const unsubscribe = subscribe(addImageDraftSubscribers, handler);
     for (const image of pendingImageDrafts.splice(0)) handler(image);
+    return unsubscribe;
+}
+
+/** Subscribe to message reveal requests so MessageList owns the DOM scroll operation. */
+export function subscribeRevealMessage(handler: RevealMessageHandler): () => void {
+    const unsubscribe = subscribe(revealMessageSubscribers, handler);
+    for (const seq of pendingRevealMessages.splice(0)) handler(seq);
+    return unsubscribe;
 }
 
 /**
@@ -151,21 +172,27 @@ export function useHostState(): ChatViewState {
                 return;
             }
             if (isInsertTextMessage(data)) {
-                insertTextHandler?.(data.text);
+                notify(insertTextSubscribers, (handler) => handler(data.text));
                 return;
             }
             if (isSetTextMessage(data)) {
-                setTextHandler?.(data.text);
+                notify(setTextSubscribers, (handler) => handler(data.text));
                 return;
             }
             if (isAddImageDraftMessage(data)) {
-                if (addImageDraftHandler) addImageDraftHandler(data.image);
-                else pendingImageDrafts.push(data.image);
+                if (addImageDraftSubscribers.size > 0) {
+                    notify(addImageDraftSubscribers, (handler) => handler(data.image));
+                } else {
+                    pendingImageDrafts.push(data.image);
+                }
                 return;
             }
             if (isRevealMessage(data)) {
-                document.querySelector<HTMLElement>(`[data-message-seq="${data.seq}"]`)
-                    ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                if (revealMessageSubscribers.size > 0) {
+                    notify(revealMessageSubscribers, (handler) => handler(data.seq));
+                } else {
+                    pendingRevealMessages.push(data.seq);
+                }
             }
         };
         window.addEventListener("message", onMessage);

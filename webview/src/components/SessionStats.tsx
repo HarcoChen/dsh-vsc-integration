@@ -1,6 +1,6 @@
 import React from "react";
-import type { ChatViewState } from "../../../src/types";
 import { t } from "../i18n";
+import type { SessionStatsState } from "../state";
 
 function formatStatsDuration(milliseconds: number): string {
     const totalSeconds = Math.round(Math.max(0, milliseconds) / 1_000);
@@ -13,8 +13,7 @@ function formatStatsThroughput(tokensPerSecond: number): string {
     return value >= 10 ? String(Math.round(value)) : String(Math.round(value * 10) / 10);
 }
 
-function sessionStatsGroups(state: ChatViewState): string[] {
-    const stats = state.sessionStats;
+function sessionStatsGroups(stats: SessionStatsState["sessionStats"]): string[] {
     if (!stats || stats.steps <= 0) return [];
     const groups = [`${stats.turns} ${t("turns")} · ${stats.steps} ${t("steps")}`];
     const durations = [
@@ -30,8 +29,8 @@ function sessionStatsGroups(state: ChatViewState): string[] {
     return groups;
 }
 
-export function SessionStats({ state }: { state: ChatViewState }): React.JSX.Element | null {
-    const groups = sessionStatsGroups(state);
+export function SessionStats({ stats }: { stats: SessionStatsState["sessionStats"] }): React.JSX.Element | null {
+    const groups = sessionStatsGroups(stats);
     if (groups.length === 0) return null;
     return (
         <div className="dsh-stats" aria-label={t("Session statistics")}>

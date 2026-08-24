@@ -55,6 +55,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "{count} pending": "{count} 项待处理",
     "Focus mode: on": "Focus 模式：开",
     "Focus mode: off": "Focus 模式：关",
+    "{count} pending request(s)": "{count} 个待处理请求",
     "Startup failed": "启动失败",
     "Click to retry": "点击重试",
     "Click to start DSH Runtime": "点击启动 DSH Runtime",

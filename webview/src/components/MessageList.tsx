@@ -1,6 +1,6 @@
-import React, { useLayoutEffect, useMemo, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { ChatMessage } from "../../../src/types";
-import { postAction } from "../bridge";
+import { postAction, subscribeRevealMessage } from "../bridge";
 import { t } from "../i18n";
 import { closestElement, handleMarkdownClick, handleMarkdownKeydown } from "./markdownEvents";
 import { MessageItem } from "./MessageItem";
@@ -67,12 +67,28 @@ export const MessageList = React.memo(function MessageList({
 }: MessageListProps): React.JSX.Element {
     const listRef = useRef<HTMLDivElement>(null);
     const stickToBottomRef = useRef(true);
+    const pendingRevealRef = useRef<number[]>([]);
     const stableMessages = useStableMessages(messages);
+
+    useEffect(() => subscribeRevealMessage((seq) => {
+        const target = listRef.current?.querySelector<HTMLElement>(`[data-message-seq="${seq}"]`);
+        if (target) {
+            target.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+            pendingRevealRef.current.push(seq);
+        }
+    }), []);
 
     useLayoutEffect(() => {
         const list = listRef.current;
         if (list && stickToBottomRef.current) {
             list.scrollTop = list.scrollHeight;
+        }
+        const pending = pendingRevealRef.current.splice(0);
+        for (const seq of pending) {
+            listRef.current
+                ?.querySelector<HTMLElement>(`[data-message-seq="${seq}"]`)
+                ?.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [stableMessages]);
 

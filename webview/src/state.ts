@@ -24,6 +24,57 @@ export const DEFAULT_STATE: ChatViewState = {
     focusMode: false,
 };
 
+/** State slices keep non-streaming shell components independent from the full host tree. */
+export type HeaderState = Pick<
+    ChatViewState,
+    | "status"
+    | "sessionStatus"
+    | "sessions"
+    | "sessionId"
+    | "currentWorkspace"
+    | "draftWorkspaceId"
+    | "draftWorkspaceTitle"
+    | "focusMode"
+>;
+
+export type ActivityDockState = Pick<
+    ChatViewState,
+    | "goal"
+    | "queue"
+    | "changeReviews"
+    | "subagents"
+    | "subagentPreview"
+    | "jobs"
+    | "permissions"
+    | "sessionId"
+    | "agentPresetLabel"
+>;
+
+export type ComposerState = Pick<
+    ChatViewState,
+    | "context"
+    | "selection"
+    | "selectionEnabled"
+    | "fileReferenceCandidates"
+    | "skills"
+    | "tokenUsage"
+    | "sessionStats"
+    | "reasoningEffort"
+    | "imageLimits"
+    | "busy"
+    | "submitting"
+    | "cancelling"
+    | "sessionId"
+>;
+
+export type StatusBannerState = Pick<ChatViewState, "status" | "sessionStatus">;
+
+export type ContextChipsState = Pick<ChatViewState, "context" | "selection" | "selectionEnabled" | "tokenUsage">;
+
+export type ReasoningEffortState = Pick<ChatViewState, "reasoningEffort" | "submitting" | "busy">;
+
+export type SessionStatsState = Pick<ChatViewState, "sessionStats">;
+
 export function statusLabel(status: RuntimeStatus): string {
     if (status.state === "running") return t("Running");
     if (status.state === "starting") return t("Starting");

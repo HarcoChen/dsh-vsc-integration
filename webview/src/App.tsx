@@ -14,8 +14,18 @@ export function App(): React.JSX.Element {
     const state = useHostState();
     return (
         <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}`}>
-            <Header state={state} />
-            <StatusBanner state={state} />
+            <Header
+                status={state.status}
+                sessionStatus={state.sessionStatus}
+                sessions={state.sessions}
+                sessionId={state.sessionId}
+                currentWorkspace={state.currentWorkspace}
+                draftWorkspaceId={state.draftWorkspaceId}
+                draftWorkspaceTitle={state.draftWorkspaceTitle}
+                focusMode={state.focusMode}
+                pendingRequestCount={state.interactions.filter((interaction) => interaction.status === "pending").length}
+            />
+            <StatusBanner status={state.status} sessionStatus={state.sessionStatus} />
             {!state.focusMode && state.settings ? <SettingsPanel settings={state.settings} /> : null}
             <MessageList
                 messages={state.messages}
@@ -23,10 +33,37 @@ export function App(): React.JSX.Element {
                 agentStatusLabel={state.agentStatusLabel}
             />
             {!state.focusMode ? <Interactions interactions={state.interactions} /> : null}
-            {!state.focusMode ? <ActivityDock state={state} /> : null}
+            {!state.focusMode ? (
+                <ActivityDock
+                    goal={state.goal}
+                    queue={state.queue}
+                    changeReviews={state.changeReviews}
+                    subagents={state.subagents}
+                    subagentPreview={state.subagentPreview}
+                    jobs={state.jobs}
+                    permissions={state.permissions}
+                    sessionId={state.sessionId}
+                    sessionRunning={state.sessionStatus?.running === true}
+                    agentPresetLabel={state.agentPresetLabel}
+                />
+            ) : null}
             {!state.focusMode ? <TodoPanel todos={state.todos ?? []} /> : null}
             {!state.focusMode ? <TokenUsageBar usage={state.tokenUsage} /> : null}
-            <Composer state={state} />
+            <Composer
+                context={state.context}
+                selection={state.selection}
+                selectionEnabled={state.selectionEnabled}
+                fileReferenceCandidates={state.fileReferenceCandidates}
+                skills={state.skills}
+                tokenUsage={state.tokenUsage}
+                sessionStats={state.sessionStats}
+                reasoningEffort={state.reasoningEffort}
+                imageLimits={state.imageLimits}
+                busy={state.busy}
+                submitting={state.submitting}
+                cancelling={state.cancelling}
+                sessionId={state.sessionId}
+            />
         </div>
     );
 }

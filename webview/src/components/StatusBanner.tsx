@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
-import type { ChatViewState } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
+import type { StatusBannerState } from "../state";
 import { CloseIcon } from "./icons";
 
-export function StatusBanner({ state }: { state: ChatViewState }): React.JSX.Element | null {
-    const runtimeError = state.status.state === "error" ? state.status.message : undefined;
-    const sessionError = state.sessionStatus?.error;
+export function StatusBanner({ status, sessionStatus }: StatusBannerState): React.JSX.Element | null {
+    const runtimeError = status.state === "error" ? status.message : undefined;
+    const sessionError = sessionStatus?.error;
     const message = sessionError || runtimeError;
     const messageKey = message ? `${sessionError ? "session" : "runtime"}:${message}` : undefined;
     const [dismissedKey, setDismissedKey] = useState<string>();
