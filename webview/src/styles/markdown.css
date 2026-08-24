@@ -1,0 +1,286 @@
+/* ---------- markdown typography (ported from the legacy webview) ---------- */
+
+.dsh-message-body {
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+}
+
+.dsh-message-body p {
+    margin: 0 0 var(--dsh-space-4);
+    white-space: pre-wrap;
+}
+
+.dsh-message-body p:last-child {
+    margin-bottom: 0;
+}
+
+.dsh-message-images {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+    gap: var(--dsh-space-2);
+    max-width: 460px;
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-role-user .dsh-message-images {
+    margin-left: auto;
+}
+
+.dsh-message-image {
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    aspect-ratio: 4 / 3;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    color: var(--vscode-descriptionForeground);
+    background: var(--dsh-surface);
+    cursor: pointer;
+}
+
+.dsh-message-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.dsh-image-placeholder {
+    align-content: center;
+    gap: var(--dsh-space-1);
+    padding: var(--dsh-space-3);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-image-placeholder small {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-image-placeholder.error {
+    color: var(--vscode-errorForeground);
+    border-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.dsh-image-lightbox {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 32px;
+    background: color-mix(in srgb, var(--vscode-editor-background) 82%, transparent);
+}
+
+.dsh-image-lightbox img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.dsh-image-lightbox-close {
+    position: absolute;
+    top: var(--dsh-space-4);
+    right: var(--dsh-space-4);
+    background: var(--vscode-editorWidget-background);
+}
+
+.dsh-message-body h1,
+.dsh-message-body h2,
+.dsh-message-body h3,
+.dsh-message-body h4,
+.dsh-message-body h5,
+.dsh-message-body h6 {
+    margin: var(--dsh-space-4) 0 var(--dsh-space-2);
+    line-height: 1.25;
+}
+
+.dsh-message-body h1 {
+    font-size: 1.35em;
+}
+
+.dsh-message-body h2 {
+    font-size: 1.25em;
+}
+
+.dsh-message-body h3 {
+    font-size: 1.15em;
+}
+
+.dsh-message-body ul,
+.dsh-message-body ol {
+    margin: var(--dsh-space-2) 0;
+    padding-left: 22px;
+}
+
+.dsh-message-body blockquote {
+    margin: var(--dsh-space-3) 0;
+    padding: 2px var(--dsh-space-4);
+    color: var(--vscode-descriptionForeground);
+    border-left: 3px solid var(--vscode-textBlockQuote-border);
+    background: var(--vscode-textBlockQuote-background);
+}
+
+.dsh-message-body .markdown-table-wrap {
+    max-width: 100%;
+    margin: var(--dsh-space-3) 0;
+    overflow-x: auto;
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+}
+
+.dsh-message-body table {
+    width: 100%;
+    min-width: 360px;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.dsh-message-body th,
+.dsh-message-body td {
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border-bottom: 1px solid var(--dsh-border);
+    vertical-align: top;
+}
+
+.dsh-message-body th {
+    color: var(--vscode-foreground);
+    background: var(--vscode-textCodeBlock-background);
+    font-weight: 600;
+}
+
+.dsh-message-body tr:last-child td {
+    border-bottom: 0;
+}
+
+.dsh-message-body .markdown-table-cell-center {
+    text-align: center;
+}
+
+.dsh-message-body .markdown-table-cell-right {
+    text-align: right;
+}
+
+.dsh-message-body code {
+    padding: 1px var(--dsh-space-1);
+    border-radius: var(--dsh-space-1);
+    font-family: var(--vscode-editor-font-family);
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.dsh-message-body .markdown-link {
+    color: var(--vscode-textLink-foreground);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.file-location-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: var(--vscode-textLink-foreground);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+
+.file-location-link:hover {
+    color: var(--vscode-textLink-activeForeground);
+    text-decoration-style: solid;
+}
+
+.dsh-message-body .markdown-link:hover {
+    color: var(--vscode-textLink-activeForeground);
+}
+
+.markdown-code-block {
+    margin: var(--dsh-space-4) 0;
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    overflow: hidden;
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.markdown-code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dsh-space-2);
+    min-height: 27px;
+    padding: var(--dsh-space-1) var(--dsh-space-2) var(--dsh-space-1) var(--dsh-space-4);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    background: var(--dsh-surface);
+}
+
+.markdown-code-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-space-1);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.markdown-code-action {
+    padding: 2px var(--dsh-space-2);
+    font-size: var(--dsh-font-xs);
+    border: 0;
+    border-radius: var(--dsh-space-1);
+    color: var(--vscode-foreground);
+    background: transparent;
+    cursor: pointer;
+}
+
+.markdown-code-action:hover:not(:disabled) {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.markdown-code-action:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.markdown-code-block pre {
+    margin: 0;
+    padding: var(--dsh-space-4);
+    max-height: 360px;
+    overflow: auto;
+    white-space: pre;
+}
+
+.markdown-code-block pre code {
+    padding: 0;
+    background: transparent;
+    font: var(--dsh-font-xs)/1.45 var(--vscode-editor-font-family);
+}
+
+/* reasoning fold */
+
+.dsh-message-reasoning {
+    margin-top: var(--dsh-space-3);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-descriptionForeground);
+    background: var(--dsh-surface);
+}
+
+.dsh-message-reasoning > summary {
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    cursor: pointer;
+    font-size: var(--dsh-font-xs);
+    user-select: none;
+}
+
+.dsh-message-reasoning[open] > summary {
+    border-bottom: 1px solid var(--dsh-border);
+}
+
+.dsh-message-reasoning > .dsh-message-body {
+    padding: var(--dsh-space-3);
+    color: var(--vscode-foreground);
+}

@@ -45,7 +45,7 @@ export function MessageImages({ images }: { images: readonly ChatImageView[] }):
     if (images.length === 0) return null;
     return (
         <>
-            <div ref={galleryRef} className="dsh-message-images" aria-label={t("Images")}>
+            <div ref={galleryRef} className="dsh-message-images" role="group" aria-label={t("Images")}>
                 {images.map((image, index) => {
                     const label = image.name || t("Image {index}", { index: index + 1 });
                     return image.src ? (
@@ -98,6 +98,7 @@ export function MessageImages({ images }: { images: readonly ChatImageView[] }):
                         type="button"
                         ref={lightboxCloseRef}
                         className="dsh-icon-button dsh-image-lightbox-close"
+                        aria-label={t("Close")}
                         title={t("Close")}
                         onClick={() => setPreview(undefined)}
                     >

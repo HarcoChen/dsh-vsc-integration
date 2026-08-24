@@ -18,6 +18,7 @@ interface TabDef {
 
 export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Element | null {
     const [active, setActive] = useState<DockTab | null>(null);
+    const [collapsed, setCollapsed] = useState(true);
     const tabRefs = useRef(new Map<DockTab, HTMLButtonElement>());
     const agentPresetLabel = state.agentPresetLabel?.trim();
     const shortAgentPreset = agentPresetLabel ? Array.from(agentPresetLabel).slice(0, 4).join("") : undefined;
@@ -37,10 +38,17 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
 
     const available = tabs.map((tab) => tab.id).join(",");
     useEffect(() => {
-        if (active && !available.split(",").includes(active)) setActive(null);
+        if (active && !available.split(",").includes(active)) {
+            setActive(null);
+            setCollapsed(true);
+        }
     }, [available, active]);
 
     if (!tabs.length) return null;
+    // Keep one tab selected for the ARIA tab pattern even while the dock body
+    // is collapsed. The selected panel remains in the DOM and is hidden until
+    // the user opens a tab, so every aria-controls reference stays resolvable.
+    const selectedTab = active && tabs.some((tab) => tab.id === active) ? active : tabs[0].id;
 
     const onTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number): void => {
         let nextIndex: number | undefined;
@@ -59,7 +67,12 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
 
     return (
         <div className="dsh-dock">
-            <div className="dsh-dock-tabs" role="tablist">
+            <div
+                className="dsh-dock-tabs"
+                role="tablist"
+                aria-label={t("Activity tabs")}
+                aria-orientation="horizontal"
+            >
                 {tabs.map((tab, index) => (
                     <button
                         key={tab.id}
@@ -70,11 +83,19 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
                         }}
                         type="button"
                         role="tab"
-                        aria-selected={active === tab.id}
+                        aria-selected={selectedTab === tab.id}
+                        aria-expanded={selectedTab === tab.id && !collapsed}
                         aria-controls={`dsh-dock-panel-${tab.id}`}
-                        tabIndex={active === tab.id || (!active && index === 0) ? 0 : -1}
-                        className={`dsh-dock-tab${active === tab.id ? " active" : ""}`}
-                        onClick={() => setActive((current) => current === tab.id ? null : tab.id)}
+                        tabIndex={selectedTab === tab.id ? 0 : -1}
+                        className={`dsh-dock-tab${selectedTab === tab.id && !collapsed ? " active" : ""}`}
+                        onClick={() => {
+                            if (selectedTab === tab.id && !collapsed) {
+                                setCollapsed(true);
+                            } else {
+                                setActive(tab.id);
+                                setCollapsed(false);
+                            }
+                        }}
                         onKeyDown={(event) => onTabKeyDown(event, index)}
                     >
                         {tab.label}
@@ -91,21 +112,23 @@ export function ActivityDock({ state }: { state: ChatViewState }): React.JSX.Ele
                     </span>
                 ) : null}
             </div>
-            {active ? (
+            {tabs.map((tab) => (
                 <div
+                    key={tab.id}
                     className="dsh-dock-panel"
                     role="tabpanel"
-                    id={`dsh-dock-panel-${active}`}
-                    aria-labelledby={`dsh-dock-tab-${active}`}
+                    id={`dsh-dock-panel-${tab.id}`}
+                    aria-labelledby={`dsh-dock-tab-${tab.id}`}
+                    hidden={collapsed || selectedTab !== tab.id}
                 >
-                    {active === "goal" && state.goal ? <GoalPanel goal={state.goal} /> : null}
-                    {active === "queue" ? <QueuePanel queue={state.queue} running={state.sessionStatus?.running === true} /> : null}
-                    {active === "changes" ? <ChangesPanel reviews={state.changeReviews} running={state.sessionStatus?.running === true} /> : null}
-                    {active === "subagents" && state.subagents ? <SubagentsPanel tree={state.subagents} preview={preview} /> : null}
-                    {active === "jobs" ? <JobsPanel jobs={state.jobs} /> : null}
-                    {active === "permissions" && state.permissions ? <PermissionsPanel permissions={state.permissions} /> : null}
+                    {!collapsed && selectedTab === "goal" && tab.id === "goal" && state.goal ? <GoalPanel goal={state.goal} /> : null}
+                    {!collapsed && selectedTab === "queue" && tab.id === "queue" ? <QueuePanel queue={state.queue} running={state.sessionStatus?.running === true} /> : null}
+                    {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={state.changeReviews} running={state.sessionStatus?.running === true} /> : null}
+                    {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && state.subagents ? <SubagentsPanel tree={state.subagents} preview={preview} /> : null}
+                    {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={state.jobs} /> : null}
+                    {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && state.permissions ? <PermissionsPanel permissions={state.permissions} /> : null}
                 </div>
-            ) : null}
+            ))}
         </div>
     );
 }

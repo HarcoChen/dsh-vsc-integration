@@ -1,5 +1,6 @@
 import React from "react";
 import type { DshSkillEntry } from "../../../src/types";
+import { t } from "../i18n";
 import type { SlashCommand } from "./slashCommands";
 import { SKILL_MENU_ID, SLASH_MENU_ID } from "./useSlashCompletion";
 
@@ -18,7 +19,7 @@ export function SlashCompletionMenu({
 }): React.JSX.Element | null {
     if (commands.length + skills.length === 0) return null;
     return (
-        <div className="dsh-slash-menu" role="listbox" aria-label="Slash commands" id={SLASH_MENU_ID}>
+        <div className="dsh-slash-menu" role="listbox" aria-label={t("Slash commands")} id={SLASH_MENU_ID}>
             {commands.map((command, index) => (
                 <button
                     type="button"
@@ -67,7 +68,7 @@ export function SkillCompletionMenu({
 }): React.JSX.Element | null {
     if (skills.length === 0) return null;
     return (
-        <div className="dsh-slash-menu" role="listbox" aria-label="Skill candidates" id={SKILL_MENU_ID}>
+        <div className="dsh-slash-menu" role="listbox" aria-label={t("Skill candidates")} id={SKILL_MENU_ID}>
             {skills.map((skill, index) => (
                 <button
                     type="button"

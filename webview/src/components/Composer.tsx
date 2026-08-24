@@ -6,7 +6,7 @@ import { t } from "../i18n";
 import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 import { ContextChips } from "./ContextChips";
-import { FileReferenceMenu } from "./FileReferenceMenu";
+import { FILE_REFERENCE_MENU_ID, FileReferenceMenu } from "./FileReferenceMenu";
 import { ReasoningEffortControl } from "./ReasoningEffortControl";
 import { SessionStats } from "./SessionStats";
 import { SKILL_MENU_ID, SLASH_MENU_ID, useSlashCompletion } from "./useSlashCompletion";
@@ -24,6 +24,8 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
     const [effortVisible, setEffortVisible] = useState(false);
     const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
+    const [referenceIndex, setReferenceIndex] = useState(0);
+    const [dismissedReferenceKey, setDismissedReferenceKey] = useState<string>();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
@@ -134,29 +136,75 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
     const sendLabel = t("Send");
     const referenceMatch = text.match(/(?:^|\s)@([^\s@]*)$/u);
     const referenceQuery = referenceMatch?.[1] ?? "";
+    const referenceCandidates = referenceMatch && state.fileReferenceCandidates?.length
+        ? state.fileReferenceCandidates
+        : [];
+    const referenceCandidateKey = referenceCandidates
+        .map((candidate) => `${candidate.kind}:${candidate.insertText}`)
+        .join("\u0000");
+    const referenceContextKey = `${referenceQuery}\u0000${referenceCandidateKey}`;
+    const referenceMenuVisible = referenceCandidates.length > 0 && dismissedReferenceKey !== referenceContextKey;
     useEffect(() => {
         postAction({ type: "fileReferenceQuery", query: referenceQuery });
     }, [referenceQuery]);
+    useEffect(() => {
+        setReferenceIndex(0);
+        setDismissedReferenceKey(undefined);
+    }, [referenceContextKey]);
 
     const chooseFileReference = (candidate: DshReferenceCandidate): void => {
         const referenceStart = text.length - referenceQuery.length - 1;
         const prefix = text.slice(0, Math.max(0, referenceStart));
         setText(`${prefix}${candidate.insertText} `);
+        setReferenceIndex(0);
         window.requestAnimationFrame(focusTextarea);
     };
 
-    const activeMenuId = completion.skillMatches.length
-        ? SKILL_MENU_ID
-        : completion.slashCandidateCount
-            ? SLASH_MENU_ID
+    const handleReferenceKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+        if (!referenceMenuVisible) return false;
+        if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setReferenceIndex((current) => (current + 1) % referenceCandidates.length);
+            return true;
+        }
+        if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setReferenceIndex((current) => (current - 1 + referenceCandidates.length) % referenceCandidates.length);
+            return true;
+        }
+        if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            chooseFileReference(referenceCandidates[referenceIndex] ?? referenceCandidates[0]);
+            return true;
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            setDismissedReferenceKey(referenceContextKey);
+            return true;
+        }
+        return false;
+    };
+
+    const activeMenuId = referenceMenuVisible
+        ? FILE_REFERENCE_MENU_ID
+        : completion.skillMatches.length
+            ? SKILL_MENU_ID
+            : completion.slashCandidateCount
+                ? SLASH_MENU_ID
+                : undefined;
+    const activeDescendant = activeMenuId === FILE_REFERENCE_MENU_ID
+        ? `${FILE_REFERENCE_MENU_ID}-option-${referenceIndex}`
+        : activeMenuId
+            ? `${activeMenuId}-option-${completion.slashIndex}`
             : undefined;
 
     return (
         <div className="dsh-composer">
             <ContextChips state={state} />
-            {referenceMatch && state.fileReferenceCandidates?.length ? (
+            {referenceMenuVisible ? (
                 <FileReferenceMenu
-                    candidates={state.fileReferenceCandidates}
+                    candidates={referenceCandidates}
+                    activeIndex={referenceIndex}
                     onSelect={chooseFileReference}
                 />
             ) : null}
@@ -278,7 +326,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                     rows={3}
                     aria-expanded={activeMenuId !== undefined}
                     aria-controls={activeMenuId}
-                    aria-activedescendant={activeMenuId ? `${activeMenuId}-option-${completion.slashIndex}` : undefined}
+                    aria-activedescendant={activeDescendant}
                     onChange={(event) => {
                         setText(event.target.value);
                         completion.resetSlashIndex();
@@ -290,6 +338,7 @@ export function Composer({ state }: ComposerProps): React.JSX.Element {
                         void imageDrafts.addFiles(files);
                     }}
                     onKeyDown={(event) => {
+                        if (handleReferenceKeyDown(event)) return;
                         if (completion.handleCompletionKeyDown(event)) return;
                         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
                             event.preventDefault();

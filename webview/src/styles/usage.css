@@ -1,0 +1,266 @@
+/* ---------- token usage ---------- */
+
+.dsh-usage {
+    position: relative;
+    flex: none;
+    height: 38px;
+    padding: 3px var(--dsh-space-4);
+    border-top: 1px solid var(--dsh-border);
+    background: var(--vscode-sideBar-background);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-usage-summary {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 31px;
+    padding: 0;
+    border: 0;
+    gap: var(--dsh-space-2);
+    color: var(--vscode-foreground);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+}
+
+.dsh-usage-summary:hover {
+    color: var(--vscode-textLink-foreground);
+}
+
+.dsh-usage-ring {
+    position: relative;
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+}
+
+.dsh-usage-ring.small {
+    width: 28px;
+    height: 28px;
+}
+
+.dsh-usage-ring.large {
+    width: 76px;
+    height: 76px;
+}
+
+.dsh-usage-ring svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+}
+
+.dsh-usage-ring circle {
+    fill: none;
+    stroke-width: 3;
+}
+
+.dsh-usage-ring .track {
+    stroke: var(--vscode-editorWidget-border, var(--dsh-border));
+}
+
+.dsh-usage-ring .progress {
+    stroke: var(--vscode-progressBar-background);
+    stroke-linecap: round;
+}
+
+.dsh-usage-ring.warning .progress {
+    stroke: var(--dsh-status-warning);
+}
+
+.dsh-usage-ring.critical .progress {
+    stroke: var(--dsh-status-error);
+}
+
+.dsh-usage-ring > span {
+    position: relative;
+    color: var(--vscode-foreground);
+    font-size: var(--dsh-font-badge);
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh-usage-ring.small > span {
+    display: none;
+}
+
+.dsh-usage-ring.large > span {
+    font-size: var(--dsh-font-sm);
+    font-weight: 600;
+}
+
+.dsh-usage-summary-route {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-usage-summary-route strong {
+    font-weight: 600;
+}
+
+.dsh-usage-summary-route small {
+    margin-left: var(--dsh-space-1);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-badge);
+}
+
+.dsh-usage-summary-context {
+    flex: none;
+    color: var(--vscode-descriptionForeground);
+    font-variant-numeric: tabular-nums;
+}
+
+.dsh-usage-panel {
+    position: absolute;
+    right: var(--dsh-space-4);
+    bottom: calc(100% + var(--dsh-space-2));
+    left: var(--dsh-space-4);
+    z-index: 40;
+    max-height: min(520px, 65vh);
+    overflow-y: auto;
+    padding: var(--dsh-space-4);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-md);
+    background: var(--vscode-editorWidget-background);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.dsh-usage-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--dsh-space-3);
+}
+
+.dsh-usage-panel-head > div {
+    min-width: 0;
+}
+
+.dsh-usage-panel-head strong,
+.dsh-usage-panel-head span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-usage-panel-head strong {
+    color: var(--vscode-foreground);
+    font-size: var(--dsh-font-md);
+}
+
+.dsh-usage-panel-head span {
+    margin-top: 2px;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-badge);
+}
+
+.dsh-usage-context-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--dsh-space-5);
+    padding: var(--dsh-space-5) 0;
+    border-bottom: 1px solid var(--dsh-border);
+}
+
+.dsh-usage-context-stat > div > span,
+.dsh-usage-context-stat > div > strong {
+    display: block;
+}
+
+.dsh-usage-context-stat > div > span {
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-usage-context-stat > div > strong {
+    margin-top: var(--dsh-space-1);
+    color: var(--vscode-foreground);
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+.dsh-usage-context-stat > div > strong small {
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    font-weight: 400;
+}
+
+.dsh-token-chart {
+    margin-top: var(--dsh-space-4);
+}
+
+.dsh-token-chart-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: var(--dsh-space-3);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-badge);
+}
+
+.dsh-token-chart-row {
+    display: grid;
+    grid-template-columns: 46px minmax(36px, 1fr) minmax(48px, auto);
+    align-items: center;
+    gap: var(--dsh-space-2);
+    min-height: 27px;
+}
+
+.dsh-token-chart-label {
+    color: var(--vscode-descriptionForeground);
+}
+
+.dsh-token-chart-track {
+    height: 6px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: var(--vscode-editorWidget-border, var(--dsh-border));
+}
+
+.dsh-token-chart-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--vscode-charts-blue, var(--vscode-progressBar-background));
+}
+
+.dsh-token-chart-fill.output {
+    background: var(--vscode-charts-green, var(--dsh-status-ok));
+}
+
+.dsh-token-chart-fill.reasoning {
+    background: var(--vscode-charts-purple, var(--vscode-symbolIcon-functionForeground));
+}
+
+.dsh-token-chart-fill.cache-read {
+    background: var(--vscode-charts-yellow, var(--dsh-status-warning));
+}
+
+.dsh-token-chart-fill.cache-write {
+    background: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground));
+}
+
+.dsh-token-chart-value {
+    color: var(--vscode-foreground);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.dsh-token-chart-value small {
+    display: block;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-badge);
+}
+
+.dsh-usage-empty {
+    padding: var(--dsh-space-5) 0 var(--dsh-space-2);
+    color: var(--vscode-descriptionForeground);
+}

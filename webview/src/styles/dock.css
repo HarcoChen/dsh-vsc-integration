@@ -1,0 +1,286 @@
+/* ---------- activity dock (collapsible tab strip) ---------- */
+
+.dsh-dock {
+    border-top: 1px solid var(--dsh-border);
+}
+
+.dsh-dock-tabs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-1);
+    padding: var(--dsh-space-2) var(--dsh-space-4);
+}
+
+.dsh-dock-preset {
+    flex: none;
+    margin-left: auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    white-space: nowrap;
+}
+
+.dsh-dock-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--dsh-space-1) var(--dsh-space-3);
+    border: 1px solid transparent;
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    cursor: pointer;
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-dock-tab:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+.dsh-dock-tab.active {
+    color: var(--vscode-foreground);
+    border-color: var(--dsh-border);
+    background: var(--dsh-surface);
+}
+
+.dsh-dock-panel {
+    max-height: 45vh;
+    overflow-y: auto;
+    padding: 0 var(--dsh-space-4) var(--dsh-space-3);
+}
+
+/* turn changes */
+
+.dsh-change-turn + .dsh-change-turn {
+    margin-top: var(--dsh-space-3);
+}
+
+.dsh-change-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--dsh-space-2);
+    align-items: center;
+    min-height: 28px;
+    border-bottom: 1px solid var(--dsh-border);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-change-head .dsh-card-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-change-restore {
+    padding: 2px var(--dsh-space-2);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-change-file {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    gap: var(--dsh-space-2);
+    align-items: center;
+    width: 100%;
+    padding: var(--dsh-space-2) 0;
+    border: 0;
+    border-bottom: 1px solid var(--dsh-border);
+    color: var(--vscode-foreground);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+}
+
+.dsh-change-file:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.dsh-change-status {
+    font-size: var(--dsh-font-xs);
+    font-weight: 600;
+}
+
+.dsh-change-status.added { color: var(--vscode-gitDecoration-addedResourceForeground); }
+.dsh-change-status.modified { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
+.dsh-change-status.deleted { color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.dsh-change-status.renamed { color: var(--vscode-gitDecoration-renamedResourceForeground); }
+
+.dsh-change-path {
+    overflow: hidden;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* goal */
+
+.dsh-goal-objective {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin-bottom: var(--dsh-space-2);
+}
+
+/* dock inline forms (goal create/edit, queue edit, inline confirm) */
+
+.dsh-dock-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-2);
+    margin: var(--dsh-space-2) 0;
+}
+
+.dsh-dock-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--dsh-space-2);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+}
+
+.dsh-dock-confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    margin-top: var(--dsh-space-3);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-dock-confirm span {
+    flex: 1;
+    min-width: 120px;
+}
+
+.dsh-queue-edit {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+/* queue */
+
+.dsh-queue-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--dsh-space-2);
+    align-items: center;
+    padding: var(--dsh-space-2) 0;
+    border-top: 1px solid var(--dsh-border);
+}
+
+.dsh-queue-preview {
+    overflow-wrap: anywhere;
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-queue-actions {
+    display: flex;
+    gap: var(--dsh-space-1);
+}
+
+.dsh-queue-actions .dsh-button {
+    padding: 2px var(--dsh-space-2);
+    font-size: var(--dsh-font-xs);
+}
+
+/* subagent tree + preview */
+
+.dsh-tree-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--dsh-space-2);
+    align-items: center;
+    padding: var(--dsh-space-2) 0;
+    border-top: 1px solid var(--dsh-border);
+}
+
+.dsh-tree-depth-1 { padding-left: 12px; }
+.dsh-tree-depth-2 { padding-left: 24px; }
+.dsh-tree-depth-3 { padding-left: 36px; }
+.dsh-tree-depth-4 { padding-left: 48px; }
+.dsh-tree-depth-5 { padding-left: 60px; }
+.dsh-tree-depth-6 { padding-left: 72px; }
+.dsh-tree-depth-7 { padding-left: 84px; }
+.dsh-tree-depth-8 { padding-left: 96px; }
+
+.dsh-tree-label {
+    overflow-wrap: anywhere;
+}
+
+.dsh-tree-meta,
+.dsh-job-meta {
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    overflow-wrap: anywhere;
+}
+
+.dsh-subagent-transcript {
+    max-height: 220px;
+    overflow: auto;
+    margin-top: var(--dsh-space-3);
+    padding: var(--dsh-space-2);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    scrollbar-width: thin;
+}
+
+.dsh-subagent-transcript .dsh-message {
+    margin-bottom: var(--dsh-space-4);
+}
+
+.dsh-follow-up {
+    display: flex;
+    gap: var(--dsh-space-2);
+    margin-top: var(--dsh-space-3);
+}
+
+.dsh-follow-up input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--dsh-space-2);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+}
+
+/* jobs */
+
+.dsh-job-row {
+    padding: var(--dsh-space-2) 0;
+    border-top: 1px solid var(--dsh-border);
+}
+
+.dsh-job-label {
+    overflow-wrap: anywhere;
+}
+
+.dsh-job-owner {
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-job-summary {
+    margin-top: var(--dsh-space-1);
+    font-size: var(--dsh-font-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* permissions */
+
+.dsh-permission-option {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--dsh-space-4);
+    padding: var(--dsh-space-1) 0;
+    border-top: 1px solid var(--dsh-border);
+}
+
+.dsh-permission-option.active {
+    color: var(--vscode-textLink-foreground);
+    font-weight: 600;
+}
