@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { t } from "./localize";
+import { deepSeekPricingPeriod, DeepSeekPricingPeriod } from "./deepseekPricing";
 import {
     DeepSeekBalance,
     DeepSeekBalanceInfo,
@@ -38,6 +39,15 @@ function preferredBalance(infos: DeepSeekBalanceInfo[]): DeepSeekBalanceInfo | u
 
 function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+function pricingBadge(period: DeepSeekPricingPeriod): string {
+    return period === "peak" ? "$(flame)" : "$(moon)";
+}
+
+function pricingDetails(period: DeepSeekPricingPeriod): string {
+    const label = period === "peak" ? t("Peak pricing") : t("Off-peak pricing (half rate)");
+    return `${label}\n${t("Peak hours: 09:00-12:00 and 14:00-18:00 (GMT+8); weekends bill at off-peak rates all day.")}`;
 }
 
 /** Owns the low-noise status bar balance indicator and its secure key cache. */
@@ -170,6 +180,7 @@ export class DeepSeekBalanceService implements vscode.Disposable {
         const total = formatAmount(info.totalBalance);
         const totalNumber = amount(info.totalBalance);
         const low = totalNumber !== undefined && totalNumber < LOW_BALANCE_THRESHOLD;
+        const pricing = deepSeekPricingPeriod(new Date());
         const details = balance.balanceInfos
             .map(
                 (value) =>
@@ -181,8 +192,8 @@ export class DeepSeekBalanceService implements vscode.Disposable {
                     }),
             )
             .join("\n");
-        this.statusBarItem.text = `${low ? "$(warning)" : "$(dashboard)"} DeepSeek: ${total} ${info.currency}`;
-        this.statusBarItem.tooltip = `${details}\n\n${t("Click to refresh")}`;
+        this.statusBarItem.text = `${low ? "$(warning)" : "$(dashboard)"} DeepSeek: ${total} ${info.currency} ${pricingBadge(pricing)}`;
+        this.statusBarItem.tooltip = `${details}\n\n${pricingDetails(pricing)}\n\n${t("Click to refresh")}`;
         this.statusBarItem.command = "dsh.refreshBalance";
         this.statusBarItem.backgroundColor = low
             ? new vscode.ThemeColor("statusBarItem.warningBackground")
