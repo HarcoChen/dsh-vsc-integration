@@ -163,23 +163,11 @@
     overflow-wrap: anywhere;
 }
 
-.dsh-goal-actions {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: var(--dsh-space-3);
+.dsh-goal-hint {
+    margin-top: var(--dsh-space-2);
 }
 
-.dsh-goal-clear {
-    color: var(--vscode-errorForeground);
-}
-
-.dsh-goal-clear:hover:not(:disabled) {
-    color: var(--vscode-errorForeground);
-    background: var(--vscode-inputValidation-errorBackground);
-}
-
-/* dock inline forms (goal create/edit, queue edit, inline confirm) */
+/* dock inline forms (queue edit) */
 
 .dsh-dock-form {
     display: flex;
@@ -197,20 +185,6 @@
     border: 1px solid var(--vscode-input-border);
     border-radius: var(--dsh-radius-sm);
     font: inherit;
-}
-
-.dsh-dock-confirm {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--dsh-space-2);
-    margin-top: var(--dsh-space-3);
-    font-size: var(--dsh-font-xs);
-}
-
-.dsh-dock-confirm span {
-    flex: 1;
-    min-width: 120px;
 }
 
 .dsh-queue-edit {

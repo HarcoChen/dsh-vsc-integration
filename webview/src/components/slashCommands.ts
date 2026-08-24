@@ -5,11 +5,13 @@ import { t } from "../i18n";
 export interface SlashCommand {
     name: string;
     description: string;
+    hint?: string;
     action?: ChatViewAction;
 }
 
 export const SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     { name: "/compact", description: t("Compact the current session history"), action: { type: "sendPrompt", text: "/compact", mode: "queue" } },
+    { name: "/goal", description: t("Set or view the current Goal"), hint: "[<objective>|clear|edit <objective>|pause|resume]", action: { type: "sendPrompt", text: "/goal", mode: "queue" } },
     { name: "/ide", description: t("Add one-shot IDE context"), action: { type: "openIdeContextPicker" } },
     { name: "/new", description: t("New session"), action: { type: "newSession" } },
     { name: "/search", description: t("Search sessions"), action: { type: "searchSession" } },

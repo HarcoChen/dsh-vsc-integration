@@ -1,6 +1,6 @@
 import type { DshGoalPhase } from "./types";
 
-/** Goal mutations exposed by the webview and guarded by the host. */
+/** Goal mutations shared by host validation and UI adapters. */
 export type GoalAction = "create" | "pause" | "resume" | "complete" | "edit" | "clear";
 
 /**

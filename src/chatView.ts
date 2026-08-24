@@ -137,6 +137,47 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+type PromptCommandName = "compact" | "goal";
+
+interface PromptCommandResult {
+    accepted?: boolean;
+    command?: unknown;
+}
+
+function assertPromptCommandSuccess(
+    commandResult: PromptCommandResult,
+    commandName: PromptCommandName,
+): void {
+    if (commandResult.accepted === false) {
+        throw new Error(t("The dsh runtime rejected this command."));
+    }
+    const messages = commandName === "compact"
+        ? {
+              unavailable: t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package."),
+              rejected: t("The dsh server rejected the /compact command."),
+              invalid: t("The connected dsh server returned an invalid /compact command result."),
+          }
+        : {
+              unavailable: t("The connected dsh server does not expose the /goal command. Update dsh or enable the command-goal package."),
+              rejected: t("The dsh server rejected the /goal command."),
+              invalid: t("The connected dsh server returned an invalid /goal command result."),
+          };
+    const command = commandResult.command;
+    if (!command || typeof command !== "object" || Array.isArray(command)) {
+        throw new Error(messages.unavailable);
+    }
+    const commandRecord = command as Record<string, unknown>;
+    if (commandRecord.kind === "error") {
+        const message = typeof commandRecord.text === "string" && commandRecord.text.trim()
+            ? commandRecord.text
+            : messages.rejected;
+        throw new Error(message);
+    }
+    if (commandRecord.kind !== "success") {
+        throw new Error(messages.invalid);
+    }
+}
+
 const GOAL_RPC_ERROR_PREFIX = /^Harness RPC goal\.(?:create|edit|pause|resume|complete|clear) failed:\s*[^:]+:\s*/u;
 
 function goalErrorCode(error: unknown): string | undefined {
@@ -1655,13 +1696,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             // Harness command adapters require the command line to be the complete
-            // prompt; never append IDE context to a slash command such as /compact.
-            if (requestedImages.length === 0 && /^\/compact$/u.test(text)) {
-                const hasConversationHistory = this.runtime.getSessionStore().get(session)?.events.some(
-                    (event) => event.event.type === "user/message" || event.event.type === "assistant/message",
-                ) === true;
-                if (!hasConversationHistory) {
-                    throw new Error(t("There is no prior conversation in this session to compact."));
+            // prompt; never append IDE context to a slash command such as /compact or /goal.
+            const commandName: PromptCommandName | undefined =
+                requestedImages.length === 0 && /^\/compact$/u.test(text)
+                    ? "compact"
+                    : requestedImages.length === 0 && /^\/goal(?:$|[\t\n\r ])/u.test(text)
+                      ? "goal"
+                      : undefined;
+            if (commandName !== undefined) {
+                if (commandName === "compact") {
+                    const hasConversationHistory = this.runtime.getSessionStore().get(session)?.events.some(
+                        (event) => event.event.type === "user/message" || event.event.type === "assistant/message",
+                    ) === true;
+                    if (!hasConversationHistory) {
+                        throw new Error(t("There is no prior conversation in this session to compact."));
+                    }
                 }
                 optimistic = {
                     id: `optimistic:${randomUUID()}`,
@@ -1675,23 +1724,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.postState();
                 const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
                 const commandResult = await this.runtime.prompt(session, text, mode);
-                if (commandResult.accepted === false) {
-                    throw new Error(t("The dsh runtime rejected this command."));
-                }
-                const command = commandResult.command;
-                if (!command || typeof command !== "object" || Array.isArray(command)) {
-                    throw new Error(t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package."));
-                }
-                const commandRecord = command as Record<string, unknown>;
-                if (commandRecord.kind === "error") {
-                    const message = typeof commandRecord.text === "string" && commandRecord.text.trim()
-                        ? commandRecord.text
-                        : t("The dsh server rejected the /compact command.");
-                    throw new Error(message);
-                }
-                if (commandRecord.kind !== "success") {
-                    throw new Error(t("The connected dsh server returned an invalid /compact command result."));
-                }
+                assertPromptCommandSuccess(commandResult, commandName);
                 return;
             }
 

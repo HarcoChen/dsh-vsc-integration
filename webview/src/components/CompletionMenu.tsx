@@ -32,7 +32,7 @@ export function SlashCompletionMenu({
                     onClick={() => onChooseCommand(command.name)}
                 >
                     <strong>{command.name}</strong>
-                    <span>{command.description}</span>
+                    <span>{command.description}{command.hint ? ` · ${command.hint}` : ""}</span>
                 </button>
             ))}
             {skills.map((skill, offset) => {
