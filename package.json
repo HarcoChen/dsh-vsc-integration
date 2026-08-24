@@ -102,7 +102,8 @@
                     "type": "tree",
                     "id": "dsh.conversationNavigation",
                     "name": "%view.conversationNavigation.name%",
-                    "icon": "$(list-tree)"
+                    "icon": "$(list-tree)",
+                    "visibility": "collapsed"
                 }
             ]
         },
