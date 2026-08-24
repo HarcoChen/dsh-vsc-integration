@@ -25,6 +25,7 @@ import {
 import { ContextStore } from "./contextStore";
 import { ChangeReviewStore } from "./changeReviewStore";
 import { DshRuntime } from "./dshRuntime";
+import { goalActionAllowed } from "./goalActions";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
@@ -48,6 +49,7 @@ import {
 } from "./safeMarkdown";
 import {
     GoalMutationGate,
+    type GoalMutationOperation,
     normalizeGoalRef,
     normalizeSubagentCatalog,
     parseGoalProjection,
@@ -133,6 +135,45 @@ const DEFAULT_AGENT_STATUS_LABELS = [
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+const GOAL_RPC_ERROR_PREFIX = /^Harness RPC goal\.(?:create|edit|pause|resume|complete|clear) failed:\s*[^:]+:\s*/u;
+
+function goalErrorCode(error: unknown): string | undefined {
+    if (!(error instanceof HarnessRpcError)) return undefined;
+    const details = error.rpcError.details;
+    if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
+    const code = (details as { goalCode?: unknown }).goalCode;
+    return typeof code === "string" ? code : undefined;
+}
+
+function goalErrorForHud(error: unknown, operation: GoalMutationOperation): string {
+    const raw = errorMessage(error).trim();
+    const normalized = raw
+        .replace(GOAL_RPC_ERROR_PREFIX, "")
+        .replace(/^GoalError:\s*/iu, "")
+        .trim();
+    const lower = normalized.toLowerCase();
+    const code = goalErrorCode(error);
+    let summary = normalized || raw;
+    if (operation === "resume" && /\b(active|running)\b/u.test(lower)) {
+        summary = t("Goal is already active; resume is not needed.");
+    } else if (operation === "resume" && /\b(max(?:imum)?|limit|exhausted|no more).*round|round.*(max(?:imum)?|limit|exhausted)/u.test(lower)) {
+        summary = t("Goal has reached its maximum rounds and cannot be resumed.");
+    } else if (operation === "resume" && /\bblocked\b/u.test(lower)) {
+        summary = t("Goal is blocked; resolve the blocking reason before resuming.");
+    } else if (operation === "resume" && /\bcomplete(?:d)?\b/u.test(lower)) {
+        summary = t("Goal is already completed.");
+    } else if (operation === "pause" && /\bpaused\b/u.test(lower)) {
+        summary = t("Goal is already paused.");
+    } else if (operation === "complete" && /\bcomplete(?:d)?\b/u.test(lower)) {
+        summary = t("Goal is already completed.");
+    } else if (code === "GOAL_NOT_FOUND" || /not found|does not exist|no goal|missing/u.test(lower)) {
+        summary = t("The current session has no Goal to change.");
+    } else if (code === "GOAL_STALE_REVISION" || /revision|stale|conflict|compare[- ]and[- ]set|\bcas\b/u.test(lower)) {
+        summary = t("Goal changed elsewhere; refresh and try again.");
+    }
+    return summary === raw ? summary : `${summary}\n${raw}`;
 }
 
 function containsPath(root: string, candidate: string): boolean {
@@ -2246,7 +2287,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         try {
             if (action.type === "goalCreate") {
-                if (parsed.value !== null && parsed.value.goal.phase !== "complete") {
+                if (parsed.value !== null && !goalActionAllowed(
+                    parsed.value.goal.phase,
+                    operation,
+                    parsed.value.roundsStarted,
+                    parsed.value.goal.maxGoalRounds,
+                )) {
                     throw new Error(t("A replacement Goal can only be created when the current Goal is empty or complete."));
                 }
                 const result = await this.runtime.createGoal(
@@ -2263,6 +2309,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     id: parsed.value.goal.id,
                     revision: parsed.value.goal.revision,
                 };
+                if (!goalActionAllowed(
+                    parsed.value.goal.phase,
+                    operation,
+                    parsed.value.roundsStarted,
+                    parsed.value.goal.maxGoalRounds,
+                )) {
+                    if (operation === "resume" && parsed.value.roundsStarted >= parsed.value.goal.maxGoalRounds) {
+                        throw new Error(t("Goal has reached its maximum rounds and cannot be resumed."));
+                    }
+                    throw new Error(t("That Goal action is not available in the current phase."));
+                }
                 if (action.type === "goalEdit") {
                     const result = await this.runtime.editGoal(
                         sessionId,
@@ -2308,7 +2365,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 ?.projections.find((cell) => cell.key === "goal");
             this.goalMutations.observe(sessionId, latestGoalCell);
         } catch (error) {
-            this.goalMutations.fail(sessionId, errorMessage(error));
+            this.goalMutations.fail(sessionId, goalErrorForHud(error, operation));
             throw error;
         } finally {
             this.postState();

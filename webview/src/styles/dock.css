@@ -120,6 +120,65 @@
     margin-bottom: var(--dsh-space-2);
 }
 
+.dsh-goal-blocked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-1);
+    margin-top: var(--dsh-space-3);
+    padding: var(--dsh-space-2) var(--dsh-space-3);
+    border-left: 3px solid var(--dsh-status-warning);
+    color: var(--vscode-foreground);
+    background: color-mix(in srgb, var(--dsh-status-warning) 12%, transparent);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-goal-blocked strong {
+    color: var(--dsh-status-warning);
+}
+
+.dsh-goal-error {
+    margin-top: var(--dsh-space-3);
+}
+
+.dsh-goal-error-detail {
+    margin-top: var(--dsh-space-1);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-goal-error-detail summary {
+    cursor: pointer;
+}
+
+.dsh-goal-error-detail pre {
+    max-height: 120px;
+    margin: var(--dsh-space-1) 0 0;
+    padding: var(--dsh-space-2);
+    overflow: auto;
+    border: 1px solid var(--dsh-border);
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-textCodeBlock-background, var(--dsh-surface));
+    font: var(--dsh-font-xs)/1.4 var(--vscode-editor-font-family);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.dsh-goal-actions {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--dsh-space-3);
+}
+
+.dsh-goal-clear {
+    color: var(--vscode-errorForeground);
+}
+
+.dsh-goal-clear:hover:not(:disabled) {
+    color: var(--vscode-errorForeground);
+    background: var(--vscode-inputValidation-errorBackground);
+}
+
 /* dock inline forms (goal create/edit, queue edit, inline confirm) */
 
 .dsh-dock-form {

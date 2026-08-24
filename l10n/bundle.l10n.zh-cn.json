@@ -396,5 +396,13 @@
     "Context compaction failed": "上下文压缩失败",
     "Context compacted": "上下文已压缩",
     "Compacting context...": "正在压缩上下文…",
+    "Goal is already active; resume is not needed.": "Goal 已处于激活状态，无需继续。",
+    "Goal has reached its maximum rounds and cannot be resumed.": "Goal 已达到最大轮数，无法继续。",
+    "Goal is blocked; resolve the blocking reason before resuming.": "Goal 当前受阻，请先解决受阻原因再继续。",
+    "Goal is already paused.": "Goal 已处于暂停状态。",
+    "Goal is already completed.": "Goal 已完成。",
+    "The current session has no Goal to change.": "当前会话没有可变更的 Goal。",
+    "Goal changed elsewhere; refresh and try again.": "Goal 已在其他位置发生变化，请刷新后重试。",
+    "That Goal action is not available in the current phase.": "当前阶段不支持该 Goal 操作。",
     "There is no prior conversation in this session to compact.": "当前会话没有可压缩的历史记录。"
 }

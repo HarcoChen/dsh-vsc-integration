@@ -1,7 +1,36 @@
 import React, { useState } from "react";
+import {
+    GOAL_ACTIONS_BY_PHASE,
+    goalActionAllowed,
+    type GoalAction,
+} from "../../../../src/goalActions";
 import type { GoalHudView } from "../../../../src/types";
 import { postAction } from "../../bridge";
 import { t } from "../../i18n";
+import { CloseIcon } from "../icons";
+
+const GOAL_PHASE_LABELS: Readonly<Record<NonNullable<GoalHudView["goal"]>["phase"], string>> = {
+    active: "In progress",
+    paused: "Paused",
+    blocked: "Blocked",
+    complete: "Completed",
+};
+
+function GoalError({ error }: { error: string }): React.JSX.Element {
+    const [summary, ...detailLines] = error.split("\n");
+    const detail = detailLines.join("\n").trim();
+    return (
+        <div className="dsh-goal-error">
+            <div className="dsh-card-error" title={detail || undefined}>{summary || error}</div>
+            {detail ? (
+                <details className="dsh-goal-error-detail">
+                    <summary>{t("Technical details")}</summary>
+                    <pre>{detail}</pre>
+                </details>
+            ) : null}
+        </div>
+    );
+}
 
 interface GoalDraft {
     mode: "create" | "edit";
@@ -96,7 +125,7 @@ export function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
     if (goal.state === "invalid") {
         return (
             <div className="dsh-card">
-                <div className="dsh-card-error">{goal.error || t("Invalid Goal projection")}</div>
+                <GoalError error={goal.error || t("Invalid Goal projection")} />
             </div>
         );
     }
@@ -110,7 +139,7 @@ export function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
         return (
             <div className="dsh-card">
                 <div className="dsh-card-detail">{t("This session has no Goal yet.")}</div>
-                {goal.error ? <div className="dsh-card-error">{goal.error}</div> : null}
+                {goal.error ? <GoalError error={goal.error} /> : null}
                 {draft ? (
                     <GoalDraftForm
                         draft={draft}
@@ -136,9 +165,12 @@ export function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
     }
 
     const disabled = goal.pending === true;
-    const canResume =
-        (current.phase === "active" || current.phase === "paused" || current.phase === "blocked") &&
-        Number(goal.roundsStarted || 0) < Number(current.maxGoalRounds || 0);
+    const roundsStarted = Number(goal.roundsStarted || 0);
+    const availableActions = GOAL_ACTIONS_BY_PHASE[current.phase];
+    const canAction = (action: GoalAction): boolean =>
+        availableActions.includes(action) &&
+        goalActionAllowed(current.phase, action, roundsStarted, current.maxGoalRounds);
+    const canResume = canAction("resume");
     const edit = (): void => {
         setConfirmingClear(false);
         setDraft({ mode: "edit", objective: current.objective || "", rounds: String(current.maxGoalRounds) });
@@ -154,18 +186,23 @@ export function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
 
     return (
         <div className="dsh-card">
-            <div className="dsh-goal-objective">{current.objective}</div>
+            <div
+                className="dsh-goal-objective"
+                title={t("Goal revision {revision}", { revision: current.revision })}
+            >
+                {current.objective}
+            </div>
             <div className="dsh-card-detail">
-                {t("Phase {phase} · revision {revision} · round {started}/{maximum}", {
-                    phase: current.phase,
-                    revision: current.revision,
-                    started: goal.roundsStarted || 0,
+                {t("{phase} · round {started}/{maximum}", {
+                    phase: t(GOAL_PHASE_LABELS[current.phase]),
+                    started: roundsStarted,
                     maximum: current.maxGoalRounds,
                 })}
             </div>
             {current.blockedReason ? (
-                <div className="dsh-card-error">
-                    {current.blockedReason.code} · {current.blockedReason.message}
+                <div className="dsh-goal-blocked" role="status">
+                    <strong>{t("Blocked")}</strong>
+                    <span>{current.blockedReason.code} · {current.blockedReason.message}</span>
                 </div>
             ) : null}
             {goal.pending ? (
@@ -175,7 +212,7 @@ export function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                     })}
                 </div>
             ) : null}
-            {goal.error ? <div className="dsh-card-error">{goal.error}</div> : null}
+            {goal.error ? <GoalError error={goal.error} /> : null}
             {draft ? (
                 <GoalDraftForm
                     draft={draft}
@@ -207,20 +244,36 @@ export function GoalPanel({ goal }: { goal: GoalHudView }): React.JSX.Element {
                     </button>
                 </div>
             ) : (
-                <div className="dsh-card-actions">
-                    <button type="button" className="dsh-button" disabled={disabled} onClick={edit}>{t("Edit")}</button>
-                    {current.phase === "active" ? (
-                        <button type="button" className="dsh-button dsh-button-secondary" disabled={disabled} onClick={simple("goalPause")}>{t("Pause")}</button>
+                <div className="dsh-goal-actions">
+                    <div className="dsh-card-actions">
+                        {canAction("pause") ? (
+                            <button type="button" className="dsh-button" disabled={disabled} onClick={simple("goalPause")}>{t("Pause")}</button>
+                        ) : null}
+                        {canResume ? (
+                            <button type="button" className="dsh-button" disabled={disabled} onClick={simple("goalResume")}>{t("Resume")}</button>
+                        ) : null}
+                        {canAction("complete") ? (
+                            <button type="button" className="dsh-button" disabled={disabled} onClick={simple("goalComplete")}>{t("Complete")}</button>
+                        ) : null}
+                        {canAction("edit") ? (
+                            <button type="button" className="dsh-button dsh-button-secondary" disabled={disabled} onClick={edit}>{t("Edit")}</button>
+                        ) : null}
+                        {canAction("create") ? (
+                            <button type="button" className="dsh-button" disabled={disabled} onClick={create}>{t("New Goal")}</button>
+                        ) : null}
+                    </div>
+                    {canAction("clear") ? (
+                        <button
+                            type="button"
+                            className="dsh-icon-button dsh-goal-clear"
+                            aria-label={t("Clear")}
+                            title={t("Clear")}
+                            disabled={disabled}
+                            onClick={simple("goalClear")}
+                        >
+                            <CloseIcon />
+                        </button>
                     ) : null}
-                    {canResume ? (
-                        <button type="button" className="dsh-button dsh-button-secondary" disabled={disabled} onClick={simple("goalResume")}>{t("Resume")}</button>
-                    ) : null}
-                    {current.phase !== "complete" ? (
-                        <button type="button" className="dsh-button dsh-button-secondary" disabled={disabled} onClick={simple("goalComplete")}>{t("Complete")}</button>
-                    ) : (
-                        <button type="button" className="dsh-button" disabled={disabled} onClick={create}>{t("New Goal")}</button>
-                    )}
-                    <button type="button" className="dsh-button dsh-button-secondary" disabled={disabled} onClick={simple("goalClear")}>{t("Clear")}</button>
                 </div>
             )}
         </div>
