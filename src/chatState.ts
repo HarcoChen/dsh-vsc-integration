@@ -627,6 +627,22 @@ function foldPartialChunk(partial: PartialMessage, chunk: Record<string, unknown
 }
 
 /**
+ * Renders a prompt that has no committed event yet. A send failure becomes a
+ * system row carrying the error, so the text the user typed is never shown as if
+ * it had reached the model.
+ */
+function optimisticRow(item: OptimisticPrompt): ChatMessage {
+    return {
+        id: item.id,
+        role: item.error ? "system" : "user",
+        text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
+        ...(item.images?.length ? { images: item.images.map((image) => ({ ...image })) } : {}),
+        createdAt: item.createdAt,
+        state: item.error ? "failed" : "pending",
+    };
+}
+
+/**
  * Derive the visible chat from the current surface plus raw in-flight chunks. Finalized
  * assistant messages consume their source chunk seqs, so the partial disappears atomically
  * instead of rendering a duplicate assistant reply.
@@ -636,14 +652,7 @@ export function projectChatMessages(
     optimistic: readonly OptimisticPrompt[],
 ): ChatMessage[] {
     if (!snapshot) {
-        return optimistic.map((item) => ({
-            id: item.id,
-            role: item.error ? "system" : "user",
-            text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
-            ...(item.images?.length ? { images: item.images.map((image) => ({ ...image })) } : {}),
-            createdAt: item.createdAt,
-            state: item.error ? "failed" : "pending",
-        }));
+        return optimistic.map(optimisticRow);
     }
 
     const optimisticForSession = optimistic
@@ -810,14 +819,7 @@ export function projectChatMessages(
     const projected = rows.map(({ order: _order, ...message }) => message);
     for (const item of optimisticForSession) {
         if (matched.has(item.id)) continue;
-        projected.push({
-            id: item.id,
-            role: item.error ? "system" : "user",
-            text: item.error ? t("Send failed: {error}", { error: item.error }) : item.displayText,
-            ...(item.images?.length ? { images: item.images.map((image) => ({ ...image })) } : {}),
-            createdAt: item.createdAt,
-            state: item.error ? "failed" : "pending",
-        });
+        projected.push(optimisticRow(item));
     }
     return projected;
 }
