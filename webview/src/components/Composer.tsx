@@ -289,7 +289,6 @@ export const Composer = React.memo(function Composer({
                         type="button"
                         className="dsh-icon-button dsh-add-context"
                         title={t("Add attachment")}
-                        aria-haspopup="menu"
                         aria-expanded={attachmentMenuVisible}
                         disabled={submitting}
                         onClick={() => setAttachmentMenuVisible((visible) => !visible)}
@@ -297,11 +296,11 @@ export const Composer = React.memo(function Composer({
                         <PlusIcon />
                     </button>
                     {attachmentMenuVisible ? (
-                        <div className="dsh-menu dsh-attachment-menu" role="menu">
+                        // Disclosure, not the ARIA menu pattern — see the note in Header.tsx.
+                        <div className="dsh-menu dsh-attachment-menu">
                             <button
                                 type="button"
                                 className="dsh-menu-item"
-                                role="menuitem"
                                 onClick={() => {
                                     setAttachmentMenuVisible(false);
                                     postAction({ type: "openIdeContextPicker" });
@@ -313,7 +312,6 @@ export const Composer = React.memo(function Composer({
                             <button
                                 type="button"
                                 className="dsh-menu-item"
-                                role="menuitem"
                                 onClick={() => {
                                     setAttachmentMenuVisible(false);
                                     imageInputRef.current?.click();
@@ -325,7 +323,6 @@ export const Composer = React.memo(function Composer({
                             <button
                                 type="button"
                                 className="dsh-menu-item"
-                                role="menuitem"
                                 onClick={() => {
                                     setAttachmentMenuVisible(false);
                                     postAction({ type: "captureAppShot" });

@@ -235,20 +235,24 @@ export const Header = React.memo(function Header({
                     type="button"
                     className={`dsh-icon-button${menuOpen ? " active" : ""}`}
                     title={t("More actions")}
-                    aria-haspopup="menu"
                     aria-expanded={menuOpen}
                     onClick={() => setMenuOpen((open) => !open)}
                 >
                     <MoreIcon />
                 </button>
                 {menuOpen ? (
-                    <div className="dsh-menu" role="menu">
+                    // Disclosure, not the ARIA menu pattern: these are plain buttons
+                    // traversed with Tab and dismissed with Escape. Declaring
+                    // role="menu"/"menuitem" (or aria-haspopup, which ARIA treats as
+                    // synonymous with "menu") would promise arrow-key navigation this
+                    // does not implement. See dock/ActivityDock.tsx for the
+                    // roving-tabindex pattern to follow if that promise is ever made.
+                    <div className="dsh-menu">
                         {menuItems.map((item) => (
                             <React.Fragment key={item.key}>
                                 {item.separatorBefore ? <div className="dsh-menu-separator" /> : null}
                                 <button
                                     type="button"
-                                    role="menuitem"
                                     className={`dsh-menu-item${item.active ? " active" : ""}`}
                                     disabled={item.disabled}
                                     onClick={() => {
