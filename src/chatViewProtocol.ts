@@ -149,7 +149,15 @@ function questionAnswers(value: unknown): DshQuestionAnswerItem[] | undefined {
     return answers;
 }
 
-/** Strict trust boundary for messages originating in the webview. */
+/**
+ * Strict trust boundary for messages originating in the webview.
+ *
+ * Every branch rejects unknown keys — through `hasOnly` with the exact key list,
+ * or `hasAny` where a denylist of host-owned fields reads more clearly. Keep that
+ * true when adding an action: a branch without a key guard silently widens the
+ * boundary. Senders must not attach `protocol` per action (see the note on
+ * `postAction` in webview/src/bridge.ts); it is accepted only on the envelope.
+ */
 export function parseChatViewAction(value: unknown): ChatViewAction | undefined {
     if (!isRecord(value) || typeof value.type !== "string") return undefined;
     if (value.protocol !== undefined && value.protocol !== CHAT_WEBVIEW_PROTOCOL_VERSION) {
@@ -301,7 +309,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 ? { type: "retryPrompt", id: value.id }
                 : undefined;
         case "removeContext":
-            return nonEmptyString(value.id)
+            return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "removeContext", id: value.id }
                 : undefined;
         case "loadImage":
@@ -335,7 +343,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             return { type: "mutateSettings", ns: value.ns.trim(), revision: value.revision, changes };
         }
         case "switchSession":
-            return nonEmptyString(value.sessionId)
+            return hasOnly(value, ["type", "sessionId"]) && nonEmptyString(value.sessionId)
                 ? { type: "switchSession", sessionId: value.sessionId }
                 : undefined;
         case "selectAgentPreset":
@@ -395,11 +403,13 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 text: value.text.trim(),
             };
         case "answerApproval":
-            return nonEmptyString(value.key) &&
+            return hasOnly(value, ["type", "key", "outcome"]) &&
+                nonEmptyString(value.key) &&
                 (value.outcome === "allowed-once" || value.outcome === "rejected")
                 ? { type: "answerApproval", key: value.key, outcome: value.outcome }
                 : undefined;
         case "answerQuestion": {
+            if (!hasOnly(value, ["type", "key", "answers"])) return undefined;
             const answers = questionAnswers(value.answers);
             return nonEmptyString(value.key) && answers
                 ? { type: "answerQuestion", key: value.key, answers }
@@ -407,6 +417,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         }
         case "updateQueue":
             if (
+                !hasOnly(value, ["type", "itemId", "action", "text"]) ||
                 !nonEmptyString(value.itemId) ||
                 (value.action !== "edit" && value.action !== "remove" && value.action !== "steer")
             ) {
