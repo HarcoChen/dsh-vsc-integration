@@ -422,9 +422,7 @@ function indexFirst(
 
 function genericRow(
     entry: StoredSessionEvent,
-    turnStarts: ReadonlyMap<string, StoredSessionEvent>,
     turnEnds: ReadonlyMap<string, StoredSessionEvent>,
-    stepStarts: ReadonlyMap<string, StoredSessionEvent>,
     stepEnds: ReadonlyMap<string, StoredSessionEvent>,
     compactionEnds: ReadonlyMap<string, StoredSessionEvent>,
 ): ProjectedTraceRow {
@@ -755,7 +753,6 @@ export function projectSessionTrace(snapshot: SessionStateSnapshot): TraceProjec
     };
     const stepStarts = indexFirst(entries, "step/start", stepKeyOf);
     const stepEnds = indexFirst(entries, "step/end", stepKeyOf);
-    const turnStarts = indexFirst(entries, "turn/start", turnKeyOf);
     const turnEnds = indexFirst(entries, "turn/end", turnKeyOf);
     const compactionEnds = indexFirst(entries, "compaction/end", compactionKeyOf);
     const chunks = chunkGroups(entries);
@@ -853,7 +850,7 @@ export function projectSessionTrace(snapshot: SessionStateSnapshot): TraceProjec
                 const row = toolRow(entry, results.get(callId) ?? []);
                 if (!row) {
                     mapRow(
-                        genericRow(entry, turnStarts, turnEnds, stepStarts, stepEnds, compactionEnds),
+                        genericRow(entry, turnEnds, stepEnds, compactionEnds),
                         [entry],
                     );
                     continue;
@@ -887,7 +884,7 @@ export function projectSessionTrace(snapshot: SessionStateSnapshot): TraceProjec
             continue;
         }
         mapRow(
-            genericRow(entry, turnStarts, turnEnds, stepStarts, stepEnds, compactionEnds),
+            genericRow(entry, turnEnds, stepEnds, compactionEnds),
             [entry],
         );
     }
