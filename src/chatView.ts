@@ -26,12 +26,12 @@ import { ContextStore } from "./contextStore";
 import { ChangeReviewStore } from "./changeReviewStore";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed } from "./goalActions";
+import { isImageMediaType } from "./guards";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
 import {
     imageLimitsProjection,
-    IMAGE_MEDIA_TYPES,
     hasPath,
     permissionProjection,
     prepareImageUploads,
@@ -70,7 +70,6 @@ import {
     DshCredentialView,
     DshHistoryEntry,
     DshImageLimitsView,
-    DshImageMediaType,
     DshImageUpload,
     DshQuestionResponse,
     DshReferenceCandidate,
@@ -3390,7 +3389,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const bytes = Buffer.from(result.data, "base64");
             if (!result.data || bytes.toString("base64") !== result.data ||
                 bytes.byteLength !== result.attachment.bytes ||
-                !IMAGE_MEDIA_TYPES.has(result.attachment.mediaType)) {
+                !isImageMediaType(result.attachment.mediaType)) {
                 throw new Error(t("Harness returned invalid image attachment data."));
             }
             this.imageCache.delete(key);

@@ -6,7 +6,6 @@ import {
     ChatToolCall,
     ChatWebResultView,
     ChatWebSourceView,
-    DshImageMediaType,
     DshImageUpload,
     DshQueuedInboxItem,
     TurnStatusView,
@@ -16,7 +15,7 @@ import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
 import { parseFileLocation } from "./fileLocations";
-import { isRecord } from "./guards";
+import { isImageMediaType, isRecord } from "./guards";
 
 export interface OptimisticPrompt {
     id: string;
@@ -103,13 +102,6 @@ export function contentText(value: unknown): string {
     return contentChannels(value).text;
 }
 
-const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>([
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "image/gif",
-]);
-
 export function contentImages(value: unknown): ChatImageView[] {
     const images: ChatImageView[] = [];
     const seen = new WeakSet<object>();
@@ -131,8 +123,7 @@ export function contentImages(value: unknown): ChatImageView[] {
             if (
                 typeof attachment.attachmentId === "string" &&
                 !seenAttachmentIds.has(attachment.attachmentId) &&
-                typeof attachment.mediaType === "string" &&
-                IMAGE_MEDIA_TYPES.has(attachment.mediaType as DshImageMediaType) &&
+                isImageMediaType(attachment.mediaType) &&
                 typeof attachment.bytes === "number" &&
                 Number.isSafeInteger(attachment.bytes) &&
                 attachment.bytes > 0
@@ -148,7 +139,7 @@ export function contentImages(value: unknown): ChatImageView[] {
                     : undefined;
                 images.push({
                     attachmentId: attachment.attachmentId,
-                    mediaType: attachment.mediaType as DshImageMediaType,
+                    mediaType: attachment.mediaType,
                     bytes: attachment.bytes,
                     ...(width === undefined ? {} : { width }),
                     ...(height === undefined ? {} : { height }),

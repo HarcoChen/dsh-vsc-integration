@@ -2,7 +2,6 @@ import { t } from "./localize";
 import {
     ChatImageView,
     DshImageLimitsView,
-    DshImageMediaType,
     DshImageUpload,
     DshSessionModelsResult,
     DshSettingFieldType,
@@ -13,7 +12,7 @@ import {
     PermissionProjectionView,
     SessionStatsView,
 } from "./types";
-import { isRecord } from "./guards";
+import { isImageMediaType, isRecord } from "./guards";
 
 export function valueAtPath(value: unknown, path: readonly string[]): unknown {
     let current = value;
@@ -217,17 +216,13 @@ export function todoProjection(value: unknown): DshTodoItemView[] | undefined {
     return todos;
 }
 
-export const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-
 export function imageLimitsProjection(value: unknown): DshImageLimitsView | undefined {
     if (!isRecord(value)) return undefined;
     const positiveInteger = (candidate: unknown): candidate is number =>
         typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate > 0;
     if (!positiveInteger(value.maxImageBytes) || !positiveInteger(value.maxImagesPerMessage) ||
         !positiveInteger(value.maxMessageImageBytes) || !Array.isArray(value.mediaTypes)) return undefined;
-    const mediaTypes = value.mediaTypes.filter(
-        (mediaType): mediaType is DshImageMediaType => typeof mediaType === "string" && IMAGE_MEDIA_TYPES.has(mediaType as DshImageMediaType),
-    );
+    const mediaTypes = value.mediaTypes.filter(isImageMediaType);
     return mediaTypes.length ? {
         maxImageBytes: value.maxImageBytes,
         maxImagesPerMessage: value.maxImagesPerMessage,

@@ -5,7 +5,7 @@ import {
     MAX_FILE_LOCATION_INDEX,
     MAX_FILE_LOCATION_PATH_CHARACTERS,
 } from "./fileLocations";
-import { isRecord } from "./guards";
+import { isImageMediaType, isRecord } from "./guards";
 
 export type ChatViewAction =
     | { type: "ready" }
@@ -98,7 +98,6 @@ function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boole
     return Object.keys(value).every((key) => allowed.has(key));
 }
 
-const IMAGE_MEDIA_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const MAX_IMAGE_BASE64_CHARACTERS = 16 * 1024 * 1024;
 const MAX_MESSAGE_IMAGE_BASE64_CHARACTERS = 128 * 1024 * 1024;
 
@@ -110,8 +109,7 @@ function imageUploads(value: unknown): DshImageUpload[] | undefined {
     for (const candidate of value) {
         if (!isRecord(candidate) || !hasOnly(candidate, ["mediaType", "data", "name"])) return undefined;
         if (
-            typeof candidate.mediaType !== "string" ||
-            !IMAGE_MEDIA_TYPES.has(candidate.mediaType) ||
+            !isImageMediaType(candidate.mediaType) ||
             typeof candidate.data !== "string" ||
             candidate.data.length === 0 ||
             candidate.data.length > MAX_IMAGE_BASE64_CHARACTERS ||
@@ -121,7 +119,7 @@ function imageUploads(value: unknown): DshImageUpload[] | undefined {
         totalCharacters += candidate.data.length;
         if (totalCharacters > MAX_MESSAGE_IMAGE_BASE64_CHARACTERS) return undefined;
         images.push({
-            mediaType: candidate.mediaType as DshImageUpload["mediaType"],
+            mediaType: candidate.mediaType,
             data: candidate.data,
             ...(candidate.name === undefined ? {} : { name: candidate.name }),
         });
