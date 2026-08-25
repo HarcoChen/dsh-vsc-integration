@@ -5,6 +5,7 @@ import {
     MAX_FILE_LOCATION_INDEX,
     MAX_FILE_LOCATION_PATH_CHARACTERS,
 } from "./fileLocations";
+import { isRecord } from "./guards";
 
 export type ChatViewAction =
     | { type: "ready" }
@@ -75,10 +76,6 @@ export type ChatViewAction =
     };
 
 export const CHAT_WEBVIEW_PROTOCOL_VERSION = 1 as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function nonEmptyString(value: unknown): value is string {
     return typeof value === "string" && value.trim().length > 0;

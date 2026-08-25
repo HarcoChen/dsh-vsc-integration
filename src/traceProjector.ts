@@ -3,6 +3,7 @@ import {
     SessionStateSnapshot,
     StoredSessionEvent,
 } from "./sessionStore";
+import { isRecord } from "./guards";
 
 export type TraceRowCategory =
     | "boundary"
@@ -90,10 +91,6 @@ const MAX_ARRAY_ITEMS = 200;
 const MAX_OBJECT_KEYS = 200;
 const MAX_DEPTH = 10;
 const SENSITIVE_KEY = /api[_-]?key|authorization|cookie|credential|password|secret|access[_-]?token|refresh[_-]?token|bearer[_-]?token|auth[_-]?token/iu;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function finiteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value);

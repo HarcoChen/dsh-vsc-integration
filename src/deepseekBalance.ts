@@ -1,4 +1,5 @@
 import { t } from "./localize";
+import { isRecord } from "./guards";
 
 export interface DeepSeekBalanceInfo {
     currency: string;
@@ -16,10 +17,6 @@ export interface DeepSeekBalanceFetchOptions {
     fetch?: typeof fetch;
     endpoint?: string;
     timeoutMs?: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stringValue(value: unknown, fallback = "0"): string {

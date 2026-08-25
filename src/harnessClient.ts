@@ -13,6 +13,7 @@ import {
     DshRpcError,
     DshRpcReceipt,
 } from "./types";
+import { isRecord } from "./guards";
 
 export type HarnessStreamEnvelope<F> = Omit<HarnessServerRequest<F>, "type">;
 
@@ -40,10 +41,6 @@ export class HarnessRpcError extends Error {
         super(`Harness RPC ${method} failed: ${rpcError.code}: ${rpcError.message}`);
         this.name = "HarnessRpcError";
     }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRpcError(value: unknown): value is DshRpcError {

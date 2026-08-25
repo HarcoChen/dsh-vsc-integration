@@ -14,6 +14,7 @@ import {
     SubagentTreeView,
 } from "./types";
 import { HarnessSessionStore, ProjectionCell } from "./sessionStore";
+import { isRecord } from "./guards";
 
 export interface PlanReviewView {
     id: string;
@@ -68,10 +69,6 @@ interface GoalMutationRecord extends GoalMutationSnapshot {
 export type ParsedGoalProjection =
     | { ok: true; value: DshGoalProjection | null }
     | { ok: false; error: string };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function positiveInteger(value: unknown): value is number {
     return typeof value === "number" && Number.isSafeInteger(value) && value > 0;

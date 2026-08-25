@@ -16,6 +16,7 @@ import {
     DshSessionEvent,
     DshSessionProjectionsBlock,
 } from "./types";
+import { isRecord } from "./guards";
 
 /** Exact current Harness SurfaceEventType union from @deepseek-ai/dsh-session. */
 const SURFACE_EVENT_TYPES = new Set([
@@ -127,10 +128,6 @@ export interface SessionQuestionInteraction extends SessionInteractionBase {
 export type SessionInteractionSnapshot =
     | SessionApprovalInteraction
     | SessionQuestionInteraction;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isSeq(value: unknown, allowEmpty = false): value is number {
     return (

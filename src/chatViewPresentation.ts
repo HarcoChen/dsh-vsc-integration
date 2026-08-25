@@ -13,15 +13,12 @@ import {
     PermissionProjectionView,
     SessionStatsView,
 } from "./types";
-
-function record(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { isRecord } from "./guards";
 
 export function valueAtPath(value: unknown, path: readonly string[]): unknown {
     let current = value;
     for (const segment of path) {
-        if (!record(current)) return undefined;
+        if (!isRecord(current)) return undefined;
         current = current[segment];
     }
     return current;
@@ -30,7 +27,7 @@ export function valueAtPath(value: unknown, path: readonly string[]): unknown {
 export function hasPath(value: unknown, path: readonly string[]): boolean {
     let current = value;
     for (const segment of path) {
-        if (!record(current) || !Object.prototype.hasOwnProperty.call(current, segment)) return false;
+        if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, segment)) return false;
         current = current[segment];
     }
     return true;
@@ -45,19 +42,19 @@ interface SettingsSchemaNode {
 }
 
 function settingsSchemaNode(value: unknown): SettingsSchemaNode | undefined {
-    if (!record(value)) return undefined;
+    if (!isRecord(value)) return undefined;
     return {
         ...(typeof value.type === "string" ? { type: value.type } : {}),
-        ...(record(value.dict) ? { dict: value.dict as Record<string, SettingsSchemaNode> } : {}),
-        ...(record(value.inner) ? { inner: value.inner as SettingsSchemaNode } : {}),
-        ...(record(value.meta) ? { meta: value.meta } : {}),
+        ...(isRecord(value.dict) ? { dict: value.dict as Record<string, SettingsSchemaNode> } : {}),
+        ...(isRecord(value.inner) ? { inner: value.inner as SettingsSchemaNode } : {}),
+        ...(isRecord(value.meta) ? { meta: value.meta } : {}),
         ...(typeof value.description === "string" ? { description: value.description } : {}),
     };
 }
 
 function settingsSchemaRoot(value: unknown): SettingsSchemaNode | undefined {
-    if (!record(value)) return undefined;
-    if (typeof value.uid === "number" && record(value.refs)) {
+    if (!isRecord(value)) return undefined;
+    if (typeof value.uid === "number" && isRecord(value.refs)) {
         return settingsSchemaNode(value.refs[String(value.uid)]);
     }
     return settingsSchemaNode(value);
@@ -134,7 +131,7 @@ function presentSettingsFields(namespace: DshSettingsNamespaceView): DshSettingF
         const children = node?.type === "object" && node.dict
             ? Object.entries(node.dict)
             : node?.type === "dict" && node.inner
-              ? Object.keys(record(dictValue) ? dictValue : {}).map((key) => [key, node.inner] as const)
+              ? Object.keys(isRecord(dictValue) ? dictValue : {}).map((key) => [key, node.inner] as const)
               : [];
         if (children.length > 0) {
             for (const [key, child] of children) visitSchema(child, [...path, key], depth + 1);
@@ -144,7 +141,7 @@ function presentSettingsFields(namespace: DshSettingsNamespaceView): DshSettingF
     };
     const visitValue = (value: unknown, path: string[], depth: number): void => {
         if (depth > 8 || value === undefined) return;
-        if (record(value)) {
+        if (isRecord(value)) {
             for (const [key, child] of Object.entries(value)) visitValue(child, [...path, key], depth + 1);
             return;
         }
@@ -177,9 +174,9 @@ export function presentSettingsPanel(
 }
 
 export function permissionProjection(value: unknown): PermissionProjectionView | undefined {
-    if (!record(value) || typeof value.currentValue !== "string" || !Array.isArray(value.options)) return undefined;
+    if (!isRecord(value) || typeof value.currentValue !== "string" || !Array.isArray(value.options)) return undefined;
     const options = value.options.flatMap((option): PermissionProjectionView["options"] => {
-        if (!record(option) || typeof option.value !== "string" || typeof option.name !== "string") return [];
+        if (!isRecord(option) || typeof option.value !== "string" || typeof option.name !== "string") return [];
         return [{
             value: option.value,
             label: option.name,
@@ -191,7 +188,7 @@ export function permissionProjection(value: unknown): PermissionProjectionView |
 }
 
 export function sessionStatsProjection(value: unknown): SessionStatsView | undefined {
-    if (!record(value)) return undefined;
+    if (!isRecord(value)) return undefined;
     const fields = ["turns", "steps", "llmMs", "toolMs", "ttftMs", "ttftSteps", "decodeMs", "decodeTokens"] as const;
     if (!fields.every((field) => typeof value[field] === "number" && Number.isFinite(value[field]) && value[field] >= 0)) return undefined;
     return {
@@ -211,7 +208,7 @@ export function todoProjection(value: unknown): DshTodoItemView[] | undefined {
     const todos: DshTodoItemView[] = [];
     const seen = new Set<string>();
     for (const candidate of value) {
-        if (!record(candidate) || typeof candidate.content !== "string" || !candidate.content.trim() ||
+        if (!isRecord(candidate) || typeof candidate.content !== "string" || !candidate.content.trim() ||
             seen.has(candidate.content) ||
             (candidate.status !== "pending" && candidate.status !== "in_progress" && candidate.status !== "completed")) return undefined;
         seen.add(candidate.content);
@@ -223,7 +220,7 @@ export function todoProjection(value: unknown): DshTodoItemView[] | undefined {
 export const IMAGE_MEDIA_TYPES = new Set<DshImageMediaType>(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 export function imageLimitsProjection(value: unknown): DshImageLimitsView | undefined {
-    if (!record(value)) return undefined;
+    if (!isRecord(value)) return undefined;
     const positiveInteger = (candidate: unknown): candidate is number =>
         typeof candidate === "number" && Number.isSafeInteger(candidate) && candidate > 0;
     if (!positiveInteger(value.maxImageBytes) || !positiveInteger(value.maxImagesPerMessage) ||

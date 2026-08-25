@@ -5,6 +5,7 @@ import {
     HostBaselineView,
     TokenUsageView,
 } from "./types";
+import { isRecord } from "./guards";
 
 interface UsageBuckets {
     inputTokens: number;
@@ -23,10 +24,6 @@ export interface SelectedModelSnapshot {
 interface EventRoute {
     route: TokenUsageView["route"];
     seq: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function nonNegativeInteger(value: unknown): value is number {

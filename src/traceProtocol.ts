@@ -2,6 +2,7 @@ import {
     MAX_FILE_LOCATION_INDEX,
     MAX_FILE_LOCATION_PATH_CHARACTERS,
 } from "./fileLocations";
+import { isRecord } from "./guards";
 
 export interface TraceLocation {
     sessionId: string;
@@ -22,10 +23,6 @@ export type TraceWebviewAction =
     | { type: "page"; direction: "older" | "newer" | "latest" }
     | { type: "setTimelineMode"; mode: TraceTimelineMode }
     | { type: "clearSelection" };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function boundedString(value: unknown, maximum: number, allowEmpty = false): value is string {
     return (

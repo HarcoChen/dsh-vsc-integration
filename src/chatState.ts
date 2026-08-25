@@ -16,6 +16,7 @@ import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
 import { parseFileLocation } from "./fileLocations";
+import { isRecord } from "./guards";
 
 export interface OptimisticPrompt {
     id: string;
@@ -64,10 +65,6 @@ export function focusChatMessages(
         } = message;
         return [focused];
     });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 interface ContentChannels {

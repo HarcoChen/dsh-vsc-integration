@@ -1,9 +1,6 @@
 import { HarnessHostDescription } from "./harnessProtocol";
 import { HostBaselineView } from "./types";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { isRecord } from "./guards";
 
 /** Validate the exact host.describe value currently exported by Harness. */
 export function parseHostDescription(value: unknown): HarnessHostDescription | undefined {

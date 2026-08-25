@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { DshRuntime } from "./dshRuntime";
 import { ChatViewProvider } from "./chatView";
 import { StoredSessionEvent } from "./sessionStore";
+import { isRecord } from "./guards";
 
 export interface ConversationNavigationEntry {
     seq: number;
@@ -46,10 +47,6 @@ export class ConversationNavigationRegistry implements vscode.Disposable {
         this.entries.clear();
         this.changeEmitter.dispose();
     }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function contentText(value: unknown): string {

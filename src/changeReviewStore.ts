@@ -8,6 +8,7 @@ import * as vscode from "vscode";
 import { SessionStateSnapshot } from "./sessionStore";
 import { t } from "./localize";
 import { ChangeReviewView } from "./types";
+import { isRecord } from "./guards";
 
 const execFileAsync = promisify(execFile);
 const REGULAR_MODES = new Set(["100644", "100755"]);
@@ -54,10 +55,6 @@ interface SessionReviews {
 interface VirtualDocument {
     git: GitContext;
     blob?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function eventTurn(value: unknown): number | undefined {

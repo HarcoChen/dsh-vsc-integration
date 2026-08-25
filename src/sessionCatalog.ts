@@ -7,6 +7,7 @@ import {
     DshWorkspaceListResult,
     DshWorkspaceView,
 } from "./types";
+import { isRecord } from "./guards";
 
 export interface SessionCatalogItem extends DshSessionSummary {
     title?: string;
@@ -37,10 +38,6 @@ interface ProjectionTitle {
 }
 
 export type HarnessCatalogListener = (snapshot: HarnessCatalogSnapshot) => void;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function directUserMessage(frame: Record<string, unknown>): boolean {
     if (frame.type !== "session/event" || !isRecord(frame.event)) {
