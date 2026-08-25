@@ -2,6 +2,22 @@
 
 更新时间：2026-08-26。
 
+## 本轮进展（2026-08-26）
+
+已完成 13 条，撤回 4 条（核对后判定无收益或不应统一，理由写在各条目上）。
+每条一个 commit，`npm run check` 与 `npm test`（54 个测试）逐条验证通过。
+
+新增的两处基础设施值得注意：`webview/tsconfig.json` 让前端首次进入类型检查，
+`npm test` 前置 `check:webview` 使 CI 门禁真正覆盖前端；`scripts/sync-locales.mjs`
+让两个 zh-hans 文件从 zh-cn 派生，消除副本漂移。
+
+那道新门禁在本轮当场拦下了两个我自己引入的错误（JSX 注释放进三元槽位、
+i18n 重复 key），否则都会作为运行时坏包发出——这是它最直接的价值证明。
+
+**尚未开始的大项**：`tracePanel` 425 行内联 UI 迁移、`chatView` God Object 续拆、
+5 处超长函数提取、Gateway 通道及其依赖的两个功能。这些都需要成块的时间，
+没有起头，不是做了一半。
+
 ## 契约基线（2026-08-26 复核）
 
 上游 checkout 已更新至 `0.1.1-rc.2`，与 `dsh.runtimeVersion` 默认 pin 一致。以下数字是后续条目的证据基础，动手前先复核；上游迭代很快，过期的基线会让整张表失效。
@@ -13,25 +29,26 @@
 
 ## P0：先行安全网
 
-- [ ] **Webview 纳入类型检查**。`tsconfig.json` 的 `include` 只有 `src`，`jsx` 选项未设置，tsc program 实际包含 40 个 `src/` 文件、**0 个 `webview/` 文件**；esbuild 只剥类型不校验。`webview/` 那 4.3k 行 React 既不过 `npm run check`，也不过 CI 门禁 `npm test`。
+- [x] **Webview 纳入类型检查**。`tsconfig.json` 的 `include` 只有 `src`，`jsx` 选项未设置，tsc program 实际包含 40 个 `src/` 文件、**0 个 `webview/` 文件**；esbuild 只剥类型不校验。`webview/` 那 4.3k 行 React 既不过 `npm run check`，也不过 CI 门禁 `npm test`。
       做法：新增 `webview/tsconfig.json`（`jsx: react-jsx`、`allowSyntheticDefaultImports`、`lib` 含 DOM），`check` 脚本串联两个 project。
       **单独一个 commit，不夹带任何行为改动** —— 补上后大概率当场冒出一批既存类型错误，混在别的改动里就分不清是谁引入的。这一项是其余所有 Webview 改动的前置。
 
-## P0：可见缺陷
+## P0：可见缺陷（本轮全部完成）
 
-- [ ] **Markdown 强调吃掉裸标识符**。`src/safeMarkdown.ts:195,203` 用裸 `indexOf` 找 `_` 定界符，缺 CommonMark 的 delimiter-run / flanking 规则。实测：`snake_case_name` → `snake<em>case</em>name`，`call foo_bar_baz() now` → `call foo<em>bar</em>baz() now`。带路径分隔符的字符串因先命中 file-location 分支而幸免，所以日常暴露面不大，但聊代码时提裸标识符并不罕见。属保真度缺陷，非安全问题；修它要引入 flanking 判定，独立立项，不要混进可读性整理。
-- [ ] **`attribute()` 是假安全边界**。`src/safeMarkdown.ts:72-75` 只是 `escapeHtml` 的别名，函数名承诺属性上下文转义而实现没有。在 XSS 层放一个名不副实的函数比没有它更危险。要么让它真做属性转义，要么删掉、调用点直接用 `escapeHtml`。
-- [ ] **`TodoPanel` 用 content 作 list key**。`webview/src/components/TodoPanel.tsx:38`；`DshTodoItemView`（`src/types.ts:888-891`）只有 `content` 与 `status`，Host 侧不保证唯一。两条同文案 todo 会重复 key。改用 index，或请上游补 id。
-- [ ] **`zh-Hans` 运行时文案仍回落英文**。`package.nls.zh-hans.json` 存在（命令面板已中文化），但 `l10n/` 下只有 `bundle.l10n.zh-cn.json`，缺 `zh-hans` 一份 —— 于是 zh-Hans 环境下命令面板是中文、运行时消息全英文，`0.5.3` 那条修复只做了一半。
+- [x] **Markdown 强调吃掉裸标识符**。`src/safeMarkdown.ts:195,203` 用裸 `indexOf` 找 `_` 定界符，缺 CommonMark 的 delimiter-run / flanking 规则。实测：`snake_case_name` → `snake<em>case</em>name`，`call foo_bar_baz() now` → `call foo<em>bar</em>baz() now`。带路径分隔符的字符串因先命中 file-location 分支而幸免，所以日常暴露面不大，但聊代码时提裸标识符并不罕见。属保真度缺陷，非安全问题；修它要引入 flanking 判定，独立立项，不要混进可读性整理。
+- [x] **`attribute()` 是假安全边界**。`src/safeMarkdown.ts:72-75` 只是 `escapeHtml` 的别名，函数名承诺属性上下文转义而实现没有。在 XSS 层放一个名不副实的函数比没有它更危险。要么让它真做属性转义，要么删掉、调用点直接用 `escapeHtml`。
+- [x] **`TodoPanel` 用 content 作 list key**。`webview/src/components/TodoPanel.tsx:38`；`DshTodoItemView`（`src/types.ts:888-891`）只有 `content` 与 `status`，Host 侧不保证唯一。两条同文案 todo 会重复 key。改用 index，或请上游补 id。
+- [x] **`zh-Hans` 运行时文案仍回落英文**。`package.nls.zh-hans.json` 存在（命令面板已中文化），但 `l10n/` 下只有 `bundle.l10n.zh-cn.json`，缺 `zh-hans` 一份 —— 于是 zh-Hans 环境下命令面板是中文、运行时消息全英文，`0.5.3` 那条修复只做了一半。
       补上缺的 l10n bundle（可在构建期从 zh-cn 复制）。**不要删 `package.nls.zh-hans.json`** —— 它是撞到真实 bug 后加的。`webview/src/i18n.ts:269` 同时判断两个前缀是正确防御，保留。
-- [ ] **`dsh.revealConversationMilestone` 未在清单声明**。`src/extension.ts:62` 注册了命令，但 `contributes.commands` 的 32 条不含它，三份 nls 也无对应文案。补声明的同时用 `enablement: false` 挡住命令面板 —— 它只该由 TreeItem 触发，从面板点会因缺 `seq` 参数被 `src/extension.ts:63` 的类型守卫静默吞掉。
+- [x] **`dsh.revealConversationMilestone` 未在清单声明**。`src/extension.ts:62` 注册了命令，但 `contributes.commands` 的 32 条不含它，三份 nls 也无对应文案。补声明的同时用 `menus.commandPalette` + `when: "false"` 挡住命令面板（**不是** `enablement: false` —— 那会连 TreeItem 点击一起禁掉、弄坏功能） —— 它只该由 TreeItem 触发，从面板点会因缺 `seq` 参数被 `src/extension.ts:63` 的类型守卫静默吞掉。
 
 ## P1：功能（按性价比排序，均已核对公开契约）
 
-- [ ] **`contextBreakdown` 投影**。上游 `deepseek-harness/packages/llm/token-meter/src/index.ts:90` 注册，与扩展**已在消费**的 `tokenUsage`(:88)、`contextPressure`(:89) 同属一个插件。改动集中在 `src/tokenUsage.ts:65` 一带，多读一个 key。兑现下面「上下文用量与超限反馈」要的「说明什么在占上下文」。**性价比最高，建议第一个做。**
+- [x] **`contextBreakdown` 投影**。上游 `deepseek-harness/packages/llm/token-meter/src/index.ts:90` 注册，与扩展**已在消费**的 `tokenUsage`(:88)、`contextPressure`(:89) 同属一个插件。改动集中在 `src/tokenUsage.ts:65` 一带，多读一个 key。兑现下面「上下文用量与超限反馈」要的「说明什么在占上下文」。已完成。
 - [ ] **IDE 内 Provider 配置**。`llm.models` 与 `llm.discoverModels` 是 52 条 unary 路由里未消费的两条。当前未配置 Provider 一律引导去 dsh Web UI（`0.5.3` 变更记录），这两条正是在 IDE 内枚举并配置所缺的能力。改动面 `src/chatView.ts` 的 `manageProviders`。
-- [ ] **`sessionListMetadata` 投影**。上游 `deepseek-harness/packages/host/apiproxy/src/api-proxy.ts:1292` 注册。`src/sessionCatalog.ts:131` 已在从 projection 读 `title`，接入路径现成，用于会话列表行的富信息。
-- [ ] **Subagent 时序与身份**。`subagentTiming` / `subagentIdentity`（上游 `deepseek-harness/packages/subagent/subagent/src/index.ts:198-199`）。SubagentsPanel 已存在，补数据即可。
+- ~~**`sessionListMetadata` 投影**~~ **撤回**：核对 schema 后发现两个字段（`blank`、`lastPromptAt`）都不带新信息。`blank` 已由 `session.list` 提供并在`chatView.ts:1622`、`:2173`、`sessionCatalog.ts:190-407` 消费；recency 排序已用`updatedAt`（`sessionCatalog.ts:413`）。唯一新字段是 `lastPromptAt`（最后一条**用户**消息，区别于任何活动），只够支撑一个可争论的排序改动。原条目写的「用于会话列表行的富信息」高估了它。
+- [ ] **Subagent 运行时长**。`subagentTiming`（上游 `deepseek-harness/packages/subagent/subagent/src/projection.ts:62`），wire 形状 `{settledMs, active?: {since, through}}`。`SubagentTreeNodeView` 目前只有二值 `activity: "running" | "inactive"`，没有任何时长，这是真正的新信息。
+      **身份部分不做**：另一个单元注册的 key 是 `subagent`（不是 `subagentIdentity`，`projection.ts:169`），其 `label` / `mode` 已由 `subagent.list` 放在树节点上，重复。
 - [ ] **Slash Command 改为向 Runtime 枚举**。当前 `webview/src/components/slashCommands.ts:13-26` 是硬编码 12 条，`/compact`、`/goal` 以裸 prompt 文本发出并期待 Runtime 解释。上游 `commands.list → readonly CommandDescriptor[]` 与 `commands.execute`（`deepseek-harness/packages/interaction/commands/src/index.ts:284,328`）无 unary 镜像、尚未接入；接上后 profile 新挂载的插件命令才可见，也能省掉「空工作区特殊处理」这类补丁。需要先打通 Gateway 通道。
 - [ ] **消息反馈**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`），此前记录的「等公开契约」已不成立。需 Gateway 通道；落地时明确反馈是否写入 session 日志。
 - [ ] **Gateway 通道地基**。`commands`、`messageFeedback`、`pluginInventory`、`fileReference`、`sessionReference` 共用同一条通道，同基址同动词，仅端点形式与参数命名不同。上面两条依赖它，建议在它们之前单独落地并单独验证。
@@ -82,17 +99,17 @@
 
 ### 去重
 
-- [ ] **`isRecord` 14 份副本**：`traceProtocol`、`chatState`、`sessionFeatures`、`sessionCatalog`、`tokenUsage`、`deepseekBalance`、`conversationNavigation`、`traceProjector`、`sessionStore`、`harnessClient`、`chatViewProtocol`、`changeReviewStore`、`hostState`，加 `chatViewPresentation` 里叫 `record` 的同一实现。
-- [ ] **`escapeHtml` 4 份**：`safeMarkdown.ts:62`、`fileLocations.ts:28`（逐字节相同）、`tracePanel.ts:60`、`tracePanel.ts:736`（JS 字符串内）。落点建议 `fileLocations.ts` —— 它 vscode-free 且未被钉住。
-- [ ] **`IMAGE_MEDIA_TYPES` 3 份**：`chatViewProtocol.ts:104`、`chatViewPresentation.ts:223`、`chatState.ts:109`。
-- [ ] **路径包含判定 2 份**：`changeReviewStore.ts:68` `inside()` 与 `workspaceNavigation.ts:7` `containsPath()`。若要做按绝对路径反查 turn 的查询，收拢到一处，不要加第三份 —— `GitContext.cwd` 已 `realpath` 归一（`changeReviewStore.ts:288`），新方法应显式复用该不变量。
+- [x] **`isRecord` 14 份副本**：`traceProtocol`、`chatState`、`sessionFeatures`、`sessionCatalog`、`tokenUsage`、`deepseekBalance`、`conversationNavigation`、`traceProjector`、`sessionStore`、`harnessClient`、`chatViewProtocol`、`changeReviewStore`、`hostState`，加 `chatViewPresentation` 里叫 `record` 的同一实现。
+- [x] **`escapeHtml` 4 份**：`safeMarkdown.ts:62`、`fileLocations.ts:28`（逐字节相同）、`tracePanel.ts:60`、`tracePanel.ts:736`（JS 字符串内）。已收拢到 `fileLocations.ts`（vscode-free、未被钉住、本就拥有使用它的渲染函数）。`tracePanel.ts` 内 JS 模板字符串那份仍在——它是客户端代码、无法 import，随下面的内联 UI 迁移一并消失。
+- [x] **`IMAGE_MEDIA_TYPES` 3 份**：`chatViewProtocol.ts:104`、`chatViewPresentation.ts:223`、`chatState.ts:109`。
+- [x] **路径包含判定 2 份**：`changeReviewStore.ts:68` `inside()` 与 `workspaceNavigation.ts:7` `containsPath()`。已收拢到 `src/paths.ts`，并顺带修掉 `containsPath` 用 `startsWith("..")` 把 `..config` 之类合法目录误判为越界的假阴性。若要做按绝对路径反查 turn 的查询，复用它，不要加第三份 —— `GitContext.cwd` 已 `realpath` 归一（`changeReviewStore.ts:288`），新方法应显式复用该不变量。
 
 ### 一致性（非缺陷）
 
-- [ ] **协议校验严格度不统一**。`parseChatViewAction` 25 个 block 里 14 个用 `hasOnly` 白名单、6 个用 `hasAny` 黑名单、5 个（`removeContext`:309、`switchSession`:343、`answerApproval`:403、`answerQuestion`:408、`updateQueue`:414）无额外 key 守卫。
+- [x] **协议校验严格度不统一**。`parseChatViewAction` 25 个 block 里 14 个用 `hasOnly` 白名单、6 个用 `hasAny` 黑名单、5 个（`removeContext`:309、`switchSession`:343、`answerApproval`:403、`answerQuestion`:408、`updateQueue`:414）无额外 key 守卫。
       **这不是逃逸路径** —— 这五处都重新构造只含已校验字段的新字面量，多余 key 到不了 Host。属一致性问题，值得统一，但不要当漏洞排期。`:157` 那句 "Strict trust boundary" 注释对这五处名不副实，一并修正。
-- [ ] **`onDidChange` 返回类型不一**：`sessionStore.ts:718` / `sessionCatalog.ts:106` 返回 `() => void`，`contextStore.ts:124` / `changeReviewStore.ts:156` 返回 `vscode.Disposable`。
-- [ ] **ARIA 声明强于实现**：`webview/src/components/Header.tsx:245` 与 `Composer.tsx:300` 声明 `role="menu"`/`menuitem`，但只支持 Tab 遍历与 Escape，无方向键与 roving tabindex；同仓库 `dock/ActivityDock.tsx:77-88` 的 tablist 做全了。建议摘掉 role 当普通按钮列表（Tab 遍历此时语义正确，零新增代码），而非为满足声明补一套无人要求的交互。
+- ~~**`onDidChange` 返回类型不一**~~ **不予统一**：核对后发现这个分界与 vscode-free 划分完全重合。`sessionStore:718`/`sessionCatalog:106` 返回 `() => void` 是因为它们不 import vscode——改成 `vscode.Disposable` 会打断 CI 门禁；`contextStore:124`/`dshRuntime:729` 本就 import vscode 且返回值直接进 disposables 数组。消费方已正确桥接（`chatView.ts:420-421` 包装、`tracePanel.ts:263-264` 直接调用）。已把这条隐含规则写进两处 doc comment。
+- [x] **ARIA 声明强于实现**：`webview/src/components/Header.tsx:245` 与 `Composer.tsx:300` 声明 `role="menu"`/`menuitem`，但只支持 Tab 遍历与 Escape，无方向键与 roving tabindex；同仓库 `dock/ActivityDock.tsx:77-88` 的 tablist 做全了。建议摘掉 role 当普通按钮列表（Tab 遍历此时语义正确，零新增代码），而非为满足声明补一套无人要求的交互。
 
 ### 明确不动
 
