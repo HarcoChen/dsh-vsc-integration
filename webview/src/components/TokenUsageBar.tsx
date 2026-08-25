@@ -17,7 +17,15 @@ interface ChartRowProps {
     label: string;
     tokens: number | undefined;
     maximum: number;
-    kind: "input" | "output" | "reasoning" | "cache-read" | "cache-write";
+    kind:
+        | "input"
+        | "output"
+        | "reasoning"
+        | "cache-read"
+        | "cache-write"
+        | "system"
+        | "tools"
+        | "messages";
     suffix?: string;
     title: string;
 }
@@ -96,7 +104,7 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
     }, [open]);
 
     if (!usage) return null;
-    const { route, billing, context } = usage;
+    const { route, billing, context, breakdown } = usage;
     const routeLabel = route.model || t("Unknown model");
     const occupied = context?.projectedTokens;
     const capacity = context?.contextWindow;
@@ -123,6 +131,12 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
               billing.cacheWriteTokens,
           )
         : 1;
+    // Scale the breakdown rows against their own total so the three parts read as
+    // shares of the window, not against the billing chart's unrelated maximum.
+    const breakdownTotal = breakdown
+        ? breakdown.systemTokens + breakdown.toolsTokens + breakdown.messageTokens
+        : 0;
+    const breakdownMaximum = Math.max(1, breakdownTotal);
 
     return (
         <section className="dsh-usage" aria-label={t("Token and context usage")} ref={rootRef}>
@@ -171,6 +185,35 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
                             </strong>
                         </div>
                     </div>
+                    {breakdown ? (
+                        <div className="dsh-token-chart" aria-label={t("Context composition")}>
+                            <div className="dsh-token-chart-head">
+                                <span>{t("What fills the context")}</span>
+                                <span>{t("Harness estimate")}</span>
+                            </div>
+                            <ChartRow
+                                label={t("System prompt")}
+                                tokens={breakdown.systemTokens}
+                                maximum={breakdownMaximum}
+                                kind="system"
+                                title={t("System prompt sections")}
+                            />
+                            <ChartRow
+                                label={t("Tools")}
+                                tokens={breakdown.toolsTokens}
+                                maximum={breakdownMaximum}
+                                kind="tools"
+                                title={t("Tool schemas offered to the model")}
+                            />
+                            <ChartRow
+                                label={t("Messages")}
+                                tokens={breakdown.messageTokens}
+                                maximum={breakdownMaximum}
+                                kind="messages"
+                                title={t("Conversation history after compaction")}
+                            />
+                        </div>
+                    ) : null}
                     {billing ? (
                         <div className="dsh-token-chart" aria-label={t("Billed session token distribution")}>
                             <div className="dsh-token-chart-head">

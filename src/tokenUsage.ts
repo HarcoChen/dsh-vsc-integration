@@ -129,6 +129,23 @@ function contextPressure(snapshot: SessionStateSnapshot): TokenUsageView["contex
     };
 }
 
+function contextBreakdown(snapshot: SessionStateSnapshot): TokenUsageView["breakdown"] {
+    const value = projectionValue(snapshot, "contextBreakdown");
+    // The wire view is a strict triple of non-negative integers; a partial
+    // payload means the projection is not the one this reader understands.
+    if (
+        !isRecord(value) ||
+        !nonNegativeInteger(value.systemTokens) ||
+        !nonNegativeInteger(value.toolsTokens) ||
+        !nonNegativeInteger(value.messageTokens)
+    ) return undefined;
+    return {
+        systemTokens: value.systemTokens,
+        toolsTokens: value.toolsTokens,
+        messageTokens: value.messageTokens,
+    };
+}
+
 function eventRoute(snapshot: SessionStateSnapshot): EventRoute {
     let route: TokenUsageView["route"] = {};
     let seq = -1;
@@ -188,10 +205,12 @@ export function projectTokenUsage(
             };
     const billing = snapshot ? billingUsage(snapshot) : undefined;
     const context = snapshot ? contextPressure(snapshot) : undefined;
-    if (Object.keys(route).length === 0 && !billing && !context) return undefined;
+    const breakdown = snapshot ? contextBreakdown(snapshot) : undefined;
+    if (Object.keys(route).length === 0 && !billing && !context && !breakdown) return undefined;
     return {
         route,
         ...(billing === undefined ? {} : { billing }),
         ...(context === undefined ? {} : { context }),
+        ...(breakdown === undefined ? {} : { breakdown }),
     };
 }

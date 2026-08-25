@@ -247,6 +247,20 @@
     background: var(--vscode-charts-orange, var(--vscode-editorWarning-foreground));
 }
 
+/* Context-composition rows. Scaled against their own total, so they carry a
+   distinct palette from the billing rows above rather than inviting comparison. */
+.dsh-token-chart-fill.system {
+    background: var(--vscode-charts-purple, var(--vscode-symbolIcon-keywordForeground));
+}
+
+.dsh-token-chart-fill.tools {
+    background: var(--vscode-charts-orange, var(--vscode-symbolIcon-functionForeground));
+}
+
+.dsh-token-chart-fill.messages {
+    background: var(--vscode-charts-blue, var(--vscode-progressBar-background));
+}
+
 .dsh-token-chart-value {
     color: var(--vscode-foreground);
     text-align: right;

@@ -924,6 +924,17 @@ export interface TokenUsageView {
         projectedTokens?: number;
         contextWindow?: number;
     };
+    /**
+     * Heuristic attribution of what currently occupies the context, from the
+     * `contextBreakdown` projection. These are the Harness estimator's figures,
+     * not provider-billed counts, so they answer "what is filling the window"
+     * rather than "what was charged".
+     */
+    breakdown?: {
+        systemTokens: number;
+        toolsTokens: number;
+        messageTokens: number;
+    };
 }
 
 export interface SessionStatsView {
