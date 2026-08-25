@@ -1,4 +1,5 @@
 import {
+    escapeHtml,
     findFileLocations,
     renderFileLocationAnchor,
 } from "./fileLocations";
@@ -57,16 +58,6 @@ export function parseSafeHttpUrl(value: unknown): string | undefined {
     } catch {
         return undefined;
     }
-}
-
-function escapeHtml(value: string): string {
-    return value.replace(/[&<>"']/gu, (character) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        "\"": "&quot;",
-        "'": "&#39;",
-    })[character] ?? character);
 }
 
 function countRun(value: string, index: number, character: string): number {

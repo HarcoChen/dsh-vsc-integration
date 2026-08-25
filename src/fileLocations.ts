@@ -25,7 +25,12 @@ const BARE_EXTENSIONS = new Set([
     "tsx", "txt", "vue", "xml", "yaml", "yml", "zsh",
 ]);
 
-function escapeHtml(value: string): string {
+/**
+ * Escapes the five characters that can break out of HTML text or of a quoted
+ * attribute value. Both quote forms are covered, so the result is safe to
+ * interpolate into `attr="..."` as well as into element content.
+ */
+export function escapeHtml(value: string): string {
     return value.replace(/[&<>"']/gu, (character) => ({
         "&": "&amp;",
         "<": "&lt;",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import { DshRuntime } from "./dshRuntime";
-import { renderFileLocationsHtml } from "./fileLocations";
+import { escapeHtml, renderFileLocationsHtml } from "./fileLocations";
 import { SessionStateSnapshot } from "./sessionStore";
 import {
     ProjectedTraceRow,
@@ -55,16 +55,6 @@ interface TraceTimelineItem {
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
-}
-
-function escapeHtml(value: string): string {
-    return value.replace(/[&<>'"]/gu, (character) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        "'": "&#39;",
-        "\"": "&quot;",
-    })[character] ?? character);
 }
 
 function scriptJson(value: unknown): string {
