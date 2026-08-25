@@ -34,8 +34,12 @@ export function TodoPanel({ todos }: { todos: readonly DshTodoItemView[] }): Rea
             </button>
             {!collapsed ? (
                 <ul className="dsh-todo-items">
-                    {todos.map((item) => (
-                        <li key={item.content} className={`dsh-todo-item ${item.status}`}>
+                    {/* DshTodoItemView carries no id, and the host does not guarantee
+                        distinct content, so position is the only stable identity here.
+                        The list is a wholesale-replaced projection with no per-row state,
+                        which is what makes an index key safe. */}
+                    {todos.map((item, position) => (
+                        <li key={position} className={`dsh-todo-item ${item.status}`}>
                             <span className="dsh-todo-status" aria-hidden="true" />
                             <span className="dsh-todo-content">{item.content}</span>
                         </li>
