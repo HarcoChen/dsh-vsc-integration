@@ -7,3 +7,7 @@ deepseek-harness/
 .DS_Store
 docs/
 .dsh/
+
+# Derived from their zh-cn sources by scripts/sync-locales.mjs.
+package.nls.zh-hans.json
+l10n/bundle.l10n.zh-hans.json

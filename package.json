@@ -550,7 +550,8 @@
     },
     "scripts": {
         "build:webview": "node ./scripts/build-webview.mjs",
-        "compile": "npm run build:webview && tsc -p ./tsconfig.json",
+        "sync:locales": "node ./scripts/sync-locales.mjs",
+        "compile": "npm run sync:locales && npm run build:webview && tsc -p ./tsconfig.json",
         "watch": "tsc -watch -p ./tsconfig.json",
         "check": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./webview/tsconfig.json",
         "check:host": "tsc --noEmit -p ./tsconfig.json",
