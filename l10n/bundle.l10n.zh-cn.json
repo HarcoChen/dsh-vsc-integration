@@ -4,6 +4,7 @@
     "Broken: {reason}": "已损坏：{reason}",
     "Choose an Agent Preset to manage": "选择要管理的 Agent Preset",
     "Choose the new Preset ID used as its directory name": "设置新 Preset ID，该 ID 同时用作目录名",
+    "Code": "代码",
     "Copy Agent Preset {preset}": "复制 Agent Preset {preset}",
     "Copy as a user Preset": "复制为用户 Preset",
     "Copy path": "复制路径",

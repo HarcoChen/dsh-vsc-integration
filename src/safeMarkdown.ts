@@ -353,7 +353,9 @@ function codeBlock(
     codeBlocks: RenderedCodeBlock[],
 ): string {
     const canCopy = isCopyableCode(code);
-    const label = language ? escapeHtml(language) : "Code";
+    // A language tag is the author's own token and stays verbatim; only the
+    // no-language fallback is UI text, so only it goes through t().
+    const label = language ? escapeHtml(language) : escapeHtml(t("Code"));
     const id = canCopy ? `code-${codeBlocks.length}` : undefined;
     if (id) codeBlocks.push({ id, text: code });
     if (!id) {
