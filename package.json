@@ -294,6 +294,11 @@
                 "title": "%command.diagnoseEnvironment.title%",
                 "category": "DSH",
                 "icon": "$(tools)"
+            },
+            {
+                "command": "dsh.revealConversationMilestone",
+                "title": "%command.revealConversationMilestone.title%",
+                "category": "DSH"
             }
         ],
         "submenus": [
@@ -320,6 +325,12 @@
             }
         ],
         "menus": {
+            "commandPalette": [
+                {
+                    "command": "dsh.revealConversationMilestone",
+                    "when": "false"
+                }
+            ],
             "editor/title": [
                 {
                     "command": "dsh.open",

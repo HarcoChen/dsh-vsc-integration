@@ -28,6 +28,7 @@
     "command.manageAgentPresets.title": "管理 Agent Preset",
     "command.refreshBalance.title": "刷新 DeepSeek 余额",
     "command.diagnoseEnvironment.title": "诊断环境",
+    "command.revealConversationMilestone.title": "跳转到对话里程碑",
     "dsh.editorTask.explain.title": "解释当前文件或选区",
     "dsh.editorTask.fix.title": "修复当前文件或选区",
     "dsh.editorTask.review.title": "审查当前文件或选区",

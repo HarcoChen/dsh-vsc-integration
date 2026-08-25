@@ -28,6 +28,7 @@
     "command.manageAgentPresets.title": "Manage Agent Presets",
     "command.refreshBalance.title": "Refresh DeepSeek Balance",
     "command.diagnoseEnvironment.title": "Diagnose Environment",
+    "command.revealConversationMilestone.title": "Reveal Conversation Milestone",
     "dsh.editorTask.explain.title": "Explain Current File or Selection",
     "dsh.editorTask.fix.title": "Fix Current File or Selection",
     "dsh.editorTask.review.title": "Review Current File or Selection",
