@@ -69,10 +69,6 @@ function escapeHtml(value: string): string {
     })[character] ?? character);
 }
 
-function attribute(value: string): string {
-    return escapeHtml(value);
-}
-
 function countRun(value: string, index: number, character: string): number {
     let cursor = index;
     while (value[cursor] === character) cursor += 1;
@@ -200,7 +196,7 @@ function renderInline(source: string, depth = 0): string {
                     }
                     const url = parseSafeHttpUrl(target);
                     output += url
-                        ? `<a class="markdown-link" role="link" tabindex="0" data-external-url="${attribute(url)}">${label}</a>`
+                        ? `<a class="markdown-link" role="link" tabindex="0" data-external-url="${escapeHtml(url)}">${label}</a>`
                         : label;
                     index = targetEnd + 1;
                     continue;
@@ -370,9 +366,9 @@ function codeBlock(
     const id = canCopy ? `code-${codeBlocks.length}` : undefined;
     if (id) codeBlocks.push({ id, text: code });
     if (!id) {
-        return `<div class="markdown-code-block"><div class="markdown-code-head"><span>${label}</span><button type="button" class="markdown-code-action markdown-code-copy" disabled title="${attribute(t("Code block exceeds the copy limit"))}">${escapeHtml(t("Too large"))}</button></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
+        return `<div class="markdown-code-block"><div class="markdown-code-head"><span>${label}</span><button type="button" class="markdown-code-action markdown-code-copy" disabled title="${escapeHtml(t("Code block exceeds the copy limit"))}">${escapeHtml(t("Too large"))}</button></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
     }
-    const languageAttribute = language ? ` data-code-language="${attribute(language)}"` : "";
+    const languageAttribute = language ? ` data-code-language="${escapeHtml(language)}"` : "";
     const action = (type: "copyCode" | "insertCode" | "openCode" | "applyCode", text: string): string =>
         `<button type="button" class="markdown-code-action${type === "copyCode" ? " markdown-code-copy" : ""}" data-code-action="${type}" data-code-block-id="${id}"${type === "copyCode" ? ` data-copy-code-id="${id}"` : ""}${languageAttribute}>${escapeHtml(text)}</button>`;
     return `<div class="markdown-code-block"><div class="markdown-code-head"><span>${label}</span><div class="markdown-code-actions">${action("copyCode", t("Copy"))}${action("insertCode", t("Insert"))}${action("openCode", t("Open"))}${action("applyCode", t("Apply"))}</div></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
