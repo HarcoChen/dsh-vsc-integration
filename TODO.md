@@ -1,55 +1,50 @@
 # TODO
 
-更新时间：2026-08-22。
+更新时间：2026-08-26。
 
-## DSH rc2 对齐（CNB 已核对）
+## 契约基线（2026-08-26 复核）
 
-CNB `harcochen/dsh-runtime` 的 `latest` manifest 当前为 `0.1.1-rc.2`，包含
-macOS arm64/x64、Linux arm64/x64 和 Windows x64 五个平台资产。
+上游 checkout 已更新至 `0.1.1-rc.2`，与 `dsh.runtimeVersion` 默认 pin 一致。以下数字是后续条目的证据基础，动手前先复核；上游迭代很快，过期的基线会让整张表失效。
 
-- [x] **托管 Runtime 升级**：将默认 pin 从 `0.1.0-rc.6` 更新到 `0.1.1-rc.2`；设置说明提示 SQLite/Runtime 数据格式兼容性，下载时校验 manifest 版本与请求版本一致。
-- [x] **问题卡片体验**：支持折叠、多行回答、`Shift+Enter` 换行和草稿保留。
-- [x] **Job Panel 展示对齐**：显示后台任务的 kind、job id、状态、持续时间、所有者和输出摘要；上游公开 API 目前只提供 `session/jobs` 推送，没有安全的单任务 `job.kill` 客户端 RPC，因此不伪造停止按钮。
-- [x] **会话 `@` 引用**：在文件候选之外加入 Session 候选，并复用公开 Session 查询能力；选中后插入规范 `@[label](dsh-session:<base64url>)` mention。
-- [x] **嵌套图片**：递归提取 MCP/ACP/PTC 和子代理内容中的持久图片附件，复用既有懒加载、缓存和附件权限校验。
-- [x] **插件设置卡片**：基于公开 `settings.describe/mutate` 提供通用命名空间卡片、revision 冲突保护和重置；敏感字段保持脱敏并继续交给凭据提供器。
-- [x] **Markdown 表格**：补充安全表格渲染、单元格内联 Markdown 和窄侧栏横向滚动布局。
-- [ ] **兼容性回归**：验证 rc2 的 V4 Vision、Files API 图片复用、Windows PTY 和沙箱修复；不新增单元测试，使用现有检查与手动 smoke 流程。
+- **Unary RPC**（`POST /api/<method>`，点号形式）：上游 52 条（`deepseek-harness/packages/host/apiproxy/src/fetch/handler.ts:90-143`），扩展消费 45 条（`src/harnessProtocol.ts:36-179`），无悬空引用。
+- **Session projection**：上游注册 13 个，注册插件在 `bundle/base` 与 `bundle/web-app` 均已挂载，默认安装下都是活的；扩展消费 8 个（`goal`、`todos`、`tokenUsage`、`contextPressure`、`title`、`sessionStats`、`permissions`、`imageLimits`）。
+  `GenericProjectionStore`（`src/sessionStore.ts:234-265`）按任意字符串 key 存储，**未消费的 projection 其实已经到达并缓存**，`src/tracePanel.ts:854` 已泛化渲染其原始值。因此接入新 projection 是纯呈现层工作，不动传输、不改运行时组合。
+- **Typert Gateway**（`POST /api/<namespace>/<method>`，斜杠形式，与 unary 共用 `/api` 基址，见 `deepseek-harness/packages/api/gateway/src/index.ts:106-116`）：`goal.*` 与 `skill.*` 已有 unary 镜像并被消费；`commands`、`fileReference`、`sessionReference`、`pluginInventory`、`messageFeedback` 五个 namespace **无 unary 镜像，尚未接入**。同基址同动词，接入成本是 `src/harnessClient.ts` 的中等增量。
 
+## P0：先行安全网
 
-## P0：日常使用闭环
+- [ ] **Webview 纳入类型检查**。`tsconfig.json` 的 `include` 只有 `src`，`jsx` 选项未设置，tsc program 实际包含 40 个 `src/` 文件、**0 个 `webview/` 文件**；esbuild 只剥类型不校验。`webview/` 那 4.3k 行 React 既不过 `npm run check`，也不过 CI 门禁 `npm test`。
+      做法：新增 `webview/tsconfig.json`（`jsx: react-jsx`、`allowSyntheticDefaultImports`、`lib` 含 DOM），`check` 脚本串联两个 project。
+      **单独一个 commit，不夹带任何行为改动** —— 补上后大概率当场冒出一批既存类型错误，混在别的改动里就分不清是谁引入的。这一项是其余所有 Webview 改动的前置。
 
-- [x] **Token 与上下文用量条**：展示当前模型、reasoning effort、输入/输出 token、推理 token、缓存命中和上下文占用；数据必须来自公开 usage/context projection，并明确区分估算值与计费值。
-- [x] **文件路径与行号跳转**：识别回答、工具结果和 Trace 中的裸文件路径及 `path:line[:column]`，经 Extension Host 校验工作区边界后打开编辑器定位。
-- [x] **编辑器快捷任务**：为当前文件、选区和 Git diff 提供“解释、修复、审查、生成文档”等右键入口；操作只预填并展示 prompt，不静默提交。
-- [x] **变更审查面板**：按 turn 汇总新增、修改、删除和重命名文件，使用 VS Code 原生 diff 展示；恢复前检测任务之后的用户修改，避免覆盖。
-- [x] **上下文用量与超限反馈**：在发送前展示附件大小、截断和敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。
+## P0：可见缺陷
 
-## P1：IDE 集成与效率
+- [ ] **Markdown 强调吃掉裸标识符**。`src/safeMarkdown.ts:195,203` 用裸 `indexOf` 找 `_` 定界符，缺 CommonMark 的 delimiter-run / flanking 规则。实测：`snake_case_name` → `snake<em>case</em>name`，`call foo_bar_baz() now` → `call foo<em>bar</em>baz() now`。带路径分隔符的字符串因先命中 file-location 分支而幸免，所以日常暴露面不大，但聊代码时提裸标识符并不罕见。属保真度缺陷，非安全问题；修它要引入 flanking 判定，独立立项，不要混进可读性整理。
+- [ ] **`attribute()` 是假安全边界**。`src/safeMarkdown.ts:72-75` 只是 `escapeHtml` 的别名，函数名承诺属性上下文转义而实现没有。在 XSS 层放一个名不副实的函数比没有它更危险。要么让它真做属性转义，要么删掉、调用点直接用 `escapeHtml`。
+- [ ] **`TodoPanel` 用 content 作 list key**。`webview/src/components/TodoPanel.tsx:38`；`DshTodoItemView`（`src/types.ts:888-891`）只有 `content` 与 `status`，Host 侧不保证唯一。两条同文案 todo 会重复 key。改用 index，或请上游补 id。
+- [ ] **`zh-Hans` 运行时文案仍回落英文**。`package.nls.zh-hans.json` 存在（命令面板已中文化），但 `l10n/` 下只有 `bundle.l10n.zh-cn.json`，缺 `zh-hans` 一份 —— 于是 zh-Hans 环境下命令面板是中文、运行时消息全英文，`0.5.3` 那条修复只做了一半。
+      补上缺的 l10n bundle（可在构建期从 zh-cn 复制）。**不要删 `package.nls.zh-hans.json`** —— 它是撞到真实 bug 后加的。`webview/src/i18n.ts:269` 同时判断两个前缀是正确防御，保留。
+- [ ] **`dsh.revealConversationMilestone` 未在清单声明**。`src/extension.ts:62` 注册了命令，但 `contributes.commands` 的 32 条不含它，三份 nls 也无对应文案。补声明的同时用 `enablement: false` 挡住命令面板 —— 它只该由 TreeItem 触发，从面板点会因缺 `seq` 参数被 `src/extension.ts:63` 的类型守卫静默吞掉。
 
-- [x] **全界面 i18n**：扩展清单、Extension Host、聊天 Webview 与 Trace 使用英文源文案和简体中文语言包；协议标识、模型名、文件路径和用户内容保持原样。
-- [x] **VS Code Chat Participant**：支持通过 `@dsh` 在内置 Chat 中发起任务，并复用同一 Harness session/context 边界。
-- [x] **资源管理器入口**：文件和目录右键“使用 DSH 提问”，保留明确的目标路径与工作区根。
-- [x] **代码块操作**：复制、插入光标、打开新编辑器、应用到目标文件；写文件前显示 diff 并要求确认。
-- [x] **外部 Approval 接管**：接收 Runtime 的 `approval/requested`，在 VS Code 展示工具/原因并只允许一次性批准或拒绝；响应绑定 session、rpcId 和 approvalId，不提供持久权限提升 RPC。
-- [x] **Skills 浏览与选择**：接入公开 `skill.list`，通过 `$` 和 `/` 候选展示当前 Session 的 Skills，并使用官方 `/skill-name` 语法；不直接扫描或解释私有 Runtime 目录。
-- [x] **Provider、模型与 reasoning effort 状态**：展示当前路由与 reasoning effort，统一 `/model`、`/mode` 选择，并提供 Provider 与凭据管理入口。
-- [x] **Agent Preset 管理**：列出 system/user Preset 与损坏状态，支持只读查看 composition，并通过 Harness 复制、编辑、删除和设置默认 Preset。
-- [x] **Workspace 管理**：支持重命名和移除 DSH Workspace 分组，并调整 Workspace 与组内 Session 的显示顺序；不删除目录或 Session 日志。
-- [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；若没有公开协议，只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
-- [x] **文件 `@` 引用候选**：扫描工作区文件、排除常见目录、按路径片段匹配，并优先展示当前活动文件。
-- [ ] **扩展 `@` 引用类型**：在已有文件候选和 `@selection` 基础上增加目录、workspace symbol、diagnostics、终端选区，并显示实际捕获范围。
-- [x] **手动压缩上下文**：通过公开 `/compact` command 触发会话压缩，并确保命令不会混入 IDE context；后续补充专门的 compaction 状态和摘要展示。
-- [ ] **消息反馈**：接入 `feedback/record`，支持对消息点赞、点踩和文字反馈，并明确反馈是否写入 session 日志。
-- [x] **Todo 状态卡**：接入 `todo/write` projection/event，展示待办、进行中和完成状态，并处理历史回放与失效状态。
-- [x] **图片附件**：使用官方 image content block 发送和回放图片，限制 MIME、大小和工作区外数据流。
-- [x] **Web Search / Fetch 展示**：接入公开 web tool 结果，提供来源、域名、链接安全校验和失败状态；不从私有日志推断搜索结果。
-- ~~**MCP 工具来源**：展示 MCP server、工具来源、连接状态和错误；审批时明确区分 MCP 工具与内置工具。~~ **跳过**：当前公开 RPC 没有 MCP server 列表或连接状态契约，避免从工具名猜测来源。
-- [x] **LSP 能力**：接入公开 LSP tool，展示定义、引用、实现和 hover 结果，并复用工作区边界校验；当前公开协议不提供 workspace symbols 或 diagnostics 查询。
-- ~~**Terminal / PTY context**：终端选区 `@` 引用、PTY 输出摘要和 persistent bash 状态。~~ **跳过**：相关 Harness feature 与 `/compact` 类似，默认安装未启用；VS Code 稳定 API 也不提供终端选区或既有 scrollback 读取，当前无法形成可靠的默认体验。
-- [ ] **Hook 可观测性**：展示 Claude Code/Codex hook 的触发、结果和失败状态，并在 Trace 中关联对应 turn。
-- [ ] **Session 内容查询**：使用公开 session query/index，标题匹配后支持服务端全文搜索，索引不可用时明确回退本地匹配。
-- [ ] **自动标题状态**：展示首 prompt/LLM 标题生成状态、失败降级和最终标题来源。
+## P1：功能（按性价比排序，均已核对公开契约）
+
+- [ ] **`contextBreakdown` 投影**。上游 `deepseek-harness/packages/llm/token-meter/src/index.ts:90` 注册，与扩展**已在消费**的 `tokenUsage`(:88)、`contextPressure`(:89) 同属一个插件。改动集中在 `src/tokenUsage.ts:65` 一带，多读一个 key。兑现下面「上下文用量与超限反馈」要的「说明什么在占上下文」。**性价比最高，建议第一个做。**
+- [ ] **IDE 内 Provider 配置**。`llm.models` 与 `llm.discoverModels` 是 52 条 unary 路由里未消费的两条。当前未配置 Provider 一律引导去 dsh Web UI（`0.5.3` 变更记录），这两条正是在 IDE 内枚举并配置所缺的能力。改动面 `src/chatView.ts` 的 `manageProviders`。
+- [ ] **`sessionListMetadata` 投影**。上游 `deepseek-harness/packages/host/apiproxy/src/api-proxy.ts:1292` 注册。`src/sessionCatalog.ts:131` 已在从 projection 读 `title`，接入路径现成，用于会话列表行的富信息。
+- [ ] **Subagent 时序与身份**。`subagentTiming` / `subagentIdentity`（上游 `deepseek-harness/packages/subagent/subagent/src/index.ts:198-199`）。SubagentsPanel 已存在，补数据即可。
+- [ ] **Slash Command 改为向 Runtime 枚举**。当前 `webview/src/components/slashCommands.ts:13-26` 是硬编码 12 条，`/compact`、`/goal` 以裸 prompt 文本发出并期待 Runtime 解释。上游 `commands.list → readonly CommandDescriptor[]` 与 `commands.execute`（`deepseek-harness/packages/interaction/commands/src/index.ts:284,328`）无 unary 镜像、尚未接入；接上后 profile 新挂载的插件命令才可见，也能省掉「空工作区特殊处理」这类补丁。需要先打通 Gateway 通道。
+- [ ] **消息反馈**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`），此前记录的「等公开契约」已不成立。需 Gateway 通道；落地时明确反馈是否写入 session 日志。
+- [ ] **Gateway 通道地基**。`commands`、`messageFeedback`、`pluginInventory`、`fileReference`、`sessionReference` 共用同一条通道，同基址同动词，仅端点形式与参数命名不同。上面两条依赖它，建议在它们之前单独落地并单独验证。
+- [ ] **`plan` 投影**。上游 `deepseek-harness/packages/plan/plan-mode/src/index.ts:245` 注册，插件在 base 与 web-app 双挂载。当前计划评审走 interaction 卡片，接 projection 可拿到结构化计划状态。
+- [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。（基础部分已完成，缺 `contextBreakdown` 支撑的占用归因。）
+- [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围。workspace symbol 与终端选区受 VS Code 稳定 API 限制，见「明确不做」。
+- [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；无公开协议时只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
+
+## P1：上游暂无契约（本轮已在 `0.1.1-rc.2` 复核，保持搁置）
+
+- [ ] **Hook 可观测性**：`deepseek-harness/packages/hooks` 下 `@Remote` 计数为 0，无公开查询契约。
+- [ ] **Session 内容查询**：`deepseek-harness/packages/session-query` 下 `@Remote` 计数为 0；`session.search` 已消费，服务端全文检索无公开入口。
+- [ ] **自动标题状态**：`deepseek-harness/packages/session/session-title` 下 `@Remote` 计数为 0；`title` projection 已消费，但生成状态与失败降级无公开契约。
 
 ## P1：Runtime 可靠性
 
@@ -57,21 +52,92 @@ macOS arm64/x64、Linux arm64/x64 和 Windows x64 五个平台资产。
 - [ ] **GUI 启动 PATH 发现**：覆盖 macOS Finder/Dock、Linux Desktop 和 Windows npm 全局 bin 路径缺失场景，日志中说明最终使用的可执行文件。
 - [ ] **多根工作区 Runtime 归属**：根据活动编辑器选择 cwd，明确每个 session 对应的 workspace folder，切换时不误停其他窗口复用的 Runtime。
 - [ ] **远程工作区支持评估**：验证 Remote SSH、WSL、Dev Container 下 Extension Host、Runtime 和文件系统是否位于同侧；需要时使用 VS Code 端口转发。
+      此场景下 `host.pickDirectory` / `listDirectory` / `createDirectory` / `openPath` 四条未消费 RPC 是现成解法 —— 本地场景与 VS Code 原生 API 重复，仅远程场景值得接。
 - [ ] **异常退出恢复**：检测扩展启动的 Runtime 意外退出，提供有限次数的退避重启，并避免接管或终止用户自行启动的实例。
+- [ ] **rc2 兼容性回归**：验证 V4 Vision、Files API 图片复用、Windows PTY 与沙箱修复；不新增单元测试，使用现有检查与手动 smoke 流程。
+
+## P1：重构
+
+动手前先读两条硬约束，它们决定了哪些改法可行：
+
+1. **`test/` 下 13 个 `node:test` 文件 `require("../dist/<module>.js")`**，钉住的是**编译产物的模块路径与具名导出**：`chatState`、`chatViewProtocol`、`deepseekBalance`、`harnessClient`、`harnessConnection`、`hostState`、`safeMarkdown`、`sessionCatalog`、`sessionFeatures`、`sessionStore`、`traceProjector`、`traceProtocol`。`npm test` 是发版门禁（`.github/workflows/release.yml`），移动或改名会在发版时才炸。且 `AGENTS.md` 禁止新增测试 —— 重构不能靠补测试买安全，必须构造上行为等价。
+2. **30 个模块不 import vscode、10 个 import**，全部被测模块都在前者。`src/localize.ts:9` 的 `configureLocalization` 依赖注入是这套划分的支点（`src/extension.ts:19` 激活时注入 `vscode.l10n.t`）。收拢公共 helper 时落点必须留在 vscode-free 一侧，否则会把 vscode 依赖拖进被测模块，直接打断门禁。
+
+那 54 个测试名本身是契约护栏（`only the public goal projection`、`read-only`、`never invents duration`、`fail closed`、`rejects forged session scope`），把「不伪造上游语义」钉成了可执行断言 —— 这也是禁止新增测试却保留这 13 个的原因。
+
+### 结构
+
+- [ ] **`src/tracePanel.ts` 的 425 行内联 UI**。`traceHtml()`（:555-979）里塞着 251 行 JS 字符串 + 96 行 CSS + 39 处 `t()`，全部不过 tsc、不过测试；`escapeHtml` 在同文件存在两份（TS 版 :60、JS 字符串版 :736）。
+      根因是 `localResourceRoots: []`（:104、:119、:144）—— 没有资源根就无法加载外部 bundle。同仓库已有正确解法：`src/chatView.ts:3560-3582` 用 `asWebviewUri` 指向 `webview/dist/`，23 行搞定，真正的 UI 在 `webview/src/` 正常构建。Trace 面板照此迁移即可，做完顺带消掉那份重复 `escapeHtml`。
+- [ ] **`src/chatView.ts` 3583 行 God Object 继续拆**。设置/权限/统计/Todo/图片/推理强度的投影逻辑已迁出，剩余可继续按域切：Provider 管理、Workspace 管理、Agent Preset 管理三组 QuickPick 流程各自内聚且彼此无关。该文件 import vscode 且未被测试钉住，风险低。
+- [ ] **`src/sessionFeatures.ts:414-421` 反向依赖**。顶层 feature 模块内 `new HarnessSessionStore()` + `rebaseline()` + `projectChatMessages()`，使其同时依赖下面两层，也让 `test/sessionFeatures.test.js` 顺带钉住了 `projectChatMessages` 的输出形状。该模块另含五个互不相关的 feature（plan review、goal、subagent、history、jobs），10 个钉住导出全在此处 —— 拆分需同步改测试，先评估收益。
+
+### 超长函数（内部线性，拆解属纯提取，风险低）
+
+- [ ] `src/chatState.ts:646-835` `projectChatMessages` 190 行 / 7 职责，嵌套深度 6（:695-712），且函数内有字符级重复的 8 行（:651-658 ≡ :825-832）。
+- [ ] `src/chatViewProtocol.ts:158-434` `parseChatViewAction` 277 行 / 25 个 case，14 份手工同步的 key 数组与联合类型（:9-75）无编译期关联；最差块 :251-289 校验一次后重复分派四次。
+- [ ] `src/sessionStore.ts:732-891` `applyMuxEnvelope` 160 行 / 11 分支，validate→diagnose→getState→publish 骨架重复 9 次。
+- [ ] `src/traceProjector.ts:745-929` `projectSessionTrace` 185 行 / 8 职责，含深度 5 的 fallthrough 发射循环；`genericRow`(:426-532) 有两个从不读取的形参（:428、:430）。
+- [ ] `src/tracePanel.ts:356-477` `publish()` 122 行 / 7 职责，几何计算与面板消息发送混在一起。
+
+### 去重
+
+- [ ] **`isRecord` 14 份副本**：`traceProtocol`、`chatState`、`sessionFeatures`、`sessionCatalog`、`tokenUsage`、`deepseekBalance`、`conversationNavigation`、`traceProjector`、`sessionStore`、`harnessClient`、`chatViewProtocol`、`changeReviewStore`、`hostState`，加 `chatViewPresentation` 里叫 `record` 的同一实现。
+- [ ] **`escapeHtml` 4 份**：`safeMarkdown.ts:62`、`fileLocations.ts:28`（逐字节相同）、`tracePanel.ts:60`、`tracePanel.ts:736`（JS 字符串内）。落点建议 `fileLocations.ts` —— 它 vscode-free 且未被钉住。
+- [ ] **`IMAGE_MEDIA_TYPES` 3 份**：`chatViewProtocol.ts:104`、`chatViewPresentation.ts:223`、`chatState.ts:109`。
+- [ ] **路径包含判定 2 份**：`changeReviewStore.ts:68` `inside()` 与 `workspaceNavigation.ts:7` `containsPath()`。若要做按绝对路径反查 turn 的查询，收拢到一处，不要加第三份 —— `GitContext.cwd` 已 `realpath` 归一（`changeReviewStore.ts:288`），新方法应显式复用该不变量。
+
+### 一致性（非缺陷）
+
+- [ ] **协议校验严格度不统一**。`parseChatViewAction` 25 个 block 里 14 个用 `hasOnly` 白名单、6 个用 `hasAny` 黑名单、5 个（`removeContext`:309、`switchSession`:343、`answerApproval`:403、`answerQuestion`:408、`updateQueue`:414）无额外 key 守卫。
+      **这不是逃逸路径** —— 这五处都重新构造只含已校验字段的新字面量，多余 key 到不了 Host。属一致性问题，值得统一，但不要当漏洞排期。`:157` 那句 "Strict trust boundary" 注释对这五处名不副实，一并修正。
+- [ ] **`onDidChange` 返回类型不一**：`sessionStore.ts:718` / `sessionCatalog.ts:106` 返回 `() => void`，`contextStore.ts:124` / `changeReviewStore.ts:156` 返回 `vscode.Disposable`。
+- [ ] **ARIA 声明强于实现**：`webview/src/components/Header.tsx:245` 与 `Composer.tsx:300` 声明 `role="menu"`/`menuitem`，但只支持 Tab 遍历与 Escape，无方向键与 roving tabindex；同仓库 `dock/ActivityDock.tsx:77-88` 的 tablist 做全了。建议摘掉 role 当普通按钮列表（Tab 遍历此时语义正确，零新增代码），而非为满足声明补一套无人要求的交互。
+
+### 明确不动
+
+- **`src/types.ts` 1024 行不拆**。107 个 interface + 22 个 type，**零运行时导出**（`grep -cE '^export (const|function|class|enum|let|var)'` 返回 0），所有 import 会被完全消除，拆它零收益；且 `ChatViewState`(:803) 横跨 wire 侧与 webview 侧，拆开会引入双向依赖。加分节注释即可。
+- **`src/safeMarkdown.ts:124-220` 的双游标 file-location 交错不重构**，只加注释。正确性依赖两个索引在三处的推进不变式，是全套代码里最难验证的一段，且被钉住的 `renderSafeMarkdown` / `renderMarkdownMessage` 覆盖着。
+- **`contextStore.ts`、`tokenUsage.ts`、`changeReviewStore.ts`、`sessionCatalog.ts` 大体健康**：长是因为领域本身复杂（git 沙箱、符号链接 TOCTOU 防护），非纠缠。`sessionCatalog.ts:177-284` `applyHostEnvelope` 可做一次定向提取，无需重写。
+- **branded `Html` 类型**（把「每个插值点记得转义」交给编译器）收益真实但横穿整个渲染层并触及 5 个钉住导出，属独立工程，不塞进本轮。
 
 ## P2：产品呈现
 
 - [ ] **Marketplace 截图与短 GIF**：展示流式回答、工具卡片、审批、计划评审、Activity Dock、Slash Commands 和 Trace 跳转。
-- [x] **环境检查命令**：一次性诊断 VS Code 版本、工作区信任、Node/dsh 路径、Runtime 版本、端口、API Key 引用和公开 RPC 可用性；输出必须脱敏。
 - [ ] **兼容版本说明**：记录验证过的 DSH 版本范围和协议变化，遇到不兼容版本时给出可操作提示。
 - [ ] **常见问题与故障排查**：覆盖找不到 dsh、API Key、空白 Webview、端口冲突、模型不可路由和远程工作区路径问题。
 - [ ] **隐私与数据流说明**：明确编辑器上下文、prompt、凭据、日志和余额查询分别流向哪里，以及哪些数据会持久化。
 - [ ] **Telemetry 与诊断关联**：对齐 Harness session telemetry/OTel 能力，提供可选开关、脱敏说明和按 session/turn 关联的诊断信息。
 
+## 明确不做
+
+上游或 VS Code 稳定 API 均无对应契约，避免从工具名或私有日志反推：
+
+- ~~**MCP 工具来源**：展示 MCP server、工具来源、连接状态和错误。~~ 本轮复核 `deepseek-harness/packages/mcp` 无 `@Remote`、无 `mcp.*` unary 路由，仍无 server 列表或连接状态契约。
+- ~~**Terminal / PTY context**：终端选区 `@` 引用、PTY 输出摘要和 persistent bash 状态。~~ 本轮复核无 `terminal.*` / `shell.*` unary 路由；VS Code 稳定 API 也不提供终端选区或既有 scrollback 读取。
+- **workspace symbol `@` 候选**：公开协议未提供 workspace symbols 查询。
+
 ## 明确不照搬
 
 - 不通过 iframe 嵌入完整 Harness Web UI 作为主聊天体验。
-- 不为每条消息启动全新的 headless 会话并重新拼接历史。
+- 不为每条消息启动全新 headless 会话并重新拼接历史。
 - 不通过 tail 私有 JSONL 日志代替公开 WebSocket/projection 协议。
 - 不在公开 RPC 缺失时伪造 `/compact`、权限切换、插件管理或 Memory 语义。
 - 不在没有 diff、工作区边界校验和用户确认时自动把代码块写入文件。
+- 不使用 `settings.replace` 做整文档覆盖：设置卡片走 revision 保护的 `settings.mutate`，整文档替换是退步。
+
+## 已完成
+
+保留作为记录，不再逐条展开。
+
+### rc2 对齐
+托管 Runtime 默认 pin 升至 `0.1.1-rc.2`（五平台资产，安装时校验 manifest 版本一致）；问题卡片折叠与草稿保留；Job Panel 展示对齐（单任务停止仍等公开控制 RPC）；会话 `@` 引用；嵌套图片递归提取；通用插件设置卡片（`settings.describe/mutate` + revision 冲突保护）；Markdown 表格。
+
+### 日常使用闭环
+Token 与上下文用量条；文件路径与行号跳转；编辑器快捷任务（只预填不静默提交）；变更审查面板（原生 diff，恢复前检测后续修改）。
+
+### IDE 集成与效率
+全界面 i18n；VS Code Chat Participant（`@dsh`）；资源管理器入口；代码块操作（写文件前 diff 并确认）；外部 Approval 接管（一次性批准/拒绝，绑定 session + rpcId + approvalId）；Skills 浏览与选择；Provider、模型与 reasoning effort 状态；Agent Preset 管理；Workspace 管理（不删目录或日志）；文件 `@` 引用候选；手动压缩上下文（公开 `/compact`）；Todo 状态卡；图片附件；Web Search / Fetch 展示；LSP 能力；对话大纲 TreeView 与导航 API；macOS AppShot；峰谷定价展示。
+
+### 环境与发布
+环境检查命令（输出脱敏）；`npm run release` 统一发版；Open VSX 发布步骤；pnpm 启动与 npx 回退、备用 registry 重试。
