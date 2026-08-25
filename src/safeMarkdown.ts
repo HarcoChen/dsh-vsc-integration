@@ -79,6 +79,27 @@ function countRun(value: string, index: number, character: string): number {
     return cursor - index;
 }
 
+function wordCharacter(value: string | undefined): boolean {
+    return value !== undefined && /[\p{L}\p{N}]/u.test(value);
+}
+
+/**
+ * CommonMark forbids intraword emphasis for `_` so that identifiers such as
+ * `snake_case_name` survive verbatim, while `*` may open inside a word. This
+ * checks the simplified flanking condition the scanner needs: an `_` run may
+ * only open when the character before it is not a word character, and may only
+ * close when the character after it is not one.
+ */
+function emphasisRunAllowed(
+    source: string,
+    character: string,
+    openStart: number,
+    closeEnd: number,
+): boolean {
+    if (character !== "_") return true;
+    return !wordCharacter(source[openStart - 1]) && !wordCharacter(source[closeEnd]);
+}
+
 function closingRun(value: string, start: number, character: string, length: number): number {
     let cursor = start;
     while (cursor < value.length) {
@@ -186,24 +207,14 @@ function renderInline(source: string, depth = 0): string {
                 }
             }
         }
-        const strong = source.startsWith("**", index)
-            ? "**"
-            : source.startsWith("__", index)
-              ? "__"
-              : undefined;
-        if (strong) {
-            const closing = source.indexOf(strong, index + 2);
-            if (closing > index + 2) {
-                output += `<strong>${renderInline(source.slice(index + 2, closing), depth + 1)}</strong>`;
-                index = closing + 2;
-                continue;
-            }
-        }
         if (character === "*" || character === "_") {
-            const closing = source.indexOf(character, index + 1);
-            if (closing > index + 1) {
-                output += `<em>${renderInline(source.slice(index + 1, closing), depth + 1)}</em>`;
-                index = closing + 1;
+            const run = Math.min(countRun(source, index, character), 2);
+            const closing = closingRun(source, index + run, character, run);
+            if (closing > index + run && emphasisRunAllowed(source, character, index, closing + run)) {
+                const inner = renderInline(source.slice(index + run, closing), depth + 1);
+                const tag = run === 2 ? "strong" : "em";
+                output += `<${tag}>${inner}</${tag}>`;
+                index = closing + run;
                 continue;
             }
         }
