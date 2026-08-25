@@ -100,6 +100,12 @@ export class HarnessCatalogStore {
 
     public constructor(private readonly now: () => number = Date.now) {}
 
+    /**
+     * Returns a plain unsubscribe function rather than a `vscode.Disposable`,
+     * for the same reason as `HarnessSessionStore.onDidChange`: this module must
+     * stay loadable under `node --test`. Callers wrap it where a Disposable is
+     * required.
+     */
     public onDidChange(listener: HarnessCatalogListener): () => void {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);

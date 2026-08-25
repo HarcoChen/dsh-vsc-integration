@@ -712,6 +712,12 @@ export class HarnessSessionStore {
         private readonly now: () => number = Date.now,
     ) {}
 
+    /**
+     * Returns a plain unsubscribe function rather than a `vscode.Disposable`:
+     * this module stays free of the editor API so `test/` can load it from
+     * `dist/` under `node --test`. Callers that need a Disposable wrap it
+     * themselves (see chatView.ts pushing `new vscode.Disposable(...)`).
+     */
     public onDidChange(listener: SessionStateListener): () => void {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);
