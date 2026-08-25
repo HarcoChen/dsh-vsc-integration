@@ -1,13 +1,9 @@
 import { realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import * as vscode from "vscode";
 import { t } from "./localize";
 import { FileLocation } from "./fileLocations";
-
-function containsPath(root: string, candidate: string): boolean {
-    const child = relative(root, candidate);
-    return child === "" || (!child.startsWith("..") && !isAbsolute(child));
-}
+import { containsPath } from "./paths";
 
 /** Open a one-based location after both lexical and real-path workspace checks. */
 export async function openWorkspaceFileLocation(

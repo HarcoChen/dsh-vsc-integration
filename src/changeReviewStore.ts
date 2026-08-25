@@ -9,6 +9,7 @@ import { SessionStateSnapshot } from "./sessionStore";
 import { t } from "./localize";
 import { ChangeReviewView } from "./types";
 import { isRecord } from "./guards";
+import { containsPath } from "./paths";
 
 const execFileAsync = promisify(execFile);
 const REGULAR_MODES = new Set(["100644", "100755"]);
@@ -60,11 +61,6 @@ interface VirtualDocument {
 function eventTurn(value: unknown): number | undefined {
     if (!isRecord(value) || typeof value.turn !== "number") return undefined;
     return Number.isSafeInteger(value.turn) && value.turn > 0 ? value.turn : undefined;
-}
-
-function inside(root: string, candidate: string): boolean {
-    const relative = path.relative(root, candidate);
-    return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
 function displayError(error: unknown): string {
@@ -309,7 +305,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         let workspaceContainsCwd = false;
         for (const folder of vscode.workspace.workspaceFolders ?? []) {
             const workspaceRoot = await fs.realpath(folder.uri.fsPath);
-            if (inside(workspaceRoot, realCwd)) {
+            if (containsPath(workspaceRoot, realCwd)) {
                 workspaceContainsCwd = true;
                 break;
             }
@@ -393,7 +389,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
     private resolvePath(review: ChangeReview, relativePath: string): string {
         if (!review.git || path.isAbsolute(relativePath)) throw new Error(t("The change path is invalid."));
         const candidate = path.resolve(review.git.cwd, relativePath);
-        if (!inside(review.git.cwd, candidate)) throw new Error(t("The change path is outside the session workspace."));
+        if (!containsPath(review.git.cwd, candidate)) throw new Error(t("The change path is outside the session workspace."));
         return candidate;
     }
 
