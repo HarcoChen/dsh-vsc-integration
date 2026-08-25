@@ -632,6 +632,7 @@ function toolRow(
     const resultSummary = resultPresentation ?? (resultFacts?.content ? oneLine(resultFacts.content, 800) : undefined);
     const title = typeof callView?.title === "string" ? callView.title : name;
     const error = resultFacts?.error ?? (resultFacts?.isError ? resultSummary || "Tool failed" : undefined);
+    const durationMs = durationBetween(call, result);
     const row: TraceRowView = {
         id: `tool:${callId}`,
         seq: anchor.event.seq,
@@ -640,7 +641,7 @@ function toolRow(
         category: "tool",
         summary: oneLine([title, resultSummary].filter(Boolean).join(" · ") || title, 500),
         time: anchor.event.time,
-        ...(durationBetween(call, result) === undefined ? {} : { durationMs: durationBetween(call, result) }),
+        ...(durationMs === undefined ? {} : { durationMs }),
         ...location,
         callId,
         depth: 0,
@@ -688,6 +689,7 @@ function subtoolRow(
             ? {}
             : { step: ownLocation.step ?? rootLocation.step },
     };
+    const durationMs = durationBetween(start, settle);
     const row: TraceRowView = {
         id: `subtool:${callId}`,
         seq: anchor.event.seq,
@@ -698,7 +700,7 @@ function subtoolRow(
         category: "subtool",
         summary: oneLine([name, result].filter(Boolean).join(" · "), 500),
         time: anchor.event.time,
-        ...(durationBetween(start, settle) === undefined ? {} : { durationMs: durationBetween(start, settle) }),
+        ...(durationMs === undefined ? {} : { durationMs }),
         ...location,
         callId,
         ...(parentCallId === undefined ? {} : { parentCallId }),
