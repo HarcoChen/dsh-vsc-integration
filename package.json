@@ -552,8 +552,10 @@
         "build:webview": "node ./scripts/build-webview.mjs",
         "compile": "npm run build:webview && tsc -p ./tsconfig.json",
         "watch": "tsc -watch -p ./tsconfig.json",
-        "check": "tsc --noEmit -p ./tsconfig.json",
-        "test": "npm run compile && node --test test/*.test.js",
+        "check": "tsc --noEmit -p ./tsconfig.json && tsc --noEmit -p ./webview/tsconfig.json",
+        "check:host": "tsc --noEmit -p ./tsconfig.json",
+        "check:webview": "tsc --noEmit -p ./webview/tsconfig.json",
+        "test": "npm run check:webview && npm run compile && node --test test/*.test.js",
         "package": "npm run compile && vsce package",
         "release": "node ./scripts/release.mjs"
     },

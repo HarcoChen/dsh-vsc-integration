@@ -2,6 +2,8 @@
 .vscode-test/**
 src/**
 webview/src/**
+webview/types/**
+webview/tsconfig.json
 webview/index.html
 node_modules/**
 deepseek-harness/**
