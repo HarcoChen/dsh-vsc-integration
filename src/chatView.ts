@@ -28,6 +28,7 @@ import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed } from "./goalActions";
 import { isImageMediaType } from "./guards";
 import { manageProviders as runProviderManagement } from "./providerManagement";
+import { containsPath, samePath } from "./paths";
 import { projectionCell, projectionValue } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
@@ -209,15 +210,6 @@ function goalErrorForHud(error: unknown, operation: GoalMutationOperation): stri
         summary = t("Goal changed elsewhere; refresh and try again.");
     }
     return summary === raw ? summary : `${summary}\n${raw}`;
-}
-
-function containsPath(root: string, candidate: string): boolean {
-    const child = relative(root, candidate);
-    return child === "" || (!child.startsWith("..") && !isAbsolute(child));
-}
-
-function samePath(left: string, right: string): boolean {
-    return containsPath(left, right) && containsPath(right, left);
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {

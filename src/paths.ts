@@ -17,3 +17,13 @@ export function containsPath(root: string, candidate: string): boolean {
     return child === "" ||
         (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child));
 }
+
+/**
+ * Whether two resolved paths denote the same location, by mutual containment.
+ *
+ * Like {@link containsPath} this is purely lexical, so callers comparing paths
+ * that may involve symlinks must pass real paths.
+ */
+export function samePath(left: string, right: string): boolean {
+    return containsPath(left, right) && containsPath(right, left);
+}
