@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
 import { isAbsolute, relative } from "node:path";
 import * as vscode from "vscode";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
@@ -28,7 +27,13 @@ import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed } from "./goalActions";
 import { isImageMediaType } from "./guards";
 import { manageProviders as runProviderManagement } from "./providerManagement";
-import { containsPath, samePath } from "./paths";
+import {
+    applyCodeBlock,
+    copyCodeBlock,
+    insertCodeBlock,
+    openCodeBlock,
+} from "./codeBlockActions";
+import { samePath } from "./paths";
 import { projectionCell, projectionValue } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
@@ -210,14 +215,6 @@ function goalErrorForHud(error: unknown, operation: GoalMutationOperation): stri
         summary = t("Goal changed elsewhere; refresh and try again.");
     }
     return summary === raw ? summary : `${summary}\n${raw}`;
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-    if (left.byteLength !== right.byteLength) return false;
-    for (let index = 0; index < left.byteLength; index += 1) {
-        if (left[index] !== right[index]) return false;
-    }
-    return true;
 }
 
 function referencesSelection(text: string): boolean {
@@ -3137,9 +3134,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
-    private async copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
-        const text = this.codeBlockText(renderId, codeBlockId);
-        await vscode.env.clipboard.writeText(text);
+    private copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
+        return copyCodeBlock(this.codeBlockText(renderId, codeBlockId));
     }
 
     private codeBlockText(renderId: string, codeBlockId: string): string {
@@ -3150,114 +3146,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return text;
     }
 
-    private async insertCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) throw new Error(t("There is no active text editor."));
-        const text = this.codeBlockText(renderId, codeBlockId);
-        const applied = await editor.edit((edit) => {
-            for (const selection of editor.selections) {
-                if (selection.isEmpty) edit.insert(selection.active, text);
-                else edit.replace(selection, text);
-            }
-        });
-        if (!applied) throw new Error(t("VS Code could not insert the code block."));
+    private insertCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
+        return insertCodeBlock(this.codeBlockText(renderId, codeBlockId));
     }
 
-    private async openCodeBlock(
+    private openCodeBlock(
         renderId: string,
         codeBlockId: string,
         language?: string,
     ): Promise<void> {
-        const text = this.codeBlockText(renderId, codeBlockId);
-        const document = await vscode.workspace.openTextDocument({
-            content: text,
-            ...(language === undefined ? {} : { language }),
-        });
-        await vscode.window.showTextDocument(document, { preview: false });
+        return openCodeBlock(this.codeBlockText(renderId, codeBlockId), language);
     }
 
-    private async applyCodeBlock(
+    private applyCodeBlock(
         renderId: string,
         codeBlockId: string,
         language?: string,
     ): Promise<void> {
-        if (!vscode.workspace.isTrusted) {
-            throw new Error(t("Trust the current workspace before applying a code block."));
-        }
-        const text = this.codeBlockText(renderId, codeBlockId);
-        if (!(vscode.workspace.workspaceFolders?.length)) {
-            throw new Error(t("Open a workspace before applying a code block."));
-        }
-        const selected = await vscode.window.showOpenDialog({
-            canSelectFiles: true,
-            canSelectFolders: false,
-            canSelectMany: false,
-            openLabel: t("Select target file"),
-            title: t("Apply code block"),
-        });
-        const targetUri = selected?.[0];
-        if (!targetUri) return;
-        if (targetUri.scheme !== "file") {
-            throw new Error(t("Select a regular file inside the current workspace."));
-        }
-        const folder = vscode.workspace.getWorkspaceFolder(targetUri);
-        if (!folder) {
-            throw new Error(t("The target file is outside the current workspace."));
-        }
-        const [realRoot, realTarget] = await Promise.all([
-            realpath(folder.uri.fsPath),
-            realpath(targetUri.fsPath),
-        ]);
-        if (!containsPath(realRoot, realTarget)) {
-            throw new Error(t("The target file is outside the current workspace."));
-        }
-        const metadata = await vscode.workspace.fs.stat(targetUri);
-        if ((metadata.type & vscode.FileType.File) === 0) {
-            throw new Error(t("Select a regular file inside the current workspace."));
-        }
-        const document = await vscode.workspace.openTextDocument(targetUri);
-        if (document.isDirty) {
-            throw new Error(t("The target file has unsaved changes. Save or discard them before applying code."));
-        }
-        const beforeText = document.getText();
-        const beforeDisk = await vscode.workspace.fs.readFile(targetUri);
-        const proposed = await vscode.workspace.openTextDocument({
-            content: text,
-            ...(language === undefined ? {} : { language }),
-        });
-        const path = vscode.workspace.asRelativePath(targetUri, false).replace(/\\/gu, "/");
-        await vscode.commands.executeCommand(
-            "vscode.diff",
-            targetUri,
-            proposed.uri,
-            t("Apply code block to {path}", { path }),
-            { preview: true },
-        );
-        const applyLabel = t("Apply");
-        const confirmation = await vscode.window.showWarningMessage(
-            t("Apply this code block to {path}?", { path }),
-            { modal: true, detail: t("Review the proposed code block changes, then confirm to apply them.") },
-            applyLabel,
-        );
-        if (confirmation !== applyLabel) return;
-        const latestRealTarget = await realpath(targetUri.fsPath);
-        if (!containsPath(realRoot, latestRealTarget) || !samePath(realTarget, latestRealTarget)) {
-            throw new Error(t("The target file changed while the preview was open. No changes were applied."));
-        }
-        const latestDisk = await vscode.workspace.fs.readFile(targetUri);
-        if (document.isDirty || document.getText() !== beforeText || !sameBytes(latestDisk, beforeDisk)) {
-            throw new Error(t("The target file changed while the preview was open. No changes were applied."));
-        }
-        const edit = new vscode.WorkspaceEdit();
-        edit.replace(
-            targetUri,
-            new vscode.Range(document.positionAt(0), document.positionAt(beforeText.length)),
-            text,
-        );
-        if (!await vscode.workspace.applyEdit(edit) || !await document.save()) {
-            throw new Error(t("VS Code could not apply the code block."));
-        }
-        void vscode.window.showInformationMessage(t("Applied code block to {path}.", { path }));
+        return applyCodeBlock(this.codeBlockText(renderId, codeBlockId), language);
     }
 
     private schedulePostState(): void {
