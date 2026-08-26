@@ -24,7 +24,7 @@ import {
 import { ContextStore } from "./contextStore";
 import { ChangeReviewStore } from "./changeReviewStore";
 import { DshRuntime } from "./dshRuntime";
-import { goalActionAllowed } from "./goalActions";
+import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { isImageMediaType } from "./guards";
 import { manageProviders as runProviderManagement } from "./providerManagement";
 import {
@@ -2011,6 +2011,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.reveal();
     }
 
+    /**
+     * Records a Harness ref acknowledgement, failing closed when the ref is
+     * malformed so the HUD never advances past an unconfirmed mutation.
+     *
+     * @param method - the RPC name, used verbatim in the diagnostic.
+     */
+    private acknowledgeGoalRef(
+        sessionId: string,
+        method: string,
+        result: { ref: unknown },
+    ): void {
+        const ref = normalizeGoalRef(result.ref);
+        if (!ref) {
+            throw new Error(t("Harness returned an invalid {method} ref.", { method }));
+        }
+        this.goalMutations.acknowledgeRef(sessionId, ref);
+    }
+
     private async mutateGoal(action: ChatViewAction): Promise<void> {
         const sessionId = this.sessionId;
         if (!sessionId) return;
@@ -2021,13 +2039,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const parsed = parseGoalProjection(goalCell.value);
         if (!parsed.ok) throw new Error(parsed.error);
 
-        const operation =
-            action.type === "goalCreate" ? "create" :
-            action.type === "goalEdit" ? "edit" :
-            action.type === "goalPause" ? "pause" :
-            action.type === "goalResume" ? "resume" :
-            action.type === "goalComplete" ? "complete" :
-            action.type === "goalClear" ? "clear" : undefined;
+        const operation = goalOperationFor(action.type);
         if (!operation || !this.goalMutations.claim(sessionId, operation, goalCell.seq)) return;
         this.postState();
 
@@ -2046,9 +2058,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     action.objective,
                     action.maxGoalRounds,
                 );
-                const ref = normalizeGoalRef(result.ref);
-                if (!ref) throw new Error(t("Harness returned an invalid goal.create ref."));
-                this.goalMutations.acknowledgeRef(sessionId, ref);
+                this.acknowledgeGoalRef(sessionId, "goal.create", result);
             } else {
                 if (parsed.value === null) throw new Error(t("The current session has no actionable Goal."));
                 const ref = {
@@ -2079,24 +2089,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                               }
                             : { maxGoalRounds: action.maxGoalRounds },
                     );
-                    const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.edit ref."));
-                    this.goalMutations.acknowledgeRef(sessionId, nextRef);
-                } else if (action.type === "goalPause") {
-                    const result = await this.runtime.pauseGoal(sessionId, ref);
-                    const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.pause ref."));
-                    this.goalMutations.acknowledgeRef(sessionId, nextRef);
-                } else if (action.type === "goalResume") {
-                    const result = await this.runtime.resumeGoal(sessionId, ref);
-                    const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.resume ref."));
-                    this.goalMutations.acknowledgeRef(sessionId, nextRef);
-                } else if (action.type === "goalComplete") {
-                    const result = await this.runtime.completeGoal(sessionId, ref);
-                    const nextRef = normalizeGoalRef(result.ref);
-                    if (!nextRef) throw new Error(t("Harness returned an invalid goal.complete ref."));
-                    this.goalMutations.acknowledgeRef(sessionId, nextRef);
+                    this.acknowledgeGoalRef(sessionId, "goal.edit", result);
+                } else if (
+                    action.type === "goalPause" ||
+                    action.type === "goalResume" ||
+                    action.type === "goalComplete"
+                ) {
+                    // These three differ only in which RPC they call.
+                    const call = {
+                        goalPause: ["goal.pause", this.runtime.pauseGoal] as const,
+                        goalResume: ["goal.resume", this.runtime.resumeGoal] as const,
+                        goalComplete: ["goal.complete", this.runtime.completeGoal] as const,
+                    }[action.type];
+                    const result = await call[1].call(this.runtime, sessionId, ref);
+                    this.acknowledgeGoalRef(sessionId, call[0], result);
                 } else if (action.type === "goalClear") {
                     const result = await this.runtime.clearGoal(sessionId, ref);
                     if (result.cleared !== true) {

@@ -14,6 +14,25 @@ export const GOAL_ACTIONS_BY_PHASE: Readonly<Record<DshGoalPhase, readonly GoalA
     complete: ["create", "clear"],
 };
 
+/**
+ * The Goal mutation a webview action asks for, or undefined when the action is
+ * not a Goal mutation.
+ *
+ * @param actionType - the `ChatViewAction` discriminant.
+ * @returns the mutation, or undefined.
+ */
+export function goalOperationFor(actionType: string): GoalAction | undefined {
+    switch (actionType) {
+        case "goalCreate": return "create";
+        case "goalEdit": return "edit";
+        case "goalPause": return "pause";
+        case "goalResume": return "resume";
+        case "goalComplete": return "complete";
+        case "goalClear": return "clear";
+        default: return undefined;
+    }
+}
+
 export function goalActionAllowed(
     phase: DshGoalPhase,
     action: GoalAction,
