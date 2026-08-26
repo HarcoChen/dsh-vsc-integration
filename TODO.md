@@ -4,8 +4,8 @@
 
 ## 本轮进展（2026-08-26）
 
-整条完成 13 项，撤回 4 项（核对后判定无收益或不应统一，理由写在各条目上），
-另有若干改动落在仍未完成条目的内部（主要是 `chatView` 续拆）。共 28 个 commit，
+整条完成 14 项，撤回 4 项（核对后判定无收益或不应统一，理由写在各条目上），
+另有若干改动落在仍未完成条目的内部（主要是 `chatView` 续拆）。共 38 个 commit，
 每个都经 `npm run check` 与 `npm test`（54 个测试）验证通过。
 
 新增的两处基础设施值得注意：`webview/tsconfig.json` 让前端首次进入类型检查，
@@ -20,8 +20,14 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 `guards`、`paths`、`errors`、`providerManagement`、`codeBlockActions`、
 `markdownRenderCache`。
 
-**尚未起头的大项**：`tracePanel` 425 行内联 UI 迁移、4 处超长函数提取、
-Gateway 通道及其依赖的两个功能。这些需要成块的时间，没有起头，不是做了一半。
+`tracePanel` 的 425 行内联 UI 已迁完（966 → 611 行），仓库中不再有未经类型检查
+的 UI 代码——这是本轮两处基础设施改动（webview typecheck、资源管线）合起来的结果。
+
+**尚未起头的大项**：4 处超长函数提取、Gateway 通道及其依赖的两个功能。
+这些需要成块的时间，没有起头，不是做了一半。
+
+**需要人工验证**：Trace 面板无测试覆盖，迁移后的行为我无法目视确认，
+验证清单写在「重构 → 结构」该条目里。
 
 ## 契约基线（2026-08-26 复核）
 
@@ -89,8 +95,11 @@ Gateway 通道及其依赖的两个功能。这些需要成块的时间，没有
 
 ### 结构
 
-- [ ] **`src/tracePanel.ts` 的 425 行内联 UI**。`traceHtml()`（:555-979）里塞着 251 行 JS 字符串 + 96 行 CSS + 39 处 `t()`，全部不过 tsc、不过测试；`escapeHtml` 在同文件存在两份（TS 版 :60、JS 字符串版 :736）。
-      根因是 `localResourceRoots: []`（:104、:119、:144）—— 没有资源根就无法加载外部 bundle。同仓库已有正确解法：`src/chatView.ts:3560-3582` 用 `asWebviewUri` 指向 `webview/dist/`，23 行搞定，真正的 UI 在 `webview/src/` 正常构建。Trace 面板照此迁移即可，做完顺带消掉那份重复 `escapeHtml`。
+- [x] **`src/tracePanel.ts` 的 425 行内联 UI**（已完成，966 → 611 行）。样式 → `webview/src/trace/trace.css`（115 行），客户端脚本 → `webview/src/trace/main.ts`（407 行），均由 esbuild 构建到 `webview/dist/`，宿主用 `asWebviewUri` 以外部 `<link>` / `<script src>` 加载。`traceHtml` 425 → 90 行，其中已无 `<style>` 块、无内联脚本体。
+      分四步落地，每步单独提交、单独验证：打通资源管线（CSS）→ 命名 wire 契约 → 契约移入 vscode-free 的 `traceProtocol` → 移植脚本。文案与 `sessionId` 改由 `<script type="application/json">` 数据块传递，本地化仍属宿主。
+      **迁移中发现并修掉一个既存缺陷**：树缩进用 `style="padding-left"` 属性，而 `style-src` 不含（也不该含）`'unsafe-inline'`，属性被剥掉、缩进从来不生效。已改用 `.depth-0…8` 类，与同文件 timeline 条形图当初的修法一致。
+      `escapeHtml` 在 JS 字符串里的第四份副本随之消失，全仓库现在只有 `fileLocations.ts` 一处定义。
+      **仍需人工验证**：Trace 面板无测试覆盖，我无法目视确认。请在 VS Code 里打开一个会话的 Trace，检查筛选、翻页、行选中/折叠、timeline 点击、projection 选中、Summary/Raw 切换、文件路径跳转，以及树缩进现在是否真的可见。
 - [ ] **`src/chatView.ts` God Object 继续拆**（3582 → 3103 行，已抽出 6 块）。
       已完成：Provider 管理 → `providerManagement.ts`（224 行，以 `ProviderManagementDeps` 注入依赖而非反向依赖 ChatViewProvider）；代码块动作 → `codeBlockActions.ts`（111 行，接缝按 `text` 而非 `renderId` 划，因为可复制文本的缓存与 markdown 渲染共享）；markdown 渲染与代码 payload → `markdownRenderCache.ts`（类，按 `GoalMutationGate` 先例）；设置值转换 → `chatViewPresentation.settingsMutationOps`；会话切换器行组装 → `sessionCatalog.presentSessionRows`（接缝划在 `catalog` 上，两处派生一起搬）；`mutateGoal` 内重复五次的 ref 确认收成一处。
       **抽取标准（本轮验证有效，后续照用）**：候选必须不持有状态、不调 `postState`。按此标准复核的结果 —— Workspace 组的 `pendingNewSessionWorkspace*` 有 16 个读写点散在 `sendPrompt`/`postState`/`newSession`；Preset 组的 `agentPresetCatalog` 7 个点里只有 2 个在块内，`agentPresetDocuments` 更在构造函数里注册为 `TextDocumentContentProvider`；Subagent 组自己拥有 5 个字段，本质是 store+controller。这三组直接抽出只是把耦合从文件内搬到文件间，**须连状态一起搬**才有意义，属更大的设计改动。
@@ -104,7 +113,7 @@ Gateway 通道及其依赖的两个功能。这些需要成块的时间，没有
 - [ ] `src/sessionStore.ts` `applyMuxEnvelope` 160 行 / 11 分支。九处诊断文案已收拢为 `malformedFrame()`。
       **骨架的其余部分不可提取**（已实测，不必再试）：把 validate 留在 `case` 里、state/mutate/publish 移进 `applyToSession(sessionId, mutate)` 回调后，TS 的属性收窄不穿透闭包 —— `frame.lastSeq` 在回调内退回 `unknown`（TS2345）。那需要九个调用点各加一次类型断言，在 wire 校验路径上用断言换去重不值得。要真正去重得先给每个 frame 类型建具名解析函数（`parseSubscribedFrame(frame): {lastSeq} | undefined` 之类），让收窄由返回类型承载 —— 那是比本条更大的改动。
 - [ ] `src/traceProjector.ts:745-929` `projectSessionTrace` 185 行 / 8 职责，含深度 5 的 fallthrough 发射循环。（`genericRow` 的两个死形参与随之失效的 `turnStarts` 索引已删除。）
-- [ ] `src/tracePanel.ts:356-477` `publish()` 122 行 / 7 职责，几何计算与面板消息发送混在一起。
+- [ ] `src/tracePanel.ts` `publish()` 约 120 行 / 7 职责，几何计算与面板消息发送混在一起。（其 payload 现已有 `TracePanelState` 契约，拆解时可直接按字段分组。）
 
 ### 去重
 
