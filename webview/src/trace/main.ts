@@ -5,6 +5,7 @@ import type {
     TraceWebviewAction,
 } from "../../../src/traceProtocol";
 import type { TraceTokenUsage } from "../../../src/traceProjector";
+import { escapeHtml } from "../../../src/fileLocations";
 
 /**
  * Trace panel client.
@@ -55,16 +56,6 @@ function el<E extends HTMLElement = HTMLElement>(id: string): E {
     const node = document.getElementById(id);
     if (!node) throw new Error(`Trace panel element #${id} is missing`);
     return node as E;
-}
-
-function escapeHtml(value: string | number): string {
-    return String(value).replace(/[&<>'"]/gu, (character) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        "'": "&#39;",
-        "\"": "&quot;",
-    }[character] ?? character));
 }
 
 function formatTime(value: number): string {
@@ -221,7 +212,7 @@ function rowMarkup(
         (row.error ? " error" : "") +
         (state.selectedId === row.id ? " selected" : "");
     return `<div class="${classes}" data-row-id="${escapeHtml(row.id)}">` +
-        `<div class="seq">#${Number(state.offset || 0) + index + 1} · ${escapeHtml(row.seq)}${row.endSeq === undefined ? "" : `→${escapeHtml(row.endSeq)}`}</div>` +
+        `<div class="seq">#${Number(state.offset || 0) + index + 1} · ${escapeHtml(String(row.seq))}${row.endSeq === undefined ? "" : `→${escapeHtml(String(row.endSeq))}`}</div>` +
         `<div class="event">${toggle}${escapeHtml(row.eventType)}</div>` +
         `<div class="meta">${escapeHtml(group)}</div>` +
         `<div class="summary" title="${escapeHtml(summary)}">${summaryHtml}${row.error ? ` · ${row.errorHtml}` : ""}</div>` +
@@ -261,7 +252,7 @@ function render(): void {
         ? projections.map((item) =>
               `<div class="projection${state.selectedId === item.id ? " selected" : ""}" data-projection-key="${escapeHtml(item.key)}">` +
               `<div class="projection-head"><span class="projection-key">${escapeHtml(item.key)}</span>` +
-              `<span class="seq">seq ${escapeHtml(item.seq)}</span></div>` +
+              `<span class="seq">seq ${escapeHtml(String(item.seq))}</span></div>` +
               `<div class="projection-value">${item.valueHtml}</div></div>`,
           ).join("")
         : `<div class="empty">${escapeHtml(i18n.noProjections)}</div>`;
