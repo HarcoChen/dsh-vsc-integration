@@ -70,6 +70,7 @@ export class TracePanelManager implements vscode.Disposable, vscode.WebviewPanel
         private readonly runtime: DshRuntime,
         private readonly output: vscode.OutputChannel,
         private readonly workspaceRoot: () => string | undefined,
+        private readonly extensionUri: vscode.Uri,
     ) {}
 
     public async open(locationValue: unknown): Promise<void> {
@@ -126,11 +127,13 @@ export class TracePanelManager implements vscode.Disposable, vscode.WebviewPanel
     }
 
     private attach(panel: vscode.WebviewPanel, sessionId: string): TracePanelController {
+        // The extension root is the only readable root: the panel loads its
+        // stylesheet from webview/dist and nothing else.
         panel.webview.options = {
             enableScripts: true,
-            localResourceRoots: [],
+            localResourceRoots: [this.extensionUri],
         };
-        panel.webview.html = traceHtml(sessionId);
+        panel.webview.html = traceHtml(sessionId, panel.webview, this.extensionUri);
         const controller = new TracePanelController(
             panel,
             sessionId,
@@ -539,9 +542,16 @@ class TracePanelController implements vscode.Disposable {
     }
 }
 
-function traceHtml(sessionId: string): string {
+function traceHtml(
+    sessionId: string,
+    webview: vscode.Webview,
+    extensionUri: vscode.Uri,
+): string {
     const nonce = randomUUID().replace(/-/gu, "");
     const language = vscode.env.language.replace(/[^a-z0-9-]/giu, "") || "en";
+    const styleUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(extensionUri, "webview", "dist", "trace.css"),
+    );
     const serialized = scriptJson({ sessionId });
     const strings = {
         loading: t("Loading"),
@@ -588,103 +598,8 @@ function traceHtml(sessionId: string): string {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
-    <style nonce="${nonce}">
-        :root { color-scheme: light dark; }
-        * { box-sizing: border-box; }
-        body { margin: 0; color: var(--vscode-foreground); background: var(--vscode-editor-background); font: 12px var(--vscode-font-family); overflow: hidden; }
-        button, input { font: inherit; }
-        button { border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; padding: 4px 8px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; }
-        button.secondary { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground); }
-        button:disabled { opacity: .5; cursor: default; }
-        button.active { outline: 1px solid var(--vscode-focusBorder); }
-        .app { height: 100vh; display: grid; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
-        header { display: flex; gap: 10px; align-items: center; padding: 9px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
-        .title { font-weight: 700; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .status { display: flex; align-items: center; gap: 5px; color: var(--vscode-descriptionForeground); }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vscode-descriptionForeground); }
-        .dot.running { background: #4ec994; }
-        .dot.attention { background: #e5b567; }
-        .dot.error { background: #f14c4c; }
-        .toolbar { display: flex; gap: 6px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
-        .toolbar input { width: min(420px, 45vw); padding: 5px 7px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); }
-        .counts { flex: 1; color: var(--vscode-descriptionForeground); }
-        .overview { display: grid; grid-template-columns: repeat(8, minmax(90px, 1fr)); gap: 1px; padding: 8px 12px; background: var(--vscode-panel-border); border-bottom: 1px solid var(--vscode-panel-border); }
-        .metric { min-width: 0; padding: 7px 9px; background: var(--vscode-editor-background); }
-        .metric-label { color: var(--vscode-descriptionForeground); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
-        .metric-value { margin-top: 3px; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .timeline { min-height: 70px; padding: 8px 12px 10px; border-bottom: 1px solid var(--vscode-panel-border); overflow: hidden; }
-        .timeline-lanes { display: grid; gap: 3px; margin-top: 7px; }
-        .timeline-lane { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; align-items: center; }
-        .timeline-lane-label { color: var(--vscode-descriptionForeground); font-size: 10px; }
-        .timeline-track { position: relative; height: 21px; padding: 2px 3px; background: color-mix(in srgb, var(--vscode-panel-border) 35%, transparent); border-radius: 3px; overflow: hidden; }
-        .timeline-item { position: absolute; top: 2px; height: 16px; border-radius: 2px; opacity: .9; cursor: pointer; }
-        .timeline-item:hover { opacity: 1; outline: 1px solid var(--vscode-focusBorder); }
-        .timeline-item.user { background: #4f8cca; } .timeline-item.assistant { background: #8d6bb3; } .timeline-item.tool, .timeline-item.subtool { background: #d88924; } .timeline-item.error { background: #d94c4c; } .timeline-item.compaction { background: #4ca879; } .timeline-item.context { background: #6a7178; } .timeline-item.boundary { background: #5d9a75; } .timeline-item.system { background: #7a8088; } .timeline-item.generic { background: #9b7b4a; }
-        .timeline-scale { display: flex; justify-content: space-between; color: var(--vscode-descriptionForeground); font: 10px var(--vscode-editor-font-family); }
-        .layout { min-height: 0; display: flex; align-items: stretch; overflow: hidden; }
-        .ledger-shell { flex: 1 1 60%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); border-right: 1px solid var(--vscode-panel-border); overflow: hidden; }
-        .section { min-width: 0; padding: 7px 10px; background: var(--vscode-editor-background); border-bottom: 1px solid var(--vscode-panel-border); overflow: hidden; }
-        .projection-section { height: 220px; }
-        .section-title { color: var(--vscode-descriptionForeground); font-size: 11px; margin-bottom: 5px; }
-        .projections { min-width: 0; min-height: 0; height: 195px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 5px; }
-        .projection { min-width: 0; min-height: 62px; max-width: 100%; padding: 6px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; cursor: pointer; overflow: hidden; }
-        .projection.selected { outline: 1px solid var(--vscode-focusBorder); }
-        .projection-head { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 6px; }
-        .projection-key { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .projection-head .seq { flex: 0 0 auto; white-space: nowrap; }
-        .projection-value { display: -webkit-box; margin-top: 4px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: normal; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-        .ledger { min-height: 0; overflow: auto; }
-        .ledger-head, .trace-row { display: grid; grid-template-columns: 70px minmax(155px, .7fr) 120px minmax(240px, 2fr) 110px; align-items: center; }
-        .ledger-head { position: sticky; top: 0; z-index: 2; min-height: 28px; color: var(--vscode-descriptionForeground); background: var(--vscode-editor-background); border-bottom: 1px solid var(--vscode-panel-border); }
-        .ledger-head > div, .trace-row > div { min-width: 0; padding: 5px 7px; }
-        .trace-row { min-height: 35px; border-bottom: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent); cursor: pointer; }
-        .trace-row:hover { background: var(--vscode-list-hoverBackground); }
-        .trace-row.selected { color: var(--vscode-list-activeSelectionForeground); background: var(--vscode-list-activeSelectionBackground); }
-        .seq, .meta, .time { color: var(--vscode-descriptionForeground); font-family: var(--vscode-editor-font-family); font-size: 11px; }
-        .event { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .event::before { content: ''; display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--vscode-descriptionForeground); }
-        .trace-row.user .event { color: #4f8cca; } .trace-row.user .event::before { background: #4f8cca; }
-        .trace-row.context .event { color: #6a7178; } .trace-row.context .event::before { background: #6a7178; }
-        .trace-row.assistant .event { color: #8d6bb3; } .trace-row.assistant .event::before { background: #8d6bb3; }
-        .trace-row.tool .event, .trace-row.subtool .event { color: #d88924; } .trace-row.tool .event::before, .trace-row.subtool .event::before { background: #d88924; }
-        .trace-row.compaction .event { color: #4ca879; } .trace-row.compaction .event::before { background: #4ca879; }
-        .trace-row.system .event { color: #7a8088; } .trace-row.system .event::before { background: #7a8088; }
-        .trace-row.boundary .event { color: #5d9a75; } .trace-row.boundary .event::before { background: #5d9a75; }
-        .trace-row.generic .event { color: #9b7b4a; } .trace-row.generic .event::before { background: #9b7b4a; }
-        .trace-row.error .event::before { background: var(--vscode-errorForeground); }
-        .tree-toggle { min-width: 18px; width: 18px; height: 18px; padding: 0; margin-right: 4px; line-height: 14px; vertical-align: -2px; }
-        .summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .trace-row.error .event, .trace-row.error .summary { color: var(--vscode-errorForeground); }
-        .empty, .error-box { padding: 24px; color: var(--vscode-descriptionForeground); text-align: center; }
-        .error-box { color: var(--vscode-errorForeground); }
-        .inspector { display: none; flex: 0 0 clamp(260px, 30vw, 420px); min-width: 0; min-height: 0; background: var(--vscode-editor-background); grid-template-rows: auto auto minmax(0, 1fr); border-left: 1px solid var(--vscode-panel-border); }
-        .inspector.visible { display: grid; }
-        .inspector-head { padding: 10px 12px; border-bottom: 1px solid var(--vscode-panel-border); }
-        .inspector-kind { color: var(--vscode-descriptionForeground); font-size: 10px; text-transform: uppercase; }
-        .inspector-title { margin-top: 3px; font-weight: 600; overflow-wrap: anywhere; }
-        .tabs { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); }
-        .tabs button { color: var(--vscode-foreground); background: transparent; }
-        .tabs button.active { background: var(--vscode-toolbar-hoverBackground); }
-        .detail { min-height: 0; overflow: auto; padding: 10px 12px; }
-        .field { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--vscode-panel-border); }
-        .field-label { color: var(--vscode-descriptionForeground); }
-        .field-value { white-space: pre-wrap; overflow-wrap: anywhere; }
-        .file-location-link { color: var(--vscode-textLink-foreground); text-decoration: underline dotted; text-underline-offset: 2px; cursor: pointer; }
-        .file-location-link:hover { color: var(--vscode-textLink-activeForeground); text-decoration-style: solid; }
-        pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 var(--vscode-editor-font-family); }
-        .hidden { display: none; }
-        @media (max-width: 900px) {
-            body { overflow: auto; }
-            .app { height: auto; min-height: 100vh; }
-            .layout { display: block; }
-            .ledger-shell { min-height: 520px; border-right: 0; }
-            .inspector { display: none; flex: none; width: 100%; min-height: 360px; border-left: 0; border-top: 1px solid var(--vscode-panel-border); }
-            .inspector.visible { display: grid; }
-            .overview { grid-template-columns: repeat(4, minmax(90px, 1fr)); }
-            .projections { grid-template-columns: 1fr; }
-        }
-    </style>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+    <link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
     <div class="app">

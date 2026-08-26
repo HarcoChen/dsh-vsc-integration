@@ -32,7 +32,12 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         balanceService,
         agentStatusPresentations,
     );
-    const tracePanels = new TracePanelManager(runtime, output, workspaceRoot);
+    const tracePanels = new TracePanelManager(
+        runtime,
+        output,
+        workspaceRoot,
+        context.extensionUri,
+    );
     const conversationNavigation = new ConversationNavigationProvider(
         runtime,
         chatView,
