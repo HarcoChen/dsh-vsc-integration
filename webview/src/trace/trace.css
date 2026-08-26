@@ -69,6 +69,19 @@ header { display: flex; gap: 10px; align-items: center; padding: 9px 12px; borde
 .trace-row.boundary .event { color: #5d9a75; } .trace-row.boundary .event::before { background: #5d9a75; }
 .trace-row.generic .event { color: #9b7b4a; } .trace-row.generic .event::before { background: #9b7b4a; }
 .trace-row.error .event::before { background: var(--vscode-errorForeground); }
+/* Tree indentation. Emitted as a class rather than a style attribute: the
+   webview CSP has no 'unsafe-inline' in style-src, so an inline style
+   attribute is stripped and the indentation silently disappears. The
+   timeline bars avoid the same trap by going through CSSOM. */
+.trace-row.depth-0 { padding-left: 0px; }
+.trace-row.depth-1 { padding-left: 12px; }
+.trace-row.depth-2 { padding-left: 24px; }
+.trace-row.depth-3 { padding-left: 36px; }
+.trace-row.depth-4 { padding-left: 48px; }
+.trace-row.depth-5 { padding-left: 60px; }
+.trace-row.depth-6 { padding-left: 72px; }
+.trace-row.depth-7 { padding-left: 84px; }
+.trace-row.depth-8 { padding-left: 96px; }
 .tree-toggle { min-width: 18px; width: 18px; height: 18px; padding: 0; margin-right: 4px; line-height: 14px; vertical-align: -2px; }
 .summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trace-row.error .event, .trace-row.error .summary { color: var(--vscode-errorForeground); }
