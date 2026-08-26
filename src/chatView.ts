@@ -33,6 +33,7 @@ import {
     insertCodeBlock,
     openCodeBlock,
 } from "./codeBlockActions";
+import { MarkdownRenderCache } from "./markdownRenderCache";
 import { samePath } from "./paths";
 import { projectionCell, projectionValue } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
@@ -49,9 +50,7 @@ import {
     todoProjection,
 } from "./chatViewPresentation";
 import {
-    isCopyableCode,
     parseSafeHttpUrl,
-    renderMarkdownMessage,
     renderSafeMarkdown,
 } from "./safeMarkdown";
 import {
@@ -259,16 +258,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private viewMessageDisposable: vscode.Disposable | undefined;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly optimisticPrompts: OptimisticPrompt[] = [];
-    private readonly markdownCache = new Map<string, {
-        source: string;
-        reasoningSource?: string;
-        html: string;
-        renderId: string;
-        codeBlocks: ReadonlyMap<string, string>;
-        reasoningHtml?: string;
-        reasoningRenderId?: string;
-    }>();
-    private readonly copyableCodeByRenderId = new Map<string, ReadonlyMap<string, string>>();
+    private readonly markdownRenders = new MarkdownRenderCache();
     private readonly goalMutations = new GoalMutationGate();
     private readonly subagentTrees = new SubagentTreeStore();
     private readonly subagentTreeAborts = new Map<string, AbortController>();
@@ -2999,75 +2989,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     : { tool: { ...message.tool, images: toolImages } }),
             };
         });
-        return hydrated.map((message) => {
-            const key = `${scope}:${message.role}:${message.id}`;
-            const reasoningSource = message.role === "assistant" && message.reasoning
-                ? message.reasoning
-                : undefined;
-            const cached = this.markdownCache.get(key);
-            if (
-                cached?.source === message.text &&
-                cached.reasoningSource === reasoningSource
-            ) {
-                return {
-                    ...message,
-                    renderedHtml: cached.html,
-                    renderId: cached.renderId,
-                    ...(cached.reasoningHtml === undefined
-                        ? {}
-                        : { renderedReasoningHtml: cached.reasoningHtml }),
-                    ...(cached.reasoningRenderId === undefined
-                        ? {}
-                        : { reasoningRenderId: cached.reasoningRenderId }),
-                };
-            }
-            const rendered = renderMarkdownMessage(message.text);
-            const renderedReasoning = reasoningSource === undefined
-                ? undefined
-                : renderMarkdownMessage(reasoningSource);
-            const html = rendered.html;
-            if (!cached && this.markdownCache.size >= 2_000) {
-                const oldest = this.markdownCache.keys().next().value as string | undefined;
-                if (oldest !== undefined) {
-                    const evicted = this.markdownCache.get(oldest);
-                    if (evicted) this.discardMarkdownPayloads(evicted);
-                    this.markdownCache.delete(oldest);
-                }
-            }
-            if (cached) this.discardMarkdownPayloads(cached);
-            const renderId = randomUUID().replace(/-/gu, "");
-            const codeBlocks = new Map(rendered.codeBlocks.map((block) => [block.id, block.text]));
-            const reasoningRenderId = renderedReasoning === undefined
-                ? undefined
-                : randomUUID().replace(/-/gu, "");
-            const reasoningCodeBlocks = renderedReasoning === undefined
-                ? undefined
-                : new Map(renderedReasoning.codeBlocks.map((block) => [block.id, block.text]));
-            this.markdownCache.set(key, {
-                source: message.text,
-                ...(reasoningSource === undefined ? {} : { reasoningSource }),
-                html,
-                renderId,
-                codeBlocks,
-                ...(renderedReasoning === undefined
-                    ? {}
-                    : { reasoningHtml: renderedReasoning.html }),
-                ...(reasoningRenderId === undefined ? {} : { reasoningRenderId }),
-            });
-            this.copyableCodeByRenderId.set(renderId, codeBlocks);
-            if (reasoningRenderId && reasoningCodeBlocks) {
-                this.copyableCodeByRenderId.set(reasoningRenderId, reasoningCodeBlocks);
-            }
-            return {
-                ...message,
-                renderedHtml: html,
-                renderId,
-                ...(renderedReasoning === undefined
-                    ? {}
-                    : { renderedReasoningHtml: renderedReasoning.html }),
-                ...(reasoningRenderId === undefined ? {} : { reasoningRenderId }),
-            };
-        });
+        return this.markdownRenders.render(hydrated, scope);
     }
 
     private async loadImage(attachmentId: string): Promise<void> {
@@ -3124,26 +3046,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
     }
 
-    private discardMarkdownPayloads(cached: {
-        renderId: string;
-        reasoningRenderId?: string;
-    }): void {
-        this.copyableCodeByRenderId.delete(cached.renderId);
-        if (cached.reasoningRenderId) {
-            this.copyableCodeByRenderId.delete(cached.reasoningRenderId);
-        }
-    }
-
     private copyCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
         return copyCodeBlock(this.codeBlockText(renderId, codeBlockId));
     }
 
     private codeBlockText(renderId: string, codeBlockId: string): string {
-        const text = this.copyableCodeByRenderId.get(renderId)?.get(codeBlockId);
-        if (text === undefined || !isCopyableCode(text)) {
-            throw new Error(t("The code block does not exist or exceeds the copy size limit."));
-        }
-        return text;
+        return this.markdownRenders.codeBlockText(renderId, codeBlockId);
     }
 
     private insertCodeBlock(renderId: string, codeBlockId: string): Promise<void> {
