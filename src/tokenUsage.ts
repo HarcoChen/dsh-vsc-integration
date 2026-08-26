@@ -1,4 +1,4 @@
-import { ProjectionCell, SessionStateSnapshot } from "./sessionStore";
+import { projectionValue, SessionStateSnapshot } from "./sessionStore";
 import {
     DshModelSelection,
     DshReasoningEffortOption,
@@ -53,13 +53,6 @@ function parseUsage(value: unknown): UsageBuckets | undefined {
             ? { reasoningTokens: value.reasoningTokens }
             : {}),
     };
-}
-
-function projectionValue(
-    snapshot: SessionStateSnapshot,
-    key: string,
-): unknown {
-    return snapshot.projections.find((cell: ProjectionCell) => cell.key === key)?.value;
 }
 
 function billingUsage(snapshot: SessionStateSnapshot): TokenUsageView["billing"] {

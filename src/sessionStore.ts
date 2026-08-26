@@ -95,6 +95,39 @@ export interface SessionStateSnapshot {
     needsHistoryBaseline: boolean;
 }
 
+/**
+ * The projection cell for `key`, or undefined when the session has no value for
+ * it. Absence is meaningful: it means the owning Harness plugin is not composed,
+ * so callers must treat it as capability absence rather than an empty value.
+ *
+ * Accepts an absent snapshot so call sites reading a possibly-unselected session
+ * do not each repeat an optional chain.
+ *
+ * @param snapshot - the session state, or undefined when none is selected.
+ * @param key - the projection key.
+ * @returns the cell, or undefined.
+ */
+export function projectionCell(
+    snapshot: SessionStateSnapshot | undefined,
+    key: string,
+): ProjectionCell | undefined {
+    return snapshot?.projections.find((cell) => cell.key === key);
+}
+
+/**
+ * The wire value of the projection for `key`, or undefined when absent.
+ *
+ * @param snapshot - the session state, or undefined when none is selected.
+ * @param key - the projection key.
+ * @returns the value as it arrived, still unvalidated.
+ */
+export function projectionValue(
+    snapshot: SessionStateSnapshot | undefined,
+    key: string,
+): unknown {
+    return projectionCell(snapshot, key)?.value;
+}
+
 export type SessionInteractionStatus =
     | "pending"
     | "submitting"

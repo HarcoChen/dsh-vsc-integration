@@ -28,6 +28,7 @@ import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed } from "./goalActions";
 import { isImageMediaType } from "./guards";
 import { manageProviders as runProviderManagement } from "./providerManagement";
+import { projectionCell, projectionValue } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
@@ -346,7 +347,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (sessionId === this.sessionId) {
                 this.goalMutations.observe(
                     sessionId,
-                    snapshot.projections.find((cell) => cell.key === "goal"),
+                    projectionCell(snapshot, "goal"),
                 );
                 this.schedulePostState();
             }
@@ -2034,10 +2035,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async mutateGoal(action: ChatViewAction): Promise<void> {
         const sessionId = this.sessionId;
         if (!sessionId) return;
-        const goalCell = this.runtime
-            .getSessionStore()
-            .get(sessionId)
-            ?.projections.find((cell) => cell.key === "goal");
+        const goalCell = projectionCell(this.runtime.getSessionStore().get(sessionId), "goal");
         if (!goalCell) {
             throw new Error(t("The current Harness does not provide a goal projection, so the Goal HUD remains hidden."));
         }
@@ -2128,10 +2126,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.goalMutations.acknowledgeClear(sessionId);
                 }
             }
-            const latestGoalCell = this.runtime
-                .getSessionStore()
-                .get(sessionId)
-                ?.projections.find((cell) => cell.key === "goal");
+            const latestGoalCell = projectionCell(this.runtime.getSessionStore().get(sessionId), "goal");
             this.goalMutations.observe(sessionId, latestGoalCell);
         } catch (error) {
             this.goalMutations.fail(sessionId, goalErrorForHud(error, operation));
@@ -2770,15 +2765,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const session = this.sessionId
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
-        const goalCell = session?.projections.find((cell) => cell.key === "goal");
-        const permissionsCell = session?.projections.find((cell) => cell.key === "permissions");
-        const todos = todoProjection(session?.projections.find((cell) => cell.key === "todos")?.value);
-        const imageLimits = imageLimitsProjection(
-            session?.projections.find((cell) => cell.key === "imageLimits")?.value,
-        );
-        const sessionStats = sessionStatsProjection(
-            session?.projections.find((cell) => cell.key === "sessionStats")?.value,
-        );
+        const goalCell = projectionCell(session, "goal");
+        const permissionsCell = projectionCell(session, "permissions");
+        const todos = todoProjection(projectionValue(session, "todos"));
+        const imageLimits = imageLimitsProjection(projectionValue(session, "imageLimits"));
+        const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));
         const host = presentHostBaseline(this.runtime.getHostDescription());
         const busy = selected?.running === true;
         const agentStatusLabel = this.agentStatusLabel(this.sessionId, busy);
