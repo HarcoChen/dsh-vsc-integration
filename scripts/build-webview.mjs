@@ -18,8 +18,15 @@ await build({
     loader: { ".css": "css" },
 });
 
-// The Trace panel stylesheet. Its markup and client script still live in
-// src/tracePanel.ts; only the styles have moved out so far.
+// The Trace panel: vanilla DOM, mounted into the editor-area webview panel.
+// Its surrounding markup still comes from src/tracePanel.ts.
+await build({
+    ...shared,
+    entryPoints: ["webview/src/trace/main.ts"],
+    format: "iife",
+    outfile: "webview/dist/trace.js",
+});
+
 await build({
     ...shared,
     entryPoints: ["webview/src/trace/trace.css"],
