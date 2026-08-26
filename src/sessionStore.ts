@@ -765,6 +765,16 @@ export class HarnessSessionStore {
         return this.publish(state);
     }
 
+    /**
+     * Reports a frame that failed its per-type validation.
+     *
+     * The type is read from the frame rather than spelled out per call site, so
+     * the diagnostic cannot drift from the `case` label it belongs to.
+     */
+    private malformedFrame(frame: Record<string, unknown>): void {
+        this.diagnostic("invalid-frame", `${String(frame.type)} frame is malformed`, frame);
+    }
+
     public applyMuxEnvelope(envelope: HarnessStreamEnvelope<DshMuxFrame>): void {
         const frame = envelope.payload as unknown;
         if (!isRecord(frame) || typeof frame.type !== "string") {
@@ -776,7 +786,7 @@ export class HarnessSessionStore {
         switch (frame.type) {
             case "session/event": {
                 if (!sessionId || !isRecord(frame.event)) {
-                    this.diagnostic("invalid-frame", "session/event frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -786,7 +796,7 @@ export class HarnessSessionStore {
             }
             case "session/subscribed": {
                 if (!sessionId || !isSeq(frame.lastSeq, true)) {
-                    this.diagnostic("invalid-frame", "session/subscribed frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -802,7 +812,7 @@ export class HarnessSessionStore {
                     !isSeq(frame.seq, true) ||
                     !("value" in frame)
                 ) {
-                    this.diagnostic("invalid-frame", "session/projection frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -813,7 +823,7 @@ export class HarnessSessionStore {
             }
             case "session/queue": {
                 if (!sessionId || !Array.isArray(frame.items)) {
-                    this.diagnostic("invalid-frame", "session/queue frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -827,7 +837,7 @@ export class HarnessSessionStore {
             }
             case "session/jobs": {
                 if (!sessionId || !Array.isArray(frame.jobs)) {
-                    this.diagnostic("invalid-frame", "session/jobs frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -847,7 +857,7 @@ export class HarnessSessionStore {
                     (frame.callId !== undefined && typeof frame.callId !== "string") ||
                     (frame.reason !== undefined && typeof frame.reason !== "string")
                 ) {
-                    this.diagnostic("invalid-frame", "approval/requested frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -872,7 +882,7 @@ export class HarnessSessionStore {
                     typeof frame.approvalId !== "string" ||
                     typeof frame.outcome !== "string"
                 ) {
-                    this.diagnostic("invalid-frame", "approval/resolved frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -888,7 +898,7 @@ export class HarnessSessionStore {
             case "question/requested": {
                 const questions = normalizeQuestionItems(frame.questions);
                 if (!sessionId || !questions) {
-                    this.diagnostic("invalid-frame", "question/requested frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
@@ -906,7 +916,7 @@ export class HarnessSessionStore {
                     typeof frame.questionRpcId !== "string" ||
                     typeof frame.outcome !== "string"
                 ) {
-                    this.diagnostic("invalid-frame", "question/resolved frame is malformed", frame);
+                    this.malformedFrame(frame);
                     return;
                 }
                 const state = this.state(sessionId);
