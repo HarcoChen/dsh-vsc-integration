@@ -35,6 +35,7 @@ import {
 } from "./codeBlockActions";
 import { MarkdownRenderCache } from "./markdownRenderCache";
 import { samePath } from "./paths";
+import { presentSessionRows } from "./sessionCatalog";
 import { projectionCell, projectionValue } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
@@ -2735,12 +2736,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const currentDshWorkspace = workspaceFolder
             ? catalog.workspaces.find((workspace) => samePath(workspace.path, workspaceFolder.uri.fsPath))
             : undefined;
-        const archived = new Set(catalog.archivedSessionIds);
-        const workspaceBySession = new Map(
-            catalog.workspaces.flatMap((workspace) =>
-                workspace.sessionIds.map((sessionId) => [sessionId, workspace] as const),
-            ),
-        );
         const selected = catalog.sessions.find((item) => item.sessionId === this.sessionId);
         if (this.sessionId) this.refreshSkillCatalog(this.sessionId);
         if (selected?.agentPreset) this.refreshAgentPresetCatalog();
@@ -2813,21 +2808,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                       draftWorkspaceTitle: this.pendingNewSessionWorkspaceTitle,
                   }
                 : {}),
-            sessions: catalog.sessions
-                .filter((item) => !archived.has(item.sessionId))
-                .map((item) => ({
-                    sessionId: item.sessionId,
-                    title: item.title || item.sessionId.slice(0, 12),
-                    ...(workspaceBySession.has(item.sessionId)
-                        ? {
-                              workspaceId: workspaceBySession.get(item.sessionId)?.workspaceId,
-                              workspaceTitle: workspaceBySession.get(item.sessionId)?.title,
-                          }
-                        : {}),
-                    running: item.running === true,
-                    attention: item.pendingInteraction !== undefined,
-                    archived: false,
-                })),
+            sessions: presentSessionRows(catalog),
             sessionStatus: selected
                 ? {
                       running: selected.running === true,

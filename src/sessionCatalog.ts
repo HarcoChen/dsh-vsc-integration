@@ -1,5 +1,6 @@
 import { HarnessStreamEnvelope } from "./harnessClient";
 import {
+    ChatViewState,
     DshHostFrame,
     DshMuxFrame,
     DshSessionListResult,
@@ -20,6 +21,43 @@ export interface HarnessCatalogSnapshot {
     workspaces: readonly DshWorkspaceView[];
     archivedSessionIds: readonly string[];
     revision: number;
+}
+
+/**
+ * Projects the switcher rows from a catalog snapshot.
+ *
+ * Archived sessions are dropped rather than flagged, so every emitted row carries
+ * `archived: false`; the field exists for the webview's row type, not as a filter
+ * the client re-applies. Workspace grouping comes from each workspace's own
+ * `sessionIds`, so a session belonging to no workspace simply omits both fields.
+ *
+ * @param catalog - the current catalog snapshot.
+ * @returns the rows in catalog order (most recently updated first).
+ */
+export function presentSessionRows(
+    catalog: HarnessCatalogSnapshot,
+): ChatViewState["sessions"] {
+    const archived = new Set(catalog.archivedSessionIds);
+    const workspaceBySession = new Map(
+        catalog.workspaces.flatMap((workspace) =>
+            workspace.sessionIds.map((sessionId) => [sessionId, workspace] as const),
+        ),
+    );
+    return catalog.sessions
+        .filter((item) => !archived.has(item.sessionId))
+        .map((item) => {
+            const workspace = workspaceBySession.get(item.sessionId);
+            return {
+                sessionId: item.sessionId,
+                title: item.title || item.sessionId.slice(0, 12),
+                ...(workspace === undefined
+                    ? {}
+                    : { workspaceId: workspace.workspaceId, workspaceTitle: workspace.title }),
+                running: item.running === true,
+                attention: item.pendingInteraction !== undefined,
+                archived: false,
+            };
+        });
 }
 
 interface RevisionedSession {
