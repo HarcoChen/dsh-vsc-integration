@@ -94,6 +94,7 @@ import {
 } from "./types";
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
+import { errorMessage } from "./errors";
 
 interface PersistedSession {
     sessionId: string;
@@ -131,10 +132,6 @@ const DEFAULT_AGENT_STATUS_LABELS = [
     "大肥鱼：这题我会…",
 ] as const;
 
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
 
 type PromptCommandName = "compact" | "goal";
 

@@ -20,6 +20,7 @@ import {
 } from "./traceProtocol";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
 import { t } from "./localize";
+import { errorMessage } from "./errors";
 
 const PAGE_SIZE = 250;
 const RAW_DETAIL_LIMIT = 65_536;
@@ -51,10 +52,6 @@ interface TraceTimelineItem {
     width: number;
     durationMs?: number;
     summary: string;
-}
-
-function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function scriptJson(value: unknown): string {

@@ -10,6 +10,7 @@ import { t } from "./localize";
 import { ChangeReviewView } from "./types";
 import { isRecord } from "./guards";
 import { containsPath } from "./paths";
+import { errorMessage } from "./errors";
 
 const execFileAsync = promisify(execFile);
 const REGULAR_MODES = new Set(["100644", "100755"]);
@@ -61,10 +62,6 @@ interface VirtualDocument {
 function eventTurn(value: unknown): number | undefined {
     if (!isRecord(value) || typeof value.turn !== "number") return undefined;
     return Number.isSafeInteger(value.turn) && value.turn > 0 ? value.turn : undefined;
-}
-
-function displayError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function isNullBlob(hash: string): boolean {
@@ -267,7 +264,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         this.sessions.clear();
         for (const root of this.tempRoots) {
             void fs.rm(root, { recursive: true, force: true }).catch((error) => {
-                this.output.appendLine(`[dsh:changes] cleanup failed: ${displayError(error)}`);
+                this.output.appendLine(`[dsh:changes] cleanup failed: ${errorMessage(error)}`);
             });
         }
         this.tempRoots.clear();
@@ -366,8 +363,8 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         const review = this.sessions.get(sessionId)?.reviews.get(turn);
         if (!review) return;
         review.state = "error";
-        review.error = t("Unable to capture file changes: {message}", { message: displayError(error) });
-        this.output.appendLine(`[dsh:changes] session ${sessionId} turn ${turn}: ${displayError(error)}`);
+        review.error = t("Unable to capture file changes: {message}", { message: errorMessage(error) });
+        this.output.appendLine(`[dsh:changes] session ${sessionId} turn ${turn}: ${errorMessage(error)}`);
         this.emit();
     }
 
