@@ -36,6 +36,7 @@ import {
     permissionProjection,
     prepareImageUploads,
     presentSettingsPanel,
+    settingsMutationOps,
     reasoningEffortOptions,
     sessionStatsProjection,
     todoProjection,
@@ -78,7 +79,6 @@ import {
     DshSettingsCardView,
     DshSettingsPanelView,
     DshSettingsNamespaceView,
-    DshSettingsPathOperation,
     DshSkillEntry,
     DshSubagentAddress,
     DshSubagentCatalog,
@@ -989,35 +989,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!panel?.open || !panel.writable || !namespace || !card || card.revision !== revision) {
             throw new Error(t("Settings are out of date. Close and reopen the settings cards."));
         }
-        const fields = new Map(card.fields.map((field) => [field.path.join("\0"), field]));
-        const ops: DshSettingsPathOperation[] = [];
-        for (const change of changes) {
-            const field = fields.get(change.path.join("\0"));
-            if (!field || field.secret) continue;
-            if (change.clear) {
-                ops.push({ op: "unset", path: [...field.path] });
-                continue;
-            }
-            let value: unknown;
-            if (field.type === "boolean") {
-                if (change.value !== "true" && change.value !== "false") {
-                    throw new Error(t("Boolean settings must be true or false."));
-                }
-                value = change.value === "true";
-            } else if (field.type === "number") {
-                value = Number(change.value.trim());
-                if (!Number.isFinite(value)) throw new Error(t("Number settings must contain a finite number."));
-            } else if (field.type === "json") {
-                try {
-                    value = JSON.parse(change.value);
-                } catch {
-                    throw new Error(t("JSON settings must contain valid JSON."));
-                }
-            } else {
-                value = change.value;
-            }
-            ops.push({ op: "set", path: [...field.path], value });
-        }
+        const ops = settingsMutationOps(card.fields, changes);
         if (ops.length === 0) return;
         const updated = await this.runtime.mutateSettings(namespaceId, ops, revision);
         this.settingsNamespaces.set(namespaceId, updated);

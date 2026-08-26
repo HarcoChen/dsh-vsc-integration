@@ -8,6 +8,7 @@ import {
     DshSettingFieldView,
     DshSettingsNamespaceView,
     DshSettingsPanelView,
+    DshSettingsPathOperation,
     DshTodoItemView,
     PermissionProjectionView,
     SessionStatsView,
@@ -170,6 +171,61 @@ export function presentSettingsPanel(
             fields: presentSettingsFields(namespace),
         })),
     };
+}
+
+/**
+ * Coerces webview-supplied settings edits into Harness path operations.
+ *
+ * Every value arrives as a string from the form, so the declared field type
+ * decides how it is parsed, and a value that does not parse is rejected rather
+ * than silently coerced. Changes naming an unknown field are dropped, and secret
+ * fields are never written here — they stay with the credential provider.
+ *
+ * @param fields - the card's fields, authoritative for type and secrecy.
+ * @param changes - the edits as posted by the webview.
+ * @returns the operations to send, empty when nothing survives filtering.
+ * @throws when a value does not parse as its declared type.
+ */
+export function settingsMutationOps(
+    fields: readonly DshSettingFieldView[],
+    changes: ReadonlyArray<{ path: string[]; value: string; clear: boolean }>,
+): DshSettingsPathOperation[] {
+    const byPath = new Map(fields.map((field) => [field.path.join("\0"), field]));
+    const ops: DshSettingsPathOperation[] = [];
+    for (const change of changes) {
+        const field = byPath.get(change.path.join("\0"));
+        if (!field || field.secret) continue;
+        if (change.clear) {
+            ops.push({ op: "unset", path: [...field.path] });
+            continue;
+        }
+        ops.push({ op: "set", path: [...field.path], value: coerceFieldValue(field.type, change.value) });
+    }
+    return ops;
+}
+
+function coerceFieldValue(type: DshSettingFieldType, raw: string): unknown {
+    if (type === "boolean") {
+        if (raw !== "true" && raw !== "false") {
+            throw new Error(t("Boolean settings must be true or false."));
+        }
+        return raw === "true";
+    }
+    if (type === "number") {
+        const value = Number(raw.trim());
+        if (!Number.isFinite(value)) {
+            throw new Error(t("Number settings must contain a finite number."));
+        }
+        return value;
+    }
+    if (type === "json") {
+        try {
+            return JSON.parse(raw);
+        } catch {
+            throw new Error(t("JSON settings must contain valid JSON."));
+        }
+    }
+    return raw;
 }
 
 export function permissionProjection(value: unknown): PermissionProjectionView | undefined {
