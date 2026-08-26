@@ -3,6 +3,7 @@ import {
     MAX_FILE_LOCATION_PATH_CHARACTERS,
 } from "./fileLocations";
 import { isRecord } from "./guards";
+import { TraceRowView, TraceSummaryField } from "./traceProjector";
 
 export interface TraceLocation {
     sessionId: string;
@@ -23,6 +24,99 @@ export type TraceWebviewAction =
     | { type: "page"; direction: "older" | "newer" | "latest" }
     | { type: "setTimelineMode"; mode: TraceTimelineMode }
     | { type: "clearSelection" };
+
+export interface TracePanelStatus {
+    running: boolean;
+    attention: boolean;
+    error?: string;
+}
+
+export interface TraceOverview {
+    durationMs?: number;
+    turns: number;
+    calls: number;
+    errors: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+}
+
+export interface TraceTimelineItem {
+    id: string;
+    lane: "input" | "model" | "tools";
+    slot: number;
+    category: string;
+    eventType: string;
+    left: number;
+    width: number;
+    durationMs?: number;
+    summary: string;
+}
+
+/**
+ * The Trace panel wire contract.
+ *
+ * These types exist so both ends of the boundary are checked against one
+ * declaration. The panel's client script is still an inline string, which tsc
+ * does not see, so today only the host side is verified — but naming the shape
+ * is what makes porting that script a mechanical translation instead of a
+ * re-derivation of the fields it happens to read.
+ *
+ * `*Html` fields carry markup this host already escaped and linkified through
+ * `renderFileLocationsHtml`; the client assigns them with `innerHTML` and must
+ * not escape them again. Every other string is plain text.
+ */
+export interface TraceRowMessage extends TraceRowView {
+    summaryHtml: string;
+    errorHtml?: string;
+}
+
+export interface TraceProjectionMessage {
+    id: string;
+    key: string;
+    seq: number;
+    valuePreview: string;
+    valueHtml: string;
+}
+
+export interface TracePanelState {
+    sessionId: string;
+    title: string;
+    status: TracePanelStatus;
+    query: string;
+    rows: readonly TraceRowMessage[];
+    totalEvents: number;
+    totalRows: number;
+    overview: TraceOverview;
+    timeline: readonly TraceTimelineItem[];
+    timelineMode: TraceTimelineMode;
+    timelineStart?: number;
+    timelineEnd?: number;
+    filteredRows: number;
+    offset: number;
+    pageSize: number;
+    hasOlder: boolean;
+    hasNewer: boolean;
+    followLatest: boolean;
+    projections: readonly TraceProjectionMessage[];
+    selectedId?: string;
+    needsHistoryBaseline: boolean;
+    error?: string;
+}
+
+export interface TraceDetailMessage {
+    id: string;
+    title: string;
+    kind: "Event" | "Projection";
+    summary: ReadonlyArray<TraceSummaryField & { valueHtml: string }>;
+    raw: string;
+    rawHtml: string;
+}
+
+export type TracePanelMessage =
+    | { type: "state"; state: TracePanelState }
+    | { type: "detail"; detail: TraceDetailMessage };
 
 function boundedString(value: unknown, maximum: number, allowEmpty = false): value is string {
     return (
