@@ -15,7 +15,7 @@
 那道新门禁在本轮当场拦下了两个我自己引入的错误（JSX 注释放进三元槽位、
 i18n 重复 key），否则都会作为运行时坏包发出——这是它最直接的价值证明。
 
-`chatView` 已从 3582 降到 3122 行，抽出 5 块（详见「重构 → 结构」条目，
+`chatView` 已从 3582 降到 3103 行，抽出 6 块（详见「重构 → 结构」条目，
 其中记录了后续照用的抽取标准与三组未通过该标准的原因）。新增六个小模块：
 `guards`、`paths`、`errors`、`providerManagement`、`codeBlockActions`、
 `markdownRenderCache`。
@@ -91,8 +91,8 @@ Gateway 通道及其依赖的两个功能。这些需要成块的时间，没有
 
 - [ ] **`src/tracePanel.ts` 的 425 行内联 UI**。`traceHtml()`（:555-979）里塞着 251 行 JS 字符串 + 96 行 CSS + 39 处 `t()`，全部不过 tsc、不过测试；`escapeHtml` 在同文件存在两份（TS 版 :60、JS 字符串版 :736）。
       根因是 `localResourceRoots: []`（:104、:119、:144）—— 没有资源根就无法加载外部 bundle。同仓库已有正确解法：`src/chatView.ts:3560-3582` 用 `asWebviewUri` 指向 `webview/dist/`，23 行搞定，真正的 UI 在 `webview/src/` 正常构建。Trace 面板照此迁移即可，做完顺带消掉那份重复 `escapeHtml`。
-- [ ] **`src/chatView.ts` God Object 继续拆**（3582 → 3122 行，已抽出 5 块）。
-      已完成：Provider 管理 → `providerManagement.ts`（224 行，以 `ProviderManagementDeps` 注入依赖而非反向依赖 ChatViewProvider）；代码块动作 → `codeBlockActions.ts`（111 行，接缝按 `text` 而非 `renderId` 划，因为可复制文本的缓存与 markdown 渲染共享）；markdown 渲染与代码 payload → `markdownRenderCache.ts`（类，按 `GoalMutationGate` 先例）；设置值转换 → `chatViewPresentation.settingsMutationOps`；`mutateGoal` 内重复五次的 ref 确认收成一处。
+- [ ] **`src/chatView.ts` God Object 继续拆**（3582 → 3103 行，已抽出 6 块）。
+      已完成：Provider 管理 → `providerManagement.ts`（224 行，以 `ProviderManagementDeps` 注入依赖而非反向依赖 ChatViewProvider）；代码块动作 → `codeBlockActions.ts`（111 行，接缝按 `text` 而非 `renderId` 划，因为可复制文本的缓存与 markdown 渲染共享）；markdown 渲染与代码 payload → `markdownRenderCache.ts`（类，按 `GoalMutationGate` 先例）；设置值转换 → `chatViewPresentation.settingsMutationOps`；会话切换器行组装 → `sessionCatalog.presentSessionRows`（接缝划在 `catalog` 上，两处派生一起搬）；`mutateGoal` 内重复五次的 ref 确认收成一处。
       **抽取标准（本轮验证有效，后续照用）**：候选必须不持有状态、不调 `postState`。按此标准复核的结果 —— Workspace 组的 `pendingNewSessionWorkspace*` 有 16 个读写点散在 `sendPrompt`/`postState`/`newSession`；Preset 组的 `agentPresetCatalog` 7 个点里只有 2 个在块内，`agentPresetDocuments` 更在构造函数里注册为 `TextDocumentContentProvider`；Subagent 组自己拥有 5 个字段，本质是 store+controller。这三组直接抽出只是把耦合从文件内搬到文件间，**须连状态一起搬**才有意义，属更大的设计改动。
       剩余易做项：`chooseWorkspaceAction`(42 行) 与 `chooseAgentPresetAction`(46 行) 完全不碰 `this`，但它们是上述两个域的「动作菜单」那一半，宜与各自域一同搬迁，不要先按机制凑进一个桶。
 - [ ] **`src/sessionFeatures.ts:414-421` 反向依赖**。顶层 feature 模块内 `new HarnessSessionStore()` + `rebaseline()` + `projectChatMessages()`，使其同时依赖下面两层，也让 `test/sessionFeatures.test.js` 顺带钉住了 `projectChatMessages` 的输出形状。该模块另含五个互不相关的 feature（plan review、goal、subagent、history、jobs），10 个钉住导出全在此处 —— 拆分需同步改测试，先评估收益。
