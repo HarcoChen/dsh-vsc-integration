@@ -4,8 +4,9 @@
 
 ## 本轮进展（2026-08-26）
 
-已完成 13 条，撤回 4 条（核对后判定无收益或不应统一，理由写在各条目上）。
-每条一个 commit，`npm run check` 与 `npm test`（54 个测试）逐条验证通过。
+整条完成 13 项，撤回 4 项（核对后判定无收益或不应统一，理由写在各条目上），
+另有若干改动落在仍未完成条目的内部（主要是 `chatView` 续拆）。共 28 个 commit，
+每个都经 `npm run check` 与 `npm test`（54 个测试）验证通过。
 
 新增的两处基础设施值得注意：`webview/tsconfig.json` 让前端首次进入类型检查，
 `npm test` 前置 `check:webview` 使 CI 门禁真正覆盖前端；`scripts/sync-locales.mjs`
@@ -14,9 +15,13 @@
 那道新门禁在本轮当场拦下了两个我自己引入的错误（JSX 注释放进三元槽位、
 i18n 重复 key），否则都会作为运行时坏包发出——这是它最直接的价值证明。
 
-**尚未开始的大项**：`tracePanel` 425 行内联 UI 迁移、`chatView` God Object 续拆、
-5 处超长函数提取、Gateway 通道及其依赖的两个功能。这些都需要成块的时间，
-没有起头，不是做了一半。
+`chatView` 已从 3582 降到 3122 行，抽出 5 块（详见「重构 → 结构」条目，
+其中记录了后续照用的抽取标准与三组未通过该标准的原因）。新增六个小模块：
+`guards`、`paths`、`errors`、`providerManagement`、`codeBlockActions`、
+`markdownRenderCache`。
+
+**尚未起头的大项**：`tracePanel` 425 行内联 UI 迁移、4 处超长函数提取、
+Gateway 通道及其依赖的两个功能。这些需要成块的时间，没有起头，不是做了一半。
 
 ## 契约基线（2026-08-26 复核）
 
@@ -86,7 +91,10 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 
 - [ ] **`src/tracePanel.ts` 的 425 行内联 UI**。`traceHtml()`（:555-979）里塞着 251 行 JS 字符串 + 96 行 CSS + 39 处 `t()`，全部不过 tsc、不过测试；`escapeHtml` 在同文件存在两份（TS 版 :60、JS 字符串版 :736）。
       根因是 `localResourceRoots: []`（:104、:119、:144）—— 没有资源根就无法加载外部 bundle。同仓库已有正确解法：`src/chatView.ts:3560-3582` 用 `asWebviewUri` 指向 `webview/dist/`，23 行搞定，真正的 UI 在 `webview/src/` 正常构建。Trace 面板照此迁移即可，做完顺带消掉那份重复 `escapeHtml`。
-- [ ] **`src/chatView.ts` 3583 行 God Object 继续拆**。设置/权限/统计/Todo/图片/推理强度的投影逻辑已迁出，剩余可继续按域切：Provider 管理、Workspace 管理、Agent Preset 管理三组 QuickPick 流程各自内聚且彼此无关。该文件 import vscode 且未被测试钉住，风险低。
+- [ ] **`src/chatView.ts` God Object 继续拆**（3582 → 3122 行，已抽出 5 块）。
+      已完成：Provider 管理 → `providerManagement.ts`（224 行，以 `ProviderManagementDeps` 注入依赖而非反向依赖 ChatViewProvider）；代码块动作 → `codeBlockActions.ts`（111 行，接缝按 `text` 而非 `renderId` 划，因为可复制文本的缓存与 markdown 渲染共享）；markdown 渲染与代码 payload → `markdownRenderCache.ts`（类，按 `GoalMutationGate` 先例）；设置值转换 → `chatViewPresentation.settingsMutationOps`；`mutateGoal` 内重复五次的 ref 确认收成一处。
+      **抽取标准（本轮验证有效，后续照用）**：候选必须不持有状态、不调 `postState`。按此标准复核的结果 —— Workspace 组的 `pendingNewSessionWorkspace*` 有 16 个读写点散在 `sendPrompt`/`postState`/`newSession`；Preset 组的 `agentPresetCatalog` 7 个点里只有 2 个在块内，`agentPresetDocuments` 更在构造函数里注册为 `TextDocumentContentProvider`；Subagent 组自己拥有 5 个字段，本质是 store+controller。这三组直接抽出只是把耦合从文件内搬到文件间，**须连状态一起搬**才有意义，属更大的设计改动。
+      剩余易做项：`chooseWorkspaceAction`(42 行) 与 `chooseAgentPresetAction`(46 行) 完全不碰 `this`，但它们是上述两个域的「动作菜单」那一半，宜与各自域一同搬迁，不要先按机制凑进一个桶。
 - [ ] **`src/sessionFeatures.ts:414-421` 反向依赖**。顶层 feature 模块内 `new HarnessSessionStore()` + `rebaseline()` + `projectChatMessages()`，使其同时依赖下面两层，也让 `test/sessionFeatures.test.js` 顺带钉住了 `projectChatMessages` 的输出形状。该模块另含五个互不相关的 feature（plan review、goal、subagent、history、jobs），10 个钉住导出全在此处 —— 拆分需同步改测试，先评估收益。
 
 ### 超长函数（内部线性，拆解属纯提取，风险低）
@@ -94,7 +102,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 - [ ] `src/chatState.ts:646-835` `projectChatMessages` 190 行 / 7 职责，嵌套深度 6（:695-712），且函数内有字符级重复的 8 行（:651-658 ≡ :825-832）。
 - [ ] `src/chatViewProtocol.ts:158-434` `parseChatViewAction` 277 行 / 25 个 case，14 份手工同步的 key 数组与联合类型（:9-75）无编译期关联；最差块 :251-289 校验一次后重复分派四次。
 - [ ] `src/sessionStore.ts:732-891` `applyMuxEnvelope` 160 行 / 11 分支，validate→diagnose→getState→publish 骨架重复 9 次。
-- [ ] `src/traceProjector.ts:745-929` `projectSessionTrace` 185 行 / 8 职责，含深度 5 的 fallthrough 发射循环；`genericRow`(:426-532) 有两个从不读取的形参（:428、:430）。
+- [ ] `src/traceProjector.ts:745-929` `projectSessionTrace` 185 行 / 8 职责，含深度 5 的 fallthrough 发射循环。（`genericRow` 的两个死形参与随之失效的 `turnStarts` 索引已删除。）
 - [ ] `src/tracePanel.ts:356-477` `publish()` 122 行 / 7 职责，几何计算与面板消息发送混在一起。
 
 ### 去重
