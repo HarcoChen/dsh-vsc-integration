@@ -9,14 +9,11 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.6.0-beta.1] - 2026-08-27
+
 - 继续收窄 ChatViewProvider：Workspace 管理与 Agent Preset 管理的 QuickPick 流程迁至 `workspaceActions.ts` 与 `agentPresetActions.ts`，通过窄接口回调告知视图需要失效的草稿状态，`chatView.ts` 由 3169 行降至 2820 行、方法数 98 → 90。新建会话草稿的五个字段统一由 `clearNewSessionDraft` 清理；移除 Workspace 时保留已选的 agent mode，不再连带清空。
-
-## [0.6.0] - 2026-08-27
-
 - 工具卡新增按次编辑的原生 Diff：`write` / `edit` / `str_replace_editor` 完成后可逐文件打开 VS Code 自带的并排 diff 编辑器。before 一侧不依赖 Git，而是用 Runtime 已随日志持久化的 hunk 从磁盘上的当前文件反向回放重建，因此非 Git 仓库、被 gitignore 的文件同样可用，粒度也从「整轮」细化到「单次调用」。锚点缺失或不唯一时明确报错而非展示不忠实的 diff；该文件此后未被再次修改且为 LF 行尾时，右侧直接使用可编辑的真实文件。
-
 - Slash 命令面板改为向 Runtime 实时枚举：通过 Gateway 通道的 `commands/list` 拉取当前会话真实注册的命令（`/plan`、`/compact`、`/goal`、`/feedback` 等随 profile 组合变化），与扩展自有的 IDE 命令合并展示，并在 `commands/change` 到达时失效重拉。命令执行改走 `commands/execute`，替换此前把 `/compact`、`/goal` 当作裸 prompt 文本发送的做法——该做法在 `0.1.1-rc.2` 上并不生效，会把命令行当普通消息发给模型。
-
 - 推进 Webview UI 重构：拆分 Composer 与消息渲染子组件，稳定流式消息引用以减少无关行重渲染，移除阻塞式原生对话框，并补齐 Focus Mode、错误横幅和键盘可访问性。
 - 将 ActivityDock 拆为独立壳层及 Goal、Queue、Subagents、Jobs、Permissions、Changes 六个面板模块，移除跨消息列表的反向依赖。
 - 将设置、权限、统计、Todo、图片附件和推理强度的纯投影/校验逻辑从 ChatViewProvider 迁至独立呈现模块，收窄宿主 God Object。
@@ -131,7 +128,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
-[0.6.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.3...v0.6.0
+[0.6.0-beta.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.3...v0.6.0-beta.1
 [0.5.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.1...v0.5.2
 [0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
