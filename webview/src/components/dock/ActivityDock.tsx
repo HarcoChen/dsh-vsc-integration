@@ -7,8 +7,9 @@ import { JobsPanel } from "./JobsPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 import { QueuePanel } from "./QueuePanel";
 import { SubagentsPanel } from "./SubagentsPanel";
+import { TodosPanel } from "./TodosPanel";
 
-type DockTab = "goal" | "queue" | "changes" | "subagents" | "jobs" | "permissions";
+type DockTab = "todos" | "goal" | "queue" | "changes" | "subagents" | "jobs" | "permissions";
 
 interface TabDef {
     id: DockTab;
@@ -23,6 +24,7 @@ interface ActivityDockProps {
     subagents: ActivityDockState["subagents"];
     subagentPreview: ActivityDockState["subagentPreview"];
     jobs: ActivityDockState["jobs"];
+    todos: ActivityDockState["todos"];
     permissions: ActivityDockState["permissions"];
     commands: ActivityDockState["commands"];
     sessionId: ActivityDockState["sessionId"];
@@ -37,6 +39,7 @@ export const ActivityDock = React.memo(function ActivityDock({
     subagents,
     subagentPreview,
     jobs,
+    todos,
     permissions,
     commands,
     sessionId,
@@ -50,6 +53,10 @@ export const ActivityDock = React.memo(function ActivityDock({
     const shortAgentPreset = trimmedAgentPresetLabel ? Array.from(trimmedAgentPresetLabel).slice(0, 4).join("") : undefined;
 
     const tabs: TabDef[] = [];
+    if (todos?.length) {
+        const pending = todos.filter((item) => item.status !== "completed").length;
+        tabs.push({ id: "todos", label: t("Todo list"), count: pending || undefined });
+    }
     if (goal) tabs.push({ id: "goal", label: "Goal" });
     if (queue.length) tabs.push({ id: "queue", label: t("Queue"), count: queue.length });
     if (changeReviews.length) {
@@ -147,6 +154,7 @@ export const ActivityDock = React.memo(function ActivityDock({
                     aria-labelledby={`dsh-dock-tab-${tab.id}`}
                     hidden={collapsed || selectedTab !== tab.id}
                 >
+                    {!collapsed && selectedTab === "todos" && tab.id === "todos" && todos ? <TodosPanel todos={todos} /> : null}
                     {!collapsed && selectedTab === "goal" && tab.id === "goal" && goal ? <GoalPanel goal={goal} /> : null}
                     {!collapsed && selectedTab === "queue" && tab.id === "queue" ? <QueuePanel queue={queue} running={sessionRunning} /> : null}
                     {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={changeReviews} running={sessionRunning} /> : null}

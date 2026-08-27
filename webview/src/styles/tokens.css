@@ -3,16 +3,17 @@
 :root {
     color-scheme: light dark;
 
-    /* Spacing scale */
-    --dsh-space-1: 3px;
-    --dsh-space-2: 5px;
-    --dsh-space-3: 7px;
-    --dsh-space-4: 10px;
-    --dsh-space-5: 12px;
-    --dsh-space-6: 16px;
+    /* Spacing scale — 4px base so vertical rhythm stays consistent everywhere */
+    --dsh-space-1: 4px;
+    --dsh-space-2: 6px;
+    --dsh-space-3: 8px;
+    --dsh-space-4: 12px;
+    --dsh-space-5: 16px;
+    --dsh-space-6: 20px;
 
-    /* Radius scale */
-    --dsh-radius-sm: 4px;
+    /* Radius scale — converged on 6/8 (chips keep the softer 10) so nothing
+       reads as a stray 4px corner. `sm` is retained as an alias of `md`. */
+    --dsh-radius-sm: 6px;
     --dsh-radius-md: 6px;
     --dsh-radius-lg: 8px;
     --dsh-radius-chip: 10px;
@@ -32,5 +33,11 @@
 
     /* Surfaces */
     --dsh-surface: var(--vscode-editorWidget-background);
+    --dsh-surface-hover: var(--vscode-toolbar-hoverBackground);
     --dsh-border: var(--vscode-panel-border);
+
+    /* Elevation — pop-ups above the composer share one menu shadow; the wider
+       usage popover carries a slightly deeper one. */
+    --dsh-shadow-menu: 0 4px 14px color-mix(in srgb, var(--vscode-editor-background) 28%, transparent);
+    --dsh-shadow-popover: 0 8px 24px color-mix(in srgb, var(--vscode-editor-background) 32%, transparent);
 }

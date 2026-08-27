@@ -1,12 +1,11 @@
 /* ---------- token usage ---------- */
 
+/* Lives inline in the composer footer now — a compact chip, not a standing bar.
+   Kept as the positioning context so the statistics panel pops up from it. */
 .dsh-usage {
     position: relative;
-    flex: none;
-    height: 38px;
-    padding: 3px var(--dsh-space-4);
-    border-top: 1px solid var(--dsh-border);
-    background: var(--vscode-sideBar-background);
+    flex: 1 1 auto;
+    min-width: 0;
     color: var(--vscode-descriptionForeground);
     font-size: var(--dsh-font-xs);
 }
@@ -15,10 +14,10 @@
     display: flex;
     align-items: center;
     width: 100%;
-    height: 31px;
-    padding: 0;
-    border: 0;
     gap: var(--dsh-space-2);
+    padding: 2px var(--dsh-space-2);
+    border: 1px solid transparent;
+    border-radius: var(--dsh-radius-chip);
     color: var(--vscode-foreground);
     background: transparent;
     cursor: pointer;
@@ -26,7 +25,8 @@
 }
 
 .dsh-usage-summary:hover {
-    color: var(--vscode-textLink-foreground);
+    border-color: var(--dsh-border);
+    background: var(--dsh-surface-hover);
 }
 
 .dsh-usage-ring {
@@ -37,8 +37,8 @@
 }
 
 .dsh-usage-ring.small {
-    width: 28px;
-    height: 28px;
+    width: 20px;
+    height: 20px;
 }
 
 .dsh-usage-ring.large {
@@ -104,31 +104,28 @@
     font-weight: 600;
 }
 
-.dsh-usage-summary-route small {
-    margin-left: var(--dsh-space-1);
-    color: var(--vscode-descriptionForeground);
-    font-size: var(--dsh-font-badge);
-}
-
 .dsh-usage-summary-context {
     flex: none;
     color: var(--vscode-descriptionForeground);
     font-variant-numeric: tabular-nums;
 }
 
+/* Rises from the compact chip in the composer footer. Anchored to the chip's
+   right edge with a capped width so it stays a self-contained popover rather
+   than the old full-width strip. */
 .dsh-usage-panel {
     position: absolute;
-    right: var(--dsh-space-4);
+    right: 0;
     bottom: calc(100% + var(--dsh-space-2));
-    left: var(--dsh-space-4);
     z-index: 40;
+    width: min(340px, calc(100vw - 2 * var(--dsh-space-4)));
     max-height: min(520px, 65vh);
     overflow-y: auto;
     padding: var(--dsh-space-4);
     border: 1px solid var(--dsh-border);
     border-radius: var(--dsh-radius-md);
     background: var(--vscode-editorWidget-background);
-    box-shadow: 0 8px 24px color-mix(in srgb, var(--vscode-editor-background) 32%, transparent);
+    box-shadow: var(--dsh-shadow-popover);
 }
 
 .dsh-usage-panel-head {

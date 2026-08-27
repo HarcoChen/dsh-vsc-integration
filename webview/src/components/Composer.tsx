@@ -10,10 +10,11 @@ import { FILE_REFERENCE_MENU_ID, FileReferenceMenu } from "./FileReferenceMenu";
 import { PermissionModeChip } from "./PermissionModeChip";
 import { ReasoningEffortControl } from "./ReasoningEffortControl";
 import { SessionStats } from "./SessionStats";
+import { TokenUsageBar } from "./TokenUsageBar";
 import { SKILL_MENU_ID, SLASH_MENU_ID, useSlashCompletion } from "./useSlashCompletion";
 import { SlashCompletionMenu, SkillCompletionMenu } from "./CompletionMenu";
 
-const MIN_HEIGHT = 68;
+const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 180;
 
 interface ComposerProps {
@@ -359,7 +360,7 @@ export const Composer = React.memo(function Composer({
                     placeholder={t("Describe a task; use @ for files, $ for skills...")}
                     value={text}
                     disabled={submitting}
-                    rows={3}
+                    rows={2}
                     aria-expanded={activeMenuId !== undefined}
                     aria-controls={activeMenuId}
                     aria-activedescendant={activeDescendant}
@@ -420,6 +421,7 @@ export const Composer = React.memo(function Composer({
                     permissions={permissions}
                     switchable={canSwitchPermissions(commands)}
                 />
+                <TokenUsageBar usage={tokenUsage} />
                 <SessionStats stats={sessionStats} />
             </div>
         </div>

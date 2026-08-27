@@ -70,19 +70,19 @@
 
 .dsh-context-summary {
     color: var(--vscode-descriptionForeground);
-    font-size: 11px;
-    padding: 2px 8px 6px;
+    font-size: var(--dsh-font-xs);
+    padding: 0 var(--dsh-space-3) var(--dsh-space-1);
 }
 
 .dsh-context-notices {
     display: grid;
-    gap: 4px;
-    margin: 4px 0 8px;
+    gap: var(--dsh-space-1);
+    margin: var(--dsh-space-1) 0 var(--dsh-space-2);
 }
 
 .dsh-context-warning {
     color: var(--dsh-status-warning);
-    font-size: 11px;
+    font-size: var(--dsh-font-xs);
     line-height: 1.35;
 }
 
@@ -177,7 +177,7 @@
     border: 1px solid var(--dsh-border);
     border-radius: var(--dsh-radius-md);
     background: var(--dsh-surface);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--vscode-editor-background) 18%, transparent);
+    box-shadow: var(--dsh-shadow-menu);
 }
 
 .dsh-reasoning-control-head,
@@ -401,13 +401,15 @@
     align-items: flex-end;
 }
 
-/* Footer row: the permission indicator sits beside the usage figures, both
-   being persistent facts about the session rather than actions on the draft. */
+/* Footer: persistent facts about the session, not actions on the draft. The
+   permission chip and the compact usage entry share the first line; the session
+   statistics wrap to their own full-width line below when present. */
 .dsh-composer-footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    flex-wrap: wrap;
     gap: var(--dsh-space-2);
+    margin-top: var(--dsh-space-3);
 }
 
 .dsh-permission-chip {
@@ -443,7 +445,7 @@ button.dsh-permission-chip:hover {
     border: 1px solid var(--dsh-border);
     border-radius: var(--dsh-radius-md);
     background: var(--vscode-menu-background, var(--dsh-surface));
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--vscode-editor-background) 28%, transparent);
+    box-shadow: var(--dsh-shadow-menu);
 }
 
 /* The command list is the Runtime's live registry plus the IDE's own entries,
@@ -521,7 +523,7 @@ button.dsh-permission-chip:hover {
 
 .dsh-prompt {
     flex: 1;
-    min-height: 68px;
+    min-height: 56px;
     max-height: 180px;
     resize: none;
     padding: var(--dsh-space-4);
@@ -568,7 +570,7 @@ button.dsh-permission-chip:hover {
 }
 
 .dsh-stats {
-    padding-top: var(--dsh-space-2);
+    flex-basis: 100%;
     color: var(--vscode-descriptionForeground);
     font-size: var(--dsh-font-xs);
     text-align: center;

@@ -150,7 +150,6 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
                 <UsageRing percent={occupancy} size="small" severity={severity} />
                 <span className="dsh-usage-summary-route">
                     <strong>{routeLabel}</strong>
-                    <small>· {route.reasoningEffort || t("Default")}</small>
                 </span>
                 <span className="dsh-usage-summary-context">
                     {occupied === undefined ? "--" : compactTokens(occupied)} / {capacity === undefined ? "--" : compactTokens(capacity)}

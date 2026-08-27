@@ -5,8 +5,6 @@ import { MessageList } from "./components/MessageList";
 import { Interactions } from "./components/Interactions";
 import { ActivityDock } from "./components/dock/ActivityDock";
 import { Composer } from "./components/Composer";
-import { TokenUsageBar } from "./components/TokenUsageBar";
-import { TodoPanel } from "./components/TodoPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { StatusBanner } from "./components/StatusBanner";
 
@@ -41,6 +39,7 @@ export function App(): React.JSX.Element {
                     subagents={state.subagents}
                     subagentPreview={state.subagentPreview}
                     jobs={state.jobs}
+                    todos={state.todos}
                     permissions={state.permissions}
                     commands={state.commands}
                     sessionId={state.sessionId}
@@ -48,8 +47,6 @@ export function App(): React.JSX.Element {
                     agentPresetLabel={state.agentPresetLabel}
                 />
             ) : null}
-            {!state.focusMode ? <TodoPanel todos={state.todos ?? []} /> : null}
-            {!state.focusMode ? <TokenUsageBar usage={state.tokenUsage} /> : null}
             <Composer
                 context={state.context}
                 selection={state.selection}
