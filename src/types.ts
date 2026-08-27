@@ -138,6 +138,13 @@ export interface ChatCompactionView {
 }
 
 export interface ChatMessage {
+    /**
+     * Skill this user message invoked directly, by name. Present only for a
+     * leading `/name` token that matched the session's skill catalog; the
+     * token is removed from `text` so a surface can render the invocation as
+     * itself rather than as literal prompt text.
+     */
+    skillInvocation?: string;
     id: string;
     role: ChatRole;
     text: string;

@@ -12,8 +12,6 @@ export interface SlashCommand {
      * the Runtime's own registry dispatches it.
      */
     action?: ChatViewAction;
-    /** Whether the command line accepts free-form input after the name. */
-    takesInput?: boolean;
     /** Where the entry came from, which decides how choosing it behaves. */
     origin: "ide" | "host";
 }
@@ -48,7 +46,7 @@ export function mergeSlashCommands(
     const fromHost = hostCommands.map((command): SlashCommand => ({
         name: `/${command.name}`,
         description: command.description,
-        ...(command.input === undefined ? {} : { hint: command.input.hint, takesInput: true }),
+        ...(command.input === undefined ? {} : { hint: command.input.hint }),
         origin: "host",
     }));
     const claimed = new Set(fromHost.map((command) => command.name));

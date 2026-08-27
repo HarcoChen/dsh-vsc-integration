@@ -30,8 +30,15 @@ export function MessageContent({
         />
     ) : null;
     const images = message.images?.length ? <MessageImages images={message.images} /> : null;
+    // A direct skill invocation reads as an action, not as something the user
+    // said, so the token is shown as itself rather than as literal prompt text.
+    const skill = message.skillInvocation ? (
+        <span className="dsh-skill-invocation" title={t("Invoked skill {name}", { name: message.skillInvocation })}>
+            {`/${message.skillInvocation}`}
+        </span>
+    ) : null;
     if (message.role !== "assistant" || !message.reasoning) {
-        return <>{images}{body}</>;
+        return <>{images}{skill}{body}</>;
     }
     const reasoningBody = (
         <div

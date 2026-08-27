@@ -650,9 +650,29 @@ function optimisticRow(item: OptimisticPrompt): ChatMessage {
  * assistant messages consume their source chunk seqs, so the partial disappears atomically
  * instead of rendering a duplicate assistant reply.
  */
+/**
+ * Splits a leading direct skill invocation off a prompt.
+ *
+ * `dsh-tool-skill` recognizes a whitespace-bounded `/name` at the pre-step
+ * boundary and answers with injected skill content, so the invocation is
+ * ordinary prompt text on the wire with no event of its own. Recognizing it
+ * needs the session's catalog: `/notaskill` is just text, and must stay text.
+ */
+export function splitSkillInvocation(
+    text: string,
+    skillNames: ReadonlySet<string> | undefined,
+): { skill: string; rest: string } | undefined {
+    if (!skillNames?.size) return undefined;
+    const match = /^\/(\S+)(?:$|[\t\n\r ])/u.exec(text);
+    const name = match?.[1];
+    if (name === undefined || !skillNames.has(name)) return undefined;
+    return { skill: name, rest: text.slice(match![0].length).trimStart() };
+}
+
 export function projectChatMessages(
     snapshot: SessionStateSnapshot | undefined,
     optimistic: readonly OptimisticPrompt[],
+    skillNames?: ReadonlySet<string>,
 ): ChatMessage[] {
     if (!snapshot) {
         return optimistic.map(optimisticRow);
@@ -692,10 +712,13 @@ export function projectChatMessages(
             const optimisticMatch = matchBySeq.get(node.event.seq);
             const message = messageRecord(node);
             const images = contentImages(message?.content);
+            const displayed = optimisticMatch?.displayText ?? promptDisplayText(eventText(node));
+            const invocation = splitSkillInvocation(displayed, skillNames);
             rows.push({
                 id: `event:${node.event.seq}`,
                 role: "user",
-                text: optimisticMatch?.displayText ?? promptDisplayText(eventText(node)),
+                text: invocation ? invocation.rest : displayed,
+                ...(invocation ? { skillInvocation: invocation.skill } : {}),
                 ...(images.length
                     ? {
                           images: images.map((image, index) => ({

@@ -101,6 +101,20 @@
     padding: var(--dsh-space-1) var(--dsh-space-2);
 }
 
+/* A direct `/skill` invocation: an action the user triggered, shown as a chip
+   so it never reads as literal text they typed at the model. */
+.dsh-skill-invocation {
+    display: inline-block;
+    margin-bottom: var(--dsh-space-1);
+    padding: 1px var(--dsh-space-2);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-textLink-foreground);
+    background: var(--vscode-textBlockQuote-background);
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-xs);
+}
+
 /* ---------- tool card ---------- */
 
 .dsh-tool-card {

@@ -256,6 +256,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "owner {owner}": "所有者 {owner}",
     "Provider usage": "Provider 用量",
     "Changes": "变更",
+    "Invoked skill {name}": "已调用 skill {name}",
     "Added": "新增",
     "Modified": "修改",
     "Deleted": "删除",

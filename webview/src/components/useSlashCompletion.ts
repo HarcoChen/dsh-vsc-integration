@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type React from "react";
 import type { ChatViewState, DshCommandDescriptor, DshSkillEntry } from "../../../src/types";
+import { postAction } from "../bridge";
 import { mergeSlashCommands, runSlashCommand, type SlashCommand } from "./slashCommands";
 
 export const SLASH_MENU_ID = "dsh-slash-completion";
@@ -79,31 +80,35 @@ export function useSlashCompletion({
                   skill.whenToUse?.toLowerCase().includes(query);
           });
 
+    // Picking from the menu runs the command. A command that also takes free-form
+    // input is still reachable with it: typing a space past the name closes the
+    // menu, so the line is submitted as ordinary text and dispatched the same way.
     const chooseSlashCommand = useCallback((name: string): void => {
-        // A command that declares free-form input is completed into the draft
-        // instead of run, so the user can supply that input before submitting.
-        const command = available.find((candidate) => candidate.name === name);
-        if (command?.takesInput) {
-            setText(`${command.name} `);
-            setSlashIndex(0);
-        } else {
-            executeSlashCommand(name);
-        }
+        executeSlashCommand(name);
         window.requestAnimationFrame(focusTextarea);
-    }, [available, executeSlashCommand, setText, focusTextarea]);
+    }, [executeSlashCommand, focusTextarea]);
 
+    /**
+     * The two skill gestures differ in intent, so they differ in outcome.
+     * `$name` mid-prompt is a reference: it completes into the draft, where the
+     * rest of the sentence still has to be written. A leading `/name` is a
+     * direct invocation and submits immediately, matching how the command menu
+     * beside it behaves.
+     */
     const chooseSkill = useCallback((name: string): void => {
         const match = text.match(/(?:^|\s)\$([^\s$]*)$/u);
         if (match && match.index !== undefined) {
             const dollarOffset = match[0].lastIndexOf("$");
             const start = match.index + dollarOffset;
             setText(`${text.slice(0, start)}/${name} `);
+            setSlashIndex(0);
         } else if (/^\/\S*$/u.test(text)) {
-            setText(`/${name} `);
+            postAction({ type: "sendPrompt", text: `/${name}`, mode: "queue" });
+            setText("");
+            setSlashIndex(0);
         } else {
             return;
         }
-        setSlashIndex(0);
         window.requestAnimationFrame(focusTextarea);
     }, [text, setText, focusTextarea]);
 

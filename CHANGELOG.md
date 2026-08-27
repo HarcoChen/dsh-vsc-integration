@@ -9,6 +9,9 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- 斜杠菜单回车选中即执行，不再把命令名填回输入框；需要参数的命令仍可手动输入完整命令行提交（打空格后菜单自动关闭）。
+- 以 `/` 直接调用的 skill 同样即时发送，并在消息流中渲染为调用标记而非字面 prompt 文本；`$name` 的句中引用手势保持原样，仍是补全进草稿。
+
 ## [0.6.0-beta.1] - 2026-08-27
 
 - 继续收窄 ChatViewProvider：Workspace 管理与 Agent Preset 管理的 QuickPick 流程迁至 `workspaceActions.ts` 与 `agentPresetActions.ts`，通过窄接口回调告知视图需要失效的草稿状态，`chatView.ts` 由 3169 行降至 2820 行、方法数 98 → 90。新建会话草稿的五个字段统一由 `clearNewSessionDraft` 清理；移除 Workspace 时保留已选的 agent mode，不再连带清空。

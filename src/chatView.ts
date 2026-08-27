@@ -2174,6 +2174,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.pendingNewSessionSkills = undefined;
     }
 
+    /**
+     * Names in the current session's skill catalog, for recognizing a direct
+     * `/name` invocation in a prompt. Empty before the catalog arrives, which
+     * only means such a message renders as plain text until it does.
+     */
+    private sessionSkillNames(): ReadonlySet<string> {
+        const skills = this.sessionId
+            ? this.skillCatalogs.get(this.sessionId)
+            : this.pendingNewSessionSkills;
+        return new Set((skills ?? []).map((skill) => skill.name));
+    }
+
     private workspaceRoot(): string | undefined {
         return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     }
@@ -2479,7 +2491,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const state: ChatViewState = {
             messages: this.renderMessages(
                 focusChatMessages(
-                    projectChatMessages(session, this.optimisticPrompts),
+                    projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
                     this.focusMode,
                 ),
                 `session:${this.sessionId ?? "none"}`,
