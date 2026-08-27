@@ -475,6 +475,42 @@ export interface DshSkillListResult {
     [key: string]: unknown;
 }
 
+/**
+ * Handler-free view of one host-registered slash command
+ * (`@deepseek-ai/dsh-commands` CommandDescriptor).
+ */
+export interface DshCommandDescriptor {
+    /** Lowercase name without the leading slash. */
+    name: string;
+    description: string;
+    /** Present when the command accepts free-form input after its name. */
+    input?: {
+        hint: string;
+        /** Whether composer image attachments may accompany an invocation. */
+        images?: boolean;
+    };
+    [key: string]: unknown;
+}
+
+/** Normalized outcome of one settled command handler. */
+export interface DshCommandResult {
+    kind: "success" | "error";
+    text?: string;
+    /** Earlier domain event that owns a richer presentation of this outcome. */
+    sourceEventSeq?: number;
+    [key: string]: unknown;
+}
+
+/**
+ * One settled execution. `commandId` pairs the acknowledgment with the
+ * `command/run` / `command/done` events the host logs for it.
+ */
+export interface DshCommandExecution {
+    commandId: string;
+    result: DshCommandResult;
+    [key: string]: unknown;
+}
+
 export interface DshConfigurableProvider {
     provider: string;
     displayName: string;
@@ -820,6 +856,12 @@ export interface ChatViewState {
         title: string;
     };
     skills: DshSkillEntry[];
+    /**
+     * Host-registered slash commands for the current session. Empty when no
+     * session is open, or when the connected Runtime exposes no command
+     * registry — the composer then offers only its IDE-local commands.
+     */
+    commands: DshCommandDescriptor[];
     host?: HostBaselineView;
     sessionId?: string;
     agentPreset?: string;

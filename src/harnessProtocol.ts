@@ -1,5 +1,8 @@
 import {
+    DshCommandDescriptor,
+    DshCommandExecution,
     DshHistoryResult,
+    DshImageUpload,
     DshGoalRef,
     DshGoalRefResult,
     DshRpcError,
@@ -160,6 +163,20 @@ export interface HarnessRpcMethodMap {
         { cleared: true }
     >;
     "skill.list": RpcMethod<{ sessionId: string }, DshSkillListResult>;
+    // Typert Remote endpoints. These share the /api channel and wire envelope
+    // with the unary apiproxy methods above, but the Gateway claims them ahead
+    // of the apiproxy dispatch table, so their path segment is
+    // "<namespace>/<method>" and the payload is the single `args` object
+    // holding one field per declared wire parameter. `agentId` is the
+    // session's id: the Remote resolves the receiving Agent from it.
+    "commands/list": RpcMethod<
+        { args: { agentId: string } },
+        readonly DshCommandDescriptor[]
+    >;
+    "commands/execute": RpcMethod<
+        { args: { agentId: string; line: string; images: readonly DshImageUpload[] } },
+        DshCommandExecution | undefined
+    >;
     "llm.providers": RpcMethod<EmptyPayload, DshProviderListResult>;
     "settings.describe": RpcMethod<EmptyPayload, DshSettingsDescribeResult>;
     "settings.openDocument": RpcMethod<EmptyPayload, { opened: true }>;
@@ -177,6 +194,16 @@ export interface HarnessRpcMethodMap {
     "credentials.set": RpcMethod<{ ref: string; value: string }, Record<string, never>>;
     "credentials.unset": RpcMethod<{ ref: string }, Record<string, never>>;
 }
+
+/**
+ * Methods whose success envelope may legitimately carry no `value` field.
+ * A Typert Remote returning `undefined` rides the wire as an absent value —
+ * JSON has no `undefined` — so absence is a business answer here, not the
+ * malformed response it would be for a unary apiproxy method.
+ */
+export const ABSENT_VALUE_METHODS: ReadonlySet<HarnessRpcMethod> = new Set([
+    "commands/execute",
+]);
 
 /** Marker used only to derive request and response types from the map. */
 export interface RpcMethod<P, V> {

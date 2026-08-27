@@ -16,6 +16,7 @@ export const DEFAULT_STATE: ChatViewState = {
     jobs: [],
     changeReviews: [],
     skills: [],
+    commands: [],
     selectionEnabled: true,
     status: { state: "stopped" },
     busy: false,
@@ -57,6 +58,7 @@ export type ComposerState = Pick<
     | "selectionEnabled"
     | "fileReferenceCandidates"
     | "skills"
+    | "commands"
     | "tokenUsage"
     | "sessionStats"
     | "reasoningEffort"

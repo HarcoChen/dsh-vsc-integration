@@ -417,6 +417,13 @@
     box-shadow: 0 4px 14px color-mix(in srgb, var(--vscode-editor-background) 28%, transparent);
 }
 
+/* The command list is the Runtime's live registry plus the IDE's own entries,
+   so its length is not known up front and the menu has to scroll. */
+.dsh-slash-menu {
+    max-height: min(320px, 50vh);
+    overflow-y: auto;
+}
+
 .dsh-slash-menu button {
     display: flex;
     align-items: baseline;
@@ -440,6 +447,18 @@
 .dsh-slash-menu strong {
     flex: none;
     font-size: var(--dsh-font-sm);
+}
+
+/* Marks an entry that drives a VS Code surface rather than the session agent. */
+.dsh-slash-origin {
+    flex: none;
+    margin-left: auto;
+    padding: 0 var(--dsh-space-1);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    font-style: normal;
 }
 
 .dsh-slash-menu span {

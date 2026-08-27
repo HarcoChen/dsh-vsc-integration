@@ -332,9 +332,6 @@
     "{currency}: total {total} · granted {granted} · topped up {toppedUp}": "{currency}：总额 {total} · 赠送 {granted} · 充值 {toppedUp}",
     "{message} Sending was refused.": "{message} 已拒绝发送。",
     "The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package.": "当前连接的 dsh server 未提供 /compact command。请更新 dsh 或启用 command-compact package。",
-    "The connected dsh server does not expose the /goal command. Update dsh or enable the command-goal package.": "当前连接的 dsh server 未提供 /goal command。请更新 dsh 或启用 command-goal package。",
-    "The dsh server rejected the /goal command.": "dsh server 拒绝了 /goal command。",
-    "The connected dsh server returned an invalid /goal command result.": "当前连接的 dsh server 返回了无效的 /goal command 结果。",
     " and {count} more": "，以及另外 {count} 项",
     "A message can contain at most {count} images.": "每条消息最多可附加 {count} 张图片。",
     "This image format is not supported: {type}.": "不支持此图片格式：{type}。",
@@ -404,5 +401,6 @@
     "The current session has no Goal to change.": "当前会话没有可变更的 Goal。",
     "Goal changed elsewhere; refresh and try again.": "Goal 已在其他位置发生变化，请刷新后重试。",
     "That Goal action is not available in the current phase.": "当前阶段不支持该 Goal 操作。",
-    "There is no prior conversation in this session to compact.": "当前会话没有可压缩的历史记录。"
+    "The dsh runtime rejected this command.": "dsh 运行时拒绝了这条命令。",
+    "The dsh runtime resolved no command for “{line}”.": "dsh 运行时没有找到与“{line}”匹配的命令。"
 }

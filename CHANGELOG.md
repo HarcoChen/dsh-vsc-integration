@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- Slash 命令面板改为向 Runtime 实时枚举：通过 Gateway 通道的 `commands/list` 拉取当前会话真实注册的命令（`/plan`、`/compact`、`/goal`、`/feedback` 等随 profile 组合变化），与扩展自有的 IDE 命令合并展示，并在 `commands/change` 到达时失效重拉。命令执行改走 `commands/execute`，替换此前把 `/compact`、`/goal` 当作裸 prompt 文本发送的做法——该做法在 `0.1.1-rc.2` 上并不生效，会把命令行当普通消息发给模型。
+
 - 推进 Webview UI 重构：拆分 Composer 与消息渲染子组件，稳定流式消息引用以减少无关行重渲染，移除阻塞式原生对话框，并补齐 Focus Mode、错误横幅和键盘可访问性。
 - 将 ActivityDock 拆为独立壳层及 Goal、Queue、Subagents、Jobs、Permissions、Changes 六个面板模块，移除跨消息列表的反向依赖。
 - 将设置、权限、统计、Todo、图片附件和推理强度的纯投影/校验逻辑从 ChatViewProvider 迁至独立呈现模块，收窄宿主 God Object。

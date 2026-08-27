@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+    ABSENT_VALUE_METHODS,
     HarnessClientResponse,
     HarnessHostDescription,
     HarnessRpcMethod,
@@ -40,6 +41,21 @@ export class HarnessRpcError extends Error {
     ) {
         super(`Harness RPC ${method} failed: ${rpcError.code}: ${rpcError.message}`);
         this.name = "HarnessRpcError";
+    }
+}
+
+/**
+ * Carrier-level failure: the Runtime answered, but not with an RPC envelope.
+ * The status is kept because a 404 is how a Runtime reports that it serves no
+ * such method at all — the signal an optional feature degrades on.
+ */
+export class HarnessHttpError extends Error {
+    public constructor(
+        public readonly method: string,
+        public readonly status: number,
+    ) {
+        super(`Harness RPC ${method} returned HTTP ${status}`);
+        this.name = "HarnessHttpError";
     }
 }
 
@@ -102,7 +118,7 @@ export class HarnessApiClient {
             });
 
             if (!response.ok) {
-                throw new Error(`Harness RPC ${method} returned HTTP ${response.status}`);
+                throw new HarnessHttpError(method, response.status);
             }
 
             const body: unknown = await response.json();
@@ -123,7 +139,7 @@ export class HarnessApiClient {
                     : { code: "invalid-error", message: "Harness returned an invalid RPC error" };
                 throw new HarnessRpcError(method, error);
             }
-            if (!("value" in body.result)) {
+            if (!("value" in body.result) && !ABSENT_VALUE_METHODS.has(method)) {
                 throw new Error(`Harness RPC ${method} returned no value`);
             }
             return body.result.value as HarnessRpcValue<K>;

@@ -21,6 +21,7 @@ interface ComposerProps {
     selectionEnabled: ComposerState["selectionEnabled"];
     fileReferenceCandidates: ComposerState["fileReferenceCandidates"];
     skills: ComposerState["skills"];
+    commands: ComposerState["commands"];
     tokenUsage: ComposerState["tokenUsage"];
     sessionStats: ComposerState["sessionStats"];
     reasoningEffort: ComposerState["reasoningEffort"];
@@ -37,6 +38,7 @@ export const Composer = React.memo(function Composer({
     selectionEnabled,
     fileReferenceCandidates,
     skills,
+    commands,
     tokenUsage,
     sessionStats,
     reasoningEffort,
@@ -69,6 +71,7 @@ export const Composer = React.memo(function Composer({
         text,
         setText,
         skills,
+        commands,
         reasoningEffort,
         onShowEffort,
         focusTextarea,

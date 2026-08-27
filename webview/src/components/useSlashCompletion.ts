@@ -1,7 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type React from "react";
-import type { ChatViewState, DshSkillEntry } from "../../../src/types";
-import { runSlashCommand, SLASH_COMMANDS, type SlashCommand } from "./slashCommands";
+import type { ChatViewState, DshCommandDescriptor, DshSkillEntry } from "../../../src/types";
+import { mergeSlashCommands, runSlashCommand, type SlashCommand } from "./slashCommands";
 
 export const SLASH_MENU_ID = "dsh-slash-completion";
 export const SKILL_MENU_ID = "dsh-skill-completion";
@@ -10,6 +10,8 @@ export interface SlashCompletionOptions {
     text: string;
     setText: (text: string) => void;
     skills: DshSkillEntry[];
+    /** Host-registered commands for the current session. */
+    commands: DshCommandDescriptor[];
     reasoningEffort: ChatViewState["reasoningEffort"];
     onShowEffort: () => void;
     focusTextarea: () => void;
@@ -33,6 +35,7 @@ export function useSlashCompletion({
     text,
     setText,
     skills,
+    commands,
     reasoningEffort,
     onShowEffort,
     focusTextarea,
@@ -40,26 +43,29 @@ export function useSlashCompletion({
     const [slashIndex, setSlashIndex] = useState(0);
     const resetSlashIndex = useCallback((): void => setSlashIndex(0), []);
 
+    const available = useMemo(() => mergeSlashCommands(commands), [commands]);
+
     const executeSlashCommand = useCallback((name: string): boolean => {
         const handled = runSlashCommand(name, {
             reasoningEffortAvailable: !!reasoningEffort?.options.length,
             onShowEffort,
+            commands: available,
         });
         if (!handled) return false;
         setText("");
         setSlashIndex(0);
         return true;
-    }, [reasoningEffort, onShowEffort, setText]);
+    }, [reasoningEffort, onShowEffort, setText, available]);
 
     const slashQuery = text.match(/^\/(\S*)$/u)?.[1]?.toLowerCase();
     const slashMatches = slashQuery === undefined
         ? []
-        : SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(slashQuery));
+        : available.filter((command) => command.name.slice(1).startsWith(slashQuery));
     const slashSkillMatches = slashQuery === undefined
         ? []
         : skills.filter((skill) =>
               skill.name.toLowerCase().startsWith(slashQuery) &&
-              !SLASH_COMMANDS.some((command) => command.name.slice(1) === skill.name.toLowerCase()),
+              !available.some((command) => command.name.slice(1) === skill.name.toLowerCase()),
           );
     const slashCandidateCount = slashMatches.length + slashSkillMatches.length;
     const skillMatch = text.match(/(?:^|\s)\$([^\s$]*)$/u);
@@ -74,9 +80,17 @@ export function useSlashCompletion({
           });
 
     const chooseSlashCommand = useCallback((name: string): void => {
-        executeSlashCommand(name);
+        // A command that declares free-form input is completed into the draft
+        // instead of run, so the user can supply that input before submitting.
+        const command = available.find((candidate) => candidate.name === name);
+        if (command?.takesInput) {
+            setText(`${command.name} `);
+            setSlashIndex(0);
+        } else {
+            executeSlashCommand(name);
+        }
         window.requestAnimationFrame(focusTextarea);
-    }, [executeSlashCommand, focusTextarea]);
+    }, [available, executeSlashCommand, setText, focusTextarea]);
 
     const chooseSkill = useCallback((name: string): void => {
         const match = text.match(/(?:^|\s)\$([^\s$]*)$/u);

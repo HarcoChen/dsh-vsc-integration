@@ -60,9 +60,11 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 - ~~**`sessionListMetadata` 投影**~~ **撤回**：核对 schema 后发现两个字段（`blank`、`lastPromptAt`）都不带新信息。`blank` 已由 `session.list` 提供并在`chatView.ts:1622`、`:2173`、`sessionCatalog.ts:190-407` 消费；recency 排序已用`updatedAt`（`sessionCatalog.ts:413`）。唯一新字段是 `lastPromptAt`（最后一条**用户**消息，区别于任何活动），只够支撑一个可争论的排序改动。原条目写的「用于会话列表行的富信息」高估了它。
 - [ ] **Subagent 运行时长**。`subagentTiming`（上游 `deepseek-harness/packages/subagent/subagent/src/projection.ts:62`），wire 形状 `{settledMs, active?: {since, through}}`。`SubagentTreeNodeView` 目前只有二值 `activity: "running" | "inactive"`，没有任何时长，这是真正的新信息。
       **身份部分不做**：另一个单元注册的 key 是 `subagent`（不是 `subagentIdentity`，`projection.ts:169`），其 `label` / `mode` 已由 `subagent.list` 放在树节点上，重复。
-- [ ] **Slash Command 改为向 Runtime 枚举**。当前 `webview/src/components/slashCommands.ts:13-26` 是硬编码 12 条，`/compact`、`/goal` 以裸 prompt 文本发出并期待 Runtime 解释。上游 `commands.list → readonly CommandDescriptor[]` 与 `commands.execute`（`deepseek-harness/packages/interaction/commands/src/index.ts:284,328`）无 unary 镜像、尚未接入；接上后 profile 新挂载的插件命令才可见，也能省掉「空工作区特殊处理」这类补丁。需要先打通 Gateway 通道。
+- [x] **Slash Command 改为向 Runtime 枚举**。已完成。面板改为 `commands/list` 实时枚举 + IDE 自有条目合并，执行走 `commands/execute`。
+      **核对结果修正了原条目的前提**：`/compact`、`/goal` 走裸 prompt 文本这条路在 `0.1.1-rc.2` 上**根本不成立** —— `api-proxy.ts:2361` 的 `sessions.prompt` 只创建 user message，不查命令注册表；契约里的 `command?` 返回槽、`command-error` / `unknown-command` 错误码和 `api/sessions.ts:320` 那段注释都是旧设计的遗留（全仓库无实现产出这两个错误码）。所以此前 `/compact` 实际是把文本发给了模型，再报一句「server 未提供 /compact」。
+      **Gateway 通道无需单独地基**：`@deepseek-ai/dsh-api-gateway` 在 apiproxy 之前 intercept 同一条 `/api` 通道（`packages/api/gateway/src/index.ts:105`），信封与 unary 完全一致，只是路径末段为 `<namespace>/<method>`、payload 为单一 `args` 对象。现有 `HarnessApiClient.call()` 未作改动即可复用。
 - [ ] **消息反馈**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`），此前记录的「等公开契约」已不成立。需 Gateway 通道；落地时明确反馈是否写入 session 日志。
-- [ ] **Gateway 通道地基**。`commands`、`messageFeedback`、`pluginInventory`、`fileReference`、`sessionReference` 共用同一条通道，同基址同动词，仅端点形式与参数命名不同。上面两条依赖它，建议在它们之前单独落地并单独验证。
+- [x] **Gateway 通道地基**。已随 Slash 面板落地并验证：`HarnessRpcMethodMap` 现可直接声明 `<namespace>/<method>` 端点，`ABSENT_VALUE_METHODS` 负责 Typert「返回 undefined 即无 value 字段」的语义。`messageFeedback`、`pluginInventory`、`fileReference`、`sessionReference` 按同样方式加行即可。
 - [ ] **`plan` 投影**。上游 `deepseek-harness/packages/plan/plan-mode/src/index.ts:245` 注册，插件在 base 与 web-app 双挂载。当前计划评审走 interaction 卡片，接 projection 可拿到结构化计划状态。
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。（基础部分已完成，缺 `contextBreakdown` 支撑的占用归因。）
 - [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围。workspace symbol 与终端选区受 VS Code 稳定 API 限制，见「明确不做」。

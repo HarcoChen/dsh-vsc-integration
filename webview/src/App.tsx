@@ -55,6 +55,7 @@ export function App(): React.JSX.Element {
                 selectionEnabled={state.selectionEnabled}
                 fileReferenceCandidates={state.fileReferenceCandidates}
                 skills={state.skills}
+                commands={state.commands}
                 tokenUsage={state.tokenUsage}
                 sessionStats={state.sessionStats}
                 reasoningEffort={state.reasoningEffort}

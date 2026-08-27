@@ -86,6 +86,7 @@ import {
     DshSettingsCardView,
     DshSettingsPanelView,
     DshSettingsNamespaceView,
+    DshCommandDescriptor,
     DshSkillEntry,
     DshSubagentAddress,
     DshSubagentCatalog,
@@ -137,45 +138,13 @@ const DEFAULT_AGENT_STATUS_LABELS = [
 ] as const;
 
 
-type PromptCommandName = "compact" | "goal";
-
-interface PromptCommandResult {
-    accepted?: boolean;
-    command?: unknown;
-}
-
-function assertPromptCommandSuccess(
-    commandResult: PromptCommandResult,
-    commandName: PromptCommandName,
-): void {
-    if (commandResult.accepted === false) {
-        throw new Error(t("The dsh runtime rejected this command."));
-    }
-    const messages = commandName === "compact"
-        ? {
-              unavailable: t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package."),
-              rejected: t("The dsh server rejected the /compact command."),
-              invalid: t("The connected dsh server returned an invalid /compact command result."),
-          }
-        : {
-              unavailable: t("The connected dsh server does not expose the /goal command. Update dsh or enable the command-goal package."),
-              rejected: t("The dsh server rejected the /goal command."),
-              invalid: t("The connected dsh server returned an invalid /goal command result."),
-          };
-    const command = commandResult.command;
-    if (!command || typeof command !== "object" || Array.isArray(command)) {
-        throw new Error(messages.unavailable);
-    }
-    const commandRecord = command as Record<string, unknown>;
-    if (commandRecord.kind === "error") {
-        const message = typeof commandRecord.text === "string" && commandRecord.text.trim()
-            ? commandRecord.text
-            : messages.rejected;
-        throw new Error(message);
-    }
-    if (commandRecord.kind !== "success") {
-        throw new Error(messages.invalid);
-    }
+/**
+ * The command name a prompt line would invoke, by the host parser's grammar:
+ * a slash at byte zero, a lowercase name, then whitespace or end of input.
+ * `/path/to/file` is not a command line, and neither is `/Compact`.
+ */
+function looksLikeCommandLine(text: string): string | undefined {
+    return /^\/([a-z][a-z0-9_-]*)(?:$|[\t\n\r ])/u.exec(text)?.[1];
 }
 
 const GOAL_RPC_ERROR_PREFIX = /^Harness RPC goal\.(?:create|edit|pause|resume|complete|clear) failed:\s*[^:]+:\s*/u;
@@ -292,6 +261,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly modelCatalogRequests = new Map<string, Promise<void>>();
     private readonly skillCatalogs = new Map<string, DshSkillEntry[]>();
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
+    private readonly commandCatalogs = new Map<string, DshCommandDescriptor[]>();
+    private readonly commandCatalogRequests = new Map<string, Promise<void>>();
+    /**
+     * Latched once the Runtime answers 404 for the command registry, so an
+     * older Runtime is asked once per connection instead of on every state
+     * post. Cleared when a new stream generation connects.
+     */
+    private commandRegistryUnavailable = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private agentPresetCatalogRequest: Promise<void> | undefined;
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
@@ -352,11 +329,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }),
             runtime.onDidChange(() => this.schedulePostState()),
             agentStatusPresentations?.onDidChange(() => this.schedulePostState()) ?? new vscode.Disposable(() => {}),
+            runtime.onDidRemoteEvent((event) => {
+                // Registry-wide catalog invalidation: the forwarded signal
+                // carries no diff, so every session's snapshot is repulled.
+                if (event !== "commands/change") return;
+                this.commandCatalogs.clear();
+                if (this.sessionId) this.refreshCommandCatalog(this.sessionId);
+            }),
             runtime.onDidHarnessConnect(() => {
+                this.commandRegistryUnavailable = false;
+                this.commandCatalogs.clear();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
                         this.refreshModelCatalog(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
+                        this.refreshCommandCatalog(this.sessionId);
                         void this.refreshSubagentTree(this.sessionId);
                     }
                 });
@@ -1412,37 +1399,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 return;
             }
 
-            // Harness command adapters require the command line to be the complete
-            // prompt; never append IDE context to a slash command such as /compact or /goal.
-            const commandName: PromptCommandName | undefined =
-                requestedImages.length === 0 && /^\/compact$/u.test(text)
-                    ? "compact"
-                    : requestedImages.length === 0 && /^\/goal(?:$|[\t\n\r ])/u.test(text)
-                      ? "goal"
-                      : undefined;
-            if (commandName !== undefined) {
-                if (commandName === "compact") {
-                    const hasConversationHistory = this.runtime.getSessionStore().get(session)?.events.some(
-                        (event) => event.event.type === "user/message" || event.event.type === "assistant/message",
-                    ) === true;
-                    if (!hasConversationHistory) {
-                        throw new Error(t("There is no prior conversation in this session to compact."));
-                    }
+            // A host command line is dispatched through the command registry,
+            // never as model input, so it must stay the complete prompt: no
+            // IDE context is appended and no optimistic user row is echoed
+            // (the host logs the outcome instead of accepting a message).
+            if (looksLikeCommandLine(text)) {
+                await this.ensureCommandCatalog(session);
+                if (this.hostCommandName(session, text) !== undefined) {
+                    await this.runHostCommand(session, text, requestedImages);
+                    return;
                 }
-                optimistic = {
-                    id: `optimistic:${randomUUID()}`,
-                    sessionId: session,
-                    displayText: text,
-                    wireText: text,
-                    afterSeq: highestKnownSeq(this.runtime.getSessionStore().get(session)),
-                    createdAt: Date.now(),
-                };
-                this.optimisticPrompts.push(optimistic);
-                this.postState();
-                const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
-                const commandResult = await this.runtime.prompt(session, text, mode);
-                assertPromptCommandSuccess(commandResult, commandName);
-                return;
             }
 
             const explicitlyReferencesSelection = referencesSelection(text);
@@ -1595,6 +1561,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         this.refreshModelCatalog(this.sessionId);
         this.refreshSkillCatalog(this.sessionId);
+        this.refreshCommandCatalog(this.sessionId);
         return this.sessionId;
     }
 
@@ -1650,6 +1617,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             await this.runtime.syncSession(sessionId);
             this.refreshModelCatalog(sessionId);
             this.refreshSkillCatalog(sessionId);
+            this.refreshCommandCatalog(sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
             if (latest?.sessionId === sessionId && latest.cwd === workspaceRoot) {
@@ -1916,6 +1884,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.output.appendLine(`[dsh:agent-preset] selected ${result.agentPreset}`);
         this.skillCatalogs.delete(sessionId);
         this.refreshSkillCatalog(sessionId);
+        // Recomposing the agent re-decides both catalogs this session serves.
+        this.commandCatalogs.delete(sessionId);
+        this.refreshCommandCatalog(sessionId);
         await this.runtime.refreshSessions();
         this.postState();
     }
@@ -2008,6 +1979,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.runtime.syncSession(sessionId);
         this.refreshModelCatalog(sessionId);
         this.refreshSkillCatalog(sessionId);
+        this.refreshCommandCatalog(sessionId);
         void this.refreshSubagentTree(sessionId);
         this.reveal();
     }
@@ -2606,6 +2578,94 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.skillCatalogRequests.set(sessionId, request);
     }
 
+    /**
+     * The registered command a prompt line invokes, if any. The catalog must
+     * already be loaded — see {@link ensureCommandCatalog}.
+     */
+    private hostCommandName(sessionId: string, text: string): string | undefined {
+        const name = looksLikeCommandLine(text);
+        if (name === undefined) return undefined;
+        return this.commandCatalogs.get(sessionId)?.some((command) => command.name === name)
+            ? name
+            : undefined;
+    }
+
+    /**
+     * Runs one command line and reports its settled outcome. Admission and
+     * outcome arrive together here; the same outcome is also logged durably on
+     * the session, so this reporting is a convenience, not the record.
+     */
+    private async runHostCommand(
+        sessionId: string,
+        line: string,
+        images: readonly DshImageUpload[] = [],
+    ): Promise<void> {
+        const execution = await this.runtime.executeCommand(sessionId, line, images);
+        if (execution === undefined) {
+            throw new Error(t("The dsh runtime resolved no command for “{line}”.", { line }));
+        }
+        const { kind, text } = execution.result;
+        if (kind === "error") {
+            throw new Error(text?.trim() || t("The dsh runtime rejected this command."));
+        }
+        if (text?.trim()) void vscode.window.showInformationMessage(`DSH: ${text.trim()}`);
+    }
+
+    /**
+     * Pulls the session's host command registry. A Runtime without one leaves
+     * the catalog empty, and the composer falls back to its IDE-local
+     * commands alone.
+     */
+    private refreshCommandCatalog(sessionId: string): void {
+        if (
+            !this.runtime.getUrl() ||
+            this.commandRegistryUnavailable ||
+            this.commandCatalogs.has(sessionId) ||
+            this.commandCatalogRequests.has(sessionId)
+        ) {
+            return;
+        }
+        void this.ensureCommandCatalog(sessionId);
+    }
+
+    /**
+     * Resolves once this session's command registry is known, sharing one
+     * in-flight pull. A prompt that may be a command line awaits this, so a
+     * freshly created session cannot leak `/compact` to the model just because
+     * its catalog had not arrived yet.
+     */
+    private async ensureCommandCatalog(sessionId: string): Promise<void> {
+        const pending = this.commandCatalogRequests.get(sessionId);
+        if (pending) return pending;
+        if (
+            !this.runtime.getUrl() ||
+            this.commandRegistryUnavailable ||
+            this.commandCatalogs.has(sessionId)
+        ) {
+            return;
+        }
+        const request = this.runtime.listCommands(sessionId)
+            .then((commands) => {
+                if (commands === undefined) {
+                    this.commandRegistryUnavailable = true;
+                    this.output.appendLine(
+                        "[dsh:commands] the connected Runtime serves no command registry; using IDE commands only",
+                    );
+                    return;
+                }
+                this.commandCatalogs.set(sessionId, commands);
+                if (this.sessionId === sessionId) this.postState();
+            })
+            .catch((error) => {
+                this.output.appendLine(`[dsh:commands] catalog refresh failed: ${errorMessage(error)}`);
+            })
+            .finally(() => {
+                this.commandCatalogRequests.delete(sessionId);
+            });
+        this.commandCatalogRequests.set(sessionId, request);
+        return request;
+    }
+
     private refreshAgentPresetCatalog(): void {
         if (!this.runtime.getUrl() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
         const request = this.runtime.agentPresets()
@@ -2737,7 +2797,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ? catalog.workspaces.find((workspace) => samePath(workspace.path, workspaceFolder.uri.fsPath))
             : undefined;
         const selected = catalog.sessions.find((item) => item.sessionId === this.sessionId);
-        if (this.sessionId) this.refreshSkillCatalog(this.sessionId);
+        if (this.sessionId) {
+            this.refreshSkillCatalog(this.sessionId);
+            this.refreshCommandCatalog(this.sessionId);
+        }
         if (selected?.agentPreset) this.refreshAgentPresetCatalog();
         const selectedAgentPreset = selected?.agentPreset;
         const selectedAgentPresetLabel = this.agentPresetCatalog
@@ -2788,6 +2851,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             skills: this.sessionId
                 ? [...(this.skillCatalogs.get(this.sessionId) ?? [])]
                 : [...(this.pendingNewSessionSkills ?? [])],
+            commands: this.sessionId
+                ? [...(this.commandCatalogs.get(this.sessionId) ?? [])]
+                : [],
             ...(workspaceFolder === undefined
                 ? {}
                 : {

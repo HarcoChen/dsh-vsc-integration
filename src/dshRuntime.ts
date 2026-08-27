@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
-import { HarnessApiClient } from "./harnessClient";
+import { HarnessApiClient, HarnessHttpError } from "./harnessClient";
 import {
     HarnessClientResponse,
     HarnessHostDescription,
@@ -22,6 +22,8 @@ import {
 } from "./managedRuntime";
 import type { ManagedRuntime, RuntimeInstallPhase } from "./managedRuntime";
 import {
+    DshCommandDescriptor,
+    DshCommandExecution,
     DshGoalRef,
     DshGoalRefResult,
     DshHistoryResult,
@@ -57,6 +59,8 @@ import {
 
 type RuntimeListener = (status: RuntimeStatus) => void;
 type HarnessConnectedListener = () => void;
+/** One allowlisted host cordis event forwarded verbatim by the Runtime. */
+type RemoteEventListener = (event: string) => void;
 const execFileAsync = promisify(execFile);
 const DEFAULT_NPX_TIMEOUT_MS = 120_000;
 const DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS = 30_000;
@@ -677,6 +681,7 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
 export class DshRuntime implements vscode.Disposable {
     private readonly listeners = new Set<RuntimeListener>();
     private readonly harnessConnectedListeners = new Set<HarnessConnectedListener>();
+    private readonly remoteEventListeners = new Set<RemoteEventListener>();
     private readonly apiClient: HarnessApiClient;
     private readonly harnessState: HarnessStateCoordinator;
     private child: ChildProcess | undefined;
@@ -710,6 +715,12 @@ export class DshRuntime implements vscode.Disposable {
                 this.hostDescription = description;
                 for (const listener of this.harnessConnectedListeners) listener();
             },
+            onHostFrame: (frame) => {
+                if (frame.type !== "host/remote-event") return;
+                const event = (frame as { event?: unknown }).event;
+                if (typeof event !== "string") return;
+                for (const listener of this.remoteEventListeners) listener(event);
+            },
             onDiagnostic: (diagnostic) => {
                 let prefix: string;
                 let cause: unknown;
@@ -735,6 +746,16 @@ export class DshRuntime implements vscode.Disposable {
     public onDidHarnessConnect(listener: HarnessConnectedListener): vscode.Disposable {
         this.harnessConnectedListeners.add(listener);
         return new vscode.Disposable(() => this.harnessConnectedListeners.delete(listener));
+    }
+
+    /**
+     * Fires for each forwarded host event, by its own cordis name. Consumers
+     * treat these as invalidation signals and repull, because the forwarding
+     * path carries no diff.
+     */
+    public onDidRemoteEvent(listener: RemoteEventListener): vscode.Disposable {
+        this.remoteEventListeners.add(listener);
+        return new vscode.Disposable(() => this.remoteEventListeners.delete(listener));
     }
 
     public getStatus(): RuntimeStatus {
@@ -1221,6 +1242,44 @@ export class DshRuntime implements vscode.Disposable {
             sessionId,
         });
         return result.skills;
+    }
+
+    /**
+     * Host-registered slash commands for one session, or undefined when the
+     * connected Runtime serves no command registry (the Gateway answers 404
+     * for an endpoint no composed plugin claims). Callers degrade to their
+     * IDE-local commands rather than surfacing the gap as an error.
+     */
+    public async listCommands(sessionId: string): Promise<DshCommandDescriptor[] | undefined> {
+        try {
+            const commands = await this.apiClient.call("commands/list", {
+                args: { agentId: sessionId },
+            });
+            return [...commands];
+        } catch (error) {
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /**
+     * Runs one complete slash-command line against a session's agent. This is
+     * pure admission: the resolved handler's outcome is also logged durably as
+     * a `command/run` / `command/done` pair on the session. `undefined` means
+     * the line resolved to no registered command.
+     *
+     * Images are handed over verbatim; the host executor enforces each
+     * command's own `input.images` declaration and settles a non-declaring
+     * invocation as an error before its handler runs.
+     */
+    public async executeCommand(
+        sessionId: string,
+        line: string,
+        images: readonly DshImageUpload[] = [],
+    ): Promise<DshCommandExecution | undefined> {
+        return this.apiClient.call("commands/execute", {
+            args: { agentId: sessionId, line, images },
+        });
     }
 
     public async dispose(): Promise<void> {

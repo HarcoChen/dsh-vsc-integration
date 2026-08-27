@@ -33,6 +33,7 @@ export function SlashCompletionMenu({
                 >
                     <strong>{command.name}</strong>
                     <span>{command.description}{command.hint ? ` · ${command.hint}` : ""}</span>
+                    {command.origin === "ide" ? <em className="dsh-slash-origin">{t("IDE")}</em> : null}
                 </button>
             ))}
             {skills.map((skill, offset) => {
