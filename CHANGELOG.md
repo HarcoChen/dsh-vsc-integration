@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.6.0] - 2026-08-27
+
 - 精简底部常驻区：Token 用量并入输入框下方的紧凑入口（点击仍展开完整统计面板，此后从底部上弹），Todo 清单并入活动面板成为置顶的可折叠标签页，去掉多余的常驻统计条与堆叠边框，底部只保留输入框上沿一条分隔线。
 - 统一消息流与卡片视觉：工具卡、压缩卡与通用卡片的圆角、留白对齐，用户气泡去边框仅保留背景；间距改用 4px 基准刻度，圆角与阴影收敛为统一的设计 token，输入框默认更紧凑，整体更清爽。
 
@@ -20,8 +22,6 @@
 
 - 斜杠菜单回车选中即执行，不再把命令名填回输入框；需要参数的命令仍可手动输入完整命令行提交（打空格后菜单自动关闭）。
 - 以 `/` 直接调用的 skill 同样即时发送，并在消息流中渲染为调用标记而非字面 prompt 文本；`$name` 的句中引用手势保持原样，仍是补全进草稿。
-
-## [0.6.0-beta.1] - 2026-08-27
 
 - 继续收窄 ChatViewProvider：Workspace 管理与 Agent Preset 管理的 QuickPick 流程迁至 `workspaceActions.ts` 与 `agentPresetActions.ts`，通过窄接口回调告知视图需要失效的草稿状态，`chatView.ts` 由 3169 行降至 2820 行、方法数 98 → 90。新建会话草稿的五个字段统一由 `clearNewSessionDraft` 清理；移除 Workspace 时保留已选的 agent mode，不再连带清空。
 - 工具卡新增按次编辑的原生 Diff：`write` / `edit` / `str_replace_editor` 完成后可逐文件打开 VS Code 自带的并排 diff 编辑器。before 一侧不依赖 Git，而是用 Runtime 已随日志持久化的 hunk 从磁盘上的当前文件反向回放重建，因此非 Git 仓库、被 gitignore 的文件同样可用，粒度也从「整轮」细化到「单次调用」。锚点缺失或不唯一时明确报错而非展示不忠实的 diff；该文件此后未被再次修改且为 LF 行尾时，右侧直接使用可编辑的真实文件。
@@ -140,7 +140,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
-[0.6.0-beta.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.3...v0.6.0-beta.1
+[0.6.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.1...v0.5.2
 [0.4.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.4.0...v0.4.1
