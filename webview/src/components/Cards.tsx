@@ -1,6 +1,7 @@
 import React from "react";
 import type { ChatMessage, ChatToolCall } from "../../../src/types";
 import { findFileLocations } from "../../../src/fileLocations";
+import { postAction } from "../bridge";
 import { t } from "../i18n";
 import { formatToolDuration } from "../state";
 import { MessageImages } from "./MessageImages";
@@ -36,7 +37,11 @@ function LinkedFileLocations({ text }: { text: string }): React.JSX.Element {
 export function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
     const status =
         tool.status === "running" ? t("Running") : tool.status === "failed" ? t("Failed") : t("Done");
-    const hasDetail = Boolean(tool.args || tool.result || tool.error || tool.web || tool.lsp || tool.images?.length);
+    const diffPaths = tool.diffPaths ?? [];
+    const hasDetail = Boolean(
+        tool.args || tool.result || tool.error || tool.web || tool.lsp ||
+        tool.images?.length || diffPaths.length,
+    );
     return (
         <details className={`dsh-tool-card ${tool.status}`}>
             <summary>
@@ -49,6 +54,28 @@ export function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
             </summary>
             {hasDetail ? (
                 <div className="dsh-tool-detail">
+                    {diffPaths.length ? (
+                        <div className="dsh-tool-section">
+                            <div className="dsh-tool-section-label">{t("Changes")}</div>
+                            <div className="dsh-tool-diffs">
+                                {diffPaths.map((path) => (
+                                    <button
+                                        type="button"
+                                        className="dsh-tool-diff"
+                                        key={path}
+                                        title={t("Open native diff for {path}", { path })}
+                                        onClick={() => postAction({
+                                            type: "openToolDiff",
+                                            callId: tool.callId,
+                                            path,
+                                        })}
+                                    >
+                                        {path}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
                     {tool.images?.length ? <MessageImages images={tool.images} /> : null}
                     {tool.web ? <WebToolResult web={tool.web} /> : null}
                     {tool.lsp ? <LspToolResult lsp={tool.lsp} /> : null}

@@ -43,6 +43,7 @@ export type ChatViewAction =
     | { type: "applyCode"; renderId: string; codeBlockId: string; language?: string }
     | { type: "openTrace"; seq?: number }
     | { type: "openChangeDiff"; turn: number; fileId: string }
+    | { type: "openToolDiff"; callId: string; path: string }
     | { type: "restoreTurnChanges"; turn: number }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
@@ -225,6 +226,11 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value.fileId) ||
                 !hasOnly(value, ["type", "turn", "fileId"])) return undefined;
             return { type: "openChangeDiff", turn: value.turn, fileId: value.fileId };
+        case "openToolDiff":
+            if (typeof value.callId !== "string" || !value.callId ||
+                typeof value.path !== "string" || !value.path ||
+                !hasOnly(value, ["type", "callId", "path"])) return undefined;
+            return { type: "openToolDiff", callId: value.callId, path: value.path };
         case "restoreTurnChanges":
             if (!positiveInteger(value.turn) || !hasOnly(value, ["type", "turn"])) return undefined;
             return { type: "restoreTurnChanges", turn: value.turn };

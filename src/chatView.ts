@@ -23,6 +23,7 @@ import {
 } from "./chatViewProtocol";
 import { ContextStore } from "./contextStore";
 import { ChangeReviewStore } from "./changeReviewStore";
+import { ToolDiffStore } from "./toolDiffStore";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { isImageMediaType } from "./guards";
@@ -278,6 +279,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly settingsNamespaces = new Map<string, DshSettingsNamespaceView>();
     private settingsPanelGeneration = 0;
     private readonly changeReviews: ChangeReviewStore;
+    private readonly toolDiffs: ToolDiffStore;
     private agentStatusChoice: { sessionId: string; candidateKey: string; label: string } | undefined;
 
     public constructor(
@@ -290,6 +292,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly agentStatusPresentations?: AgentStatusPresentationRegistry,
     ) {
         this.changeReviews = new ChangeReviewStore(output);
+        this.toolDiffs = new ToolDiffStore(output);
         const unsubscribeSession = runtime.getSessionStore().onDidChange((sessionId, snapshot) => {
             const catalogSession = runtime.getSessionCatalog().snapshot().sessions.find(
                 (item) => item.sessionId === sessionId,
@@ -1082,6 +1085,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         for (const controller of this.subagentTreeAborts.values()) controller.abort();
         this.subagentPreviewAbort?.abort();
         this.changeReviews.dispose();
+        this.toolDiffs.dispose();
         for (const disposable of this.disposables) {
             disposable.dispose();
         }
@@ -1199,6 +1203,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                             ...(message.seq === undefined ? {} : { seq: message.seq }),
                         });
                     }
+                    break;
+                case "openToolDiff":
+                    await this.toolDiffs.openDiff(
+                        this.sessionId ? this.runtime.getSessionStore().get(this.sessionId) : undefined,
+                        this.sessionCwd ?? this.workspaceRoot(),
+                        message.callId,
+                        message.path,
+                    );
                     break;
                 case "openChangeDiff":
                     if (this.sessionId) {

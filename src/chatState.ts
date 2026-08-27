@@ -10,12 +10,13 @@ import {
     DshQueuedInboxItem,
     TurnStatusView,
 } from "./types";
-import { SessionStateSnapshot, StoredSessionEvent } from "./sessionStore";
+import { SessionStateSnapshot, StoredSessionEvent, toolResultCallId } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
 import { parseFileLocation } from "./fileLocations";
 import { isImageMediaType, isRecord } from "./guards";
+import { diffViewPaths, storedDiffView } from "./toolDiff";
 
 export interface OptimisticPrompt {
     id: string;
@@ -405,13 +406,7 @@ function toolResultFacts(event: StoredSessionEvent): {
     const block = Array.isArray(message?.content) && isRecord(message.content[0])
         ? message.content[0]
         : undefined;
-    const callId = typeof source?.callId === "string"
-        ? source.callId
-        : typeof block?.toolCallId === "string"
-          ? block.toolCallId
-          : typeof data?.callId === "string"
-            ? data.callId
-            : undefined;
+    const callId = toolResultCallId(event);
     const result = presentationSummary(toolView(event, "result")) ||
         contentSummary(toolResultContent(event)) || undefined;
     const structuredError = isRecord(data?.error)
@@ -462,6 +457,13 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
             ? undefined
             : lspResultView(name, data?.arguments, toolResultRawText(result));
         const images = contentImages(toolResultContent(result));
+        // Only a settled, successful call has applied hunks. A pending `edit`
+        // carries just the model's bare old_string→new_string proposal, which
+        // has no context lines to anchor a rewind on, so offering a diff there
+        // would only ever fail.
+        const diffPaths = !result || facts?.error
+            ? []
+            : diffViewPaths(storedDiffView(call, result));
         const tool: ChatToolCall = {
             callId,
             name,
@@ -474,6 +476,7 @@ function projectToolRows(snapshot: SessionStateSnapshot): Array<ChatMessage & { 
             ...(images.length ? { images } : {}),
             ...(web === undefined ? {} : { web }),
             ...(lsp === undefined ? {} : { lsp }),
+            ...(diffPaths.length ? { diffPaths } : {}),
         };
         return [{
             id: `tool:${callId}`,

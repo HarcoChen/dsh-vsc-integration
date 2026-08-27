@@ -261,6 +261,23 @@ function cloneSnapshot<T>(snapshot: AuthoritativeSnapshot<T>): AuthoritativeSnap
 }
 
 /** Generic projection cells governed solely by the protocol's higher-seq-wins rule. */
+/**
+ * The call a tool result belongs to. The Runtime records it on the result
+ * message's source, older shapes carry it on the content block or the event
+ * data; all three are accepted so pairing never silently drops a row.
+ */
+export function toolResultCallId(event: StoredSessionEvent): string | undefined {
+    const data = isRecord(event.event.data) ? event.event.data : undefined;
+    const message = isRecord(data?.message) ? data.message : undefined;
+    const source = isRecord(message?.source) ? message.source : undefined;
+    const block = Array.isArray(message?.content) && isRecord(message.content[0])
+        ? message.content[0]
+        : undefined;
+    if (typeof source?.callId === "string") return source.callId;
+    if (typeof block?.toolCallId === "string") return block.toolCallId;
+    return typeof data?.callId === "string" ? data.callId : undefined;
+}
+
 export class GenericProjectionStore {
     private readonly cells = new Map<string, ProjectionCell>();
 

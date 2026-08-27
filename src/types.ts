@@ -122,6 +122,12 @@ export interface ChatToolCall {
     images?: ChatImageView[];
     web?: ChatWebResultView;
     lsp?: ChatLspResultView;
+    /**
+     * Files this call changed, when it reported a diff card. Paths only — the
+     * before/after text stays host-side, because a whole-file body per edit
+     * would ride every full state post into the webview.
+     */
+    diffPaths?: string[];
 }
 
 export interface ChatCompactionView {

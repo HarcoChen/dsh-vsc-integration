@@ -402,5 +402,9 @@
     "Goal changed elsewhere; refresh and try again.": "Goal 已在其他位置发生变化，请刷新后重试。",
     "That Goal action is not available in the current phase.": "当前阶段不支持该 Goal 操作。",
     "The dsh runtime rejected this command.": "dsh 运行时拒绝了这条命令。",
-    "The dsh runtime resolved no command for “{line}”.": "dsh 运行时没有找到与“{line}”匹配的命令。"
+    "The dsh runtime resolved no command for “{line}”.": "dsh 运行时没有找到与“{line}”匹配的命令。",
+    "This diff is no longer available.": "该 diff 已失效。",
+    "“{path}” is no longer readable, so its diff cannot be rebuilt.": "“{path}”已无法读取，无法重建其 diff。",
+    "“{path}” has changed since this edit, so DSH cannot rebuild a faithful diff of it.": "“{path}”在这次编辑之后又被改动过，DSH 无法重建忠实的 diff。",
+    "{path} (tool edit)": "{path}（工具编辑）"
 }

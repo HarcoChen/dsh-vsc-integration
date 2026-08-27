@@ -67,6 +67,9 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 - [x] **Gateway 通道地基**。已随 Slash 面板落地并验证：`HarnessRpcMethodMap` 现可直接声明 `<namespace>/<method>` 端点，`ABSENT_VALUE_METHODS` 负责 Typert「返回 undefined 即无 value 字段」的语义。`messageFeedback`、`pluginInventory`、`fileReference`、`sessionReference` 按同样方式加行即可。
 - [ ] **`plan` 投影**。上游 `deepseek-harness/packages/plan/plan-mode/src/index.ts:245` 注册，插件在 base 与 web-app 双挂载。当前计划评审走 interaction 卡片，接 projection 可拿到结构化计划状态。
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。（基础部分已完成，缺 `contextBreakdown` 支撑的占用归因。）
+- [x] **按次编辑的原生 Diff（不依赖 Git）**。已完成，见 `src/toolDiff.ts`（纯重建逻辑）与 `src/toolDiffStore.ts`（`dsh-tool-diff` 虚拟文档 + `vscode.diff`）。
+      **关键前提是上游已经把数据给全了**：`write`/`edit`/`str-replace-editor` 的 `presentResult` 产出 `card: 'diff'`，其 `diffs` 是每 hunk 带 3 行上下文的 `FileDiff`（`packages/fs/tool-fs/src/diff.ts:32`），且 `FsDiffMeta` 随 session 日志持久化、replay 时重建，冷会话同样可用。扩展早已在 `sessionStore` 里逐事件保留 `view`，此前只取了 `title`。
+      **wire 上没有的是整文件 before 与行号**，所以 before 由「当前磁盘内容反向回放 hunk」重建，上下文行即锚点；锚点不唯一或缺失时拒绝而非猜测。查看历史中较早的调用时，会先反向回放其后所有对同一文件的调用。
 - [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围。workspace symbol 与终端选区受 VS Code 稳定 API 限制，见「明确不做」。
 - [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；无公开协议时只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
 

@@ -186,6 +186,32 @@
     font-size: var(--dsh-font-xs);
 }
 
+/* Per-call changed files: each opens VS Code's own diff editor, so the row is
+   an affordance rather than a rendered diff. */
+.dsh-tool-diffs {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--dsh-space-1);
+}
+
+.dsh-tool-diff {
+    max-width: 100%;
+    padding: 0;
+    border: 0;
+    color: var(--vscode-textLink-foreground);
+    background: transparent;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-xs);
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.dsh-tool-diff:hover {
+    text-decoration: underline;
+}
+
 /* ---------- compaction card ---------- */
 
 .dsh-compaction-card {
