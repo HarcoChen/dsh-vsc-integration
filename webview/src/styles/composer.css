@@ -412,15 +412,28 @@
     margin-top: var(--dsh-space-3);
 }
 
+/* Borderless until hover, matching the compact usage entry it sits next to. */
 .dsh-permission-chip {
+    display: inline-flex;
     flex: none;
-    padding: 0 var(--dsh-space-2);
-    border: 1px solid var(--dsh-border);
-    border-radius: var(--dsh-radius-sm);
+    align-items: center;
+    gap: var(--dsh-space-1);
+    padding: 2px var(--dsh-space-2);
+    border: 1px solid transparent;
+    border-radius: var(--dsh-radius-chip);
     color: var(--vscode-descriptionForeground);
     background: transparent;
     font-size: var(--dsh-font-xs);
     white-space: nowrap;
+}
+
+.dsh-permission-chip svg {
+    flex: none;
+}
+
+/* Risky presets (danger-full-access) read in the warning hue at a glance. */
+.dsh-permission-chip-danger {
+    color: var(--dsh-status-warning);
 }
 
 button.dsh-permission-chip {
@@ -429,7 +442,12 @@ button.dsh-permission-chip {
 
 button.dsh-permission-chip:hover {
     color: var(--vscode-foreground);
-    border-color: var(--vscode-focusBorder);
+    border-color: var(--dsh-border);
+    background: var(--dsh-surface-hover);
+}
+
+button.dsh-permission-chip-danger:hover {
+    color: var(--dsh-status-warning);
 }
 
 .dsh-slash-menu {

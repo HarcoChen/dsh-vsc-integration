@@ -108,6 +108,14 @@ export function EyeOffIcon({ size = 12 }: IconProps): React.JSX.Element {
     );
 }
 
+export function ShieldIcon({ size = 12 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M8 1.5 2.8 3.4v4.1c0 3.1 2.1 5.6 5.2 7 3.1-1.4 5.2-3.9 5.2-7V3.4L8 1.5Z" />
+        </svg>
+    );
+}
+
 export function CheckIcon({ size = 12 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>
