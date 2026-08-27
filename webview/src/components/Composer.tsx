@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { DshReferenceCandidate } from "../../../src/types";
 import { postAction, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
 import { t } from "../i18n";
-import type { ComposerState } from "../state";
+import { canSwitchPermissions, type ComposerState } from "../state";
 import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
 import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 import { ContextChips } from "./ContextChips";
 import { FILE_REFERENCE_MENU_ID, FileReferenceMenu } from "./FileReferenceMenu";
+import { PermissionModeChip } from "./PermissionModeChip";
 import { ReasoningEffortControl } from "./ReasoningEffortControl";
 import { SessionStats } from "./SessionStats";
 import { SKILL_MENU_ID, SLASH_MENU_ID, useSlashCompletion } from "./useSlashCompletion";
@@ -22,6 +23,7 @@ interface ComposerProps {
     fileReferenceCandidates: ComposerState["fileReferenceCandidates"];
     skills: ComposerState["skills"];
     commands: ComposerState["commands"];
+    permissions: ComposerState["permissions"];
     tokenUsage: ComposerState["tokenUsage"];
     sessionStats: ComposerState["sessionStats"];
     reasoningEffort: ComposerState["reasoningEffort"];
@@ -39,6 +41,7 @@ export const Composer = React.memo(function Composer({
     fileReferenceCandidates,
     skills,
     commands,
+    permissions,
     tokenUsage,
     sessionStats,
     reasoningEffort,
@@ -412,7 +415,13 @@ export const Composer = React.memo(function Composer({
                         : sendLabel}
                 </button>
             </div>
-            <SessionStats stats={sessionStats} />
+            <div className="dsh-composer-footer">
+                <PermissionModeChip
+                    permissions={permissions}
+                    switchable={canSwitchPermissions(commands)}
+                />
+                <SessionStats stats={sessionStats} />
+            </div>
         </div>
     );
 });

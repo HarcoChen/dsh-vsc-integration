@@ -406,5 +406,7 @@
     "This diff is no longer available.": "该 diff 已失效。",
     "“{path}” is no longer readable, so its diff cannot be rebuilt.": "“{path}”已无法读取，无法重建其 diff。",
     "“{path}” has changed since this edit, so DSH cannot rebuild a faithful diff of it.": "“{path}”在这次编辑之后又被改动过，DSH 无法重建忠实的 diff。",
-    "{path} (tool edit)": "{path}（工具编辑）"
+    "{path} (tool edit)": "{path}（工具编辑）",
+    "“{path}” does not match this pending change, so it cannot be previewed.": "“{path}”与这次待批准的改动不匹配，无法预览。",
+    "{path} (proposed)": "{path}（拟议改动）"
 }

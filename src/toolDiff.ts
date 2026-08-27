@@ -206,3 +206,52 @@ export function collectCallHunks(
     }
     return history;
 }
+
+/**
+ * Applies a pending call's proposed change to the file as it stands now.
+ *
+ * A call awaiting approval has not run, so what is on disk IS its before-image
+ * — no reconstruction needed. `presentCall` describes the proposal: `write`
+ * reports the whole new content with no prior text, while `edit` reports the
+ * literal `old_string` → `new_string` replacement, which is located in the
+ * current content the same way a rewind locates its anchors.
+ *
+ * Returns undefined when an anchor is missing or ambiguous, which is also how
+ * the tool itself would fail, so refusing to preview is the honest answer.
+ */
+export function applyProposedHunks(
+    current: string,
+    hunks: readonly ToolFileDiff[],
+): string | undefined {
+    if (isWholeFileCreate(hunks)) return normalizeNewlines(hunks[0]!.newText);
+    let result = current;
+    for (const hunk of hunks) {
+        const before = normalizeNewlines(hunk.oldText ?? "");
+        if (!before) return undefined;
+        const at = result.indexOf(before);
+        if (at < 0) return undefined;
+        if (result.indexOf(before, at + 1) >= 0) return undefined;
+        result = result.slice(0, at) + normalizeNewlines(hunk.newText) + result.slice(at + before.length);
+    }
+    return result;
+}
+
+/**
+ * The diff card a call proposed, paired with whether that call has settled.
+ * An unsettled call is previewed against the working copy; a settled one is
+ * rewound out of it.
+ */
+export function callDiffState(
+    snapshot: SessionStateSnapshot,
+    callId: string,
+): { view: ToolDiffView; settled: boolean } | undefined {
+    let call: StoredSessionEvent | undefined;
+    let result: StoredSessionEvent | undefined;
+    for (const stored of snapshot.events) {
+        const data = isRecord(stored.event.data) ? stored.event.data : undefined;
+        if (stored.event.type === "tool/call" && data?.callId === callId) call = stored;
+        else if (stored.event.type === "tool/result" && toolResultCallId(stored) === callId) result = stored;
+    }
+    const view = storedDiffView(call, result);
+    return view ? { view, settled: result !== undefined } : undefined;
+}

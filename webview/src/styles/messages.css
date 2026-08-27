@@ -226,6 +226,26 @@
     text-decoration: underline;
 }
 
+/* The command or files a pending approval would act on. */
+.dsh-approval-call {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-1);
+}
+
+.dsh-approval-command {
+    max-height: 160px;
+    margin: 0;
+    padding: var(--dsh-space-2);
+    overflow: auto;
+    border-radius: var(--dsh-radius-sm);
+    background: var(--vscode-textBlockQuote-background);
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 /* ---------- compaction card ---------- */
 
 .dsh-compaction-card {

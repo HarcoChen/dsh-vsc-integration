@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
-import type { ActivityDockState } from "../../state";
+import { canSwitchPermissions, type ActivityDockState } from "../../state";
 import { ChangesPanel } from "./ChangesPanel";
 import { GoalPanel } from "./GoalPanel";
 import { JobsPanel } from "./JobsPanel";
@@ -24,6 +24,7 @@ interface ActivityDockProps {
     subagentPreview: ActivityDockState["subagentPreview"];
     jobs: ActivityDockState["jobs"];
     permissions: ActivityDockState["permissions"];
+    commands: ActivityDockState["commands"];
     sessionId: ActivityDockState["sessionId"];
     sessionRunning: boolean;
     agentPresetLabel: ActivityDockState["agentPresetLabel"];
@@ -37,6 +38,7 @@ export const ActivityDock = React.memo(function ActivityDock({
     subagentPreview,
     jobs,
     permissions,
+    commands,
     sessionId,
     sessionRunning,
     agentPresetLabel,
@@ -150,7 +152,7 @@ export const ActivityDock = React.memo(function ActivityDock({
                     {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={changeReviews} running={sessionRunning} /> : null}
                     {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && subagents ? <SubagentsPanel tree={subagents} preview={preview} /> : null}
                     {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={jobs} /> : null}
-                    {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && permissions ? <PermissionsPanel permissions={permissions} /> : null}
+                    {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && permissions ? <PermissionsPanel permissions={permissions} switchable={canSwitchPermissions(commands)} /> : null}
                 </div>
             ))}
         </div>

@@ -65,6 +65,7 @@ import {
     parseGoalProjection,
     presentGoalHud,
     presentJobCenter,
+    presentApprovalCall,
     presentPlanReview,
     projectSubagentHistory,
     SubagentTreeStore,
@@ -826,6 +827,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                             sessionId: this.sessionId,
                             ...(message.seq === undefined ? {} : { seq: message.seq }),
                         });
+                    }
+                    break;
+                case "setPermissionPreset":
+                    if (this.sessionId) {
+                        await this.runHostCommand(
+                            this.sessionId,
+                            `/permissionPresets ${message.value}`,
+                        );
                     }
                     break;
                 case "openToolDiff":
@@ -2576,6 +2585,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                           ...(interaction.reason === undefined
                               ? {}
                               : { reason: interaction.reason }),
+                          ...(() => {
+                              const call = presentApprovalCall(session, interaction.callId);
+                              return call === undefined ? {} : { call };
+                          })(),
                           ...(interaction.outcome === undefined
                               ? {}
                               : { outcome: interaction.outcome }),

@@ -305,6 +305,20 @@
 
 /* permissions */
 
+/* Switchable entries are buttons; the current one stays a plain row. */
+button.dsh-permission-option {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+button.dsh-permission-option:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
 .dsh-permission-option {
     display: flex;
     justify-content: space-between;

@@ -401,6 +401,35 @@
     align-items: flex-end;
 }
 
+/* Footer row: the permission indicator sits beside the usage figures, both
+   being persistent facts about the session rather than actions on the draft. */
+.dsh-composer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--dsh-space-2);
+}
+
+.dsh-permission-chip {
+    flex: none;
+    padding: 0 var(--dsh-space-2);
+    border: 1px solid var(--dsh-border);
+    border-radius: var(--dsh-radius-sm);
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-size: var(--dsh-font-xs);
+    white-space: nowrap;
+}
+
+button.dsh-permission-chip {
+    cursor: pointer;
+}
+
+button.dsh-permission-chip:hover {
+    color: var(--vscode-foreground);
+    border-color: var(--vscode-focusBorder);
+}
+
 .dsh-slash-menu {
     position: absolute;
     right: var(--dsh-space-4);

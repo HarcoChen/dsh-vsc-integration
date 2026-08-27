@@ -42,6 +42,7 @@ export function App(): React.JSX.Element {
                     subagentPreview={state.subagentPreview}
                     jobs={state.jobs}
                     permissions={state.permissions}
+                    commands={state.commands}
                     sessionId={state.sessionId}
                     sessionRunning={state.sessionStatus?.running === true}
                     agentPresetLabel={state.agentPresetLabel}
@@ -56,6 +57,7 @@ export function App(): React.JSX.Element {
                 fileReferenceCandidates={state.fileReferenceCandidates}
                 skills={state.skills}
                 commands={state.commands}
+                permissions={state.permissions}
                 tokenUsage={state.tokenUsage}
                 sessionStats={state.sessionStats}
                 reasoningEffort={state.reasoningEffort}

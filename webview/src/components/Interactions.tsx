@@ -28,6 +28,54 @@ function StatusLines({ interaction }: CardProps): React.JSX.Element | null {
     );
 }
 
+/**
+ * What the call would actually do. An approval names only a tool, which is not
+ * enough to decide on — a command has to be readable, and a write has to be
+ * inspectable before it happens, not after.
+ */
+function ApprovalCallDetail({
+    call,
+}: {
+    call: NonNullable<CardProps["interaction"]["call"]> | undefined;
+}): React.JSX.Element | null {
+    if (!call) return null;
+    if (call.command !== undefined) {
+        return (
+            <div className="dsh-approval-call">
+                {call.cwd ? <div className="dsh-card-detail">{call.cwd}</div> : null}
+                <pre className="dsh-approval-command">{call.command}</pre>
+            </div>
+        );
+    }
+    if (call.diffPaths?.length) {
+        return (
+            <div className="dsh-approval-call">
+                {call.title ? <div className="dsh-card-detail">{call.title}</div> : null}
+                <div className="dsh-tool-diffs">
+                    {call.diffPaths.map((path) => (
+                        <button
+                            type="button"
+                            className="dsh-tool-diff"
+                            key={path}
+                            title={t("Preview the proposed change to {path}", { path })}
+                            onClick={() => postAction({ type: "openToolDiff", callId: call.callId, path })}
+                        >
+                            {path}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+    if (call.title === undefined && call.detail === undefined) return null;
+    return (
+        <div className="dsh-approval-call">
+            {call.title ? <div className="dsh-card-detail">{call.title}</div> : null}
+            {call.detail ? <pre className="dsh-approval-command">{call.detail}</pre> : null}
+        </div>
+    );
+}
+
 function ApprovalCard({ interaction }: CardProps): React.JSX.Element {
     const [submitted, markSubmitted] = useSubmitted(interaction);
     const disabled = submitted || interaction.status !== "pending";
@@ -39,6 +87,7 @@ function ApprovalCard({ interaction }: CardProps): React.JSX.Element {
         <div className="dsh-card dsh-interaction">
             <div className="dsh-card-title">{t("Approval required: {tool}", { tool: interaction.toolName || t("Tool call") })}</div>
             {interaction.reason ? <div className="dsh-card-detail">{interaction.reason}</div> : null}
+            <ApprovalCallDetail call={interaction.call} />
             <StatusLines interaction={interaction} />
             <div className="dsh-card-actions">
                 <button

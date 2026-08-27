@@ -14,7 +14,8 @@ import * as vscode from "vscode";
 import { errorMessage } from "./errors";
 import { t } from "./localize";
 import { SessionStateSnapshot } from "./sessionStore";
-import { collectCallHunks, rewindAround } from "./toolDiff";
+import type { ToolDiffView } from "./toolDiff";
+import { applyProposedHunks, callDiffState, collectCallHunks, normalizeNewlines, rewindAround } from "./toolDiff";
 
 export const TOOL_DIFF_SCHEME = "dsh-tool-diff";
 
@@ -70,18 +71,30 @@ export class ToolDiffStore implements vscode.Disposable, vscode.TextDocumentCont
         path: string,
     ): Promise<void> {
         if (!snapshot) throw new Error(t("This diff is no longer available."));
-        const history = collectCallHunks(snapshot, path);
+        const state = callDiffState(snapshot, callId);
+        if (!state) throw new Error(t("This diff is no longer available."));
         const absolute = isAbsolute(path) ? path : resolve(cwd ?? "", path);
 
         let current: string;
         try {
             current = await fs.readFile(absolute, "utf8");
         } catch (error) {
-            // A file deleted or moved after the fact cannot anchor a rewind.
-            this.output.appendLine(`[dsh:tool-diff] ${absolute}: ${errorMessage(error)}`);
-            throw new Error(t("“{path}” is no longer readable, so its diff cannot be rebuilt.", { path }));
+            // A pending call may be creating this file, in which case an empty
+            // left-hand side is exactly right. A settled call cannot be rewound
+            // out of a file that is no longer there.
+            if (state.settled) {
+                this.output.appendLine(`[dsh:tool-diff] ${absolute}: ${errorMessage(error)}`);
+                throw new Error(t("“{path}” is no longer readable, so its diff cannot be rebuilt.", { path }));
+            }
+            current = "";
         }
 
+        if (!state.settled) {
+            await this.openProposed(state.view, current, path);
+            return;
+        }
+
+        const history = collectCallHunks(snapshot, path);
         const rewound = rewindAround(current, history, callId);
         if (!rewound) {
             throw new Error(t(
@@ -102,6 +115,32 @@ export class ToolDiffStore implements vscode.Disposable, vscode.TextDocumentCont
             ? vscode.Uri.file(absolute)
             : this.documentUri(rewound.after, path);
         await vscode.commands.executeCommand("vscode.diff", left, right, title, { preview: true });
+    }
+
+    /**
+     * Previews a call that has not run yet: the working copy is its real
+     * before-image, so this is a genuine "what would change if I approve"
+     * rather than a reconstruction. The left side is the file as it stands,
+     * never the live URI — approving must not look like an edit already made.
+     */
+    private async openProposed(
+        view: ToolDiffView,
+        current: string,
+        path: string,
+    ): Promise<void> {
+        const hunks = view.diffs.filter((diff) => diff.path === path);
+        const base = normalizeNewlines(current);
+        const proposed = hunks.length ? applyProposedHunks(base, hunks) : undefined;
+        if (proposed === undefined) {
+            throw new Error(t("“{path}” does not match this pending change, so it cannot be previewed.", { path }));
+        }
+        await vscode.commands.executeCommand(
+            "vscode.diff",
+            this.documentUri(base, path),
+            this.documentUri(proposed, path),
+            t("{path} (proposed)", { path }),
+            { preview: true },
+        );
     }
 
     /**

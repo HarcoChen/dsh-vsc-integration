@@ -908,6 +908,8 @@ export interface ChatViewState {
         status: "pending" | "submitting" | "resolved" | "failed" | "unavailable";
         toolName?: string;
         reason?: string;
+        /** What a pending approval would actually do; absent when unknown. */
+        call?: ApprovalCallView;
         questions?: DshQuestionItem[];
         review?: {
             id: string;
@@ -1001,6 +1003,24 @@ export interface SessionStatsView {
     ttftSteps: number;
     decodeMs: number;
     decodeTokens: number;
+}
+
+/**
+ * What a pending approval would actually do, read off the tool's own call
+ * presentation. An approval frame names only the tool, which is not enough to
+ * decide on — a reader needs the command, or the files, in front of them.
+ */
+export interface ApprovalCallView {
+    callId: string;
+    /** Header the tool chose for this call. */
+    title?: string;
+    /** The shell command, for a call that IS a command. */
+    command?: string;
+    cwd?: string;
+    /** Files the call would change, for a call that writes. */
+    diffPaths?: string[];
+    /** Salient input for any other kind of call. */
+    detail?: string;
 }
 
 export interface PermissionProjectionView {

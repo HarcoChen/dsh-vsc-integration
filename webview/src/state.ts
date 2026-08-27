@@ -47,9 +47,24 @@ export type ActivityDockState = Pick<
     | "subagentPreview"
     | "jobs"
     | "permissions"
+    | "commands"
     | "sessionId"
     | "agentPresetLabel"
 >;
+
+/** Name of the host command that switches permission presets. */
+export const PERMISSION_PRESET_COMMAND = "permissionPresets";
+
+/**
+ * Whether this session's Runtime exposes the permission-preset command. The
+ * panel offers switching only then, because the registry — not the projection —
+ * decides whether that gesture exists.
+ */
+export function canSwitchPermissions(
+    commands: ChatViewState["commands"],
+): boolean {
+    return commands.some((command) => command.name === PERMISSION_PRESET_COMMAND);
+}
 
 export type ComposerState = Pick<
     ChatViewState,
@@ -59,6 +74,7 @@ export type ComposerState = Pick<
     | "fileReferenceCandidates"
     | "skills"
     | "commands"
+    | "permissions"
     | "tokenUsage"
     | "sessionStats"
     | "reasoningEffort"

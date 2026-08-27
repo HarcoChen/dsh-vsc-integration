@@ -44,6 +44,7 @@ export type ChatViewAction =
     | { type: "openTrace"; seq?: number }
     | { type: "openChangeDiff"; turn: number; fileId: string }
     | { type: "openToolDiff"; callId: string; path: string }
+    | { type: "setPermissionPreset"; value: string }
     | { type: "restoreTurnChanges"; turn: number }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
@@ -231,6 +232,12 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 typeof value.path !== "string" || !value.path ||
                 !hasOnly(value, ["type", "callId", "path"])) return undefined;
             return { type: "openToolDiff", callId: value.callId, path: value.path };
+        case "setPermissionPreset":
+            // Preset names are host-defined; the shape check is the wire's job
+            // and the registry rejects an unknown one on execute.
+            if (typeof value.value !== "string" || !/^[\w.-]{1,64}$/u.test(value.value) ||
+                !hasOnly(value, ["type", "value"])) return undefined;
+            return { type: "setPermissionPreset", value: value.value };
         case "restoreTurnChanges":
             if (!positiveInteger(value.turn) || !hasOnly(value, ["type", "turn"])) return undefined;
             return { type: "restoreTurnChanges", turn: value.turn };

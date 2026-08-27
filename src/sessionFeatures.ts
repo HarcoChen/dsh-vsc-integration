@@ -1,6 +1,7 @@
 import { projectChatMessages } from "./chatState";
 import { t } from "./localize";
 import {
+    ApprovalCallView,
     GoalHudView,
     DshGoalProjection,
     DshGoalRef,
@@ -13,8 +14,10 @@ import {
     SubagentTreeNodeView,
     SubagentTreeView,
 } from "./types";
-import { HarnessSessionStore, ProjectionCell } from "./sessionStore";
+import { HarnessSessionStore, ProjectionCell, SessionStateSnapshot } from "./sessionStore";
 import { isRecord } from "./guards";
+import { diffViewPaths, parseToolDiffView } from "./toolDiff";
+import { safeTraceJson } from "./traceProjector";
 
 export interface PlanReviewView {
     id: string;
@@ -43,6 +46,57 @@ export function presentPlanReview(questions: readonly DshQuestionItem[]): PlanRe
         plan: question.detail,
         approve,
         ...(decline === undefined ? {} : { decline }),
+    };
+}
+
+function callPresentation(snapshot: SessionStateSnapshot, callId: string): Record<string, unknown> | undefined {
+    for (const stored of snapshot.events) {
+        if (stored.event.type !== "tool/call") continue;
+        const data = isRecord(stored.event.data) ? stored.event.data : undefined;
+        if (data?.callId !== callId) continue;
+        const envelope = isRecord(stored.view) && stored.view.for === "call" ? stored.view.view : undefined;
+        return isRecord(envelope) ? envelope : undefined;
+    }
+    return undefined;
+}
+
+/**
+ * Narrows one pending call's presentation for the approval card. An unknown or
+ * malformed card contributes nothing rather than a half-rendered row, which
+ * keeps the card at the tool name it already showed.
+ */
+export function presentApprovalCall(
+    snapshot: SessionStateSnapshot | undefined,
+    callId: string | undefined,
+): ApprovalCallView | undefined {
+    if (!snapshot || callId === undefined) return undefined;
+    const view = callPresentation(snapshot, callId);
+    if (!view) return undefined;
+    const title = typeof view.title === "string" && view.title ? view.title : undefined;
+    if (view.card === "terminal") {
+        return {
+            callId,
+            ...(title === undefined ? {} : { title }),
+            ...(typeof view.title === "string" ? { command: view.title } : {}),
+            ...(typeof view.cwd === "string" ? { cwd: view.cwd } : {}),
+        };
+    }
+    if (view.card === "diff") {
+        const diffPaths = diffViewPaths(parseToolDiffView(view));
+        if (!diffPaths.length) return undefined;
+        return { callId, ...(title === undefined ? {} : { title }), diffPaths };
+    }
+    const raw = view.rawInput;
+    const detail = typeof raw === "string"
+        ? raw
+        : raw === undefined
+          ? undefined
+          : safeTraceJson(raw, 3_600);
+    if (title === undefined && detail === undefined) return undefined;
+    return {
+        callId,
+        ...(title === undefined ? {} : { title }),
+        ...(detail === undefined ? {} : { detail }),
     };
 }
 
