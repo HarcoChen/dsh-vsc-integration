@@ -52,8 +52,15 @@ export type ActivityDockState = Pick<
     | "agentPresetLabel"
 >;
 
-/** Name of the host command that switches permission presets. */
-export const PERMISSION_PRESET_COMMAND = "permissionPresets";
+/**
+ * Name of the host command that switches permission presets.
+ *
+ * `permission`, not `permissionPresets`: the package README calls it the
+ * latter, but the registry's own grammar is lowercase-only
+ * (`/^[a-z][a-z0-9_-]*$/`), so that name could never have registered. The
+ * registration site is the authority.
+ */
+export const PERMISSION_PRESET_COMMAND = "permission";
 
 /**
  * Whether this session's Runtime exposes the permission-preset command. The

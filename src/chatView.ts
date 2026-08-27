@@ -831,9 +831,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "setPermissionPreset":
                     if (this.sessionId) {
+                        // `/permission <preset>`; the argument is the preset
+                        // name, which is exactly the projection's option value.
                         await this.runHostCommand(
                             this.sessionId,
-                            `/permissionPresets ${message.value}`,
+                            `/permission ${message.value}`,
                         );
                     }
                     break;

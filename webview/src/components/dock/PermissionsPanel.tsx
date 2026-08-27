@@ -6,7 +6,7 @@ import { t } from "../../i18n";
 /**
  * The preset table, switchable in place.
  *
- * Switching runs the host's own `/permissionPresets` command, so the IDE and
+ * Switching runs the host's own `/permission` command, so the IDE and
  * every other client drive the same code path. `custom` is a derived value the
  * host reports when the two underlying knobs match no entry — it can be the
  * current value but is never selectable, so it renders without an action.
