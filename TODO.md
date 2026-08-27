@@ -56,6 +56,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 ## P1：功能（按性价比排序，均已核对公开契约）
 
 - [x] **`contextBreakdown` 投影**。上游 `deepseek-harness/packages/llm/token-meter/src/index.ts:90` 注册，与扩展**已在消费**的 `tokenUsage`(:88)、`contextPressure`(:89) 同属一个插件。改动集中在 `src/tokenUsage.ts:65` 一带，多读一个 key。兑现下面「上下文用量与超限反馈」要的「说明什么在占上下文」。已完成。
+- [ ] **继续拆 `chatView.ts`**。已完成第一步：Workspace 与 Agent Preset 管理迁出（3169 → 2820 行）。剩余按性价比：三套目录缓存（model / skill / command 是同一套 Map 对 + 请求去重 + 失效重拉抄了三遍，可收成一个 `SessionCatalogCache<T>`，约 155 行 + 6 个字段）；`handleMessage` 的 205 行 switch 拆成按域分组的处理器表；Subagent 编排（约 285 行，`SubagentTreeStore` 已存在，预览/跟进/中断仍在视图里）。`postState` 的 193 行不建议动——它本质是把二十多个来源汇成一个快照，拆开只会变成到处找字段。
 - [ ] **IDE 内 Provider 配置**。`llm.models` 与 `llm.discoverModels` 是 52 条 unary 路由里未消费的两条。当前未配置 Provider 一律引导去 dsh Web UI（`0.5.3` 变更记录），这两条正是在 IDE 内枚举并配置所缺的能力。改动面 `src/chatView.ts` 的 `manageProviders`。
 - ~~**`sessionListMetadata` 投影**~~ **撤回**：核对 schema 后发现两个字段（`blank`、`lastPromptAt`）都不带新信息。`blank` 已由 `session.list` 提供并在`chatView.ts:1622`、`:2173`、`sessionCatalog.ts:190-407` 消费；recency 排序已用`updatedAt`（`sessionCatalog.ts:413`）。唯一新字段是 `lastPromptAt`（最后一条**用户**消息，区别于任何活动），只够支撑一个可争论的排序改动。原条目写的「用于会话列表行的富信息」高估了它。
 - [ ] **Subagent 运行时长**。`subagentTiming`（上游 `deepseek-harness/packages/subagent/subagent/src/projection.ts:62`），wire 形状 `{settledMs, active?: {since, through}}`。`SubagentTreeNodeView` 目前只有二值 `activity: "running" | "inactive"`，没有任何时长，这是真正的新信息。

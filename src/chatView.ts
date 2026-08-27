@@ -22,8 +22,10 @@ import {
     validateQuestionAnswers,
 } from "./chatViewProtocol";
 import { ContextStore } from "./contextStore";
+import { AGENT_PRESET_DOCUMENT_SCHEME, manageAgentPresets } from "./agentPresetActions";
 import { ChangeReviewStore } from "./changeReviewStore";
 import { ToolDiffStore } from "./toolDiffStore";
+import { manageWorkspaces } from "./workspaceActions";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { isImageMediaType } from "./guards";
@@ -127,8 +129,6 @@ const GIT_DIFF_TASK_PROMPTS: Readonly<Record<QuickTaskKind, () => string>> = {
     docs: () => t("Generate or update relevant documentation from the attached Git diff, following the project's existing style."),
 };
 
-const AGENT_PRESET_ID = /^[a-z0-9][a-z0-9-]*$/u;
-const AGENT_PRESET_DOCUMENT_SCHEME = "dsh-agent-preset";
 const DEFAULT_AGENT_STATUS_LABELS = [
     "大肥鱼正在深潜…",
     "大肥鱼摆摆尾巴，想想办法…",
@@ -500,417 +500,41 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.reveal();
     }
 
-    public async manageWorkspaces(): Promise<void> {
-        const workspaceRoot = this.workspaceRoot();
-        await this.runtime.start(workspaceRoot);
-        await this.runtime.refreshSessions();
-
-        while (true) {
-            const catalog = this.runtime.getSessionCatalog().snapshot();
-            const currentRegistered = workspaceRoot
-                ? catalog.workspaces.some((workspace) => samePath(workspace.path, workspaceRoot))
-                : true;
-            type WorkspaceChoice = vscode.QuickPickItem &
-                ({ choiceType: "workspace"; workspace: DshWorkspaceView } | { choiceType: "register" });
-            const choices: WorkspaceChoice[] = [
-                ...(!currentRegistered && workspaceRoot ? [{
-                    choiceType: "register" as const,
-                    label: `$(add) ${t("Register current folder as a DSH Workspace")}`,
-                    detail: workspaceRoot,
-                    alwaysShow: true,
-                }] : []),
-                ...catalog.workspaces.map((workspace): WorkspaceChoice => ({
-                    choiceType: "workspace",
-                    workspace,
-                    label: `$(folder) ${workspace.title}`,
-                    description: t("{count} sessions", { count: workspace.sessionIds.length }),
-                    detail: workspace.path,
-                })),
-            ];
-            if (choices.length === 0) {
-                void vscode.window.showInformationMessage(t("No DSH Workspaces are registered."));
-                return;
-            }
-            const selected = await vscode.window.showQuickPick(choices, {
-                title: t("Manage DSH Workspaces"),
-                placeHolder: t("Choose a Workspace to manage"),
-                matchOnDescription: true,
-                matchOnDetail: true,
-            });
-            if (!selected) return;
-            if (selected.choiceType === "register") {
-                if (workspaceRoot) {
-                    await this.runtime.createWorkspace(workspaceRoot);
-                    await this.runtime.refreshSessions();
-                }
-                continue;
-            }
-
-            const action = await this.chooseWorkspaceAction(selected.workspace, catalog.workspaces);
-            if (!action) continue;
-            if (action === "rename") {
-                await this.renameWorkspace(selected.workspace);
-            } else if (action === "sessions") {
-                await this.reorderWorkspaceSession(selected.workspace);
-            } else if (action === "remove") {
-                await this.removeWorkspace(selected.workspace);
-            } else {
-                await this.reorderWorkspace(selected.workspace, catalog.workspaces, action);
-            }
-        }
-    }
-
-    private async chooseWorkspaceAction(
-        workspace: DshWorkspaceView,
-        workspaces: readonly DshWorkspaceView[],
-    ): Promise<"rename" | "top" | "up" | "down" | "bottom" | "sessions" | "remove" | undefined> {
-        const index = workspaces.findIndex((candidate) => candidate.workspaceId === workspace.workspaceId);
-        const actions: Array<vscode.QuickPickItem & {
-            action: "rename" | "top" | "up" | "down" | "bottom" | "sessions" | "remove";
-        }> = [{
-            action: "rename",
-            label: `$(edit) ${t("Rename Workspace")}`,
-            detail: workspace.path,
-        }];
-        if (index > 0) {
-            actions.push(
-                { action: "top", label: `$(fold-up) ${t("Move Workspace to top")}` },
-                { action: "up", label: `$(arrow-up) ${t("Move Workspace up")}` },
-            );
-        }
-        if (index >= 0 && index < workspaces.length - 1) {
-            actions.push(
-                { action: "down", label: `$(arrow-down) ${t("Move Workspace down")}` },
-                { action: "bottom", label: `$(fold-down) ${t("Move Workspace to bottom")}` },
-            );
-        }
-        if (workspace.sessionIds.length > 1) {
-            actions.push({
-                action: "sessions",
-                label: `$(list-ordered) ${t("Reorder sessions")}`,
-                detail: t("{count} sessions", { count: workspace.sessionIds.length }),
-            });
-        }
-        actions.push({
-            action: "remove",
-            label: `$(trash) ${t("Remove Workspace group")}`,
-            detail: t("Keep its directory and Session logs"),
-        });
-        const selected = await vscode.window.showQuickPick(actions, {
-            title: workspace.title,
-            placeHolder: t("Choose an action"),
-        });
-        return selected?.action;
-    }
-
-    private async renameWorkspace(workspace: DshWorkspaceView): Promise<void> {
-        const title = await vscode.window.showInputBox({
-            title: t("Rename DSH Workspace"),
-            value: workspace.title,
-            prompt: workspace.path,
-            ignoreFocusOut: true,
-            validateInput: (value) => value.trim() ? undefined : t("The title cannot be empty."),
-        });
-        if (title === undefined || title.trim() === workspace.title) return;
-        const renamed = await this.runtime.renameWorkspace(workspace.workspaceId, title.trim());
-        if (this.pendingNewSessionWorkspaceId === workspace.workspaceId) {
-            this.pendingNewSessionWorkspaceTitle = renamed.title;
-            this.postState();
-        }
-    }
-
-    private async reorderWorkspace(
-        workspace: DshWorkspaceView,
-        workspaces: readonly DshWorkspaceView[],
-        direction: "top" | "up" | "down" | "bottom",
-    ): Promise<void> {
-        const index = workspaces.findIndex((candidate) => candidate.workspaceId === workspace.workspaceId);
-        if (index < 0) return;
-        let beforeWorkspaceId: string | undefined;
-        if (direction === "top") {
-            beforeWorkspaceId = workspaces[0]?.workspaceId;
-        } else if (direction === "up") {
-            beforeWorkspaceId = workspaces[index - 1]?.workspaceId;
-        } else if (direction === "down") {
-            beforeWorkspaceId = workspaces[index + 2]?.workspaceId;
-        }
-        await this.runtime.moveWorkspace(workspace.workspaceId, beforeWorkspaceId);
-    }
-
-    private async reorderWorkspaceSession(workspace: DshWorkspaceView): Promise<void> {
-        const catalog = this.runtime.getSessionCatalog().snapshot();
-        const sessions = new Map(catalog.sessions.map((session) => [session.sessionId, session]));
-        const archived = new Set(catalog.archivedSessionIds);
-        const selected = await vscode.window.showQuickPick(
-            workspace.sessionIds.map((sessionId, index) => {
-                const session = sessions.get(sessionId);
-                return {
-                    label: `${archived.has(sessionId) ? "$(archive)" : "$(comment-discussion)"} ${session?.title || sessionId}`,
-                    description: t("Position {position}", { position: index + 1 }),
-                    detail: archived.has(sessionId) ? t("Archived Session") : session?.cwd,
-                    sessionId,
-                };
-            }),
-            {
-                title: t("Reorder sessions in {workspace}", { workspace: workspace.title }),
-                placeHolder: t("Choose a Session to move"),
-                matchOnDescription: true,
-                matchOnDetail: true,
+    public manageWorkspaces(): Promise<void> {
+        return manageWorkspaces({
+            runtime: this.runtime,
+            workspaceRoot: () => this.workspaceRoot(),
+            onWorkspaceRenamed: (workspaceId, title) => {
+                if (this.pendingNewSessionWorkspaceId !== workspaceId) return;
+                this.pendingNewSessionWorkspaceTitle = title;
+                this.postState();
             },
-        );
-        if (!selected) return;
-
-        const index = workspace.sessionIds.indexOf(selected.sessionId);
-        const actions: Array<vscode.QuickPickItem & { direction: "top" | "up" | "down" | "bottom" }> = [];
-        if (index > 0) {
-            actions.push(
-                { direction: "top", label: `$(fold-up) ${t("Move Session to top")}` },
-                { direction: "up", label: `$(arrow-up) ${t("Move Session up")}` },
-            );
-        }
-        if (index >= 0 && index < workspace.sessionIds.length - 1) {
-            actions.push(
-                { direction: "down", label: `$(arrow-down) ${t("Move Session down")}` },
-                { direction: "bottom", label: `$(fold-down) ${t("Move Session to bottom")}` },
-            );
-        }
-        if (actions.length === 0) return;
-        const move = await vscode.window.showQuickPick(actions, {
-            title: sessions.get(selected.sessionId)?.title || selected.sessionId,
-            placeHolder: t("Choose a new position"),
-        });
-        if (!move) return;
-
-        let beforeSessionId: string | undefined;
-        if (move.direction === "top") {
-            beforeSessionId = workspace.sessionIds[0];
-        } else if (move.direction === "up") {
-            beforeSessionId = workspace.sessionIds[index - 1];
-        } else if (move.direction === "down") {
-            beforeSessionId = workspace.sessionIds[index + 2];
-        }
-        await this.runtime.moveWorkspaceSession(
-            workspace.workspaceId,
-            selected.sessionId,
-            beforeSessionId,
-        );
-    }
-
-    private async removeWorkspace(workspace: DshWorkspaceView): Promise<void> {
-        const remove = t("Remove Workspace group");
-        const confirmed = await vscode.window.showWarningMessage(
-            t("Remove DSH Workspace group {workspace}?", { workspace: workspace.title }),
-            {
-                modal: true,
-                detail: t("The directory and all Session logs will be kept. Its Sessions will appear as ungrouped."),
-            },
-            remove,
-        );
-        if (confirmed !== remove) return;
-        await this.runtime.deleteWorkspace(workspace.workspaceId);
-        if (this.pendingNewSessionWorkspaceId === workspace.workspaceId) {
-            this.pendingNewSessionWorkspaceId = undefined;
-            this.pendingNewSessionWorkspacePath = undefined;
-            this.pendingNewSessionWorkspaceTitle = undefined;
-            this.pendingNewSessionSkills = undefined;
-            this.postState();
-        }
-    }
-
-    public async manageAgentPresets(): Promise<void> {
-        await this.runtime.start(this.workspaceRoot());
-
-        while (true) {
-            const [catalog, settingsWritable] = await Promise.all([
-                this.runtime.agentPresets(),
-                this.runtime.describeSettings()
-                    .then((settings) => settings.writable)
-                    .catch((error) => {
-                        this.output.appendLine(`[dsh:agent-preset] settings status unavailable: ${errorMessage(error)}`);
-                        return false;
-                    }),
-            ]);
-            this.agentPresetCatalog = catalog.presets;
-            if (catalog.presets.length === 0) {
-                void vscode.window.showInformationMessage(t("Harness returned no Agent Presets to manage."));
-                return;
-            }
-            const selected = await vscode.window.showQuickPick(
-                catalog.presets.map((preset) => ({
-                    label: `${preset.broken ? "$(error)" : preset.trust === "system" ? "$(verified)" : "$(person)"} ${preset.name || preset.id}`,
-                    description: [
-                        preset.id,
-                        preset.trust === "system" ? t("System") : t("User"),
-                        ...(preset.isDefault ? [t("Default")] : []),
-                    ].join(" · "),
-                    detail: preset.broken
-                        ? t("Broken: {reason}", { reason: preset.broken })
-                        : preset.description,
-                    preset,
-                })),
-                {
-                    title: t("Manage Agent Presets"),
-                    placeHolder: t("Choose an Agent Preset to manage"),
-                    matchOnDescription: true,
-                    matchOnDetail: true,
-                },
-            );
-            if (!selected) return;
-
-            const action = await this.chooseAgentPresetAction(
-                selected.preset,
-                catalog.authorable,
-                settingsWritable,
-            );
-            if (!action) continue;
-            if (action === "view") {
-                await this.viewAgentPreset(selected.preset);
-            } else if (action === "copy") {
-                await this.copyAgentPreset(selected.preset, catalog.presets);
-            } else if (action === "open") {
-                await this.openAgentPresetLocation(selected.preset.id);
-            } else if (action === "default") {
-                await this.runtime.setDefaultAgentPreset(selected.preset.id);
-                void vscode.window.showInformationMessage(t("DSH: {preset} is now the default Agent Preset.", {
-                    preset: selected.preset.name || selected.preset.id,
-                }));
-            } else {
-                await this.removeAgentPreset(selected.preset);
-            }
-        }
-    }
-
-    private async chooseAgentPresetAction(
-        preset: DshAgentPresetEntry,
-        authorable: boolean,
-        settingsWritable: boolean,
-    ): Promise<"view" | "copy" | "open" | "default" | "remove" | undefined> {
-        const actions: Array<vscode.QuickPickItem & {
-            action: "view" | "copy" | "open" | "default" | "remove";
-        }> = [{
-            action: "view",
-            label: `$(preview) ${t("View composition")}`,
-            detail: t("Open a read-only snapshot of this Preset"),
-        }];
-        if (authorable) {
-            actions.push({
-                action: "copy",
-                label: `$(copy) ${t("Copy as a user Preset")}`,
-                detail: t("Create an editable Preset from this composition"),
-            });
-        }
-        if (!preset.broken && !preset.isDefault && settingsWritable) {
-            actions.push({
-                action: "default",
-                label: `$(star-full) ${t("Make default")}`,
-                detail: t("Use this Preset for future Sessions without an explicit mode"),
-            });
-        }
-        if (preset.trust === "user") {
-            actions.push({
-                action: "open",
-                label: `$(folder-opened) ${t("Open Preset files")}`,
-                detail: t("Edit this user Preset in its Harness-owned directory"),
-            });
-            actions.push({
-                action: "remove",
-                label: `$(trash) ${t("Delete user Preset")}`,
-                detail: t("Existing Sessions keep their mounted composition"),
-            });
-        }
-        const selected = await vscode.window.showQuickPick(actions, {
-            title: preset.name || preset.id,
-            placeHolder: preset.broken
-                ? t("Broken: {reason}", { reason: preset.broken })
-                : t("Choose an action"),
-        });
-        return selected?.action;
-    }
-
-    private async viewAgentPreset(preset: DshAgentPresetEntry): Promise<void> {
-        const result = await this.runtime.readAgentPreset(preset.id);
-        const uri = vscode.Uri.from({
-            scheme: AGENT_PRESET_DOCUMENT_SCHEME,
-            path: `/${preset.id}.yaml`,
-            query: `snapshot=${randomUUID()}`,
-        });
-        this.agentPresetDocuments.set(uri.toString(), result.content);
-        const document = await vscode.workspace.openTextDocument(uri);
-        await vscode.window.showTextDocument(document, { preview: true, preserveFocus: false });
-    }
-
-    private async copyAgentPreset(
-        source: DshAgentPresetEntry,
-        presets: readonly DshAgentPresetEntry[],
-    ): Promise<void> {
-        const id = await vscode.window.showInputBox({
-            title: t("Copy Agent Preset {preset}", { preset: source.name || source.id }),
-            prompt: t("Choose the new Preset ID used as its directory name"),
-            value: `${source.id}-copy`,
-            ignoreFocusOut: true,
-            validateInput: (value) => {
-                const normalized = value.trim();
-                if (!normalized) return t("Enter a Preset ID.");
-                if (normalized.length > 128 || !AGENT_PRESET_ID.test(normalized)) {
-                    return t("Use lowercase letters, numbers, and hyphens; start with a letter or number.");
-                }
-                if (presets.some((preset) => preset.id === normalized)) {
-                    return t("An Agent Preset with this ID already exists.");
-                }
-                return undefined;
+            onWorkspaceRemoved: (workspaceId) => {
+                if (this.pendingNewSessionWorkspaceId !== workspaceId) return;
+                this.clearNewSessionWorkspace();
+                this.postState();
             },
         });
-        if (id === undefined) return;
-        const name = await vscode.window.showInputBox({
-            title: t("Name the new Agent Preset"),
-            prompt: t("Optional display name; leave empty to use the Preset ID"),
-            ignoreFocusOut: true,
-        });
-        if (name === undefined) return;
-
-        const created = await this.runtime.copyAgentPreset(
-            source.id,
-            id.trim(),
-            name.trim() || undefined,
-        );
-        void vscode.window.showInformationMessage(t("DSH: Agent Preset {preset} was created.", {
-            preset: created,
-        }));
-        await this.openAgentPresetLocation(created);
     }
 
-    private async openAgentPresetLocation(agentPreset: string): Promise<void> {
-        const result = await this.runtime.openAgentPresetDocument(agentPreset);
-        if (result.opened) return;
-        const copy = t("Copy path");
-        const selected = await vscode.window.showInformationMessage(
-            t("Agent Preset files: {path}", { path: result.path }),
-            copy,
-        );
-        if (selected === copy) await vscode.env.clipboard.writeText(result.path);
-    }
-
-    private async removeAgentPreset(preset: DshAgentPresetEntry): Promise<void> {
-        if (preset.trust !== "user") return;
-        const remove = t("Delete user Preset");
-        const confirmed = await vscode.window.showWarningMessage(
-            t("Delete user Agent Preset {preset}?", { preset: preset.name || preset.id }),
-            {
-                modal: true,
-                detail: t("Its files will be removed. Existing Sessions keep their currently mounted composition."),
+    public manageAgentPresets(): Promise<void> {
+        return manageAgentPresets({
+            runtime: this.runtime,
+            output: this.output,
+            workspaceRoot: () => this.workspaceRoot(),
+            onCatalog: (presets) => {
+                this.agentPresetCatalog = [...presets];
             },
-            remove,
-        );
-        if (confirmed !== remove) return;
-        await this.runtime.removeAgentPreset(preset.id);
-        if (this.pendingNewSessionPreset === preset.id) {
-            this.pendingNewSessionPreset = undefined;
-            this.pendingNewSessionSkills = undefined;
-            this.postState();
-        }
-        void vscode.window.showInformationMessage(t("DSH: Agent Preset {preset} was deleted.", {
-            preset: preset.name || preset.id,
-        }));
+            onSnapshotDocument: (uri, content) => {
+                this.agentPresetDocuments.set(uri, content);
+            },
+            onPresetRemoved: (presetId) => {
+                if (this.pendingNewSessionPreset !== presetId) return;
+                this.pendingNewSessionPreset = undefined;
+                this.pendingNewSessionSkills = undefined;
+                this.postState();
+            },
+        });
     }
 
     private async toggleSettingsPanel(): Promise<void> {
@@ -1564,11 +1188,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
             void this.refreshSubagentTree(created.sessionId);
             this.newSessionDraft = false;
-            this.pendingNewSessionPreset = undefined;
-            this.pendingNewSessionWorkspaceId = undefined;
-            this.pendingNewSessionWorkspacePath = undefined;
-            this.pendingNewSessionWorkspaceTitle = undefined;
-            this.pendingNewSessionSkills = undefined;
+            this.clearNewSessionDraft();
         }
 
         this.refreshModelCatalog(this.sessionId);
@@ -1977,11 +1597,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.sessionId = sessionId;
         this.sessionCwd = session?.cwd ?? this.workspaceRoot();
         this.newSessionDraft = false;
-        this.pendingNewSessionPreset = undefined;
-        this.pendingNewSessionWorkspaceId = undefined;
-        this.pendingNewSessionWorkspacePath = undefined;
-        this.pendingNewSessionWorkspaceTitle = undefined;
-        this.pendingNewSessionSkills = undefined;
+        this.clearNewSessionDraft();
         if (vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true)) {
             await this.extensionContext.workspaceState.update("session", {
                 sessionId,
@@ -2533,6 +2149,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             void vscode.window.showErrorMessage(`DSH: ${message}`);
         }
         this.postState();
+    }
+
+    /**
+     * Drops every field pinned by a pending New Session draft. They are always
+     * set and cleared as one unit — a draft naming a Workspace that no longer
+     * exists, or a Preset that was deleted, would otherwise create a session
+     * against a dead reference.
+     */
+    private clearNewSessionDraft(): void {
+        this.pendingNewSessionPreset = undefined;
+        this.clearNewSessionWorkspace();
+    }
+
+    /**
+     * Drops only the Workspace a draft is pinned to, and the skills carried
+     * over from it. A chosen agent mode is an independent decision and
+     * deliberately survives: losing the Workspace should not silently reset it.
+     */
+    private clearNewSessionWorkspace(): void {
+        this.pendingNewSessionWorkspaceId = undefined;
+        this.pendingNewSessionWorkspacePath = undefined;
+        this.pendingNewSessionWorkspaceTitle = undefined;
+        this.pendingNewSessionSkills = undefined;
     }
 
     private workspaceRoot(): string | undefined {

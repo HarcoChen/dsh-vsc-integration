@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- 继续收窄 ChatViewProvider：Workspace 管理与 Agent Preset 管理的 QuickPick 流程迁至 `workspaceActions.ts` 与 `agentPresetActions.ts`，通过窄接口回调告知视图需要失效的草稿状态，`chatView.ts` 由 3169 行降至 2820 行、方法数 98 → 90。新建会话草稿的五个字段统一由 `clearNewSessionDraft` 清理；移除 Workspace 时保留已选的 agent mode，不再连带清空。
+
 ## [0.6.0] - 2026-08-27
 
 - 工具卡新增按次编辑的原生 Diff：`write` / `edit` / `str_replace_editor` 完成后可逐文件打开 VS Code 自带的并排 diff 编辑器。before 一侧不依赖 Git，而是用 Runtime 已随日志持久化的 hunk 从磁盘上的当前文件反向回放重建，因此非 Git 仓库、被 gitignore 的文件同样可用，粒度也从「整轮」细化到「单次调用」。锚点缺失或不唯一时明确报错而非展示不忠实的 diff；该文件此后未被再次修改且为 LF 行尾时，右侧直接使用可编辑的真实文件。
