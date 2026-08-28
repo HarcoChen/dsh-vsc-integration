@@ -4,6 +4,13 @@
   <img src="resources/dsh.png" alt="DSH" width="128">
 </p>
 
+<p align="center">
+  <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20downloads" alt="Open VSX 下载量"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace 安装量"></a>
+  <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/v/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX" alt="Open VSX 版本"></a>
+  <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
+</p>
+
 面向 DeepSeek Harness 社区版 VS Code Extension，支持四种模式切换、Trace Vscode内查看、无npm环境自动下载runtime等特色功能
 
 [English](README.md) | **简体中文**
