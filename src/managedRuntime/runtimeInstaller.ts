@@ -67,15 +67,24 @@ async function parseTarFile(tarPath: string, stagingDir: string): Promise<void> 
             if (bytesRead < TAR_BLOCK) {
                 break; // trailing garbage; not part of the archive
             }
+            // A zero-filled block is tar's end-of-archive marker. It must not
+            // be parsed as an entry: its empty name would resolve back to the
+            // staging directory itself.
+            if (isZeroBlock(header)) {
+                break;
+            }
             offset += TAR_BLOCK;
 
             const rawName = header.subarray(0, 100).toString("utf8").replace(/\0+$/u, "");
             const typeFlag = String.fromCharCode(header[156]);
             const size = parseOctal(header.subarray(124, 136));
+            const mode = parseOctal(header.subarray(100, 108));
 
             if (typeFlag === "L") {
-                // GNU long name: the next block holds the real name.
-                pendingLongName = await readEntryText(handle, offset, size);
+                // GNU long name: the next block holds the real name. GNU tar
+                // counts the NUL terminator in the entry size, so the payload
+                // ends with one or more NUL bytes that are not part of the path.
+                pendingLongName = stripNulTerminator(await readEntryText(handle, offset, size));
                 offset += paddedBlockSize(size);
                 continue;
             }
@@ -97,10 +106,18 @@ async function parseTarFile(tarPath: string, stagingDir: string): Promise<void> 
 
             if (typeFlag === "5") {
                 await mkdir(safeEntryPath(stagingDir, name), { recursive: true });
-            } else if (typeFlag === "0" || typeFlag === "7" || typeFlag === " " || typeFlag === "" || typeFlag === "\0") {
+            } else if (
+                name !== "" &&
+                (typeFlag === "0" || typeFlag === "7" || typeFlag === " " || typeFlag === "" || typeFlag === "\0")
+            ) {
                 const entryPath = safeEntryPath(stagingDir, name);
                 await mkdir(dirname(entryPath), { recursive: true });
                 await readEntryToFile(handle, offset, contentSize, entryPath);
+                // The runtime ships executables that must stay executable:
+                // bin/node, bin/dsh and node-pty's spawn-helper. Node's write
+                // streams create files at the default mode, so the archive's
+                // permission bits are reapplied here.
+                await chmod(entryPath, filePermissions(mode));
             }
             // Symlinks, hardlinks and device nodes are not extracted.
             offset += paddedBlockSize(size);
@@ -110,6 +127,29 @@ async function parseTarFile(tarPath: string, stagingDir: string): Promise<void> 
     } finally {
         await handle.close();
     }
+}
+
+/**
+ * Permission bits to apply to an extracted file: the archive's own bits, with
+ * setuid/setgid/sticky discarded and owner read/write always granted so the
+ * install stays manageable. Falls back to 0644 when the archive declares none.
+ */
+function filePermissions(mode: number): number {
+    const bits = mode & 0o777;
+    return bits === 0 ? 0o644 : bits | 0o600;
+}
+
+function isZeroBlock(block: Buffer): boolean {
+    for (const byte of block) {
+        if (byte !== 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function stripNulTerminator(value: string): string {
+    return value.replace(/\0+$/u, "");
 }
 
 function parseOctal(buffer: Buffer): number {
