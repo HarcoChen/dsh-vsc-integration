@@ -67,6 +67,19 @@ const DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS = 30_000;
 const DEFAULT_NPM_REGISTRY = "https://registry.npmmirror.com";
 const OFFICIAL_NPM_REGISTRY = "https://registry.npmjs.org";
 const NPM_REGISTRY_QUERY_TIMEOUT_MS = 5_000;
+/**
+ * The start lock every dsh editor integration shares, so one Runtime serves the
+ * machine instead of one per editor. The name is deliberately editor-neutral:
+ * the JetBrains plugin takes the same file.
+ */
+const RUNTIME_LOCK_FILE = "dsh-runtime.lock";
+/**
+ * The name this extension used before the lock was shared. A peer that has not
+ * updated yet still owns that file, so it is read for an advertised URL and
+ * deferred to while its owner lives — otherwise the rename would reintroduce
+ * exactly the double-spawn the lock exists to prevent.
+ */
+const LEGACY_RUNTIME_LOCK_FILE = "dsh-vscode-runtime.lock";
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -74,6 +87,18 @@ function delay(milliseconds: number): Promise<void> {
 
 function normalizeUrl(value: string): string {
     return value.trim().replace(/\/+$/, "");
+}
+
+/** One lock file's advertised Runtime URL, or undefined when it has none. */
+async function readLockRecordUrl(path: string): Promise<string | undefined> {
+    try {
+        const contents = await readFile(path, "utf8");
+        const record = JSON.parse(contents) as { url?: unknown };
+        return loopbackRuntimeUrl(record.url);
+    } catch {
+        // A missing, half-written, or concurrently updated lock advertises nothing.
+        return undefined;
+    }
 }
 
 function loopbackRuntimeUrl(value: unknown): string | undefined {
@@ -1690,7 +1715,11 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     private async acquireRuntimeLock(): Promise<boolean> {
-        const path = join(tmpdir(), "dsh-vscode-runtime.lock");
+        // A peer on the pre-rename lock cannot see ours, so check its file
+        // first: deferring to a live legacy owner is what keeps the transition
+        // from spawning two Runtimes.
+        if (await this.legacyRuntimeLockOwnerAlive()) return false;
+        const path = join(tmpdir(), RUNTIME_LOCK_FILE);
         try {
             const handle = await open(path, "wx", 0o600);
             const createdAt = Date.now();
@@ -1720,13 +1749,32 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     private async readRuntimeLockUrl(): Promise<string | undefined> {
+        // The shared lock wins; the legacy one still answers for a peer that
+        // has not updated yet.
+        for (const name of [RUNTIME_LOCK_FILE, LEGACY_RUNTIME_LOCK_FILE]) {
+            const url = await readLockRecordUrl(join(tmpdir(), name));
+            if (url) return url;
+        }
+        return undefined;
+    }
+
+    /**
+     * Whether a pre-rename peer is holding its own lock right now. A lock with
+     * no readable live pid is stale and does not block us.
+     */
+    private async legacyRuntimeLockOwnerAlive(): Promise<boolean> {
         try {
-            const contents = await readFile(join(tmpdir(), "dsh-vscode-runtime.lock"), "utf8");
-            const record = JSON.parse(contents) as { url?: unknown };
-            return loopbackRuntimeUrl(record.url);
+            const contents = await readFile(join(tmpdir(), LEGACY_RUNTIME_LOCK_FILE), "utf8");
+            const pid = Number((JSON.parse(contents) as { pid?: unknown }).pid);
+            if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
+            try {
+                process.kill(pid, 0);
+                return true;
+            } catch (probeError) {
+                return (probeError as NodeJS.ErrnoException).code !== "ESRCH";
+            }
         } catch {
-            // A missing, legacy, or concurrently updated lock has no advertised URL yet.
-            return undefined;
+            return false;
         }
     }
 
