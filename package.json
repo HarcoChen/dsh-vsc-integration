@@ -42,6 +42,13 @@
     ],
     "main": "./dist/extension.js",
     "types": "./dist/extension.d.ts",
+    "chatParticipants": [
+        {
+            "id": "dsh",
+            "name": "DSH",
+            "description": "Send a task to the DeepSeek Harness session"
+        }
+    ],
     "activationEvents": [
         "onStartupFinished",
         "onView:dsh.chatView",
