@@ -24,6 +24,10 @@
 </p>
 
 <p align="center">
+  JetBrains IDE（IDEA、PyCharm 等）版本请见 <a href="https://github.com/HarcoChen/dsh-intellij-integration">dsh-intellij-integration</a>。
+</p>
+
+<p align="center">
   <img src="public/scene-intro.gif" alt="DSH IDE 工作流演示" width="100%">
 </p>
 

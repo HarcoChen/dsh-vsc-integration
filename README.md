@@ -24,6 +24,10 @@
 </p>
 
 <p align="center">
+  For JetBrains IDEs (IDEA, PyCharm, etc.), please see <a href="https://github.com/HarcoChen/dsh-intellij-integration">dsh-intellij-integration</a>.
+</p>
+
+<p align="center">
   <img src="public/scene-intro.gif" alt="DSH IDE Workflow Demo" width="100%">
 </p>
 
