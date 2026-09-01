@@ -280,6 +280,7 @@ export function toolResultCallId(event: StoredSessionEvent): string | undefined 
 
 export class GenericProjectionStore {
     private readonly cells = new Map<string, ProjectionCell>();
+    private snapshotCache: ProjectionCell[] | undefined;
 
     public seed(block: DshSessionProjectionsBlock): boolean {
         if (!isSeq(block.asOfSeq, true) || !isRecord(block.values)) {
@@ -290,6 +291,7 @@ export class GenericProjectionStore {
         for (const [key, cell] of this.cells) {
             if (!incomingKeys.has(key) && cell.seq <= block.asOfSeq) {
                 this.cells.delete(key);
+                this.snapshotCache = undefined;
                 changed = true;
             }
         }
@@ -308,6 +310,7 @@ export class GenericProjectionStore {
             return false;
         }
         this.cells.set(key, { key, value, seq });
+        this.snapshotCache = undefined;
         return true;
     }
 
@@ -317,15 +320,33 @@ export class GenericProjectionStore {
     }
 
     public snapshot(): ProjectionCell[] {
-        return [...this.cells.values()]
-            .sort((left, right) => left.key.localeCompare(right.key))
-            .map((cell) => ({ ...cell }));
+        if (!this.snapshotCache) {
+            const cells = Array.from(this.cells.values());
+            cells.sort((left, right) => left.key.localeCompare(right.key));
+            this.snapshotCache = cells.map((cell) => ({ ...cell }));
+        }
+        return this.snapshotCache.slice();
     }
 }
 
 /** Raw, seq-addressed event log plus the independently derived current surface. */
 export class SessionEventStore {
     private readonly events = new Map<number, StoredSessionEvent>();
+    /**
+     * `ordered()` is read far more often than the event log changes (a single publish can
+     * request it for both the surface and the public snapshot). Keep the sorted, cloned view
+     * until an upsert invalidates it so repeated reads do not allocate one object per event.
+     */
+    private orderedCache: StoredSessionEvent[] | undefined;
+    private surfaceState: {
+        nodes: SurfaceNode[];
+        replacements: SurfaceReplacement[];
+        issues: string[];
+    } | undefined;
+    private surfaceCache: SessionSurfaceSnapshot | undefined;
+    private highestSequence = -1;
+    /** Highest sequence for which every event from zero through this value is present. */
+    private contiguousSequence = -1;
     private subscribedLastSeq: number | undefined;
     private gapObserved = false;
 
@@ -344,7 +365,7 @@ export class SessionEventStore {
             }
             changed = this.upsert(event, entry.view, "history") || changed;
         }
-        if (this.isContiguousFromZero(this.ordered())) {
+        if (this.isFullyContiguous()) {
             this.gapObserved = false;
         }
         return changed;
@@ -356,7 +377,7 @@ export class SessionEventStore {
             this.diagnostic("invalid-event", "Live stream contained an invalid session event", eventValue);
             return false;
         }
-        const highest = this.highestSeq();
+        const highest = this.highestSequence;
         if (highest >= 0 && event.seq > highest + 1) {
             this.gapObserved = true;
             this.diagnostic(
@@ -374,7 +395,7 @@ export class SessionEventStore {
             return;
         }
         this.subscribedLastSeq = lastSeq;
-        if (!this.hasContiguousThrough(lastSeq)) {
+        if (this.contiguousSequence < lastSeq) {
             this.gapObserved = true;
         }
     }
@@ -388,20 +409,39 @@ export class SessionEventStore {
     }
 
     public ordered(): StoredSessionEvent[] {
-        return [...this.events.values()]
-            .sort((left, right) => left.event.seq - right.event.seq)
-            .map((stored) => ({ ...stored }));
+        if (this.orderedCache) {
+            // Preserve the historical defensive array-copy behavior without cloning every
+            // StoredSessionEvent on each read.
+            return this.orderedCache.slice();
+        }
+
+        const ordered = Array.from(this.events.values());
+        ordered.sort((left, right) => left.event.seq - right.event.seq);
+        this.orderedCache = ordered.map((stored) => ({ ...stored }));
+        return this.orderedCache.slice();
     }
 
     public surface(): SessionSurfaceSnapshot {
-        const ordered = this.ordered();
-        const folded = foldSessionSurface(ordered, (issue) =>
-            this.diagnostic("surface-invalid", issue),
-        );
-        return {
-            ...folded,
-            complete: this.isContiguousFromZero(ordered),
+        if (this.surfaceCache) {
+            return this.surfaceCache;
+        }
+        if (!this.surfaceState) {
+            const folded = foldSessionSurface(this.ordered(), (issue) =>
+                this.diagnostic("surface-invalid", issue),
+            );
+            this.surfaceState = {
+                nodes: [...folded.nodes],
+                replacements: [...folded.replacements],
+                issues: [...folded.issues],
+            };
+        }
+        this.surfaceCache = {
+            nodes: this.surfaceState.nodes.slice(),
+            replacements: this.surfaceState.replacements.slice(),
+            issues: this.surfaceState.issues.slice(),
+            complete: this.isFullyContiguous(),
         };
+        return this.surfaceCache;
     }
 
     private upsert(
@@ -411,7 +451,22 @@ export class SessionEventStore {
     ): boolean {
         const existing = this.events.get(event.seq);
         if (!existing) {
-            this.events.set(event.seq, { event, view, source });
+            const previousHighest = this.highestSequence;
+            const stored = { event, view, source } satisfies StoredSessionEvent;
+            this.events.set(event.seq, stored);
+            this.highestSequence = Math.max(this.highestSequence, event.seq);
+            if (event.seq === this.contiguousSequence + 1) {
+                while (this.events.has(this.contiguousSequence + 1)) {
+                    this.contiguousSequence += 1;
+                }
+            }
+
+            if (this.orderedCache && event.seq > previousHighest) {
+                this.orderedCache.push({ ...stored });
+            } else {
+                this.orderedCache = undefined;
+            }
+            this.extendSurfaceCache(stored, event.seq > previousHighest);
             return true;
         }
 
@@ -420,36 +475,67 @@ export class SessionEventStore {
         if (!shouldReplaceEvent && !shouldReplaceView) {
             return false;
         }
-        this.events.set(event.seq, {
+        const stored = {
             event: shouldReplaceEvent ? event : existing.event,
             view: shouldReplaceView ? view : existing.view,
             source: shouldReplaceEvent ? source : existing.source,
-        });
-        return true;
-    }
-
-    private highestSeq(): number {
-        let highest = -1;
-        for (const seq of this.events.keys()) {
-            highest = Math.max(highest, seq);
-        }
-        return highest;
-    }
-
-    private isContiguousFromZero(ordered: readonly StoredSessionEvent[]): boolean {
-        return ordered.every((stored, index) => stored.event.seq === index);
-    }
-
-    private hasContiguousThrough(lastSeq: number): boolean {
-        if (lastSeq < 0) {
-            return true;
-        }
-        for (let seq = 0; seq <= lastSeq; seq += 1) {
-            if (!this.events.has(seq)) {
-                return false;
+        } satisfies StoredSessionEvent;
+        this.events.set(event.seq, stored);
+        if (this.orderedCache) {
+            const index = this.findOrderedIndex(event.seq);
+            if (index >= 0) {
+                this.orderedCache[index] = { ...stored };
+            } else {
+                this.orderedCache = undefined;
             }
         }
+        this.surfaceState = undefined;
+        this.surfaceCache = undefined;
         return true;
+    }
+
+    private extendSurfaceCache(stored: StoredSessionEvent, appended: boolean): void {
+        if (!this.surfaceState) {
+            return;
+        }
+        if (!appended) {
+            this.surfaceState = undefined;
+            this.surfaceCache = undefined;
+            return;
+        }
+
+        if (surfaceEventMayChange(stored.event)) {
+            applySurfaceEvent(
+                stored,
+                this.surfaceState.nodes,
+                this.surfaceState.replacements,
+                this.surfaceState.issues,
+                (issue) => this.diagnostic("surface-invalid", issue),
+            );
+        }
+        this.surfaceCache = undefined;
+    }
+
+    private findOrderedIndex(seq: number): number {
+        const ordered = this.orderedCache;
+        if (!ordered) return -1;
+        let low = 0;
+        let high = ordered.length - 1;
+        while (low <= high) {
+            const middle = (low + high) >>> 1;
+            const candidate = ordered[middle].event.seq;
+            if (candidate === seq) return middle;
+            if (candidate < seq) {
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        return -1;
+    }
+
+    private isFullyContiguous(): boolean {
+        return this.contiguousSequence === this.highestSequence;
     }
 
     private diagnostic(
@@ -461,6 +547,100 @@ export class SessionEventStore {
     }
 }
 
+function surfaceEventMayChange(event: DshSessionEvent): boolean {
+    const raw = event as unknown as Record<string, unknown>;
+    return (
+        SURFACE_EVENT_TYPES.has(event.type) ||
+        raw.surfaceOp !== undefined ||
+        raw.sourceEventSeqs !== undefined
+    );
+}
+
+function toSurfaceNode(stored: SurfaceFoldEvent): SurfaceNode {
+    return {
+        ...stored,
+        source: stored.source ?? "history",
+        seq: stored.event.seq,
+        sourceEventSeqs: Array.isArray(stored.event.sourceEventSeqs)
+            ? [...stored.event.sourceEventSeqs]
+            : [],
+    };
+}
+
+function applySurfaceEvent(
+    stored: SurfaceFoldEvent,
+    nodes: SurfaceNode[],
+    replacements: SurfaceReplacement[],
+    issues: string[],
+    onIssue?: (message: string) => void,
+): void {
+    const event = stored.event;
+    const raw = event as unknown as Record<string, unknown>;
+    const operation = raw.surfaceOp;
+    const report = (message: string): void => {
+        issues.push(message);
+        onIssue?.(message);
+    };
+
+    if (!SURFACE_EVENT_TYPES.has(event.type)) {
+        if (operation !== undefined || raw.sourceEventSeqs !== undefined) {
+            report(
+                `Event ${event.seq} (${event.type}) is not surface-eligible but carries surface metadata`,
+            );
+        }
+        return;
+    }
+    if (operation === "append") {
+        if (
+            raw.sourceEventSeqs !== undefined &&
+            !validSourceSeqs(raw.sourceEventSeqs, event.seq, event.type)
+        ) {
+            report(`Event ${event.seq} carries invalid sourceEventSeqs`);
+            return;
+        }
+        nodes.push(toSurfaceNode(stored));
+        return;
+    }
+    if (
+        !isRecord(operation) ||
+        operation.op !== "replace" ||
+        Object.keys(operation).length !== 3 ||
+        !isSeq(operation.start) ||
+        !isSeq(operation.end)
+    ) {
+        report(`Surface event ${event.seq} carries an invalid surfaceOp`);
+        return;
+    }
+    const startIndex = nodes.findIndex((node) => node.event.seq === operation.start);
+    const endIndex = nodes.findIndex((node) => node.event.seq === operation.end);
+    if (startIndex < 0 || endIndex < startIndex) {
+        report(
+            `Surface replacement ${event.seq} cannot resolve range ${operation.start}-${operation.end}`,
+        );
+        return;
+    }
+    const shadowed = nodes.slice(startIndex, endIndex + 1);
+    if (!validSourceSeqs(raw.sourceEventSeqs, event.seq, event.type)) {
+        report(`Surface replacement ${event.seq} carries invalid sourceEventSeqs`);
+        return;
+    }
+    const sources = new Set(raw.sourceEventSeqs);
+    const missing = shadowed
+        .map((node) => node.event.seq)
+        .filter((seq) => !sources.has(seq));
+    if (missing.length) {
+        report(`Surface replacement ${event.seq} omits shadowed seqs ${missing.join(", ")}`);
+        return;
+    }
+    nodes.splice(startIndex, endIndex - startIndex + 1, toSurfaceNode(stored));
+    replacements.push({
+        seq: event.seq,
+        start: operation.start,
+        end: operation.end,
+        shadowedSeqs: shadowed.map((node) => node.event.seq),
+    });
+}
+
 /**
  * Pure replay of Harness' current SurfaceEventType contract. Invalid replacement metadata is
  * diagnosed and skipped atomically, keeping the last reconstructable surface available.
@@ -469,88 +649,24 @@ export function foldSessionSurface(
     input: readonly SurfaceFoldEvent[],
     onIssue?: (message: string) => void,
 ): Omit<SessionSurfaceSnapshot, "complete"> {
-    const ordered = [...input].sort((left, right) => left.event.seq - right.event.seq);
-    const nodes: SurfaceFoldEvent[] = [];
+    // SessionEventStore already supplies seq-ordered input. Avoid a second full-array copy
+    // and sort in that hot path, while retaining sorting for standalone unsorted callers.
+    let ordered = input;
+    for (let index = 1; index < input.length; index += 1) {
+        if (input[index - 1].event.seq > input[index].event.seq) {
+            ordered = [...input].sort((left, right) => left.event.seq - right.event.seq);
+            break;
+        }
+    }
+    const nodes: SurfaceNode[] = [];
     const replacements: SurfaceReplacement[] = [];
     const issues: string[] = [];
 
     for (const stored of ordered) {
-        const event = stored.event;
-        const raw = event as unknown as Record<string, unknown>;
-        const operation = raw.surfaceOp;
-        if (!SURFACE_EVENT_TYPES.has(event.type)) {
-            if (operation !== undefined || raw.sourceEventSeqs !== undefined) {
-                issues.push(
-                    `Event ${event.seq} (${event.type}) is not surface-eligible but carries surface metadata`,
-                );
-            }
-            continue;
-        }
-        if (operation === "append") {
-            if (
-                raw.sourceEventSeqs !== undefined &&
-                !validSourceSeqs(raw.sourceEventSeqs, event.seq, event.type)
-            ) {
-                issues.push(`Event ${event.seq} carries invalid sourceEventSeqs`);
-                continue;
-            }
-            nodes.push(stored);
-            continue;
-        }
-        if (
-            !isRecord(operation) ||
-            operation.op !== "replace" ||
-            Object.keys(operation).length !== 3 ||
-            !isSeq(operation.start) ||
-            !isSeq(operation.end)
-        ) {
-            issues.push(`Surface event ${event.seq} carries an invalid surfaceOp`);
-            continue;
-        }
-        const startIndex = nodes.findIndex((node) => node.event.seq === operation.start);
-        const endIndex = nodes.findIndex((node) => node.event.seq === operation.end);
-        if (startIndex < 0 || endIndex < startIndex) {
-            issues.push(
-                `Surface replacement ${event.seq} cannot resolve range ${operation.start}-${operation.end}`,
-            );
-            continue;
-        }
-        const shadowed = nodes.slice(startIndex, endIndex + 1);
-        if (!validSourceSeqs(raw.sourceEventSeqs, event.seq, event.type)) {
-            issues.push(`Surface replacement ${event.seq} carries invalid sourceEventSeqs`);
-            continue;
-        }
-        const sources = new Set(raw.sourceEventSeqs);
-        const missing = shadowed
-            .map((node) => node.event.seq)
-            .filter((seq) => !sources.has(seq));
-        if (missing.length) {
-            issues.push(
-                `Surface replacement ${event.seq} omits shadowed seqs ${missing.join(", ")}`,
-            );
-            continue;
-        }
-        nodes.splice(startIndex, endIndex - startIndex + 1, stored);
-        replacements.push({
-            seq: event.seq,
-            start: operation.start,
-            end: operation.end,
-            shadowedSeqs: shadowed.map((node) => node.event.seq),
-        });
-    }
-
-    for (const issue of issues) {
-        onIssue?.(issue);
+        applySurfaceEvent(stored, nodes, replacements, issues, onIssue);
     }
     return {
-        nodes: nodes.map((stored) => ({
-            ...stored,
-            source: stored.source ?? "history",
-            seq: stored.event.seq,
-            sourceEventSeqs: Array.isArray(stored.event.sourceEventSeqs)
-                ? [...stored.event.sourceEventSeqs]
-                : [],
-        })),
+        nodes,
         replacements,
         issues,
     };
@@ -756,6 +872,8 @@ export type SessionStateListener = (sessionId: string, snapshot: SessionStateSna
 export class HarnessSessionStore {
     private readonly sessions = new Map<string, SessionState>();
     private readonly listeners = new Set<SessionStateListener>();
+    private readonly pendingPublishes = new Set<SessionState>();
+    private publishHandle: ReturnType<typeof setImmediate> | undefined;
 
     public constructor(
         private readonly onDiagnostic?: (diagnostic: SessionStoreDiagnostic) => void,
@@ -808,7 +926,7 @@ export class HarnessSessionStore {
                 }
                 const state = this.state(sessionId);
                 state.events.ingestLive(frame.event as unknown as DshSessionEvent, frame.view);
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "session/subscribed": {
@@ -819,7 +937,7 @@ export class HarnessSessionStore {
                 const state = this.state(sessionId);
                 state.events.subscribed(frame.lastSeq);
                 state.clearTransientOnSubscribe(this.now(), envelope.rpcId);
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "session/projection": {
@@ -834,7 +952,7 @@ export class HarnessSessionStore {
                 }
                 const state = this.state(sessionId);
                 if (state.projections.apply(frame.key, frame.value, frame.seq)) {
-                    this.publish(state);
+                    this.schedulePublish(state);
                 }
                 return;
             }
@@ -849,7 +967,7 @@ export class HarnessSessionStore {
                     this.now(),
                     envelope.rpcId,
                 );
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "session/jobs": {
@@ -863,7 +981,7 @@ export class HarnessSessionStore {
                     this.now(),
                     envelope.rpcId,
                 );
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "approval/requested": {
@@ -890,7 +1008,7 @@ export class HarnessSessionStore {
                     envelope.rpcId,
                     this.now(),
                 );
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "approval/resolved": {
@@ -909,7 +1027,7 @@ export class HarnessSessionStore {
                     approvalId: frame.approvalId,
                     outcome: frame.outcome,
                 });
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "question/requested": {
@@ -924,7 +1042,7 @@ export class HarnessSessionStore {
                     envelope.rpcId,
                     this.now(),
                 );
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "question/resolved": {
@@ -943,7 +1061,7 @@ export class HarnessSessionStore {
                     questionRpcId: frame.questionRpcId,
                     outcome: frame.outcome,
                 });
-                this.publish(state);
+                this.schedulePublish(state);
                 return;
             }
             case "stream/error":
@@ -1008,7 +1126,24 @@ export class HarnessSessionStore {
         return state;
     }
 
+    /** Coalesce a burst of mux frames into one snapshot and listener notification per session. */
+    private schedulePublish(state: SessionState): void {
+        this.pendingPublishes.add(state);
+        if (this.publishHandle) {
+            return;
+        }
+        this.publishHandle = setImmediate(() => {
+            this.publishHandle = undefined;
+            const pending = Array.from(this.pendingPublishes);
+            this.pendingPublishes.clear();
+            for (const pendingState of pending) {
+                this.publish(pendingState);
+            }
+        });
+    }
+
     private publish(state: SessionState): SessionStateSnapshot {
+        this.pendingPublishes.delete(state);
         const snapshot = state.snapshot();
         for (const listener of this.listeners) {
             listener(state.sessionId, snapshot);

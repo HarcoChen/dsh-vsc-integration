@@ -80,6 +80,15 @@
         "onCommand:dsh.openInBrowser"
     ],
     "contributes": {
+        "chatParticipants": [
+            {
+                "id": "dsh",
+                "name": "dsh",
+                "fullName": "DeepSeek Harness",
+                "description": "%chatParticipant.description%",
+                "isSticky": true
+            }
+        ],
         "viewsContainers": {
             "secondarySidebar": [
                 {
