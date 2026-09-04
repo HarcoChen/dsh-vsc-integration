@@ -63,6 +63,7 @@ import {
     type GoalMutationOperation,
     normalizeGoalRef,
     normalizeSubagentCatalog,
+    normalizeSubagentTiming,
     parseGoalProjection,
     presentGoalHud,
     presentJobCenter,
@@ -100,6 +101,7 @@ import {
     PermissionProjectionView,
     SessionStatsView,
     SubagentHistoryPreview,
+    SubagentTimingView,
     SubagentTreeNodeView,
 } from "./types";
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
@@ -341,11 +343,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     snapshot,
                 );
             }
+            const subagentTimingChanged = this.observeSubagentTiming(sessionId, snapshot);
             if (sessionId === this.sessionId) {
                 this.goalMutations.observe(
                     sessionId,
                     projectionCell(snapshot, "goal"),
                 );
+                this.schedulePostState();
+            } else if (subagentTimingChanged) {
                 this.schedulePostState();
             }
         });
@@ -1910,6 +1915,56 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
+    private subagentTimingMap(
+        catalogs: ReadonlyMap<string, DshSubagentCatalog>,
+    ): Map<string, SubagentTimingView> {
+        const catalog = this.runtime.getSessionCatalog().snapshot();
+        const summaries = new Map(catalog.sessions.map((item) => [item.sessionId, item] as const));
+        const timings = new Map<string, SubagentTimingView>();
+        for (const childCatalog of catalogs.values()) {
+            for (const entry of childCatalog.entries) {
+                if (entry.kind !== "child") continue;
+                const snapshot = this.runtime.getSessionStore().get(entry.id);
+                const local = normalizeSubagentTiming(
+                    projectionValue(snapshot, "subagentTiming"),
+                );
+                const summary = summaries.get(entry.id);
+                const listed = normalizeSubagentTiming(
+                    summary?.projections?.values.subagentTiming,
+                );
+                // Attached sessions receive live projection frames through the mux; a cold
+                // child has no SessionStore row, so its session.list projection is the
+                // available baseline. During an initial history repair, retain that baseline
+                // until the store has a complete cut.
+                const timing = local ?? (!snapshot || snapshot.needsHistoryBaseline ? listed : undefined);
+                if (timing !== undefined) timings.set(entry.id, timing);
+            }
+        }
+        return timings;
+    }
+
+    private observeSubagentTiming(
+        sessionId: string,
+        snapshot: SessionStateSnapshot,
+    ): boolean {
+        const rootSessionId = this.sessionId;
+        if (!rootSessionId || sessionId === rootSessionId) return false;
+        const tree = this.subagentTrees.get(rootSessionId);
+        if (!tree?.nodes.some((node) => node.kind === "child" && node.id === sessionId)) {
+            return false;
+        }
+        const timing = normalizeSubagentTiming(projectionValue(snapshot, "subagentTiming"));
+        const changed = this.subagentTrees.updateTiming(rootSessionId, sessionId, timing);
+        if (
+            changed &&
+            this.subagentPreview?.rootSessionId === rootSessionId &&
+            this.subagentPreview.childSessionId === sessionId
+        ) {
+            this.subagentPreview = { ...this.subagentPreview, timing };
+        }
+        return changed;
+    }
+
     private async refreshSubagentTree(rootSessionId: string): Promise<void> {
         this.subagentTreeAborts.get(rootSessionId)?.abort();
         const controller = new AbortController();
@@ -1937,7 +1992,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     }
                 }
             }
-            const applied = this.subagentTrees.resolve(rootSessionId, generation, catalogs);
+            const applied = this.subagentTrees.resolve(
+                rootSessionId,
+                generation,
+                catalogs,
+                this.subagentTimingMap(catalogs),
+            );
             if (applied && this.subagentPreview?.rootSessionId === rootSessionId) {
                 const refreshed = this.subagentTrees
                     .get(rootSessionId)
@@ -1957,6 +2017,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         mode: refreshed.mode,
                         activity: refreshed.activity,
                         parentAvailable: refreshed.parentAvailable,
+                        timing: refreshed.timing,
                     };
                 } else {
                     this.subagentPreview = {
@@ -2048,6 +2109,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             mode: address.mode,
             parentAvailable: node.parentAvailable,
             activity: node.activity,
+            ...(node.timing === undefined ? {} : { timing: node.timing }),
             state: "loading",
             messages: [],
         };
@@ -2060,6 +2122,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 generation !== this.subagentPreviewGeneration ||
                 rootSessionId !== this.sessionId
             ) return;
+            const timing = normalizeSubagentTiming(history.projections?.values.subagentTiming) ?? node.timing;
             this.subagentPreview = {
                 ...this.subagentPreview,
                 rootSessionId,
@@ -2068,6 +2131,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 mode: address.mode,
                 parentAvailable: node.parentAvailable,
                 activity: node.activity,
+                ...(timing === undefined ? {} : { timing }),
                 state: "ready",
                 messages: projectSubagentHistory(childSessionId, history),
             };

@@ -475,6 +475,15 @@ export interface DshSubagentHistoryResult extends DshHistoryResult {
     hasMore: boolean;
 }
 
+/** Exact public value carried by the optional `subagentTiming` projection. */
+export interface SubagentTimingView {
+    settledMs: number;
+    active?: {
+        since: number;
+        through: number;
+    };
+}
+
 export interface DshSubagentPromptResult {
     messageId: string;
 }
@@ -1097,6 +1106,7 @@ export interface SubagentTreeNodeView {
     label?: string;
     mode?: "one-shot" | "continuable";
     activity?: "running" | "inactive";
+    timing?: SubagentTimingView;
     hasChildren?: boolean;
     reason?: "corrupt" | "unsupported" | "unavailable";
 }
@@ -1115,6 +1125,7 @@ export interface SubagentHistoryPreview {
     mode: "one-shot" | "continuable";
     parentAvailable: boolean;
     activity: "running" | "inactive";
+    timing?: SubagentTimingView;
     state: "loading" | "ready" | "error";
     messages: ChatMessage[];
     pendingAction?: "follow-up" | "interrupt";
