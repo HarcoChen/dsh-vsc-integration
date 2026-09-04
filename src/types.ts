@@ -513,6 +513,12 @@ export interface DshGoalProjection {
     updatedAt: number;
 }
 
+/** Exact public value carried by the optional `plan` session projection. */
+export interface DshPlanProjection {
+    active: boolean;
+    pending: boolean;
+}
+
 export interface DshGoalRefResult {
     ref: DshGoalRef;
 }
@@ -1007,6 +1013,7 @@ export interface ChatViewState {
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
     imageLimits?: DshImageLimitsView;
+    plan?: DshPlanProjection;
     messageFeedback?: DshMessageFeedbackStateView;
     interactions: Array<{
         key: string;

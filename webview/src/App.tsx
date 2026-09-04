@@ -59,6 +59,7 @@ export function App(): React.JSX.Element {
                 sessionStats={state.sessionStats}
                 reasoningEffort={state.reasoningEffort}
                 imageLimits={state.imageLimits}
+                plan={state.plan}
                 busy={state.busy}
                 submitting={state.submitting}
                 cancelling={state.cancelling}

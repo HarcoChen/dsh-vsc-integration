@@ -47,6 +47,7 @@ import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
 import {
     imageLimitsProjection,
     permissionProjection,
+    planProjection,
     prepareImageUploads,
     presentSettingsPanel,
     settingsMutationOps,
@@ -3100,6 +3101,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
         const imageLimits = imageLimitsProjection(projectionValue(session, "imageLimits"));
+        const plan = planProjection(projectionValue(session, "plan"));
         const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));
         const host = presentHostBaseline(this.runtime.getHostDescription());
         const busy = selected?.running === true;
@@ -3192,6 +3194,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(imageLimits === undefined ? {} : { imageLimits }),
+            ...(plan === undefined ? {} : { plan }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {

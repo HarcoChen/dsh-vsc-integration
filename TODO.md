@@ -57,7 +57,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 - [x] **Subagent 运行时长**。`subagentTiming`（上游 `deepseek-harness/packages/subagent/subagent/src/projection.ts:62`），wire 形状 `{settledMs, active?: {since, through}}`。`SubagentTreeNodeView` 目前只有二值 `activity: "running" | "inactive"`，没有任何时长，这是真正的新信息。
       **身份部分不做**：另一个单元注册的 key 是 `subagent`（不是 `subagentIdentity`，`projection.ts:169`），其 `label` / `mode` 已由 `subagent.list` 放在树节点上，重复。
 - [ ] **消息反馈**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`），协议与 Host sidecar 已保留；前端入口暂隐藏，待评测、统计或导出闭环明确后再开放。反馈不写入 Session 日志、模型上下文或 telemetry。
-- [ ] **`plan` 投影**。上游 `deepseek-harness/packages/plan/plan-mode/src/index.ts:245` 注册，插件在 base 与 web-app 双挂载。当前计划评审走 interaction 卡片，接 projection 可拿到结构化计划状态。
+- [x] **`plan` 投影**。严格校验上游 `{active, pending}` wire 值并透传到 ChatView；Composer 按 `pending ? !active : active` 展示 `Plan ×` 状态、支持 `/plan off`，并切换生成计划的输入提示。计划评审仍走 interaction 卡片。
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。（基础部分已完成，缺 `contextBreakdown` 支撑的占用归因。）
 - [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围
 - [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；无公开协议时只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。

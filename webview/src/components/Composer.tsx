@@ -29,6 +29,7 @@ interface ComposerProps {
     sessionStats: ComposerState["sessionStats"];
     reasoningEffort: ComposerState["reasoningEffort"];
     imageLimits: ComposerState["imageLimits"];
+    plan: ComposerState["plan"];
     busy: ComposerState["busy"];
     submitting: ComposerState["submitting"];
     cancelling: ComposerState["cancelling"];
@@ -47,6 +48,7 @@ export const Composer = React.memo(function Composer({
     sessionStats,
     reasoningEffort,
     imageLimits,
+    plan,
     busy,
     submitting,
     cancelling,
@@ -62,6 +64,10 @@ export const Composer = React.memo(function Composer({
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const imageDrafts = useImageDrafts(imageLimits);
+    // The projection exposes the requested state while a /plan transition is
+    // pending. Fold it the same way as Harness UI: entering plan mode is
+    // effective while pending, leaving it is effective immediately.
+    const planActive = plan !== undefined && (plan.pending ? !plan.active : plan.active);
 
     useEffect(() => {
         return subscribeAddImageDraft((image) => imageDrafts.addUploads([image]));
@@ -368,7 +374,9 @@ export const Composer = React.memo(function Composer({
                 <textarea
                     ref={textareaRef}
                     className="dsh-prompt"
-                    placeholder={t("Describe a task; use @ for files, $ for skills...")}
+                    placeholder={t(planActive
+                        ? "Describe your task to generate a plan"
+                        : "Describe a task; use @ for files, $ for skills...")}
                     value={text}
                     disabled={submitting}
                     rows={2}
@@ -428,6 +436,19 @@ export const Composer = React.memo(function Composer({
                 </button>
             </div>
             <div className="dsh-composer-footer">
+                {planActive ? (
+                    <button
+                        type="button"
+                        className="dsh-plan-chip"
+                        title={t("Plan mode on — click to turn off (/plan off)")}
+                        aria-label={t("Plan mode on, click to turn off")}
+                        disabled={submitting}
+                        onClick={() => postAction({ type: "sendPrompt", text: "/plan off", mode: "queue" })}
+                    >
+                        <span>Plan</span>
+                        <span aria-hidden="true">×</span>
+                    </button>
+                ) : null}
                 <PermissionModeChip
                     permissions={permissions}
                     switchable={canSwitchPermissions(commands)}

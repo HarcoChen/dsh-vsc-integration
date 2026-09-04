@@ -412,6 +412,32 @@
     margin-top: var(--dsh-space-3);
 }
 
+/* Plan mode is a session state, but the close affordance is deliberately
+   action-like: clicking it sends the public /plan off command. */
+.dsh-plan-chip {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--dsh-space-1);
+    padding: 2px var(--dsh-space-2);
+    border: 1px solid color-mix(in srgb, var(--dsh-status-warning) 60%, transparent);
+    border-radius: var(--dsh-radius-chip);
+    color: var(--dsh-status-warning);
+    background: color-mix(in srgb, var(--dsh-status-warning) 12%, transparent);
+    font-size: var(--dsh-font-xs);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.dsh-plan-chip:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--dsh-status-warning) 20%, transparent);
+}
+
+.dsh-plan-chip:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
 /* Borderless until hover, matching the compact usage entry it sits next to. */
 .dsh-permission-chip {
     display: inline-flex;

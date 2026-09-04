@@ -87,6 +87,7 @@ export type ComposerState = Pick<
     | "sessionStats"
     | "reasoningEffort"
     | "imageLimits"
+    | "plan"
     | "busy"
     | "submitting"
     | "cancelling"
