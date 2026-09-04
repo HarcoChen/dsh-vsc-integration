@@ -10,6 +10,7 @@ import {
     ConversationNavigationRegistry,
 } from "./conversationNavigation";
 import { ContextStore } from "./contextStore";
+import { DebugContextTracker } from "./debugContext";
 import { DshRuntime } from "./dshRuntime";
 import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
@@ -22,7 +23,8 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     const runtime = new DshRuntime(output, context.globalStorageUri.fsPath);
     const balanceService = new DeepSeekBalanceService(context, output);
     const terminalContext = new TerminalContextStore();
-    const contextStore = new ContextStore();
+    const debugContextTracker = new DebugContextTracker();
+    const contextStore = new ContextStore(debugContextTracker);
     const agentStatusPresentations = new AgentStatusPresentationRegistry();
     const conversationNavigationRegistry = new ConversationNavigationRegistry();
     const chatView = new ChatViewProvider(
@@ -51,6 +53,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         output,
         balanceService,
         terminalContext,
+        debugContextTracker,
         agentStatusPresentations,
         conversationNavigationRegistry,
         chatView,
@@ -133,6 +136,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         ),
         vscode.commands.registerCommand("dsh.askAboutResource", (resource?: vscode.Uri) =>
             runCommand(t("Ask about resource"), () => chatView.askAboutResource(resource)),
+        ),
+        vscode.commands.registerCommand("dsh.explainDebugState", () =>
+            runQuietCommand(t("Capture Debug Context"), () => chatView.explainDebugState()),
         ),
         ...registerQuickTaskCommands(chatView),
         vscode.commands.registerCommand("dsh.openIdeContextPicker", () =>

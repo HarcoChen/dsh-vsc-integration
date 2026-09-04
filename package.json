@@ -67,6 +67,7 @@
         "onCommand:dsh.restart",
         "onCommand:dsh.insertEditorReference",
         "onCommand:dsh.askAboutResource",
+        "onCommand:dsh.explainDebugState",
         "onCommand:dsh.editorTask.explain",
         "onCommand:dsh.editorTask.fix",
         "onCommand:dsh.editorTask.review",
@@ -224,6 +225,15 @@
                 "icon": "$(comment-discussion)"
             },
             {
+                "command": "dsh.explainDebugState",
+                "title": "%command.explainDebugState.title%",
+                "category": "DSH",
+                "icon": {
+                    "light": "resources/dsh.svg",
+                    "dark": "resources/dsh-dark.svg"
+                }
+            },
+            {
                 "command": "dsh.editorTask.explain",
                 "title": "%dsh.editorTask.explain.title%",
                 "category": "DSH"
@@ -362,6 +372,13 @@
             "explorer/context": [
                 {
                     "command": "dsh.askAboutResource",
+                    "group": "navigation@dsh"
+                }
+            ],
+            "debug/toolBar": [
+                {
+                    "command": "dsh.explainDebugState",
+                    "when": "debugState == 'stopped'",
                     "group": "navigation@dsh"
                 }
             ],

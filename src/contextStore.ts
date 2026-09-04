@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
+import { captureDebugContext, DebugContextTracker } from "./debugContext";
 import { t } from "./localize";
 import type { DshTerminalCommand } from "./terminalContext";
 import { DshContextItem } from "./types";
@@ -122,6 +123,8 @@ function codeFenceFor(content: string): string {
 export class ContextStore {
     private readonly oneShotItems: DshContextItem[] = [];
     private readonly listeners = new Set<() => void>();
+
+    public constructor(private readonly debugContextTracker?: DebugContextTracker) {}
 
     public onDidChange(listener: () => void): vscode.Disposable {
         this.listeners.add(listener);
@@ -291,6 +294,27 @@ export class ContextStore {
             byteLength: Buffer.byteLength(limited, "utf8"),
             truncated: command.outputTruncated || limited.length < content.length,
         };
+        this.upsertOneShot(item);
+        return cloneItem(item);
+    }
+
+    /** Adds a bounded, read-only snapshot of the currently focused debugger state. */
+    public async addDebugContext(): Promise<DshContextItem> {
+        const capture = await captureDebugContext({
+            tracker: this.debugContextTracker,
+            maxBytes: this.maxContextBytes(),
+        });
+        const item: DshContextItem = {
+            id: randomUUID(),
+            kind: "debug",
+            label: capture.label,
+            ...(capture.path ? { path: capture.path } : {}),
+            ...(capture.language ? { language: capture.language } : {}),
+            content: capture.content,
+            byteLength: Buffer.byteLength(capture.content, "utf8"),
+            ...(capture.truncated ? { truncated: true } : {}),
+        };
+
         this.upsertOneShot(item);
         return cloneItem(item);
     }
@@ -516,6 +540,9 @@ export class ContextStore {
         }
         if (item.kind === "terminal") {
             return `terminal:${item.id}`;
+        }
+        if (item.kind === "debug") {
+            return "debug";
         }
 
         return `${item.kind}:${item.path ?? ""}`;

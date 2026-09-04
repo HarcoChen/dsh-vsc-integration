@@ -61,7 +61,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。（基础部分已完成，缺 `contextBreakdown` 支撑的占用归因。）
 - [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围
 - [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；无公开协议时只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
-- [ ] S：Debug Context——让 DSH 真正“看见断点现场”。 现在你已经能附加 Diagnostics，但 Debugger 是明显的下一步。vscode.debug.activeStackItem 可以直接拿当前 thread/frame，API 还提供 onDidChangeActiveStackItem；当前 frame 有 frameId/threadId/session，再通过标准 DAP stackTrace → scopes → variables 就能拿调用栈和局部变量。 可以做 DSH: Explain Current Debug State，内容类似：当前 exception/线程、前 10 层 stack、当前 frame locals、当前源码附近几十行、workspace diagnostics。再往前一步，在 Debug Toolbar 加一个小鲸鱼按钮“问 DSH 为什么停在这里”。这比“Explain Selection”有意思太多，而且是 Claude/Codex 类 IDE integration 很自然应该做、但很多第三方插件没做好的地方。
+- [x] S：Debug Context——让 DSH 真正“看见断点现场”。 现在你已经能附加 Diagnostics，但 Debugger 是明显的下一步。`vscode.debug.activeStackItem` 可以直接拿当前 thread/frame，当前 frame 有 `frameId`/`threadId`/`session`，再通过标准 DAP `stackTrace` → `scopes` → `variables` 就能拿调用栈和局部变量。已实现单向快照：`DSH: Explain Current Debug State` 从当前聚焦的调试线程/帧采集停止原因、前 10 层 stack、局部变量、当前源码附近 24 行和 workspace diagnostics，敏感变量名脱敏并限制总大小；快照作为一次性 IDE context 注入下一条 prompt。Debug Toolbar 在暂停时提供入口，`/ide` 选择器也可手动触发。暂不引入 DSH 插件、双向 RPC 或 evaluate/step 控制。
 
 ## P1：上游暂无契约（本轮已在 `0.1.1-rc.2` 复核，保持搁置）
 

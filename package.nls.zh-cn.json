@@ -21,6 +21,7 @@
     "command.openInBrowser.title": "在浏览器中打开 dsh Web UI",
     "command.insertEditorReference.title": "插入当前编辑器引用",
     "command.askAboutResource.title": "询问此资源",
+    "command.explainDebugState.title": "解释当前调试状态",
     "command.openIdeContextPicker.title": "管理 IDE 上下文（/ide）",
     "command.captureAppShot.title": "截取 AppShot",
     "command.configureApiKey.title": "配置 API Key",

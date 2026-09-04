@@ -4,7 +4,8 @@ export type DshContextKind =
     | "folder"
     | "diagnostics"
     | "git-diff"
-    | "terminal";
+    | "terminal"
+    | "debug";
 
 export interface DshContextItem {
     id: string;

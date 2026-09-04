@@ -79,7 +79,6 @@ import {
     ChatMessage,
     DshAgentPresetEntry,
     DshApprovalResponse,
-    DshContextItem,
     DshHistoryEntry,
     DshImageLimitsView,
     DshImageUpload,
@@ -575,6 +574,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.setComposerText(GIT_DIFF_TASK_PROMPTS[kind]());
     }
 
+    /** Captures the focused debugger state and prepares a one-shot explanation task. */
+    public async explainDebugState(): Promise<void> {
+        await this.contextStore.addDebugContext();
+        this.setComposerText(t("Explain why execution stopped here and suggest the next debugging checks."));
+    }
+
     public async configureApiKey(): Promise<void> {
         const configuration = vscode.workspace.getConfiguration("dsh");
         const ref = configuration.get<string>("apiKeyEnv", "DEEPSEEK_API_KEY").trim();
@@ -720,6 +725,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 { actionId: "workspace-file" as const, label: `$(search) ${t("Workspace file")}`, detail: t("Fuzzy-search and insert an @file reference") },
                 { actionId: "current-file" as const, label: `$(file-code) ${t("Current file")}`, detail: t("Insert an @file reference without copying its contents") },
                 { actionId: "diagnostics" as const, label: `$(warning) ${t("Diagnostics")}`, detail: t("Attach once to this turn") },
+                ...(vscode.debug.activeStackItem
+                    ? [{ actionId: "debug-context" as const, label: `$(debug-alt) ${t("Debug context")}`, detail: t("Attach the current stack, locals, source, and diagnostics once") }]
+                    : []),
                 { actionId: "git-diff" as const, label: "$(git-compare) Git diff", detail: t("Attach once to this turn") },
                 { actionId: "terminal-command" as const, label: `$(terminal) ${t("Recent terminal command")}`, detail: t("Attach one captured terminal command and its output") },
                 {
@@ -746,6 +754,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return;
         } else if (choice.actionId === "diagnostics") {
             await this.runContextAction(() => this.contextStore.addDiagnostics());
+            return;
+        } else if (choice.actionId === "debug-context") {
+            await this.runContextAction(() => this.explainDebugState());
             return;
         } else if (choice.actionId === "git-diff") {
             await this.runContextAction(() => this.contextStore.addGitDiff());
@@ -2748,7 +2759,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private async runContextAction(
-        action: () => DshContextItem | Promise<DshContextItem>,
+        action: () => unknown | Promise<unknown>,
     ): Promise<void> {
         try {
             await action();
