@@ -444,7 +444,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.refreshModelCatalog(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
-                        void this.refreshMessageFeedback(this.sessionId, true);
                         void this.refreshSubagentTree(this.sessionId);
                     }
                 });
@@ -1375,7 +1374,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 } satisfies PersistedSession);
             }
             void this.refreshSubagentTree(created.sessionId);
-            void this.refreshMessageFeedback(created.sessionId);
             this.newSessionDraft = false;
             this.clearNewSessionDraft();
         }
@@ -1439,7 +1437,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshModelCatalog(sessionId);
             this.refreshSkillCatalog(sessionId);
             this.refreshCommandCatalog(sessionId);
-            void this.refreshMessageFeedback(sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
             if (latest?.sessionId === sessionId && latest.cwd === workspaceRoot) {
@@ -1865,7 +1862,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.refreshModelCatalog(sessionId);
         this.refreshSkillCatalog(sessionId);
         this.refreshCommandCatalog(sessionId);
-        void this.refreshMessageFeedback(sessionId);
         void this.refreshSubagentTree(sessionId);
         this.reveal();
     }
@@ -3100,13 +3096,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const session = this.sessionId
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
-        if (this.sessionId && !this.messageFeedbackStates.has(this.sessionId)) {
-            void this.refreshMessageFeedback(this.sessionId);
-        }
-        const messageFeedbackState = this.messageFeedbackView(this.sessionId);
-        const feedbackSessionState = this.sessionId && this.runtime.getUrl()
-            ? this.messageFeedbackStates.get(this.sessionId)
-            : undefined;
         const goalCell = projectionCell(session, "goal");
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
@@ -3130,11 +3119,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) ?? [];
         const state: ChatViewState = {
             messages: this.renderMessages(
-                this.decorateMessageFeedback(
-                    projectedMessages,
-                    session,
-                    feedbackSessionState,
-                ),
+                projectedMessages,
                 `session:${this.sessionId ?? "none"}`,
                 this.sessionId,
             ),
@@ -3207,7 +3192,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(imageLimits === undefined ? {} : { imageLimits }),
-            ...(messageFeedbackState === undefined ? {} : { messageFeedback: messageFeedbackState }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {

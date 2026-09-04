@@ -57,125 +57,6 @@
     margin-bottom: var(--dsh-space-1);
 }
 
-.dsh-message-feedback-row {
-    display: flex;
-    align-items: center;
-    min-height: 22px;
-    margin-top: var(--dsh-space-1);
-}
-
-.dsh-message-feedback {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    margin-left: 0;
-    opacity: 0;
-    transition: opacity 120ms ease;
-}
-
-.dsh-message:hover .dsh-message-feedback,
-.dsh-message:focus-within .dsh-message-feedback,
-.dsh-message-feedback.has-feedback,
-.dsh-message-feedback.open {
-    opacity: 1;
-}
-
-.dsh-message-feedback-button,
-.dsh-message-feedback-note {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 22px;
-    height: 22px;
-    padding: 2px 4px;
-    border: 0;
-    border-radius: var(--dsh-radius-sm);
-    color: var(--vscode-descriptionForeground);
-    background: transparent;
-    cursor: pointer;
-    font-size: var(--dsh-font-xs);
-}
-
-.dsh-message-feedback-button:hover,
-.dsh-message-feedback-note:hover,
-.dsh-message-feedback-button.active {
-    color: var(--vscode-textLink-foreground);
-    background: var(--vscode-toolbar-hoverBackground);
-}
-
-.dsh-message-feedback-button:disabled,
-.dsh-message-feedback-note:disabled {
-    cursor: default;
-    opacity: 0.55;
-}
-
-.dsh-message-feedback-note {
-    max-width: 150px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.dsh-feedback-note-panel {
-    position: absolute;
-    bottom: calc(100% + 4px);
-    left: 0;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    gap: var(--dsh-space-2);
-    width: min(280px, calc(100vw - 32px));
-    padding: var(--dsh-space-3);
-    border: 1px solid var(--dsh-border);
-    border-radius: var(--dsh-radius-md);
-    background: var(--vscode-editorWidget-background, var(--dsh-surface));
-    box-shadow: var(--dsh-shadow-menu);
-}
-
-.dsh-feedback-note-input {
-    width: 100%;
-    min-height: 64px;
-    resize: vertical;
-    box-sizing: border-box;
-    padding: var(--dsh-space-2);
-    border: 1px solid var(--vscode-input-border, var(--dsh-border));
-    border-radius: var(--dsh-radius-sm);
-    color: var(--vscode-input-foreground);
-    background: var(--vscode-input-background);
-    font: inherit;
-}
-
-.dsh-feedback-note-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--dsh-space-2);
-}
-
-.dsh-feedback-note-actions button {
-    padding: var(--dsh-space-1) var(--dsh-space-2);
-    font-size: var(--dsh-font-xs);
-}
-
-.dsh-feedback-error,
-.dsh-feedback-status {
-    color: var(--vscode-errorForeground);
-    font-size: var(--dsh-font-xs);
-}
-
-.dsh-feedback-error {
-    max-width: 220px;
-    margin-left: var(--dsh-space-1);
-}
-
-.dsh-feedback-status {
-    margin: 0 0 var(--dsh-space-3);
-    padding: var(--dsh-space-2) var(--dsh-space-3);
-    border: 1px solid var(--vscode-inputValidation-errorBorder);
-    border-radius: var(--dsh-radius-sm);
-    background: var(--vscode-inputValidation-errorBackground);
-}
-
 .dsh-message-actions {
     position: relative;
     display: inline-flex;
@@ -231,10 +112,6 @@
 
 @media (hover: none) {
     .dsh-message-actions {
-        opacity: 1;
-    }
-
-    .dsh-message-feedback {
         opacity: 1;
     }
 }
