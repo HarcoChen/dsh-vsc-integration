@@ -1083,7 +1083,15 @@ export class DshRuntime implements vscode.Disposable {
         if (sourceTitle !== undefined) {
             // Host fork preserves the inherited title. Rename the child after
             // creation to match the client contract (e.g. Helo -> Helo (1)).
-            await this.renameSession(result.sessionId, increasedForkTitle(sourceTitle));
+            // Disambiguation is cosmetic and the fork itself already succeeded,
+            // so a rename failure must not reject the child id away.
+            try {
+                await this.renameSession(result.sessionId, increasedForkTitle(sourceTitle));
+            } catch (error) {
+                this.output.appendLine(
+                    `[dsh] fork title update failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
         }
         return result;
     }

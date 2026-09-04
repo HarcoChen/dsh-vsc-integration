@@ -272,7 +272,10 @@ async function chooseProviderAction(
             detail: t("Set endpoint, protocol, and API Key inside the IDE"),
         });
     }
-    if (row.entry.settingsNs === "llm-pi-ai") {
+    // Discovery ends in `settings.mutate`, so offering it on a read-only
+    // settings layer would walk the user through the whole endpoint/key flow
+    // only to fail on the write.
+    if (settingsWritable && row.namespace && row.entry.settingsNs === "llm-pi-ai") {
         actions.push({
             action: "discover",
             label: `$(cloud-download) ${t("Discover models")}`,

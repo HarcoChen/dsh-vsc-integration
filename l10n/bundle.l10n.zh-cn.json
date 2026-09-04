@@ -310,6 +310,7 @@
     "This change is no longer available.": "此变更已不可用。",
     "This change review is no longer available.": "此变更审查已不可用。",
     "This message is no longer available.": "此消息已不可用。",
+    "Code was restored to this message, but forking the session failed: {message}": "代码已恢复到此消息，但 Fork 会话失败：{message}",
     "This message is not associated with a turn.": "此消息不属于任何轮次。",
     "This turn cannot be restored.": "本轮变更无法恢复。",
     "There is no available workspace.": "当前没有可用的工作区。",

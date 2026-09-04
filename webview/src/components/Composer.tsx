@@ -477,17 +477,25 @@ export const Composer = React.memo(function Composer({
                 </button>
             </div>
             <div className="dsh-composer-footer">
-                {planActive ? (
+                {/* Rendered in both states so the toggle stays reachable by
+                    pointer and screen reader, not only through Shift+Tab. A
+                    Runtime without the command still shows a latched-on chip. */}
+                {planActive || planCommandAvailable ? (
                     <button
                         type="button"
-                        className="dsh-plan-chip"
-                        title={t("Plan mode on — click to turn off (/plan off)")}
-                        aria-label={t("Plan mode on, click to turn off")}
+                        className={`dsh-plan-chip${planActive ? "" : " dsh-plan-chip-off"}`}
+                        title={planActive
+                            ? t("Plan mode on — click to turn off (/plan off)")
+                            : t("Plan mode off — click to turn on (/plan on)")}
+                        aria-label={planActive
+                            ? t("Plan mode on, click to turn off")
+                            : t("Plan mode off, click to turn on")}
+                        aria-pressed={planActive}
                         disabled={!planCommandAvailable}
                         onClick={togglePlan}
                     >
                         <span>Plan</span>
-                        <span aria-hidden="true">×</span>
+                        {planActive ? <span aria-hidden="true">×</span> : null}
                     </button>
                 ) : null}
                 <PermissionModeChip

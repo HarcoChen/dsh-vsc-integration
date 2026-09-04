@@ -81,6 +81,8 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Describe your task to generate a plan": "描述你的任务以生成计划",
     "Plan mode on, click to turn off": "Plan 模式已开启，点击关闭",
     "Plan mode on — click to turn off (/plan off)": "Plan 模式已开启 — 点击关闭（/plan off）",
+    "Plan mode off, click to turn on": "Plan 模式已关闭，点击开启",
+    "Plan mode off — click to turn on (/plan on)": "Plan 模式已关闭 — 点击开启（/plan on）",
     "Toggle focus mode": "切换 Focus 模式",
     "Open the current session trace": "打开当前会话 Trace",
     "Stop the dsh runtime": "停止 dsh 运行时",

@@ -306,10 +306,34 @@ export class TerminalContextStore implements vscode.Disposable {
         return Math.min(MAX_HISTORY_SIZE, Math.max(1, Math.floor(configured)));
     }
 
+    /**
+     * Bounds the store twice over: per terminal by the configured history size,
+     * and globally by MAX_HISTORY_SIZE. A closed terminal keeps its records —
+     * they stay attachable — but nothing else would ever drop its map entry, so
+     * the global pass is what releases the `vscode.Terminal` keys of terminals
+     * whose records have all aged out.
+     */
     private trimHistory(): void {
         const limit = this.historySize();
-        for (const history of this.byTerminal.values()) {
+        let total = 0;
+        for (const [terminal, history] of this.byTerminal) {
             if (history.length > limit) history.splice(limit);
+            if (history.length === 0) this.byTerminal.delete(terminal);
+            else total += history.length;
+        }
+        if (total <= MAX_HISTORY_SIZE) return;
+
+        const retained = new Set(
+            [...this.byTerminal.values()]
+                .flat()
+                .sort((left, right) => right.endedAt - left.endedAt)
+                .slice(0, MAX_HISTORY_SIZE)
+                .map((record) => record.id),
+        );
+        for (const [terminal, history] of this.byTerminal) {
+            const kept = history.filter((record) => retained.has(record.id));
+            if (kept.length === 0) this.byTerminal.delete(terminal);
+            else if (kept.length !== history.length) this.byTerminal.set(terminal, kept);
         }
     }
 

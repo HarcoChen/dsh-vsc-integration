@@ -433,6 +433,19 @@
     background: color-mix(in srgb, var(--dsh-status-warning) 20%, transparent);
 }
 
+/* Unselected state: present but quiet, so an inactive Plan mode never reads
+   as an active one. */
+.dsh-plan-chip-off {
+    border-color: transparent;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+}
+
+.dsh-plan-chip-off:hover:not(:disabled) {
+    border-color: var(--dsh-border);
+    background: var(--dsh-surface-hover);
+}
+
 .dsh-plan-chip:disabled {
     opacity: 0.55;
     cursor: default;

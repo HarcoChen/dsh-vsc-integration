@@ -756,7 +756,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             await this.runContextAction(() => this.contextStore.addDiagnostics());
             return;
         } else if (choice.actionId === "debug-context") {
-            await this.runContextAction(() => this.explainDebugState());
+            // The picker only attaches context, like its diagnostics and diff
+            // siblings; prefilling a prompt here would discard the draft the
+            // user is writing. `dsh.explainDebugState` keeps that behavior.
+            await this.runContextAction(() => this.contextStore.addDebugContext());
             return;
         } else if (choice.actionId === "git-diff") {
             await this.runContextAction(() => this.contextStore.addGitDiff());
@@ -1829,7 +1832,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         // fork that did not receive the requested code rewind.
         const restored = await this.changeReviews.restore(checkpoint.sessionId, checkpoint.turn);
         if (!restored) return;
-        const forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
+        let forked;
+        try {
+            forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
+        } catch (error) {
+            // The restore already landed on disk and cannot be undone from here,
+            // so the failure has to name the half that did succeed.
+            throw new Error(t("Code was restored to this message, but forking the session failed: {message}", {
+                message: errorMessage(error),
+            }));
+        }
         await this.switchSession(forked.sessionId);
     }
 
