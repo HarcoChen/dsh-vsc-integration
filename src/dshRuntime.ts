@@ -53,6 +53,12 @@ import {
     DshSubagentCatalog,
     DshSubagentHistoryResult,
     DshSubagentPromptResult,
+    DshMessageFeedbackDeleteRequest,
+    DshMessageFeedbackDeleteResult,
+    DshMessageFeedbackListRequest,
+    DshMessageFeedbackListResult,
+    DshMessageFeedbackPutRequest,
+    DshMessageFeedbackPutResult,
     DshRpcReceipt,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
@@ -1258,6 +1264,52 @@ export class DshRuntime implements vscode.Disposable {
         signal?: AbortSignal,
     ): Promise<{ accepted: true }> {
         return this.apiClient.call("subagent.interrupt", address, signal);
+    }
+
+    /** Reads the Host-owned per-message feedback sidecar for one Session. */
+    public async listMessageFeedback(
+        sessionId: string,
+        signal?: AbortSignal,
+    ): Promise<DshMessageFeedbackListResult | undefined> {
+        try {
+            return await this.apiClient.call("messageFeedback/list", {
+                args: { request: { sessionId } satisfies DshMessageFeedbackListRequest },
+            }, signal);
+        } catch (error) {
+            // The sidecar is optional on older or minimally composed Runtimes.
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Creates or replaces one feedback item using its observed CAS version. */
+    public async putMessageFeedback(
+        request: DshMessageFeedbackPutRequest,
+        signal?: AbortSignal,
+    ): Promise<DshMessageFeedbackPutResult | undefined> {
+        try {
+            return await this.apiClient.call("messageFeedback/put", {
+                args: { request },
+            }, signal);
+        } catch (error) {
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Removes one feedback item after observing its current CAS version. */
+    public async deleteMessageFeedback(
+        request: DshMessageFeedbackDeleteRequest,
+        signal?: AbortSignal,
+    ): Promise<DshMessageFeedbackDeleteResult | undefined> {
+        try {
+            return await this.apiClient.call("messageFeedback/delete", {
+                args: { request },
+            }, signal);
+        } catch (error) {
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
     }
 
     public respond<T>(response: HarnessClientResponse<T>): Promise<DshRpcReceipt> {

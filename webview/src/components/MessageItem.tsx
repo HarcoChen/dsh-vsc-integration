@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { ChatMessage } from "../../../src/types";
+import type {
+    ChatMessage,
+    ChatMessageFeedbackView,
+    DshMessageFeedbackRating,
+} from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
 import { ROLE_LABELS } from "../state";
 import { MessageContent } from "./MessageContent";
-import { MoreIcon } from "./icons";
+import { DislikeIcon, LikeIcon, MoreIcon } from "./icons";
 
 export { MessageContent } from "./MessageContent";
 
@@ -12,6 +16,148 @@ interface MessageItemProps {
     message: ChatMessage;
     submitting: boolean;
     agentStatusLabel?: string;
+}
+
+function MessageFeedbackActions({
+    messageId,
+    feedback,
+}: {
+    messageId: string;
+    feedback: ChatMessageFeedbackView;
+}): React.JSX.Element {
+    const [noteOpen, setNoteOpen] = useState(false);
+    const [draft, setDraft] = useState("");
+    const feedbackRef = useRef<HTMLSpanElement>(null);
+    const hasRating = feedback.rating !== undefined;
+    const pending = Boolean(feedback.pending);
+    const disabled = pending || feedback.status === "loading";
+
+    useEffect(() => {
+        if (!noteOpen) return;
+        setDraft(feedback.note ?? "");
+    }, [feedback.note, noteOpen]);
+
+    useEffect(() => {
+        if (!noteOpen) return;
+        const onPointerDown = (event: MouseEvent): void => {
+            if (feedbackRef.current && !feedbackRef.current.contains(event.target as Node)) {
+                setNoteOpen(false);
+            }
+        };
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === "Escape") setNoteOpen(false);
+        };
+        document.addEventListener("mousedown", onPointerDown);
+        document.addEventListener("keydown", onKeyDown);
+        return () => {
+            document.removeEventListener("mousedown", onPointerDown);
+            document.removeEventListener("keydown", onKeyDown);
+        };
+    }, [noteOpen]);
+
+    const toggle = (rating: DshMessageFeedbackRating): void => {
+        if (disabled) return;
+        setNoteOpen(false);
+        postAction({ type: "toggleMessageFeedback", messageId, rating });
+    };
+
+    const openNote = (): void => {
+        if (disabled || !hasRating) return;
+        setDraft(feedback.note ?? "");
+        setNoteOpen((open) => !open);
+    };
+
+    const saveNote = (): void => {
+        if (disabled) return;
+        postAction({ type: "saveMessageFeedbackNote", messageId, note: draft });
+        setNoteOpen(false);
+    };
+
+    const selected = feedback.rating;
+    const hasVisibleFeedback = hasRating || Boolean(feedback.error) || noteOpen;
+    return (
+        <span
+            className={`dsh-message-feedback${hasVisibleFeedback ? " has-feedback" : ""}${noteOpen ? " open" : ""}`}
+            ref={feedbackRef}
+        >
+            <button
+                type="button"
+                className={`dsh-message-feedback-button${selected === "positive" ? " active" : ""}`}
+                aria-label={t(selected === "positive" ? "Like (selected)" : "Like")}
+                aria-pressed={selected === "positive"}
+                title={t(selected === "positive" ? "Like (selected)" : "Like")}
+                disabled={disabled}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    toggle("positive");
+                }}
+            >
+                <LikeIcon />
+            </button>
+            <button
+                type="button"
+                className={`dsh-message-feedback-button${selected === "negative" ? " active" : ""}`}
+                aria-label={t(selected === "negative" ? "Dislike (selected)" : "Dislike")}
+                aria-pressed={selected === "negative"}
+                title={t(selected === "negative" ? "Dislike (selected)" : "Dislike")}
+                disabled={disabled}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    toggle("negative");
+                }}
+            >
+                <DislikeIcon />
+            </button>
+            {hasRating ? (
+                <button
+                    type="button"
+                    className={`dsh-message-feedback-note${feedback.note ? " has-note" : ""}`}
+                    aria-haspopup="dialog"
+                    aria-expanded={noteOpen}
+                    aria-label={t(feedback.note ? "Edit feedback note" : "Add feedback note")}
+                    title={t(feedback.note ? "Edit feedback note" : "Add feedback note")}
+                    disabled={disabled}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        openNote();
+                    }}
+                >
+                    {feedback.note ? feedback.note.slice(0, 40) : t("Add note")}
+                </button>
+            ) : null}
+            {noteOpen ? (
+                <span
+                    className="dsh-feedback-note-panel"
+                    role="dialog"
+                    aria-label={t("Feedback")}
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    <textarea
+                        className="dsh-feedback-note-input"
+                        value={draft}
+                        maxLength={32768}
+                        autoFocus
+                        aria-label={t("Feedback note")}
+                        placeholder={t("Optional feedback note")}
+                        onChange={(event) => setDraft(event.target.value)}
+                    />
+                    <span className="dsh-feedback-note-actions">
+                        <button type="button" className="dsh-button-secondary" onClick={() => setNoteOpen(false)}>
+                            {t("Cancel")}
+                        </button>
+                        <button type="button" className="dsh-button" disabled={disabled} onClick={saveNote}>
+                            {t("Save feedback note")}
+                        </button>
+                    </span>
+                </span>
+            ) : null}
+            {feedback.error ? (
+                <span className="dsh-feedback-error" role="status">
+                    {feedback.error}
+                </span>
+            ) : null}
+        </span>
+    );
 }
 
 type CheckpointAction =
@@ -107,6 +253,10 @@ export const MessageItem = React.memo(function MessageItem({
         message.seq >= 0
             ? message.seq
             : undefined;
+    const feedbackTarget =
+        message.role === "assistant" && message.state === "committed" && message.messageId && message.feedback
+            ? message.messageId
+            : undefined;
     return (
         <div
             className={`dsh-message dsh-role-${message.role}${stateClass}`}
@@ -131,6 +281,11 @@ export const MessageItem = React.memo(function MessageItem({
                 {checkpointSeq === undefined ? null : <MessageCheckpointMenu seq={checkpointSeq} />}
             </div>
             <MessageContent message={message} agentStatusLabel={agentStatusLabel} />
+            {feedbackTarget && message.feedback ? (
+                <div className="dsh-message-feedback-row">
+                    <MessageFeedbackActions messageId={feedbackTarget} feedback={message.feedback} />
+                </div>
+            ) : null}
             {message.state === "failed" ? (
                 <button
                     type="button"

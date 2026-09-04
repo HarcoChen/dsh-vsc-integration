@@ -165,9 +165,82 @@ export interface ChatMessage {
     /** Opaque per-render nonce used to address host-retained code payloads. */
     renderId?: string;
     reasoningRenderId?: string;
+    /** Durable assistant-message identity used by the optional feedback sidecar. */
+    messageId?: string;
+    /** Host-owned feedback state for this finalized assistant message. */
+    feedback?: ChatMessageFeedbackView;
     createdAt: number;
     seq?: number;
     state?: "committed" | "streaming" | "pending" | "failed";
+}
+
+export type DshMessageFeedbackRating = "positive" | "negative";
+
+export interface DshMessageFeedbackItem {
+    messageId: string;
+    rating: DshMessageFeedbackRating;
+    note?: string;
+    version: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface DshMessageFeedbackListRequest {
+    sessionId: string;
+}
+
+export type DshMessageFeedbackListResult =
+    | { ok: true; value: { items: DshMessageFeedbackItem[] } }
+    | { ok: false; error: DshMessageFeedbackError };
+
+export interface DshMessageFeedbackPutRequest {
+    sessionId: string;
+    messageId: string;
+    rating: DshMessageFeedbackRating;
+    note?: string;
+    ifVersion: string | null;
+}
+
+export type DshMessageFeedbackPutResult =
+    | { ok: true; value: DshMessageFeedbackItem }
+    | { ok: false; error: DshMessageFeedbackError };
+
+export interface DshMessageFeedbackDeleteRequest {
+    sessionId: string;
+    messageId: string;
+    ifVersion: string;
+}
+
+export type DshMessageFeedbackDeleteResult =
+    | { ok: true; value: { absent: true } }
+    | { ok: false; error: DshMessageFeedbackError };
+
+export interface DshMessageFeedbackError {
+    code: string;
+    sessionId?: string;
+    messageId?: string;
+    current?: DshMessageFeedbackItem | null;
+    maxBytes?: number;
+    actualBytes?: number;
+}
+
+export type DshMessageFeedbackStatus = "loading" | "ready" | "error" | "unavailable";
+
+/** Serializable Session-level feedback cache used by the Webview controls. */
+export interface DshMessageFeedbackStateView {
+    status: DshMessageFeedbackStatus;
+    items: Record<string, DshMessageFeedbackItem>;
+    pending: Record<string, true>;
+    errors: Record<string, string>;
+    error?: string;
+}
+
+export interface ChatMessageFeedbackView {
+    status: Exclude<DshMessageFeedbackStatus, "unavailable">;
+    rating?: DshMessageFeedbackRating;
+    note?: string;
+    pending?: boolean;
+    error?: string;
 }
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
@@ -934,6 +1007,7 @@ export interface ChatViewState {
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
     imageLimits?: DshImageLimitsView;
+    messageFeedback?: DshMessageFeedbackStateView;
     interactions: Array<{
         key: string;
         kind: "approval" | "question" | "plan-review";

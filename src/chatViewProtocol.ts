@@ -1,4 +1,10 @@
-import { DshApprovalOutcome, DshImageUpload, DshQuestionAnswerItem, DshQuestionItem } from "./types";
+import {
+    DshApprovalOutcome,
+    DshImageUpload,
+    DshMessageFeedbackRating,
+    DshQuestionAnswerItem,
+    DshQuestionItem,
+} from "./types";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
 import {
@@ -50,6 +56,8 @@ export type ChatViewAction =
     | { type: "forkFromMessage"; seq: number }
     | { type: "restoreCodeToMessage"; seq: number }
     | { type: "forkAndRestoreCodeToMessage"; seq: number }
+    | { type: "toggleMessageFeedback"; messageId: string; rating: DshMessageFeedbackRating }
+    | { type: "saveMessageFeedbackNote"; messageId: string; note: string }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
     | { type: "newSessionInCurrentWorkspace" }
@@ -253,6 +261,31 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             if (value.type === "forkFromMessage") return { type: "forkFromMessage", seq: value.seq };
             if (value.type === "restoreCodeToMessage") return { type: "restoreCodeToMessage", seq: value.seq };
             return { type: "forkAndRestoreCodeToMessage", seq: value.seq };
+        case "toggleMessageFeedback":
+            if (
+                !hasOnly(value, ["type", "messageId", "rating"]) ||
+                !nonEmptyString(value.messageId) ||
+                value.messageId.length > 512 ||
+                (value.rating !== "positive" && value.rating !== "negative")
+            ) return undefined;
+            return {
+                type: "toggleMessageFeedback",
+                messageId: value.messageId,
+                rating: value.rating,
+            };
+        case "saveMessageFeedbackNote":
+            if (
+                !hasOnly(value, ["type", "messageId", "note"]) ||
+                !nonEmptyString(value.messageId) ||
+                value.messageId.length > 512 ||
+                typeof value.note !== "string" ||
+                value.note.length > 32_768
+            ) return undefined;
+            return {
+                type: "saveMessageFeedbackNote",
+                messageId: value.messageId,
+                note: value.note,
+            };
         case "openExternalLink": {
             if (!hasOnly(value, ["type", "url"])) return undefined;
             const url = parseSafeHttpUrl(value.url);

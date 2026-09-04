@@ -82,6 +82,11 @@ import {
     DshHistoryEntry,
     DshImageLimitsView,
     DshImageUpload,
+    DshMessageFeedbackDeleteRequest,
+    DshMessageFeedbackItem,
+    DshMessageFeedbackPutRequest,
+    DshMessageFeedbackRating,
+    DshMessageFeedbackStateView,
     DshQuestionResponse,
     DshReferenceCandidate,
     DshReasoningEffortOption,
@@ -107,10 +112,23 @@ import {
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
 import { errorMessage } from "./errors";
+import {
+    normalizeMessageFeedbackDeleteResult,
+    normalizeMessageFeedbackListResult,
+    normalizeMessageFeedbackPutResult,
+} from "./messageFeedback";
 
 interface PersistedSession {
     sessionId: string;
     cwd: string;
+}
+
+interface MessageFeedbackSessionState {
+    status: "loading" | "ready" | "error" | "unavailable";
+    items: Map<string, DshMessageFeedbackItem>;
+    pending: Set<string>;
+    errors: Map<string, string>;
+    error?: string;
 }
 
 export type QuickTaskKind = "explain" | "fix" | "review" | "docs";
@@ -236,6 +254,39 @@ function isCheckpointMessageType(type: string): boolean {
     return type === "user/message" || type === "assistant/message";
 }
 
+/** Resolve the stable wire id of one finalized append-origin assistant message. */
+function assistantFeedbackMessageId(
+    snapshot: SessionStateSnapshot | undefined,
+    seq: number | undefined,
+): string | undefined {
+    if (!snapshot || seq === undefined || !Number.isSafeInteger(seq) || seq < 0) return undefined;
+    const stored = snapshot.events.find((candidate) => candidate.event.seq === seq);
+    if (!stored || stored.event.type !== "assistant/message" || stored.event.surfaceOp !== "append") {
+        return undefined;
+    }
+    if (!isRecord(stored.event.data) || !isRecord(stored.event.data.message)) return undefined;
+    const message = stored.event.data.message;
+    return message.role === "assistant" && typeof message.id === "string" && message.id.trim().length > 0
+        ? message.id
+        : undefined;
+}
+
+/** Check a feedback mutation against the current Session's authoritative log. */
+function hasAssistantFeedbackTarget(
+    snapshot: SessionStateSnapshot | undefined,
+    messageId: string,
+): boolean {
+    if (!snapshot || !messageId) return false;
+    return snapshot.events.some((stored) =>
+        stored.event.type === "assistant/message" &&
+        stored.event.surfaceOp === "append" &&
+        isRecord(stored.event.data) &&
+        isRecord(stored.event.data.message) &&
+        stored.event.data.message.id === messageId &&
+        stored.event.data.message.role === "assistant",
+    );
+}
+
 /** Resolve the turn containing a projected user/assistant message. */
 function checkpointMessageTurn(snapshot: SessionStateSnapshot, seq: number): number | undefined {
     const target = snapshot.events.find((stored) => stored.event.seq === seq);
@@ -302,6 +353,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
     private readonly commandCatalogs = new Map<string, DshCommandDescriptor[]>();
     private readonly commandCatalogRequests = new Map<string, Promise<void>>();
+    private readonly messageFeedbackStates = new Map<string, MessageFeedbackSessionState>();
+    private readonly messageFeedbackRequests = new Map<string, Promise<void>>();
+    private readonly messageFeedbackGenerations = new Map<string, number>();
+    private readonly messageFeedbackOperationTails = new Map<string, Promise<void>>();
     /**
      * Latched once the Runtime answers 404 for the command registry, so an
      * older Runtime is asked once per connection instead of on every state
@@ -389,6 +444,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.refreshModelCatalog(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
+                        void this.refreshMessageFeedback(this.sessionId, true);
                         void this.refreshSubagentTree(this.sessionId);
                     }
                 });
@@ -962,6 +1018,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "forkAndRestoreCodeToMessage":
                     await this.runCheckpointAction(() => this.forkAndRestoreCodeToMessage(message.seq));
                     break;
+                case "toggleMessageFeedback":
+                    await this.toggleMessageFeedback(message.messageId, message.rating);
+                    break;
+                case "saveMessageFeedbackNote":
+                    await this.saveMessageFeedbackNote(message.messageId, message.note);
+                    break;
                 case "switchSession":
                     await this.switchSession(message.sessionId);
                     break;
@@ -1313,6 +1375,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 } satisfies PersistedSession);
             }
             void this.refreshSubagentTree(created.sessionId);
+            void this.refreshMessageFeedback(created.sessionId);
             this.newSessionDraft = false;
             this.clearNewSessionDraft();
         }
@@ -1376,6 +1439,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshModelCatalog(sessionId);
             this.refreshSkillCatalog(sessionId);
             this.refreshCommandCatalog(sessionId);
+            void this.refreshMessageFeedback(sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
             if (latest?.sessionId === sessionId && latest.cwd === workspaceRoot) {
@@ -1801,6 +1865,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.refreshModelCatalog(sessionId);
         this.refreshSkillCatalog(sessionId);
         this.refreshCommandCatalog(sessionId);
+        void this.refreshMessageFeedback(sessionId);
         void this.refreshSubagentTree(sessionId);
         this.reveal();
     }
@@ -1913,6 +1978,318 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         } finally {
             this.postState();
         }
+    }
+
+    /** Start or reuse the sidecar list read for one selected Session. */
+    private refreshMessageFeedback(sessionId: string, force = false): Promise<void> {
+        if (!this.runtime.getUrl()) return Promise.resolve();
+        const inFlight = this.messageFeedbackRequests.get(sessionId);
+        if (inFlight) return inFlight;
+        const existing = this.messageFeedbackStates.get(sessionId);
+        if (!force && (existing?.status === "ready" || existing?.status === "unavailable")) {
+            return Promise.resolve();
+        }
+
+        const generation = (this.messageFeedbackGenerations.get(sessionId) ?? 0) + 1;
+        this.messageFeedbackGenerations.set(sessionId, generation);
+        const state: MessageFeedbackSessionState = existing ?? {
+            status: "loading",
+            items: new Map(),
+            pending: new Set(),
+            errors: new Map(),
+        };
+        state.status = "loading";
+        state.error = undefined;
+        state.errors.clear();
+        this.messageFeedbackStates.set(sessionId, state);
+        if (sessionId === this.sessionId) this.postState();
+
+        const request = this.runtime.listMessageFeedback(sessionId)
+            .then((raw) => {
+                if (this.messageFeedbackGenerations.get(sessionId) !== generation) return;
+                if (raw === undefined) {
+                    state.status = "unavailable";
+                    state.items.clear();
+                    state.pending.clear();
+                    state.errors.clear();
+                    state.error = undefined;
+                    return;
+                }
+                const result = normalizeMessageFeedbackListResult(raw);
+                if (!result) {
+                    throw new Error(t("Harness returned an invalid messageFeedback.list result."));
+                }
+                if (!result.ok) {
+                    if (result.error.code === "session-not-found") {
+                        state.status = "unavailable";
+                        state.items.clear();
+                        state.pending.clear();
+                        state.errors.clear();
+                        state.error = undefined;
+                    } else {
+                        state.status = "error";
+                        state.error = this.messageFeedbackFailure(result.error.code);
+                    }
+                    return;
+                }
+                state.status = "ready";
+                state.items = new Map(result.value.items.map((item) => [item.messageId, item]));
+                state.pending.clear();
+                state.errors.clear();
+                state.error = undefined;
+            })
+            .catch((error) => {
+                if (this.messageFeedbackGenerations.get(sessionId) !== generation) return;
+                state.status = "error";
+                state.error = errorMessage(error);
+            })
+            .finally(() => {
+                if (this.messageFeedbackRequests.get(sessionId) === request) {
+                    this.messageFeedbackRequests.delete(sessionId);
+                }
+                if (sessionId === this.sessionId) this.postState();
+            });
+        this.messageFeedbackRequests.set(sessionId, request);
+        return request;
+    }
+
+    /** Wait for a usable sidecar state, with older Runtimes degrading quietly. */
+    private async ensureMessageFeedback(sessionId: string): Promise<MessageFeedbackSessionState | undefined> {
+        await this.refreshMessageFeedback(sessionId);
+        const state = this.messageFeedbackStates.get(sessionId);
+        return state?.status === "ready" ? state : undefined;
+    }
+
+    /** Serialize feedback mutations per Session so every CAS compares the latest item. */
+    private enqueueMessageFeedback(
+        sessionId: string,
+        messageId: string,
+        operation: (state: MessageFeedbackSessionState) => Promise<void>,
+    ): Promise<void> {
+        const previous = this.messageFeedbackOperationTails.get(sessionId) ?? Promise.resolve();
+        const run = previous.then(async () => {
+            let state: MessageFeedbackSessionState | undefined;
+            try {
+                state = await this.ensureMessageFeedback(sessionId);
+                if (!state) return;
+                state.pending.add(messageId);
+                state.errors.delete(messageId);
+                this.postState();
+                await operation(state);
+            } catch (error) {
+                state ??= this.messageFeedbackStates.get(sessionId);
+                if (state) {
+                    state.status = state.status === "unavailable" ? "unavailable" : "error";
+                    state.errors.set(messageId, errorMessage(error));
+                    state.error = undefined;
+                }
+            } finally {
+                state?.pending.delete(messageId);
+                if (sessionId === this.sessionId) this.postState();
+            }
+        }, async () => {
+            // The operation body contains its own error presentation. Keep a
+            // rejected predecessor from starving later clicks in the queue.
+        });
+        const tail = run.then(() => undefined, () => undefined);
+        this.messageFeedbackOperationTails.set(sessionId, tail);
+        return run.finally(() => {
+            if (this.messageFeedbackOperationTails.get(sessionId) === tail) {
+                this.messageFeedbackOperationTails.delete(sessionId);
+            }
+        });
+    }
+
+    /** Human-readable fallback for the stable business failure codes. */
+    private messageFeedbackFailure(code: string): string {
+        switch (code) {
+            case "session-not-found":
+                return t("This session is no longer available for feedback.");
+            case "target-not-found":
+                return t("This message is no longer available for feedback.");
+            case "version-conflict":
+                return t("Feedback changed elsewhere; try again.");
+            case "note-blank":
+                return t("A feedback note must contain text.");
+            case "note-too-large":
+                return t("The feedback note is too long.");
+            default:
+                return t("The feedback operation was rejected.");
+        }
+    }
+
+    /** Mark the optional feature absent when a Runtime does not mount it. */
+    private disableMessageFeedback(state: MessageFeedbackSessionState): void {
+        state.status = "unavailable";
+        state.items.clear();
+        state.pending.clear();
+        state.errors.clear();
+        state.error = undefined;
+    }
+
+    /** Apply one put response and reconcile a lost CAS race from its authority. */
+    private async applyMessageFeedbackPut(
+        state: MessageFeedbackSessionState,
+        request: DshMessageFeedbackPutRequest,
+    ): Promise<void> {
+        const raw = await this.runtime.putMessageFeedback(request);
+        if (raw === undefined) {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        const result = normalizeMessageFeedbackPutResult(raw);
+        if (!result) throw new Error(t("Harness returned an invalid messageFeedback.put result."));
+        if (result.ok) {
+            if (result.value.messageId !== request.messageId) {
+                throw new Error(t("Harness returned an invalid messageFeedback.put result."));
+            }
+            state.status = "ready";
+            state.items.set(result.value.messageId, result.value);
+            state.error = undefined;
+            return;
+        }
+        if (result.error.code === "session-not-found") {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        if (result.error.code === "version-conflict") {
+            if (result.error.current === null || result.error.current === undefined) {
+                state.items.delete(request.messageId);
+            } else {
+                if (result.error.current.messageId !== request.messageId) {
+                    throw new Error(t("Harness returned an invalid messageFeedback.put result."));
+                }
+                state.items.set(request.messageId, result.error.current);
+            }
+        }
+        throw new Error(this.messageFeedbackFailure(result.error.code));
+    }
+
+    /** Apply one delete response and reconcile a lost CAS race from its authority. */
+    private async applyMessageFeedbackDelete(
+        state: MessageFeedbackSessionState,
+        request: DshMessageFeedbackDeleteRequest,
+    ): Promise<void> {
+        const raw = await this.runtime.deleteMessageFeedback(request);
+        if (raw === undefined) {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        const result = normalizeMessageFeedbackDeleteResult(raw);
+        if (!result) throw new Error(t("Harness returned an invalid messageFeedback.delete result."));
+        if (result.ok) {
+            state.status = "ready";
+            state.items.delete(request.messageId);
+            state.error = undefined;
+            return;
+        }
+        if (result.error.code === "session-not-found") {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        if (result.error.code === "version-conflict") {
+            if (result.error.current === null || result.error.current === undefined) {
+                state.items.delete(request.messageId);
+            } else {
+                if (result.error.current.messageId !== request.messageId) {
+                    throw new Error(t("Harness returned an invalid messageFeedback.delete result."));
+                }
+                state.items.set(request.messageId, result.error.current);
+            }
+        }
+        throw new Error(this.messageFeedbackFailure(result.error.code));
+    }
+
+    private async toggleMessageFeedback(
+        messageId: string,
+        requested: DshMessageFeedbackRating,
+    ): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId || !hasAssistantFeedbackTarget(this.runtime.getSessionStore().get(sessionId), messageId)) {
+            return;
+        }
+        return this.enqueueMessageFeedback(sessionId, messageId, async (state) => {
+            const current = state.items.get(messageId);
+            if (current?.rating === requested) {
+                await this.applyMessageFeedbackDelete(state, {
+                    sessionId,
+                    messageId,
+                    ifVersion: current.version,
+                });
+                return;
+            }
+            await this.applyMessageFeedbackPut(state, {
+                sessionId,
+                messageId,
+                rating: requested,
+                ...(current?.note === undefined ? {} : { note: current.note }),
+                ifVersion: current?.version ?? null,
+            });
+        });
+    }
+
+    private async saveMessageFeedbackNote(messageId: string, note: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId || !hasAssistantFeedbackTarget(this.runtime.getSessionStore().get(sessionId), messageId)) {
+            return;
+        }
+        return this.enqueueMessageFeedback(sessionId, messageId, async (state) => {
+            const current = state.items.get(messageId);
+            if (!current) return;
+            await this.applyMessageFeedbackPut(state, {
+                sessionId,
+                messageId,
+                rating: current.rating,
+                ...(note.trim().length === 0 ? {} : { note }),
+                ifVersion: current.version,
+            });
+        });
+    }
+
+    private messageFeedbackView(sessionId: string | undefined): DshMessageFeedbackStateView | undefined {
+        if (!sessionId || !this.runtime.getUrl()) return undefined;
+        const state = this.messageFeedbackStates.get(sessionId);
+        if (!state || state.status === "unavailable") return undefined;
+        const items = Object.create(null) as Record<string, DshMessageFeedbackItem>;
+        for (const [messageId, item] of state.items) items[messageId] = item;
+        const pending = Object.create(null) as Record<string, true>;
+        for (const messageId of state.pending) pending[messageId] = true;
+        const errors = Object.create(null) as Record<string, string>;
+        for (const [messageId, error] of state.errors) errors[messageId] = error;
+        return {
+            status: state.status,
+            items,
+            pending,
+            errors,
+            ...(state.error === undefined ? {} : { error: state.error }),
+        };
+    }
+
+    /** Attach stable wire ids and sidecar state to the root chat messages only. */
+    private decorateMessageFeedback(
+        messages: readonly ChatMessage[],
+        snapshot: SessionStateSnapshot | undefined,
+        state: MessageFeedbackSessionState | undefined,
+    ): ChatMessage[] {
+        return messages.map((message) => {
+            if (message.role !== "assistant" || message.state !== "committed") return message;
+            const messageId = assistantFeedbackMessageId(snapshot, message.seq);
+            if (!messageId) return message;
+            if (!state || state.status === "unavailable") return { ...message, messageId };
+            const item = state.items.get(messageId);
+            const error = state.errors.get(messageId);
+            return {
+                ...message,
+                messageId,
+                feedback: {
+                    status: state.status,
+                    ...(item?.rating === undefined ? {} : { rating: item.rating }),
+                    ...(item?.note === undefined ? {} : { note: item.note }),
+                    ...(state.pending.has(messageId) ? { pending: true } : {}),
+                    ...(error === undefined ? {} : { error }),
+                },
+            };
+        });
     }
 
     private subagentTimingMap(
@@ -2723,6 +3100,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const session = this.sessionId
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
+        if (this.sessionId && !this.messageFeedbackStates.has(this.sessionId)) {
+            void this.refreshMessageFeedback(this.sessionId);
+        }
+        const messageFeedbackState = this.messageFeedbackView(this.sessionId);
+        const feedbackSessionState = this.sessionId && this.runtime.getUrl()
+            ? this.messageFeedbackStates.get(this.sessionId)
+            : undefined;
         const goalCell = projectionCell(session, "goal");
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
@@ -2731,6 +3115,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const host = presentHostBaseline(this.runtime.getHostDescription());
         const busy = selected?.running === true;
         const agentStatusLabel = this.agentStatusLabel(this.sessionId, busy);
+        const projectedMessages = focusChatMessages(
+            projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
+            this.focusMode,
+        );
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -2742,9 +3130,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) ?? [];
         const state: ChatViewState = {
             messages: this.renderMessages(
-                focusChatMessages(
-                    projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
-                    this.focusMode,
+                this.decorateMessageFeedback(
+                    projectedMessages,
+                    session,
+                    feedbackSessionState,
                 ),
                 `session:${this.sessionId ?? "none"}`,
                 this.sessionId,
@@ -2818,6 +3207,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(imageLimits === undefined ? {} : { imageLimits }),
+            ...(messageFeedbackState === undefined ? {} : { messageFeedback: messageFeedbackState }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {

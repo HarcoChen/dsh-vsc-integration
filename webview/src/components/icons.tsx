@@ -74,6 +74,24 @@ export function MoreIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function LikeIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M6.2 7V4.8c0-.9.4-1.8 1-2.4l.4-.4c.3-.3.8-.1.9.3l.2 1c.1.7-.1 1.4-.5 2l-.4.7h4.8c.9 0 1.6.8 1.4 1.7l-.9 4.6c-.2.9-.9 1.5-1.8 1.5H6.2" />
+            <path d="M6.2 7H3.8c-.8 0-1.3.5-1.3 1.3v3.8c0 .8.5 1.3 1.3 1.3h2.4" />
+        </svg>
+    );
+}
+
+export function DislikeIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M6.2 9V11.2c0 .9.4 1.8 1 2.4l.4.4c.3.3.8.1.9-.3l.2-1c.1-.7-.1-1.4-.5-2l-.4-.7h4.8c.9 0 1.6-.8 1.4-1.7l-.9-4.6c-.2-.9-.9-1.5-1.8-1.5H6.2" />
+            <path d="M6.2 9H3.8c-.8 0-1.3-.5-1.3-1.3V3.9c0-.8.5-1.3 1.3-1.3h2.4" />
+        </svg>
+    );
+}
+
 export function SendIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>
