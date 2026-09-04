@@ -199,6 +199,10 @@ export class HarnessStateCoordinator implements AsyncDisposable {
             hasMore = page.hasMore === true;
         }
 
+        // The history tail is also the first reliable title baseline for a
+        // newly forked session. Keep the catalog (picker/trace labels) in sync
+        // with the SessionStore before publishing the history snapshot.
+        this.catalog.applyProjectionBaseline(sessionId, tail.projections);
         this.sessions.rebaseline(sessionId, {
             events: pages.flat(),
             hasMore: false,

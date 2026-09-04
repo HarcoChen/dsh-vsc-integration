@@ -85,6 +85,23 @@ function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+/**
+ * Assign the conventional title for a forked Session. The Host deliberately
+ * returns only the child id and preserves the source title; title disambiguation
+ * is a client-side Session action.
+ */
+function increasedForkTitle(title: string): string {
+    const ascii = /^(.*?)\((\d+)\)$/u.exec(title);
+    if (ascii?.[1] !== undefined && ascii[2] !== undefined) {
+        return `${ascii[1]}(${BigInt(ascii[2]) + 1n})`;
+    }
+    const fullWidth = /^(.*?)（(\d+)）$/u.exec(title);
+    if (fullWidth?.[1] !== undefined && fullWidth[2] !== undefined) {
+        return `${fullWidth[1]}（${BigInt(fullWidth[2]) + 1n}）`;
+    }
+    return `${title} (1)`;
+}
+
 function normalizeUrl(value: string): string {
     return value.trim().replace(/\/+$/, "");
 }
@@ -1031,11 +1048,35 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async forkSession(sessionId: string, atSeq?: number): Promise<DshSessionForkResult> {
+        const source = this.harnessState.catalog
+            .snapshot()
+            .sessions.find((session) => session.sessionId === sessionId);
+        const sourceCwd = source?.cwd;
+        const sourceProjectionTitle = this.harnessState.sessions
+            .get(sessionId)
+            ?.projections.find((projection) => projection.key === "title")?.value;
+        const sourceTitle = source?.title?.trim() ||
+            (typeof sourceProjectionTitle === "string" && sourceProjectionTitle.trim()
+                ? sourceProjectionTitle.trim()
+                : undefined);
         const result = await this.apiClient.call("session.fork", {
             sessionId,
             ...(atSeq === undefined ? {} : { atSeq }),
         });
-        this.harnessState.catalog.upsertCreated(result.sessionId);
+        // The fork response intentionally contains only the child id. Seed the
+        // local catalog with the source metadata so switching immediately after
+        // the RPC does not lose the workspace lineage or mark a non-empty child
+        // as a blank session. The upsert merges with a host/session-added frame
+        // if that frame won the race against the RPC response.
+        this.harnessState.catalog.upsertCreated(result.sessionId, sourceCwd, {
+            blank: false,
+            parentSessionId: sessionId,
+        });
+        if (sourceTitle !== undefined) {
+            // Host fork preserves the inherited title. Rename the child after
+            // creation to match the client contract (e.g. Helo -> Helo (1)).
+            await this.renameSession(result.sessionId, increasedForkTitle(sourceTitle));
+        }
         return result;
     }
 

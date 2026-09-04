@@ -46,6 +46,9 @@ export type ChatViewAction =
     | { type: "openToolDiff"; callId: string; path: string }
     | { type: "setPermissionPreset"; value: string }
     | { type: "restoreTurnChanges"; turn: number }
+    | { type: "forkFromMessage"; seq: number }
+    | { type: "restoreCodeToMessage"; seq: number }
+    | { type: "forkAndRestoreCodeToMessage"; seq: number }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
     | { type: "newSessionInCurrentWorkspace" }
@@ -241,6 +244,13 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "restoreTurnChanges":
             if (!positiveInteger(value.turn) || !hasOnly(value, ["type", "turn"])) return undefined;
             return { type: "restoreTurnChanges", turn: value.turn };
+        case "forkFromMessage":
+        case "restoreCodeToMessage":
+        case "forkAndRestoreCodeToMessage":
+            if (!hasOnly(value, ["type", "seq"]) || !nonNegativeInteger(value.seq)) return undefined;
+            if (value.type === "forkFromMessage") return { type: "forkFromMessage", seq: value.seq };
+            if (value.type === "restoreCodeToMessage") return { type: "restoreCodeToMessage", seq: value.seq };
+            return { type: "forkAndRestoreCodeToMessage", seq: value.seq };
         case "openExternalLink": {
             if (!hasOnly(value, ["type", "url"])) return undefined;
             const url = parseSafeHttpUrl(value.url);

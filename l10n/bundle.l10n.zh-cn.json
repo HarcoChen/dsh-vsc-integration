@@ -284,6 +284,8 @@
     "This change document has expired.": "此变更文档已过期。",
     "This change is no longer available.": "此变更已不可用。",
     "This change review is no longer available.": "此变更审查已不可用。",
+    "This message is no longer available.": "此消息已不可用。",
+    "This message is not associated with a turn.": "此消息不属于任何轮次。",
     "This turn cannot be restored.": "本轮变更无法恢复。",
     "There is no available workspace.": "当前没有可用的工作区。",
     "There is no current editor for this quick task.": "当前没有可用于快捷任务的编辑器。",

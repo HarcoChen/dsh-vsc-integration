@@ -28,7 +28,7 @@ import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
-import { isImageMediaType } from "./guards";
+import { isImageMediaType, isRecord } from "./guards";
 import { manageProviders as runProviderManagement } from "./providerManagement";
 import {
     applyCodeBlock,
@@ -39,7 +39,7 @@ import {
 import { MarkdownRenderCache } from "./markdownRenderCache";
 import { samePath } from "./paths";
 import { presentSessionRows } from "./sessionCatalog";
-import { projectionCell, projectionValue } from "./sessionStore";
+import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
@@ -223,6 +223,39 @@ const REASONING_EFFORT_KNOB_IMAGE = "chibi-runner-strip.png";
  */
 const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
 
+function positiveTurn(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+        ? value
+        : undefined;
+}
+
+function isCheckpointMessageType(type: string): boolean {
+    return type === "user/message" || type === "assistant/message";
+}
+
+/** Resolve the turn containing a projected user/assistant message. */
+function checkpointMessageTurn(snapshot: SessionStateSnapshot, seq: number): number | undefined {
+    const target = snapshot.events.find((stored) => stored.event.seq === seq);
+    if (!target || !isCheckpointMessageType(target.event.type)) return undefined;
+    const targetData = isRecord(target.event.data) ? target.event.data : undefined;
+    const explicit = positiveTurn(targetData?.turn);
+    if (explicit !== undefined) return explicit;
+
+    let active: number | undefined;
+    for (const stored of snapshot.events) {
+        if (stored.event.seq > seq) break;
+        const data = isRecord(stored.event.data) ? stored.event.data : undefined;
+        if (stored.event.type === "turn/start") {
+            const turn = positiveTurn(data?.turn);
+            if (turn !== undefined) active = turn;
+        } else if (stored.event.type === "turn/end") {
+            const turn = positiveTurn(data?.turn);
+            if (turn === active) active = undefined;
+        }
+    }
+    return active;
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
     public static readonly viewType = "dsh.chatView";
 
@@ -246,6 +279,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private pendingNewSessionWorkspaceTitle: string | undefined;
     private submitting = false;
     private cancelRequested = false;
+    private checkpointActionInFlight = false;
     private selectionEnabled = true;
     private focusMode = false;
     private fileReferenceCandidates: DshReferenceCandidate[] = [];
@@ -857,6 +891,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         throw new Error(t("Wait for the current turn to finish before restoring changes."));
                     }
                     if (this.sessionId) await this.changeReviews.restore(this.sessionId, message.turn);
+                    break;
+                case "forkFromMessage":
+                    await this.runCheckpointAction(() => this.forkFromMessage(message.seq));
+                    break;
+                case "restoreCodeToMessage":
+                    await this.runCheckpointAction(() => this.restoreCodeToMessage(message.seq));
+                    break;
+                case "forkAndRestoreCodeToMessage":
+                    await this.runCheckpointAction(() => this.forkAndRestoreCodeToMessage(message.seq));
                     break;
                 case "switchSession":
                     await this.switchSession(message.sessionId);
@@ -1568,9 +1611,76 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.runtime.renameSession(this.sessionId, title);
     }
 
-    public async forkSession(): Promise<void> {
+    public async forkSession(atSeq?: number): Promise<void> {
         if (!this.sessionId) throw new Error(t("There is no current session."));
-        const forked = await this.runtime.forkSession(this.sessionId);
+        const forked = await this.runtime.forkSession(this.sessionId, atSeq);
+        await this.switchSession(forked.sessionId);
+    }
+
+    private checkpointMessage(seq: number): { sessionId: string; turn?: number } {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        const snapshot = this.runtime.getSessionStore().get(sessionId);
+        const message = snapshot?.events.find((stored) => stored.event.seq === seq);
+        const surfaceMessage = snapshot?.surface.nodes.find((node) => node.seq === seq);
+        const messageData = isRecord(message?.event.data) ? message.event.data : undefined;
+        const userSource = isRecord(messageData?.source) ? messageData.source : undefined;
+        if (
+            !snapshot ||
+            !message ||
+            !surfaceMessage ||
+            !isCheckpointMessageType(message.event.type) ||
+            (message.event.type === "user/message" && userSource?.kind !== "user")
+        ) {
+            throw new Error(t("This message is no longer available."));
+        }
+        return {
+            sessionId,
+            turn: checkpointMessageTurn(snapshot, seq),
+        };
+    }
+
+    private async forkFromMessage(seq: number): Promise<void> {
+        const checkpoint = this.checkpointMessage(seq);
+        const forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
+        await this.switchSession(forked.sessionId);
+    }
+
+    private async runCheckpointAction(action: () => Promise<void>): Promise<void> {
+        if (this.checkpointActionInFlight) return;
+        this.checkpointActionInFlight = true;
+        try {
+            await action();
+        } finally {
+            this.checkpointActionInFlight = false;
+        }
+    }
+
+    private async restoreCodeToMessage(seq: number): Promise<void> {
+        if (this.selectedSessionRunning()) {
+            throw new Error(t("Wait for the current turn to finish before restoring changes."));
+        }
+        const checkpoint = this.checkpointMessage(seq);
+        if (checkpoint.turn === undefined) {
+            throw new Error(t("This message is not associated with a turn."));
+        }
+        await this.changeReviews.restore(checkpoint.sessionId, checkpoint.turn);
+    }
+
+    private async forkAndRestoreCodeToMessage(seq: number): Promise<void> {
+        if (this.selectedSessionRunning()) {
+            throw new Error(t("Wait for the current turn to finish before restoring changes."));
+        }
+        const checkpoint = this.checkpointMessage(seq);
+        if (checkpoint.turn === undefined) {
+            throw new Error(t("This message is not associated with a turn."));
+        }
+
+        // Restore first so cancelling the confirmation does not leave behind a
+        // fork that did not receive the requested code rewind.
+        const restored = await this.changeReviews.restore(checkpoint.sessionId, checkpoint.turn);
+        if (!restored) return;
+        const forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
         await this.switchSession(forked.sessionId);
     }
 
