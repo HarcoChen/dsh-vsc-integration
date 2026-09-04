@@ -528,6 +528,13 @@
                     "maximum": 1000000,
                     "description": "%config.maxContextBytes.description%"
                 },
+                "dsh.terminalHistorySize": {
+                    "type": "number",
+                    "default": 20,
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "%config.terminalHistorySize.description%"
+                },
                 "dsh.persistSession": {
                     "type": "boolean",
                     "default": true,

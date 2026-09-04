@@ -14,12 +14,14 @@ import { DshRuntime } from "./dshRuntime";
 import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
 import { parseTraceLocation } from "./traceProtocol";
+import { TerminalContextStore } from "./terminalContext";
 
 export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     configureLocalization((message, args) => vscode.l10n.t(message, args));
     const output = vscode.window.createOutputChannel("DeepSeek Harness");
     const runtime = new DshRuntime(output, context.globalStorageUri.fsPath);
     const balanceService = new DeepSeekBalanceService(context, output);
+    const terminalContext = new TerminalContextStore();
     const contextStore = new ContextStore();
     const agentStatusPresentations = new AgentStatusPresentationRegistry();
     const conversationNavigationRegistry = new ConversationNavigationRegistry();
@@ -28,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         context.extensionUri,
         runtime,
         contextStore,
+        terminalContext,
         output,
         balanceService,
         agentStatusPresentations,
@@ -47,6 +50,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     context.subscriptions.push(
         output,
         balanceService,
+        terminalContext,
         agentStatusPresentations,
         conversationNavigationRegistry,
         chatView,

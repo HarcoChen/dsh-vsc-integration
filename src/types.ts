@@ -3,7 +3,8 @@ export type DshContextKind =
     | "file"
     | "folder"
     | "diagnostics"
-    | "git-diff";
+    | "git-diff"
+    | "terminal";
 
 export interface DshContextItem {
     id: string;
@@ -11,6 +12,9 @@ export interface DshContextItem {
     label: string;
     path?: string;
     language?: string;
+    terminalName?: string;
+    command?: string;
+    exitCode?: number;
     range?: {
         startLine: number;
         endLine: number;
@@ -23,7 +27,7 @@ export interface DshContextItem {
 
 /** One host-resolved candidate shown by the composer `@` reference menu. */
 export interface DshReferenceCandidate {
-    kind: "file" | "session";
+    kind: "file" | "session" | "terminal";
     /** Readable label shown to the user. */
     label: string;
     /** Exact text inserted into the prompt when selected. */

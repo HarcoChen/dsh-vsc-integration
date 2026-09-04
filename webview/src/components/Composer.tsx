@@ -3,7 +3,7 @@ import type { DshReferenceCandidate } from "../../../src/types";
 import { postAction, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
 import { t } from "../i18n";
 import { canSwitchPermissions, type ComposerState } from "../state";
-import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon, TerminalIcon } from "./icons";
 import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 import { ContextChips } from "./ContextChips";
 import { FILE_REFERENCE_MENU_ID, FileReferenceMenu } from "./FileReferenceMenu";
@@ -315,6 +315,17 @@ export const Composer = React.memo(function Composer({
                             >
                                 <PlusIcon />
                                 {t("Add one-shot IDE context")}
+                            </button>
+                            <button
+                                type="button"
+                                className="dsh-menu-item"
+                                onClick={() => {
+                                    setAttachmentMenuVisible(false);
+                                    postAction({ type: "openTerminalCommandPicker" });
+                                }}
+                            >
+                                <TerminalIcon />
+                                {t("Recent terminal command")}
                             </button>
                             <button
                                 type="button"

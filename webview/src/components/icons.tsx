@@ -46,6 +46,15 @@ export function AppShotIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function TerminalIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <rect x="1.5" y="2" width="13" height="12" rx="1.5" />
+            <path d="m4 6 2.2 2L4 10M7.8 10H11" />
+        </svg>
+    );
+}
+
 export function SearchIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>

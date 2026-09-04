@@ -26,6 +26,7 @@ export type ChatViewAction =
     | { type: "manageAgentPresets" }
     | { type: "manageWorkspaces" }
     | { type: "openIdeContextPicker" }
+    | { type: "openTerminalCommandPicker" }
     | { type: "captureAppShot" }
     | { type: "removeContext"; id: string }
     | { type: "loadImage"; attachmentId: string }
@@ -177,6 +178,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "openSettingsDocument":
         case "manageWorkspaces":
         case "openIdeContextPicker":
+        case "openTerminalCommandPicker":
         case "captureAppShot":
         case "toggleSelection":
         case "toggleFocus":

@@ -53,6 +53,7 @@
     "config.startupTimeoutMs.description": "启动或连接后等待 dsh web HTTP 健康检查的最长时间。",
     "config.requestTimeoutMs.description": "单次 Harness RPC 的最长时间，包括重连后的历史基线同步。实时助手输出通过 WebSocket 推送，不使用轮询。",
     "config.maxContextBytes.description": "单次 prompt 中组装后的 <ide_context> 块允许使用的最大 UTF-8 字节数。",
+    "config.terminalHistorySize.description": "每个终端在内存中保留的最近 Shell 命令数量。仅捕获扩展激活后、且 VS Code Shell Integration 报告的命令；不会持久化终端输出。",
     "config.persistSession.description": "尽可能复用当前工作区上次使用的 dsh session ID。聊天消息和附件上下文本身不会由扩展持久化。",
     "config.apiKeyEnv.description": "执行“DSH：配置 API Key”时传给 dsh.credentials.set 的凭据引用名。启用余额显示时，Key 也会加密保存在 VS Code SecretStorage 中。",
     "config.agentStatusLabel.description": "DSH 流式输出助手回复时显示的固定文字。留空时会从 dsh.agentStatusLabels 中随机选择；配套扩展可通过导出的 API 临时覆盖这两项设置。",

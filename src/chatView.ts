@@ -43,6 +43,7 @@ import { projectionCell, projectionValue, type SessionStateSnapshot } from "./se
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
+import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
 import {
     imageLimitsProjection,
     permissionProjection,
@@ -322,6 +323,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly extensionUri: vscode.Uri,
         private readonly runtime: DshRuntime,
         private readonly contextStore: ContextStore,
+        private readonly terminalContext: TerminalContextStore,
         private readonly output: vscode.OutputChannel,
         private readonly balanceService?: DeepSeekBalanceService,
         private readonly agentStatusPresentations?: AgentStatusPresentationRegistry,
@@ -387,6 +389,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 });
             }),
             contextStore.onDidChange(() => this.schedulePostState()),
+            terminalContext.onDidChange(() => this.schedulePostState()),
+            terminalContext.onDidCapture((command) => {
+                if (command.exitCode !== undefined && command.exitCode !== 0) {
+                    void this.offerFailedTerminalCommand(command);
+                }
+            }),
             vscode.workspace.onDidChangeConfiguration((event) => {
                 if (
                     event.affectsConfiguration("dsh.agentStatusLabel") ||
@@ -651,6 +659,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 { actionId: "current-file" as const, label: `$(file-code) ${t("Current file")}`, detail: t("Insert an @file reference without copying its contents") },
                 { actionId: "diagnostics" as const, label: `$(warning) ${t("Diagnostics")}`, detail: t("Attach once to this turn") },
                 { actionId: "git-diff" as const, label: "$(git-compare) Git diff", detail: t("Attach once to this turn") },
+                { actionId: "terminal-command" as const, label: `$(terminal) ${t("Recent terminal command")}`, detail: t("Attach one captured terminal command and its output") },
                 {
                     actionId: "toggle-selection" as const,
                     label: this.selectionEnabled
@@ -679,10 +688,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         } else if (choice.actionId === "git-diff") {
             await this.runContextAction(() => this.contextStore.addGitDiff());
             return;
+        } else if (choice.actionId === "terminal-command") {
+            await this.openTerminalCommandPicker();
+            return;
         } else {
             this.selectionEnabled = !this.selectionEnabled;
         }
         this.reveal();
+    }
+
+    /** Lets the user attach one of the commands captured by shell integration. */
+    public async openTerminalCommandPicker(): Promise<void> {
+        const records = this.terminalContext.recent();
+        if (records.length === 0) {
+            void vscode.window.showInformationMessage(t("No terminal commands have been captured yet."));
+            return;
+        }
+        const choices = records.map((record) => {
+            const exit = record.exitCode === undefined ? t("exit code unavailable") : t("exit code {code}", { code: record.exitCode });
+            const preview = record.output.replace(/\s+/gu, " ").trim().slice(0, 240);
+            return {
+                label: `$(terminal) ${record.command}`,
+                description: `${record.terminalName} · ${exit}`,
+                detail: [record.cwd, preview].filter((value): value is string => Boolean(value)).join(" · ") || undefined,
+                record,
+            };
+        });
+        const choice = await vscode.window.showQuickPick(choices, {
+            placeHolder: t("Choose a recent terminal command to attach"),
+            matchOnDescription: true,
+            matchOnDetail: true,
+        });
+        if (!choice) return;
+        await this.runContextAction(() => this.contextStore.addTerminalCommand(choice.record));
+    }
+
+    private async offerFailedTerminalCommand(command: DshTerminalCommand): Promise<void> {
+        const askAction = t("Ask DSH");
+        const commandLabel = command.command.replace(/\s+/gu, " ").trim().slice(0, 180);
+        const choice = await vscode.window.showWarningMessage(
+            t("Terminal command failed with exit code {code}: {command}", {
+                code: command.exitCode ?? "?",
+                command: commandLabel,
+            }),
+            askAction,
+        );
+        if (choice !== askAction) return;
+        this.contextStore.addTerminalCommand(command);
+        this.setComposerText(t("Explain why this terminal command failed and suggest a fix."));
     }
 
     public async captureAppShot(): Promise<void> {
@@ -797,6 +850,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
+                    break;
+                case "openTerminalCommandPicker":
+                    await this.openTerminalCommandPicker();
                     break;
                 case "captureAppShot":
                     await this.captureAppShot();
@@ -986,6 +1042,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             : Promise.resolve([]);
         const [uris, searchItems] = await Promise.all([filesPromise, searchPromise]);
         if (generation !== this.fileReferenceQueryGeneration) return;
+        const terminalCandidates = this.terminalContext.referenceCandidates(query);
         const active = vscode.window.activeTextEditor?.document.uri;
         const fileCandidates = uris
             .map((uri) => vscode.workspace.asRelativePath(uri, false).replaceAll("\\", "/"))
@@ -993,15 +1050,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .map((relative): DshReferenceCandidate => ({
                 kind: "file",
                 label: relative,
-                insertText: relative,
+                insertText: `@${relative}`,
             }));
         const activeRelative = active
             ? vscode.workspace.asRelativePath(active, false).replaceAll("\\", "/")
             : undefined;
         const orderedFiles = activeRelative && (!normalizedQuery || activeRelative.toLowerCase().includes(normalizedQuery))
             ? [
-                  { kind: "file", label: activeRelative, insertText: activeRelative } satisfies DshReferenceCandidate,
-                  ...fileCandidates.filter((candidate) => candidate.insertText !== activeRelative),
+                  { kind: "file", label: activeRelative, insertText: `@${activeRelative}` } satisfies DshReferenceCandidate,
+                  ...fileCandidates.filter((candidate) => candidate.label !== activeRelative),
               ]
             : fileCandidates;
 
@@ -1041,7 +1098,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     ...(description ? { description } : {}),
                 };
             });
-        this.fileReferenceCandidates = [...orderedFiles, ...sessionCandidates].slice(0, 40);
+        this.fileReferenceCandidates = [...terminalCandidates, ...orderedFiles, ...sessionCandidates].slice(0, 40);
         this.postState();
     }
 
@@ -1101,6 +1158,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }
 
+            const terminalReferences = this.terminalContext.resolvePromptReferences(text);
+            if (terminalReferences.missing.length > 0) {
+                throw new Error(t("No captured terminal command matches: {selectors}", {
+                    selectors: terminalReferences.missing.map((selector) => `@terminal:${selector}`).join(", "),
+                }));
+            }
+            for (const command of terminalReferences.commands) {
+                this.contextStore.addTerminalCommand(command);
+            }
+            const promptText = terminalReferences.text;
             const explicitlyReferencesSelection = referencesSelection(text);
             const capture = this.contextStore.capturePromptContext({
                 includeCurrentSelection:
@@ -1109,7 +1176,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (explicitlyReferencesSelection && !capture.items.some((item) => item.kind === "selection")) {
                 throw new Error(t("@selection has no current selection. Select text in the active editor first."));
             }
-            const prompt = capture.text ? `${text}\n\n${capture.text}` : text;
+            const prompt = capture.text ? `${promptText}\n\n${capture.text}` : promptText;
             let limits = imageLimitsProjection(
                 this.runtime.getSessionStore().get(session)?.projections
                     .find((cell) => cell.key === "imageLimits")?.value,
