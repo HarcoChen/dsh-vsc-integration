@@ -21,6 +21,8 @@ import {
     DshSessionSearchResult,
     DshSkillListResult,
     DshProviderListResult,
+    DshLlmModelsResult,
+    DshLlmDiscoverModelsResult,
     DshCredentialDescribeResult,
     DshSettingsDescribeResult,
     DshSettingsNamespaceView,
@@ -178,6 +180,14 @@ export interface HarnessRpcMethodMap {
         DshCommandExecution | undefined
     >;
     "llm.providers": RpcMethod<EmptyPayload, DshProviderListResult>;
+    "llm.models": RpcMethod<EmptyPayload, DshLlmModelsResult>;
+    "llm.discoverModels": RpcMethod<{
+        settingsNs: string;
+        provider?: string;
+        baseURL?: string;
+        api?: string;
+        apiKey?: string;
+    }, DshLlmDiscoverModelsResult>;
     "settings.describe": RpcMethod<EmptyPayload, DshSettingsDescribeResult>;
     "settings.openDocument": RpcMethod<EmptyPayload, { opened: true }>;
     "settings.update": RpcMethod<{

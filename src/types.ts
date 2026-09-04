@@ -537,6 +537,25 @@ export interface DshProviderListResult {
     providers: DshConfigurableProvider[];
 }
 
+/** Host-scoped model catalog returned by `llm.models`. */
+export interface DshLlmModelsResult {
+    groups: DshModelProviderGroup[];
+    failures: DshModelCatalogFailure[];
+}
+
+/** One model candidate returned by the configuration-time discovery flow. */
+export interface DshDiscoveredModel {
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+}
+
+/** Result of interrogating a provider endpoint with an unsaved draft. */
+export interface DshLlmDiscoverModelsResult {
+    models: DshDiscoveredModel[];
+}
+
 export interface DshCredentialView {
     configured: boolean;
     source?: string;

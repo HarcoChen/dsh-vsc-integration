@@ -43,6 +43,8 @@ import {
     DshSkillEntry,
     DshSkillListResult,
     DshProviderListResult,
+    DshLlmModelsResult,
+    DshLlmDiscoverModelsResult,
     DshCredentialDescribeResult,
     DshSettingsDescribeResult,
     DshSettingsNamespaceView,
@@ -1269,6 +1271,25 @@ export class DshRuntime implements vscode.Disposable {
 
     public listProviders(): Promise<DshProviderListResult> {
         return this.apiClient.call("llm.providers", {});
+    }
+
+    /** Returns the host-scoped catalog used by provider configuration surfaces. */
+    public listLlmModels(): Promise<DshLlmModelsResult> {
+        return this.apiClient.call("llm.models", {});
+    }
+
+    /** Interrogates a provider endpoint using an unsaved configuration draft. */
+    public discoverLlmModels(
+        payload: {
+            settingsNs: string;
+            provider?: string;
+            baseURL?: string;
+            api?: string;
+            apiKey?: string;
+        },
+        signal?: AbortSignal,
+    ): Promise<DshLlmDiscoverModelsResult> {
+        return this.apiClient.call("llm.discoverModels", payload, signal);
     }
 
     public describeSettings(): Promise<DshSettingsDescribeResult> {
