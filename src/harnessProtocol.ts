@@ -21,6 +21,8 @@ import {
     DshSessionSearchResult,
     DshSkillListResult,
     DshProviderListResult,
+    DshLlmModelsResult,
+    DshLlmDiscoverModelsResult,
     DshCredentialDescribeResult,
     DshSettingsDescribeResult,
     DshSettingsNamespaceView,
@@ -29,6 +31,12 @@ import {
     DshSubagentCatalog,
     DshSubagentHistoryResult,
     DshSubagentPromptResult,
+    DshMessageFeedbackDeleteRequest,
+    DshMessageFeedbackDeleteResult,
+    DshMessageFeedbackListRequest,
+    DshMessageFeedbackListResult,
+    DshMessageFeedbackPutRequest,
+    DshMessageFeedbackPutResult,
     DshWorkspaceListResult,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
@@ -177,7 +185,27 @@ export interface HarnessRpcMethodMap {
         { args: { agentId: string; line: string; images: readonly DshImageUpload[] } },
         DshCommandExecution | undefined
     >;
+    "messageFeedback/list": RpcMethod<
+        { args: { request: DshMessageFeedbackListRequest } },
+        DshMessageFeedbackListResult
+    >;
+    "messageFeedback/put": RpcMethod<
+        { args: { request: DshMessageFeedbackPutRequest } },
+        DshMessageFeedbackPutResult
+    >;
+    "messageFeedback/delete": RpcMethod<
+        { args: { request: DshMessageFeedbackDeleteRequest } },
+        DshMessageFeedbackDeleteResult
+    >;
     "llm.providers": RpcMethod<EmptyPayload, DshProviderListResult>;
+    "llm.models": RpcMethod<EmptyPayload, DshLlmModelsResult>;
+    "llm.discoverModels": RpcMethod<{
+        settingsNs: string;
+        provider?: string;
+        baseURL?: string;
+        api?: string;
+        apiKey?: string;
+    }, DshLlmDiscoverModelsResult>;
     "settings.describe": RpcMethod<EmptyPayload, DshSettingsDescribeResult>;
     "settings.openDocument": RpcMethod<EmptyPayload, { opened: true }>;
     "settings.update": RpcMethod<{

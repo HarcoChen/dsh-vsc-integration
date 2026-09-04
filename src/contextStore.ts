@@ -3,13 +3,16 @@ import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
+import { captureDebugContext, DebugContextTracker } from "./debugContext";
 import { t } from "./localize";
+import type { DshTerminalCommand } from "./terminalContext";
 import { DshContextItem } from "./types";
 
 const execFileAsync = promisify(execFile);
 const SELECTION_MAX_BYTES = 200_000;
 const DIAGNOSTICS_MAX_BYTES = 100_000;
 const GIT_DIFF_MAX_BYTES = 300_000;
+const TERMINAL_CONTEXT_MAX_BYTES = 300_000;
 
 interface TruncatedText {
     text: string;
@@ -120,6 +123,8 @@ function codeFenceFor(content: string): string {
 export class ContextStore {
     private readonly oneShotItems: DshContextItem[] = [];
     private readonly listeners = new Set<() => void>();
+
+    public constructor(private readonly debugContextTracker?: DebugContextTracker) {}
 
     public onDidChange(listener: () => void): vscode.Disposable {
         this.listeners.add(listener);
@@ -261,6 +266,59 @@ export class ContextStore {
         return cloneItem(item);
     }
 
+    /** Adds one captured terminal command as a one-shot, untrusted context item. */
+    public addTerminalCommand(command: DshTerminalCommand): DshContextItem {
+        const output = command.output || "(no terminal output captured)";
+        const content = [
+            `$ ${command.command}`,
+            `Terminal: ${command.terminalName}`,
+            ...(command.cwd ? [`Working directory: ${command.cwd}`] : []),
+            `Exit code: ${command.exitCode === undefined ? "unknown" : command.exitCode}`,
+            "",
+            output,
+        ].join("\n");
+        const limited = truncateUtf8(
+            content,
+            Math.min(this.maxContextBytes(), TERMINAL_CONTEXT_MAX_BYTES),
+        ).text;
+        const item: DshContextItem = {
+            id: `terminal:${command.id}`,
+            kind: "terminal",
+            label: `Terminal: ${command.command}`,
+            path: command.cwd,
+            language: "shell",
+            terminalName: command.terminalName,
+            command: command.command,
+            ...(command.exitCode === undefined ? {} : { exitCode: command.exitCode }),
+            content: limited,
+            byteLength: Buffer.byteLength(limited, "utf8"),
+            truncated: command.outputTruncated || limited.length < content.length,
+        };
+        this.upsertOneShot(item);
+        return cloneItem(item);
+    }
+
+    /** Adds a bounded, read-only snapshot of the currently focused debugger state. */
+    public async addDebugContext(): Promise<DshContextItem> {
+        const capture = await captureDebugContext({
+            tracker: this.debugContextTracker,
+            maxBytes: this.maxContextBytes(),
+        });
+        const item: DshContextItem = {
+            id: randomUUID(),
+            kind: "debug",
+            label: capture.label,
+            ...(capture.path ? { path: capture.path } : {}),
+            ...(capture.language ? { language: capture.language } : {}),
+            content: capture.content,
+            byteLength: Buffer.byteLength(capture.content, "utf8"),
+            ...(capture.truncated ? { truncated: true } : {}),
+        };
+
+        this.upsertOneShot(item);
+        return cloneItem(item);
+    }
+
     /**
      * Freezes the live selection and pending one-shot attachments for one send.
      * Only IDs represented in the returned prompt are marked as captured.
@@ -372,8 +430,15 @@ export class ContextStore {
         const language = source.language
             ? ` language="${escapeContextAttribute(source.language)}"`
             : "";
+        const terminal = source.terminalName
+            ? ` terminal="${escapeContextAttribute(source.terminalName)}"`
+            : "";
+        const command = source.command
+            ? ` command="${escapeContextAttribute(source.command)}"`
+            : "";
+        const exitCode = source.exitCode === undefined ? "" : ` exit_code="${source.exitCode}"`;
         const fence = codeFenceFor(source.content);
-        const prefix = `\n<context_item kind="${source.kind}"${location}${language}>\n${fence}${source.language ?? ""}\n`;
+        const prefix = `\n<context_item kind="${source.kind}"${location}${language}${terminal}${command}${exitCode}>\n${fence}${source.language ?? ""}\n`;
         const suffix = `\n${fence}\n</context_item>\n`;
         const overheadBytes = Buffer.byteLength(`${prefix}${suffix}`, "utf8");
         if (maxBlockBytes <= overheadBytes) {
@@ -472,6 +537,12 @@ export class ContextStore {
     private contextKey(item: DshContextItem): string {
         if (item.kind === "selection") {
             return this.selectionKey(item);
+        }
+        if (item.kind === "terminal") {
+            return `terminal:${item.id}`;
+        }
+        if (item.kind === "debug") {
+            return "debug";
         }
 
         return `${item.kind}:${item.path ?? ""}`;

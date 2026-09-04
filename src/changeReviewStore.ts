@@ -222,7 +222,14 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, title, { preview: true });
     }
 
-    public async restore(sessionId: string, turn: number): Promise<void> {
+    /**
+     * Restore the files changed by a completed turn.
+     *
+     * Returns false when the user cancels the confirmation, which lets a
+     * compound checkpoint action avoid creating a fork after only half of the
+     * requested operation was performed.
+     */
+    public async restore(sessionId: string, turn: number): Promise<boolean> {
         const review = this.review(sessionId, turn);
         if (review.state !== "ready" || review.restored || !review.git || !review.files.length ||
             review.files.some((file) => !file.restorable)) {
@@ -239,7 +246,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
             { modal: true },
             action,
         );
-        if (confirmation !== action) return;
+        if (confirmation !== action) return false;
         const contents = await this.prepareRestore(review);
         const latestConflicts = await this.conflicts(review);
         if (latestConflicts.length) throw new Error(this.conflictMessage(latestConflicts));
@@ -247,6 +254,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         review.restored = true;
         this.emit();
         void vscode.window.showInformationMessage(t("Restored changes from turn {turn}.", { turn }));
+        return true;
     }
 
     public async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {

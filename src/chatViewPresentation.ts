@@ -3,6 +3,7 @@ import {
     ChatImageView,
     DshImageLimitsView,
     DshImageUpload,
+    DshPlanProjection,
     DshSessionModelsResult,
     DshSettingFieldType,
     DshSettingFieldView,
@@ -240,6 +241,14 @@ export function permissionProjection(value: unknown): PermissionProjectionView |
     });
     const current = options.find((option) => option.value === value.currentValue);
     return current ? { currentValue: value.currentValue, currentLabel: current.label, options } : undefined;
+}
+
+/** Narrow the optional plan-mode projection without inventing a default. */
+export function planProjection(value: unknown): DshPlanProjection | undefined {
+    if (!isRecord(value) || typeof value.active !== "boolean" || typeof value.pending !== "boolean") {
+        return undefined;
+    }
+    return { active: value.active, pending: value.pending };
 }
 
 export function sessionStatsProjection(value: unknown): SessionStatsView | undefined {

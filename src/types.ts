@@ -3,7 +3,9 @@ export type DshContextKind =
     | "file"
     | "folder"
     | "diagnostics"
-    | "git-diff";
+    | "git-diff"
+    | "terminal"
+    | "debug";
 
 export interface DshContextItem {
     id: string;
@@ -11,6 +13,9 @@ export interface DshContextItem {
     label: string;
     path?: string;
     language?: string;
+    terminalName?: string;
+    command?: string;
+    exitCode?: number;
     range?: {
         startLine: number;
         endLine: number;
@@ -23,7 +28,7 @@ export interface DshContextItem {
 
 /** One host-resolved candidate shown by the composer `@` reference menu. */
 export interface DshReferenceCandidate {
-    kind: "file" | "session";
+    kind: "file" | "session" | "terminal";
     /** Readable label shown to the user. */
     label: string;
     /** Exact text inserted into the prompt when selected. */
@@ -161,9 +166,82 @@ export interface ChatMessage {
     /** Opaque per-render nonce used to address host-retained code payloads. */
     renderId?: string;
     reasoningRenderId?: string;
+    /** Durable assistant-message identity used by the optional feedback sidecar. */
+    messageId?: string;
+    /** Host-owned feedback state for this finalized assistant message. */
+    feedback?: ChatMessageFeedbackView;
     createdAt: number;
     seq?: number;
     state?: "committed" | "streaming" | "pending" | "failed";
+}
+
+export type DshMessageFeedbackRating = "positive" | "negative";
+
+export interface DshMessageFeedbackItem {
+    messageId: string;
+    rating: DshMessageFeedbackRating;
+    note?: string;
+    version: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface DshMessageFeedbackListRequest {
+    sessionId: string;
+}
+
+export type DshMessageFeedbackListResult =
+    | { ok: true; value: { items: DshMessageFeedbackItem[] } }
+    | { ok: false; error: DshMessageFeedbackError };
+
+export interface DshMessageFeedbackPutRequest {
+    sessionId: string;
+    messageId: string;
+    rating: DshMessageFeedbackRating;
+    note?: string;
+    ifVersion: string | null;
+}
+
+export type DshMessageFeedbackPutResult =
+    | { ok: true; value: DshMessageFeedbackItem }
+    | { ok: false; error: DshMessageFeedbackError };
+
+export interface DshMessageFeedbackDeleteRequest {
+    sessionId: string;
+    messageId: string;
+    ifVersion: string;
+}
+
+export type DshMessageFeedbackDeleteResult =
+    | { ok: true; value: { absent: true } }
+    | { ok: false; error: DshMessageFeedbackError };
+
+export interface DshMessageFeedbackError {
+    code: string;
+    sessionId?: string;
+    messageId?: string;
+    current?: DshMessageFeedbackItem | null;
+    maxBytes?: number;
+    actualBytes?: number;
+}
+
+export type DshMessageFeedbackStatus = "loading" | "ready" | "error" | "unavailable";
+
+/** Serializable Session-level feedback cache used by the Webview controls. */
+export interface DshMessageFeedbackStateView {
+    status: DshMessageFeedbackStatus;
+    items: Record<string, DshMessageFeedbackItem>;
+    pending: Record<string, true>;
+    errors: Record<string, string>;
+    error?: string;
+}
+
+export interface ChatMessageFeedbackView {
+    status: Exclude<DshMessageFeedbackStatus, "unavailable">;
+    rating?: DshMessageFeedbackRating;
+    note?: string;
+    pending?: boolean;
+    error?: string;
 }
 
 export type RuntimeState = "stopped" | "starting" | "running" | "error";
@@ -436,6 +514,12 @@ export interface DshGoalProjection {
     updatedAt: number;
 }
 
+/** Exact public value carried by the optional `plan` session projection. */
+export interface DshPlanProjection {
+    active: boolean;
+    pending: boolean;
+}
+
 export interface DshGoalRefResult {
     ref: DshGoalRef;
 }
@@ -469,6 +553,15 @@ export type DshSubagentAddress = {
 
 export interface DshSubagentHistoryResult extends DshHistoryResult {
     hasMore: boolean;
+}
+
+/** Exact public value carried by the optional `subagentTiming` projection. */
+export interface SubagentTimingView {
+    settledMs: number;
+    active?: {
+        since: number;
+        through: number;
+    };
 }
 
 export interface DshSubagentPromptResult {
@@ -535,6 +628,25 @@ export interface DshConfigurableProvider {
 
 export interface DshProviderListResult {
     providers: DshConfigurableProvider[];
+}
+
+/** Host-scoped model catalog returned by `llm.models`. */
+export interface DshLlmModelsResult {
+    groups: DshModelProviderGroup[];
+    failures: DshModelCatalogFailure[];
+}
+
+/** One model candidate returned by the configuration-time discovery flow. */
+export interface DshDiscoveredModel {
+    id: string;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+}
+
+/** Result of interrogating a provider endpoint with an unsaved draft. */
+export interface DshLlmDiscoverModelsResult {
+    models: DshDiscoveredModel[];
 }
 
 export interface DshCredentialView {
@@ -902,6 +1014,8 @@ export interface ChatViewState {
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
     imageLimits?: DshImageLimitsView;
+    plan?: DshPlanProjection;
+    messageFeedback?: DshMessageFeedbackStateView;
     interactions: Array<{
         key: string;
         kind: "approval" | "question" | "plan-review";
@@ -1074,6 +1188,7 @@ export interface SubagentTreeNodeView {
     label?: string;
     mode?: "one-shot" | "continuable";
     activity?: "running" | "inactive";
+    timing?: SubagentTimingView;
     hasChildren?: boolean;
     reason?: "corrupt" | "unsupported" | "unavailable";
 }
@@ -1092,6 +1207,7 @@ export interface SubagentHistoryPreview {
     mode: "one-shot" | "continuable";
     parentAvailable: boolean;
     activity: "running" | "inactive";
+    timing?: SubagentTimingView;
     state: "loading" | "ready" | "error";
     messages: ChatMessage[];
     pendingAction?: "follow-up" | "interrupt";

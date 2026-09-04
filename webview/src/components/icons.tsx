@@ -46,6 +46,15 @@ export function AppShotIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function TerminalIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <rect x="1.5" y="2" width="13" height="12" rx="1.5" />
+            <path d="m4 6 2.2 2L4 10M7.8 10H11" />
+        </svg>
+    );
+}
+
 export function SearchIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>
@@ -61,6 +70,24 @@ export function MoreIcon({ size = 14 }: IconProps): React.JSX.Element {
             <circle cx="3.5" cy="8" r="1.4" />
             <circle cx="8" cy="8" r="1.4" />
             <circle cx="12.5" cy="8" r="1.4" />
+        </svg>
+    );
+}
+
+export function LikeIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M6.2 7V4.8c0-.9.4-1.8 1-2.4l.4-.4c.3-.3.8-.1.9.3l.2 1c.1.7-.1 1.4-.5 2l-.4.7h4.8c.9 0 1.6.8 1.4 1.7l-.9 4.6c-.2.9-.9 1.5-1.8 1.5H6.2" />
+            <path d="M6.2 7H3.8c-.8 0-1.3.5-1.3 1.3v3.8c0 .8.5 1.3 1.3 1.3h2.4" />
+        </svg>
+    );
+}
+
+export function DislikeIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M6.2 9V11.2c0 .9.4 1.8 1 2.4l.4.4c.3.3.8.1.9-.3l.2-1c.1-.7-.1-1.4-.5-2l-.4-.7h4.8c.9 0 1.6-.8 1.4-1.7l-.9-4.6c-.2-.9-.9-1.5-1.8-1.5H6.2" />
+            <path d="M6.2 9H3.8c-.8 0-1.3-.5-1.3-1.3V3.9c0-.8.5-1.3 1.3-1.3h2.4" />
         </svg>
     );
 }

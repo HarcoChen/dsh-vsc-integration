@@ -4,6 +4,7 @@ import {
     DshHostFrame,
     DshMuxFrame,
     DshSessionListResult,
+    DshSessionProjectionsBlock,
     DshSessionSummary,
     DshWorkspaceListResult,
     DshWorkspaceView,
@@ -89,7 +90,12 @@ function directUserMessage(frame: Record<string, unknown>): boolean {
 }
 
 function titleFromSummary(summary: DshSessionSummary): ProjectionTitle | undefined {
-    const block = summary.projections;
+    return titleFromProjectionBlock(summary.projections);
+}
+
+function titleFromProjectionBlock(
+    block: DshSessionProjectionsBlock | undefined,
+): ProjectionTitle | undefined {
     const value = block?.values.title;
     return block && typeof value === "string" && value.trim()
         ? { value, seq: block.asOfSeq }
@@ -355,19 +361,48 @@ export class HarnessCatalogStore {
         }
     }
 
-    public upsertCreated(sessionId: string, cwd?: string): void {
+    /**
+     * Merge a locally-known creation result into the catalog. Host stream frames
+     * can arrive before or after the RPC response, so a creation echo must not
+     * erase parent/cwd/blank metadata that the host already supplied.
+     */
+    public upsertCreated(
+        sessionId: string,
+        cwd?: string,
+        options: { blank?: boolean; parentSessionId?: string } = {},
+    ): void {
+        const current = this.sessions.get(sessionId)?.value;
         const revision = ++this.revision;
         this.sessions.set(sessionId, {
             value: this.withDerivedState({
+                ...current,
                 sessionId,
-                updatedAt: this.now(),
-                running: false,
-                blank: true,
-                ...(cwd === undefined ? {} : { cwd }),
+                updatedAt: current?.updatedAt ?? this.now(),
+                running: current?.running ?? false,
+                blank: options.blank ?? current?.blank ?? true,
+                ...(current?.cwd === undefined && cwd !== undefined ? { cwd } : {}),
+                ...(options.parentSessionId === undefined
+                    ? {}
+                    : { parentSessionId: options.parentSessionId }),
             }),
             revision,
         });
         this.publish();
+    }
+
+    /**
+     * Merge projection values carried by a history-tail baseline. Title
+     * projections live in the SessionStore as well, but the picker/trace title
+     * is sourced from this catalog, so opening a fork must hydrate both stores.
+     */
+    public applyProjectionBaseline(
+        sessionId: string,
+        projections: DshSessionProjectionsBlock | undefined,
+    ): void {
+        const title = titleFromProjectionBlock(projections);
+        if (title && this.applyTitle(sessionId, title.value, title.seq)) {
+            this.publish();
+        }
     }
 
     public applyRename(sessionId: string, title: string, seq: number): void {

@@ -44,35 +44,24 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
       做法：新增 `webview/tsconfig.json`（`jsx: react-jsx`、`allowSyntheticDefaultImports`、`lib` 含 DOM），`check` 脚本串联两个 project。
       **单独一个 commit，不夹带任何行为改动** —— 补上后大概率当场冒出一批既存类型错误，混在别的改动里就分不清是谁引入的。这一项是其余所有 Webview 改动的前置。
 
-## P0：可见缺陷（本轮全部完成）
+## P0：BUG修复
 
-- [x] **Markdown 强调吃掉裸标识符**。`src/safeMarkdown.ts:195,203` 用裸 `indexOf` 找 `_` 定界符，缺 CommonMark 的 delimiter-run / flanking 规则。实测：`snake_case_name` → `snake<em>case</em>name`，`call foo_bar_baz() now` → `call foo<em>bar</em>baz() now`。带路径分隔符的字符串因先命中 file-location 分支而幸免，所以日常暴露面不大，但聊代码时提裸标识符并不罕见。属保真度缺陷，非安全问题；修它要引入 flanking 判定，独立立项，不要混进可读性整理。
-- [x] **`attribute()` 是假安全边界**。`src/safeMarkdown.ts:72-75` 只是 `escapeHtml` 的别名，函数名承诺属性上下文转义而实现没有。在 XSS 层放一个名不副实的函数比没有它更危险。要么让它真做属性转义，要么删掉、调用点直接用 `escapeHtml`。
-- [x] **`TodoPanel` 用 content 作 list key**。`webview/src/components/TodoPanel.tsx:38`；`DshTodoItemView`（`src/types.ts:888-891`）只有 `content` 与 `status`，Host 侧不保证唯一。两条同文案 todo 会重复 key。改用 index，或请上游补 id。
-- [x] **`zh-Hans` 运行时文案仍回落英文**。`package.nls.zh-hans.json` 存在（命令面板已中文化），但 `l10n/` 下只有 `bundle.l10n.zh-cn.json`，缺 `zh-hans` 一份 —— 于是 zh-Hans 环境下命令面板是中文、运行时消息全英文，`0.5.3` 那条修复只做了一半。
-      补上缺的 l10n bundle（可在构建期从 zh-cn 复制）。**不要删 `package.nls.zh-hans.json`** —— 它是撞到真实 bug 后加的。`webview/src/i18n.ts:269` 同时判断两个前缀是正确防御，保留。
-- [x] **`dsh.revealConversationMilestone` 未在清单声明**。`src/extension.ts:62` 注册了命令，但 `contributes.commands` 的 32 条不含它，三份 nls 也无对应文案。补声明的同时用 `menus.commandPalette` + `when: "false"` 挡住命令面板（**不是** `enablement: false` —— 那会连 TreeItem 点击一起禁掉、弄坏功能） —— 它只该由 TreeItem 触发，从面板点会因缺 `seq` 参数被 `src/extension.ts:63` 的类型守卫静默吞掉。
+暂无
 
 ## P1：功能（按性价比排序，均已核对公开契约）
 
-- [x] **`contextBreakdown` 投影**。上游 `deepseek-harness/packages/llm/token-meter/src/index.ts:90` 注册，与扩展**已在消费**的 `tokenUsage`(:88)、`contextPressure`(:89) 同属一个插件。改动集中在 `src/tokenUsage.ts:65` 一带，多读一个 key。兑现下面「上下文用量与超限反馈」要的「说明什么在占上下文」。已完成。
-- [ ] **继续拆 `chatView.ts`**。已完成第一步：Workspace 与 Agent Preset 管理迁出（3169 → 2820 行）。剩余按性价比：三套目录缓存（model / skill / command 是同一套 Map 对 + 请求去重 + 失效重拉抄了三遍，可收成一个 `SessionCatalogCache<T>`，约 155 行 + 6 个字段）；`handleMessage` 的 205 行 switch 拆成按域分组的处理器表；Subagent 编排（约 285 行，`SubagentTreeStore` 已存在，预览/跟进/中断仍在视图里）。`postState` 的 193 行不建议动——它本质是把二十多个来源汇成一个快照，拆开只会变成到处找字段。
-- [ ] **IDE 内 Provider 配置**。`llm.models` 与 `llm.discoverModels` 是 52 条 unary 路由里未消费的两条。当前未配置 Provider 一律引导去 dsh Web UI（`0.5.3` 变更记录），这两条正是在 IDE 内枚举并配置所缺的能力。改动面 `src/chatView.ts` 的 `manageProviders`。
-- ~~**`sessionListMetadata` 投影**~~ **撤回**：核对 schema 后发现两个字段（`blank`、`lastPromptAt`）都不带新信息。`blank` 已由 `session.list` 提供并在`chatView.ts:1622`、`:2173`、`sessionCatalog.ts:190-407` 消费；recency 排序已用`updatedAt`（`sessionCatalog.ts:413`）。唯一新字段是 `lastPromptAt`（最后一条**用户**消息，区别于任何活动），只够支撑一个可争论的排序改动。原条目写的「用于会话列表行的富信息」高估了它。
-- [ ] **Subagent 运行时长**。`subagentTiming`（上游 `deepseek-harness/packages/subagent/subagent/src/projection.ts:62`），wire 形状 `{settledMs, active?: {since, through}}`。`SubagentTreeNodeView` 目前只有二值 `activity: "running" | "inactive"`，没有任何时长，这是真正的新信息。
+- [x] 任意消息「从这里 Fork / 回到这里」——我最推荐先做。 这几乎已经是白送的功能：你 DshRuntime.forkSession(sessionId, atSeq?) 已经支持 atSeq，但当前 ChatViewProvider.forkSession() 没传它，只能从最新位置 fork。 直接给每个 user/assistant turn hover 菜单加三个动作：Fork from here、Restore code to here、Fork + restore code。后两个还能复用你现有的 changeReviewStore.restore(sessionId, turn)。 这就基本得到 Claude Code 那套 checkpoint/rewind UX；Claude 当前 VS Code 扩展也确实把这三个语义拆成 fork、rewind code、fork+rewind。 工作量低，感知价值极高。
+- [x] **IDE 内 Provider 配置**。`llm.models` 与 `llm.discoverModels` 是 52 条 unary 路由里未消费的两条。当前未配置 Provider 一律引导去 dsh Web UI（`0.5.3` 变更记录），这两条正是在 IDE 内枚举并配置所缺的能力。改动面 `src/chatView.ts` 的 `manageProviders`。
+- [x] 把你 TODO 里“Terminal / PTY context 不可做”翻案。 这一条 TODO 已经过期了：当前稳定 VS Code API 已有 onDidStartTerminalShellExecution / onDidEndTerminalShellExecution，而且 TerminalShellExecution.read() 能流式读该次命令输出，还能拿 command line、cwd、exit code；这个 API 从 VS Code 1.93 就稳定了，而你最低版本已经是 ^1.106.0。 需要注意的是不能ย้อนหลัง读取 extension 启动前的 scrollback，只能从执行开始时监听，所以正确做法是维护一个每 Terminal 最近 N 条命令的 ring buffer。然后做：@terminal:last、@terminal:pytest、附件菜单「Recent terminal command」、非 0 exit code 后出现一个很轻的 Ask DSH 入口。这样用户刚跑完 npm test 爆了一屏错误，根本不用复制粘贴。这会是非常强的 IDE Integration 卖点。终端命令捕获已接入 IDE 上下文、引用补全和失败命令预填入口；仅保留内存中的扩展激活后命令，不读取或持久化既有 scrollback。
+
+- [x] **Subagent 运行时长**。`subagentTiming`（上游 `deepseek-harness/packages/subagent/subagent/src/projection.ts:62`），wire 形状 `{settledMs, active?: {since, through}}`。`SubagentTreeNodeView` 目前只有二值 `activity: "running" | "inactive"`，没有任何时长，这是真正的新信息。
       **身份部分不做**：另一个单元注册的 key 是 `subagent`（不是 `subagentIdentity`，`projection.ts:169`），其 `label` / `mode` 已由 `subagent.list` 放在树节点上，重复。
-- [x] **Slash Command 改为向 Runtime 枚举**。已完成。面板改为 `commands/list` 实时枚举 + IDE 自有条目合并，执行走 `commands/execute`。
-      **核对结果修正了原条目的前提**：`/compact`、`/goal` 走裸 prompt 文本这条路在 `0.1.1-rc.2` 上**根本不成立** —— `api-proxy.ts:2361` 的 `sessions.prompt` 只创建 user message，不查命令注册表；契约里的 `command?` 返回槽、`command-error` / `unknown-command` 错误码和 `api/sessions.ts:320` 那段注释都是旧设计的遗留（全仓库无实现产出这两个错误码）。所以此前 `/compact` 实际是把文本发给了模型，再报一句「server 未提供 /compact」。
-      **Gateway 通道无需单独地基**：`@deepseek-ai/dsh-api-gateway` 在 apiproxy 之前 intercept 同一条 `/api` 通道（`packages/api/gateway/src/index.ts:105`），信封与 unary 完全一致，只是路径末段为 `<namespace>/<method>`、payload 为单一 `args` 对象。现有 `HarnessApiClient.call()` 未作改动即可复用。
-- [ ] **消息反馈**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`），此前记录的「等公开契约」已不成立。需 Gateway 通道；落地时明确反馈是否写入 session 日志。
-- [x] **Gateway 通道地基**。已随 Slash 面板落地并验证：`HarnessRpcMethodMap` 现可直接声明 `<namespace>/<method>` 端点，`ABSENT_VALUE_METHODS` 负责 Typert「返回 undefined 即无 value 字段」的语义。`messageFeedback`、`pluginInventory`、`fileReference`、`sessionReference` 按同样方式加行即可。
-- [ ] **`plan` 投影**。上游 `deepseek-harness/packages/plan/plan-mode/src/index.ts:245` 注册，插件在 base 与 web-app 双挂载。当前计划评审走 interaction 卡片，接 projection 可拿到结构化计划状态。
+- [ ] **消息反馈**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`），协议与 Host sidecar 已保留；前端入口暂隐藏，待评测、统计或导出闭环明确后再开放。反馈不写入 Session 日志、模型上下文或 telemetry。
+- [x] **`plan` 投影**。严格校验上游 `{active, pending}` wire 值并透传到 ChatView；Composer 按 `pending ? !active : active` 展示 `Plan ×` 状态，支持点击、`Shift+Tab` 或 `/plan off` 切换，并切换生成计划的输入提示。计划评审仍走 interaction 卡片。
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与敏感文件风险，支持移除大项并说明最终进入 prompt 的内容。（基础部分已完成，缺 `contextBreakdown` 支撑的占用归因。）
-- [x] **按次编辑的原生 Diff（不依赖 Git）**。已完成，见 `src/toolDiff.ts`（纯重建逻辑）与 `src/toolDiffStore.ts`（`dsh-tool-diff` 虚拟文档 + `vscode.diff`）。
-      **关键前提是上游已经把数据给全了**：`write`/`edit`/`str-replace-editor` 的 `presentResult` 产出 `card: 'diff'`，其 `diffs` 是每 hunk 带 3 行上下文的 `FileDiff`（`packages/fs/tool-fs/src/diff.ts:32`），且 `FsDiffMeta` 随 session 日志持久化、replay 时重建，冷会话同样可用。扩展早已在 `sessionStore` 里逐事件保留 `view`，此前只取了 `title`。
-      **wire 上没有的是整文件 before 与行号**，所以 before 由「当前磁盘内容反向回放 hunk」重建，上下文行即锚点；锚点不唯一或缺失时拒绝而非猜测。查看历史中较早的调用时，会先反向回放其后所有对同一文件的调用。
-- [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围。workspace symbol 与终端选区受 VS Code 稳定 API 限制，见「明确不做」。
+- [ ] **扩展 `@` 引用类型**：在文件与 `@selection` 之外增加目录、diagnostics，并显示实际捕获范围
 - [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；无公开协议时只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
+- [x] S：Debug Context——让 DSH 真正“看见断点现场”。 现在你已经能附加 Diagnostics，但 Debugger 是明显的下一步。`vscode.debug.activeStackItem` 可以直接拿当前 thread/frame，当前 frame 有 `frameId`/`threadId`/`session`，再通过标准 DAP `stackTrace` → `scopes` → `variables` 就能拿调用栈和局部变量。已实现单向快照：`DSH: Explain Current Debug State` 从当前聚焦的调试线程/帧采集停止原因、前 10 层 stack、局部变量、当前源码附近 24 行和 workspace diagnostics，敏感变量名脱敏并限制总大小；快照作为一次性 IDE context 注入下一条 prompt。Debug Toolbar 在暂停时提供入口，`/ide` 选择器也可手动触发。暂不引入 DSH 插件、双向 RPC 或 evaluate/step 控制。
 
 ## P1：上游暂无契约（本轮已在 `0.1.1-rc.2` 复核，保持搁置）
 
@@ -92,6 +81,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 
 ## P1：重构
 
+- [ ] **继续拆 `chatView.ts`**。已完成第一步：Workspace 与 Agent Preset 管理迁出（3169 → 2820 行）。剩余按性价比：三套目录缓存（model / skill / command 是同一套 Map 对 + 请求去重 + 失效重拉抄了三遍，可收成一个 `SessionCatalogCache<T>`，约 155 行 + 6 个字段）；`handleMessage` 的 205 行 switch 拆成按域分组的处理器表；Subagent 编排（约 285 行，`SubagentTreeStore` 已存在，预览/跟进/中断仍在视图里）。`postState` 的 193 行不建议动——它本质是把二十多个来源汇成一个快照，拆开只会变成到处找字段。
 动手前先读两条硬约束，它们决定了哪些改法可行：
 
 1. **`test/` 下 13 个 `node:test` 文件 `require("../dist/<module>.js")`**，钉住的是**编译产物的模块路径与具名导出**：`chatState`、`chatViewProtocol`、`deepseekBalance`、`harnessClient`、`harnessConnection`、`hostState`、`safeMarkdown`、`sessionCatalog`、`sessionFeatures`、`sessionStore`、`traceProjector`、`traceProtocol`。`npm test` 是发版门禁（`.github/workflows/release.yml`），移动或改名会在发版时才炸。且 `AGENTS.md` 禁止新增测试 —— 重构不能靠补测试买安全，必须构造上行为等价。
@@ -172,13 +162,17 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 保留作为记录，不再逐条展开。
 
 ### rc2 对齐
+
 托管 Runtime 默认 pin 升至 `0.1.1-rc.2`（五平台资产，安装时校验 manifest 版本一致）；问题卡片折叠与草稿保留；Job Panel 展示对齐（单任务停止仍等公开控制 RPC）；会话 `@` 引用；嵌套图片递归提取；通用插件设置卡片（`settings.describe/mutate` + revision 冲突保护）；Markdown 表格。
 
 ### 日常使用闭环
+
 Token 与上下文用量条；文件路径与行号跳转；编辑器快捷任务（只预填不静默提交）；变更审查面板（原生 diff，恢复前检测后续修改）。
 
 ### IDE 集成与效率
+
 全界面 i18n；VS Code Chat Participant（`@dsh`）；资源管理器入口；代码块操作（写文件前 diff 并确认）；外部 Approval 接管（一次性批准/拒绝，绑定 session + rpcId + approvalId）；Skills 浏览与选择；Provider、模型与 reasoning effort 状态；Agent Preset 管理；Workspace 管理（不删目录或日志）；文件 `@` 引用候选；手动压缩上下文（公开 `/compact`）；Todo 状态卡；图片附件；Web Search / Fetch 展示；LSP 能力；对话大纲 TreeView 与导航 API；macOS AppShot；峰谷定价展示。
 
 ### 环境与发布
+
 环境检查命令（输出脱敏）；`npm run release` 统一发版；Open VSX 发布步骤；pnpm 启动与 npx 回退、备用 registry 重试。

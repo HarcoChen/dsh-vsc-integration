@@ -12,6 +12,7 @@ import {
     DshSubagentListEntry,
     JobCenterItem,
     SubagentTreeNodeView,
+    SubagentTimingView,
     SubagentTreeView,
 } from "./types";
 import { HarnessSessionStore, ProjectionCell, SessionStateSnapshot } from "./sessionStore";
@@ -353,6 +354,45 @@ function normalizeSubagentEntry(value: unknown): DshSubagentListEntry | undefine
     };
 }
 
+function nonnegativeSafeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Narrows the optional `subagentTiming` projection without inventing a duration. */
+export function normalizeSubagentTiming(value: unknown): SubagentTimingView | undefined {
+    if (!isRecord(value) || !nonnegativeSafeInteger(value.settledMs)) return undefined;
+    if (value.active === undefined) return { settledMs: value.settledMs };
+    if (
+        !isRecord(value.active) ||
+        !nonnegativeSafeInteger(value.active.since) ||
+        !nonnegativeSafeInteger(value.active.through)
+    ) return undefined;
+    return {
+        settledMs: value.settledMs,
+        active: {
+            since: value.active.since,
+            through: value.active.through,
+        },
+    };
+}
+
+function cloneSubagentTiming(timing: SubagentTimingView | undefined): SubagentTimingView | undefined {
+    if (timing === undefined) return undefined;
+    return {
+        settledMs: timing.settledMs,
+        ...(timing.active === undefined ? {} : { active: { ...timing.active } }),
+    };
+}
+
+function sameSubagentTiming(
+    left: SubagentTimingView | undefined,
+    right: SubagentTimingView | undefined,
+): boolean {
+    return left?.settledMs === right?.settledMs &&
+        left?.active?.since === right?.active?.since &&
+        left?.active?.through === right?.active?.through;
+}
+
 export function normalizeSubagentCatalog(value: unknown): DshSubagentCatalog | undefined {
     if (!isRecord(value) || typeof value.parentAvailable !== "boolean" || !Array.isArray(value.entries)) {
         return undefined;
@@ -369,6 +409,7 @@ export function normalizeSubagentCatalog(value: unknown): DshSubagentCatalog | u
 export function presentSubagentTree(
     rootSessionId: string,
     catalogs: ReadonlyMap<string, DshSubagentCatalog>,
+    timings: ReadonlyMap<string, SubagentTimingView> = new Map(),
 ): SubagentTreeNodeView[] {
     const nodes: SubagentTreeNodeView[] = [];
     const visitedParents = new Set<string>();
@@ -389,6 +430,7 @@ export function presentSubagentTree(
                 });
                 continue;
             }
+            const timing = timings.get(entry.id);
             nodes.push({
                 kind: "child",
                 id: entry.id,
@@ -399,6 +441,7 @@ export function presentSubagentTree(
                 mode: entry.mode,
                 activity: entry.activity,
                 hasChildren: entry.hasChildren,
+                ...(timing === undefined ? {} : { timing: cloneSubagentTiming(timing) }),
             });
             if (entry.hasChildren) walk(entry.id, depth + 1);
         }
@@ -431,15 +474,40 @@ export class SubagentTreeStore {
         rootSessionId: string,
         generation: number,
         catalogs: ReadonlyMap<string, DshSubagentCatalog>,
+        timings: ReadonlyMap<string, SubagentTimingView> = new Map(),
     ): boolean {
         const current = this.records.get(rootSessionId);
         if (!current || current.generation !== generation) return false;
         this.records.set(rootSessionId, {
             rootSessionId,
             state: "ready",
-            nodes: presentSubagentTree(rootSessionId, catalogs),
+            nodes: presentSubagentTree(rootSessionId, catalogs, timings),
             generation,
         });
+        return true;
+    }
+
+    /** Update one child projection without replacing the authoritative catalog. */
+    public updateTiming(
+        rootSessionId: string,
+        childSessionId: string,
+        timing: SubagentTimingView | undefined,
+    ): boolean {
+        const current = this.records.get(rootSessionId);
+        if (!current) return false;
+        let changed = false;
+        const nodes = current.nodes.map((node) => {
+            if (node.kind !== "child" || node.id !== childSessionId || sameSubagentTiming(node.timing, timing)) {
+                return node;
+            }
+            changed = true;
+            return {
+                ...node,
+                ...(timing === undefined ? { timing: undefined } : { timing: cloneSubagentTiming(timing) }),
+            };
+        });
+        if (!changed) return false;
+        this.records.set(rootSessionId, { ...current, nodes });
         return true;
     }
 
@@ -457,7 +525,13 @@ export class SubagentTreeStore {
     public get(rootSessionId: string): SubagentTreeView | undefined {
         const current = this.records.get(rootSessionId);
         return current
-            ? { ...current, nodes: current.nodes.map((node) => ({ ...node })) }
+            ? {
+                  ...current,
+                  nodes: current.nodes.map((node) => ({
+                      ...node,
+                      ...(node.timing === undefined ? {} : { timing: cloneSubagentTiming(node.timing) }),
+                  })),
+              }
             : undefined;
     }
 }

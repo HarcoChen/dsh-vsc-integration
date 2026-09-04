@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { DshReferenceCandidate } from "../../../src/types";
 import { postAction, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
 import { t } from "../i18n";
-import { canSwitchPermissions, type ComposerState } from "../state";
-import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon } from "./icons";
+import { canSwitchPermissions, canTogglePlan, type ComposerState } from "../state";
+import { AppShotIcon, ImageIcon, PlusIcon, SendIcon, StopIcon, TerminalIcon } from "./icons";
 import { ImageDraftRail, useImageDrafts } from "./ImageDrafts";
 import { ContextChips } from "./ContextChips";
 import { FILE_REFERENCE_MENU_ID, FileReferenceMenu } from "./FileReferenceMenu";
@@ -29,6 +29,7 @@ interface ComposerProps {
     sessionStats: ComposerState["sessionStats"];
     reasoningEffort: ComposerState["reasoningEffort"];
     imageLimits: ComposerState["imageLimits"];
+    plan: ComposerState["plan"];
     busy: ComposerState["busy"];
     submitting: ComposerState["submitting"];
     cancelling: ComposerState["cancelling"];
@@ -47,6 +48,7 @@ export const Composer = React.memo(function Composer({
     sessionStats,
     reasoningEffort,
     imageLimits,
+    plan,
     busy,
     submitting,
     cancelling,
@@ -61,7 +63,32 @@ export const Composer = React.memo(function Composer({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
+    const planToggleTargetRef = useRef<boolean>();
     const imageDrafts = useImageDrafts(imageLimits);
+    // The projection exposes the requested state while a /plan transition is
+    // pending. Fold it the same way as Harness UI: entering plan mode is
+    // effective while pending, leaving it is effective immediately.
+    const planActive = plan !== undefined && (plan.pending ? !plan.active : plan.active);
+    const planCommandAvailable = canTogglePlan(commands);
+
+    const togglePlan = useCallback((): void => {
+        if (!planCommandAvailable) return;
+        const next = !(planToggleTargetRef.current ?? planActive);
+        planToggleTargetRef.current = next;
+        postAction({
+            type: "setPlanMode",
+            active: next,
+        });
+    }, [planActive, planCommandAvailable]);
+
+    // Once the projection is no longer pending it is authoritative again; a
+    // new session also must not inherit a queued target from the old one.
+    useEffect(() => {
+        if (plan === undefined || !plan.pending) planToggleTargetRef.current = undefined;
+    }, [plan?.active, plan?.pending]);
+    useEffect(() => {
+        planToggleTargetRef.current = undefined;
+    }, [sessionId]);
 
     useEffect(() => {
         return subscribeAddImageDraft((image) => imageDrafts.addUploads([image]));
@@ -321,6 +348,17 @@ export const Composer = React.memo(function Composer({
                                 className="dsh-menu-item"
                                 onClick={() => {
                                     setAttachmentMenuVisible(false);
+                                    postAction({ type: "openTerminalCommandPicker" });
+                                }}
+                            >
+                                <TerminalIcon />
+                                {t("Recent terminal command")}
+                            </button>
+                            <button
+                                type="button"
+                                className="dsh-menu-item"
+                                onClick={() => {
+                                    setAttachmentMenuVisible(false);
                                     imageInputRef.current?.click();
                                 }}
                             >
@@ -357,7 +395,9 @@ export const Composer = React.memo(function Composer({
                 <textarea
                     ref={textareaRef}
                     className="dsh-prompt"
-                    placeholder={t("Describe a task; use @ for files, $ for skills...")}
+                    placeholder={t(planActive
+                        ? "Describe your task to generate a plan"
+                        : "Describe a task; use @ for files, $ for skills...")}
                     value={text}
                     disabled={submitting}
                     rows={2}
@@ -375,6 +415,26 @@ export const Composer = React.memo(function Composer({
                         void imageDrafts.addFiles(files);
                     }}
                     onKeyDown={(event) => {
+                        // Shift+Tab toggles the public plan command when no
+                        // completion popup owns Tab. Keep modified variants
+                        // and native focus traversal untouched.
+                        if (
+                            event.key === "Tab" &&
+                            event.shiftKey &&
+                            !event.altKey &&
+                            !event.ctrlKey &&
+                            !event.metaKey &&
+                            !event.repeat &&
+                            !referenceMenuVisible &&
+                            completion.skillMatches.length === 0 &&
+                            completion.slashCandidateCount === 0
+                        ) {
+                            if (planCommandAvailable) {
+                                event.preventDefault();
+                                togglePlan();
+                                return;
+                            }
+                        }
                         if (handleReferenceKeyDown(event)) return;
                         if (completion.handleCompletionKeyDown(event)) return;
                         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -417,6 +477,27 @@ export const Composer = React.memo(function Composer({
                 </button>
             </div>
             <div className="dsh-composer-footer">
+                {/* Rendered in both states so the toggle stays reachable by
+                    pointer and screen reader, not only through Shift+Tab. A
+                    Runtime without the command still shows a latched-on chip. */}
+                {planActive || planCommandAvailable ? (
+                    <button
+                        type="button"
+                        className={`dsh-plan-chip${planActive ? "" : " dsh-plan-chip-off"}`}
+                        title={planActive
+                            ? t("Plan mode on — click to turn off (/plan off)")
+                            : t("Plan mode off — click to turn on (/plan on)")}
+                        aria-label={planActive
+                            ? t("Plan mode on, click to turn off")
+                            : t("Plan mode off, click to turn on")}
+                        aria-pressed={planActive}
+                        disabled={!planCommandAvailable}
+                        onClick={togglePlan}
+                    >
+                        <span>Plan</span>
+                        {planActive ? <span aria-hidden="true">×</span> : null}
+                    </button>
+                ) : null}
                 <PermissionModeChip
                     permissions={permissions}
                     switchable={canSwitchPermissions(commands)}

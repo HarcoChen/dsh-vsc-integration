@@ -28,7 +28,7 @@ import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
-import { isImageMediaType } from "./guards";
+import { isImageMediaType, isRecord } from "./guards";
 import { manageProviders as runProviderManagement } from "./providerManagement";
 import {
     applyCodeBlock,
@@ -39,13 +39,15 @@ import {
 import { MarkdownRenderCache } from "./markdownRenderCache";
 import { samePath } from "./paths";
 import { presentSessionRows } from "./sessionCatalog";
-import { projectionCell, projectionValue } from "./sessionStore";
+import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
 import { HarnessRpcError } from "./harnessClient";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
+import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
 import {
     imageLimitsProjection,
     permissionProjection,
+    planProjection,
     prepareImageUploads,
     presentSettingsPanel,
     settingsMutationOps,
@@ -62,6 +64,7 @@ import {
     type GoalMutationOperation,
     normalizeGoalRef,
     normalizeSubagentCatalog,
+    normalizeSubagentTiming,
     parseGoalProjection,
     presentGoalHud,
     presentJobCenter,
@@ -76,10 +79,14 @@ import {
     ChatMessage,
     DshAgentPresetEntry,
     DshApprovalResponse,
-    DshContextItem,
     DshHistoryEntry,
     DshImageLimitsView,
     DshImageUpload,
+    DshMessageFeedbackDeleteRequest,
+    DshMessageFeedbackItem,
+    DshMessageFeedbackPutRequest,
+    DshMessageFeedbackRating,
+    DshMessageFeedbackStateView,
     DshQuestionResponse,
     DshReferenceCandidate,
     DshReasoningEffortOption,
@@ -99,15 +106,29 @@ import {
     PermissionProjectionView,
     SessionStatsView,
     SubagentHistoryPreview,
+    SubagentTimingView,
     SubagentTreeNodeView,
 } from "./types";
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
 import { errorMessage } from "./errors";
+import {
+    normalizeMessageFeedbackDeleteResult,
+    normalizeMessageFeedbackListResult,
+    normalizeMessageFeedbackPutResult,
+} from "./messageFeedback";
 
 interface PersistedSession {
     sessionId: string;
     cwd: string;
+}
+
+interface MessageFeedbackSessionState {
+    status: "loading" | "ready" | "error" | "unavailable";
+    items: Map<string, DshMessageFeedbackItem>;
+    pending: Set<string>;
+    errors: Map<string, string>;
+    error?: string;
 }
 
 export type QuickTaskKind = "explain" | "fix" | "review" | "docs";
@@ -223,6 +244,72 @@ const REASONING_EFFORT_KNOB_IMAGE = "chibi-runner-strip.png";
  */
 const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
 
+function positiveTurn(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+        ? value
+        : undefined;
+}
+
+function isCheckpointMessageType(type: string): boolean {
+    return type === "user/message" || type === "assistant/message";
+}
+
+/** Resolve the stable wire id of one finalized append-origin assistant message. */
+function assistantFeedbackMessageId(
+    snapshot: SessionStateSnapshot | undefined,
+    seq: number | undefined,
+): string | undefined {
+    if (!snapshot || seq === undefined || !Number.isSafeInteger(seq) || seq < 0) return undefined;
+    const stored = snapshot.events.find((candidate) => candidate.event.seq === seq);
+    if (!stored || stored.event.type !== "assistant/message" || stored.event.surfaceOp !== "append") {
+        return undefined;
+    }
+    if (!isRecord(stored.event.data) || !isRecord(stored.event.data.message)) return undefined;
+    const message = stored.event.data.message;
+    return message.role === "assistant" && typeof message.id === "string" && message.id.trim().length > 0
+        ? message.id
+        : undefined;
+}
+
+/** Check a feedback mutation against the current Session's authoritative log. */
+function hasAssistantFeedbackTarget(
+    snapshot: SessionStateSnapshot | undefined,
+    messageId: string,
+): boolean {
+    if (!snapshot || !messageId) return false;
+    return snapshot.events.some((stored) =>
+        stored.event.type === "assistant/message" &&
+        stored.event.surfaceOp === "append" &&
+        isRecord(stored.event.data) &&
+        isRecord(stored.event.data.message) &&
+        stored.event.data.message.id === messageId &&
+        stored.event.data.message.role === "assistant",
+    );
+}
+
+/** Resolve the turn containing a projected user/assistant message. */
+function checkpointMessageTurn(snapshot: SessionStateSnapshot, seq: number): number | undefined {
+    const target = snapshot.events.find((stored) => stored.event.seq === seq);
+    if (!target || !isCheckpointMessageType(target.event.type)) return undefined;
+    const targetData = isRecord(target.event.data) ? target.event.data : undefined;
+    const explicit = positiveTurn(targetData?.turn);
+    if (explicit !== undefined) return explicit;
+
+    let active: number | undefined;
+    for (const stored of snapshot.events) {
+        if (stored.event.seq > seq) break;
+        const data = isRecord(stored.event.data) ? stored.event.data : undefined;
+        if (stored.event.type === "turn/start") {
+            const turn = positiveTurn(data?.turn);
+            if (turn !== undefined) active = turn;
+        } else if (stored.event.type === "turn/end") {
+            const turn = positiveTurn(data?.turn);
+            if (turn === active) active = undefined;
+        }
+    }
+    return active;
+}
+
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
     public static readonly viewType = "dsh.chatView";
 
@@ -245,7 +332,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private pendingNewSessionWorkspacePath: string | undefined;
     private pendingNewSessionWorkspaceTitle: string | undefined;
     private submitting = false;
+    private planCommandTail: Promise<void> = Promise.resolve();
     private cancelRequested = false;
+    private checkpointActionInFlight = false;
     private selectionEnabled = true;
     private focusMode = false;
     private fileReferenceCandidates: DshReferenceCandidate[] = [];
@@ -265,6 +354,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
     private readonly commandCatalogs = new Map<string, DshCommandDescriptor[]>();
     private readonly commandCatalogRequests = new Map<string, Promise<void>>();
+    private readonly messageFeedbackStates = new Map<string, MessageFeedbackSessionState>();
+    private readonly messageFeedbackRequests = new Map<string, Promise<void>>();
+    private readonly messageFeedbackGenerations = new Map<string, number>();
+    private readonly messageFeedbackOperationTails = new Map<string, Promise<void>>();
     /**
      * Latched once the Runtime answers 404 for the command registry, so an
      * older Runtime is asked once per connection instead of on every state
@@ -288,6 +381,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly extensionUri: vscode.Uri,
         private readonly runtime: DshRuntime,
         private readonly contextStore: ContextStore,
+        private readonly terminalContext: TerminalContextStore,
         private readonly output: vscode.OutputChannel,
         private readonly balanceService?: DeepSeekBalanceService,
         private readonly agentStatusPresentations?: AgentStatusPresentationRegistry,
@@ -305,11 +399,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     snapshot,
                 );
             }
+            const subagentTimingChanged = this.observeSubagentTiming(sessionId, snapshot);
             if (sessionId === this.sessionId) {
                 this.goalMutations.observe(
                     sessionId,
                     projectionCell(snapshot, "goal"),
                 );
+                this.schedulePostState();
+            } else if (subagentTimingChanged) {
                 this.schedulePostState();
             }
         });
@@ -353,6 +450,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 });
             }),
             contextStore.onDidChange(() => this.schedulePostState()),
+            terminalContext.onDidChange(() => this.schedulePostState()),
+            terminalContext.onDidCapture((command) => {
+                if (command.exitCode !== undefined && command.exitCode !== 0) {
+                    void this.offerFailedTerminalCommand(command);
+                }
+            }),
             vscode.workspace.onDidChangeConfiguration((event) => {
                 if (
                     event.affectsConfiguration("dsh.agentStatusLabel") ||
@@ -469,6 +572,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async prefillGitDiffTask(kind: QuickTaskKind): Promise<void> {
         await this.contextStore.addGitDiff();
         this.setComposerText(GIT_DIFF_TASK_PROMPTS[kind]());
+    }
+
+    /** Captures the focused debugger state and prepares a one-shot explanation task. */
+    public async explainDebugState(): Promise<void> {
+        await this.contextStore.addDebugContext();
+        this.setComposerText(t("Explain why execution stopped here and suggest the next debugging checks."));
     }
 
     public async configureApiKey(): Promise<void> {
@@ -616,7 +725,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 { actionId: "workspace-file" as const, label: `$(search) ${t("Workspace file")}`, detail: t("Fuzzy-search and insert an @file reference") },
                 { actionId: "current-file" as const, label: `$(file-code) ${t("Current file")}`, detail: t("Insert an @file reference without copying its contents") },
                 { actionId: "diagnostics" as const, label: `$(warning) ${t("Diagnostics")}`, detail: t("Attach once to this turn") },
+                ...(vscode.debug.activeStackItem
+                    ? [{ actionId: "debug-context" as const, label: `$(debug-alt) ${t("Debug context")}`, detail: t("Attach the current stack, locals, source, and diagnostics once") }]
+                    : []),
                 { actionId: "git-diff" as const, label: "$(git-compare) Git diff", detail: t("Attach once to this turn") },
+                { actionId: "terminal-command" as const, label: `$(terminal) ${t("Recent terminal command")}`, detail: t("Attach one captured terminal command and its output") },
                 {
                     actionId: "toggle-selection" as const,
                     label: this.selectionEnabled
@@ -642,13 +755,63 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         } else if (choice.actionId === "diagnostics") {
             await this.runContextAction(() => this.contextStore.addDiagnostics());
             return;
+        } else if (choice.actionId === "debug-context") {
+            // The picker only attaches context, like its diagnostics and diff
+            // siblings; prefilling a prompt here would discard the draft the
+            // user is writing. `dsh.explainDebugState` keeps that behavior.
+            await this.runContextAction(() => this.contextStore.addDebugContext());
+            return;
         } else if (choice.actionId === "git-diff") {
             await this.runContextAction(() => this.contextStore.addGitDiff());
+            return;
+        } else if (choice.actionId === "terminal-command") {
+            await this.openTerminalCommandPicker();
             return;
         } else {
             this.selectionEnabled = !this.selectionEnabled;
         }
         this.reveal();
+    }
+
+    /** Lets the user attach one of the commands captured by shell integration. */
+    public async openTerminalCommandPicker(): Promise<void> {
+        const records = this.terminalContext.recent();
+        if (records.length === 0) {
+            void vscode.window.showInformationMessage(t("No terminal commands have been captured yet."));
+            return;
+        }
+        const choices = records.map((record) => {
+            const exit = record.exitCode === undefined ? t("exit code unavailable") : t("exit code {code}", { code: record.exitCode });
+            const preview = record.output.replace(/\s+/gu, " ").trim().slice(0, 240);
+            return {
+                label: `$(terminal) ${record.command}`,
+                description: `${record.terminalName} · ${exit}`,
+                detail: [record.cwd, preview].filter((value): value is string => Boolean(value)).join(" · ") || undefined,
+                record,
+            };
+        });
+        const choice = await vscode.window.showQuickPick(choices, {
+            placeHolder: t("Choose a recent terminal command to attach"),
+            matchOnDescription: true,
+            matchOnDetail: true,
+        });
+        if (!choice) return;
+        await this.runContextAction(() => this.contextStore.addTerminalCommand(choice.record));
+    }
+
+    private async offerFailedTerminalCommand(command: DshTerminalCommand): Promise<void> {
+        const askAction = t("Ask DSH");
+        const commandLabel = command.command.replace(/\s+/gu, " ").trim().slice(0, 180);
+        const choice = await vscode.window.showWarningMessage(
+            t("Terminal command failed with exit code {code}: {command}", {
+                code: command.exitCode ?? "?",
+                command: commandLabel,
+            }),
+            askAction,
+        );
+        if (choice !== askAction) return;
+        this.contextStore.addTerminalCommand(command);
+        this.setComposerText(t("Explain why this terminal command failed and suggest a fix."));
     }
 
     public async captureAppShot(): Promise<void> {
@@ -764,6 +927,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
                     break;
+                case "openTerminalCommandPicker":
+                    await this.openTerminalCommandPicker();
+                    break;
                 case "captureAppShot":
                     await this.captureAppShot();
                     break;
@@ -839,6 +1005,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         );
                     }
                     break;
+                case "setPlanMode":
+                    await this.setPlanMode(message.active);
+                    break;
                 case "openToolDiff":
                     await this.toolDiffs.openDiff(
                         this.sessionId ? this.runtime.getSessionStore().get(this.sessionId) : undefined,
@@ -857,6 +1026,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         throw new Error(t("Wait for the current turn to finish before restoring changes."));
                     }
                     if (this.sessionId) await this.changeReviews.restore(this.sessionId, message.turn);
+                    break;
+                case "forkFromMessage":
+                    await this.runCheckpointAction(() => this.forkFromMessage(message.seq));
+                    break;
+                case "restoreCodeToMessage":
+                    await this.runCheckpointAction(() => this.restoreCodeToMessage(message.seq));
+                    break;
+                case "forkAndRestoreCodeToMessage":
+                    await this.runCheckpointAction(() => this.forkAndRestoreCodeToMessage(message.seq));
+                    break;
+                case "toggleMessageFeedback":
+                    await this.toggleMessageFeedback(message.messageId, message.rating);
+                    break;
+                case "saveMessageFeedbackNote":
+                    await this.saveMessageFeedbackNote(message.messageId, message.note);
                     break;
                 case "switchSession":
                     await this.switchSession(message.sessionId);
@@ -943,6 +1127,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             : Promise.resolve([]);
         const [uris, searchItems] = await Promise.all([filesPromise, searchPromise]);
         if (generation !== this.fileReferenceQueryGeneration) return;
+        const terminalCandidates = this.terminalContext.referenceCandidates(query);
         const active = vscode.window.activeTextEditor?.document.uri;
         const fileCandidates = uris
             .map((uri) => vscode.workspace.asRelativePath(uri, false).replaceAll("\\", "/"))
@@ -950,15 +1135,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .map((relative): DshReferenceCandidate => ({
                 kind: "file",
                 label: relative,
-                insertText: relative,
+                insertText: `@${relative}`,
             }));
         const activeRelative = active
             ? vscode.workspace.asRelativePath(active, false).replaceAll("\\", "/")
             : undefined;
         const orderedFiles = activeRelative && (!normalizedQuery || activeRelative.toLowerCase().includes(normalizedQuery))
             ? [
-                  { kind: "file", label: activeRelative, insertText: activeRelative } satisfies DshReferenceCandidate,
-                  ...fileCandidates.filter((candidate) => candidate.insertText !== activeRelative),
+                  { kind: "file", label: activeRelative, insertText: `@${activeRelative}` } satisfies DshReferenceCandidate,
+                  ...fileCandidates.filter((candidate) => candidate.label !== activeRelative),
               ]
             : fileCandidates;
 
@@ -998,7 +1183,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     ...(description ? { description } : {}),
                 };
             });
-        this.fileReferenceCandidates = [...orderedFiles, ...sessionCandidates].slice(0, 40);
+        this.fileReferenceCandidates = [...terminalCandidates, ...orderedFiles, ...sessionCandidates].slice(0, 40);
         this.postState();
     }
 
@@ -1058,6 +1243,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }
 
+            const terminalReferences = this.terminalContext.resolvePromptReferences(text);
+            if (terminalReferences.missing.length > 0) {
+                throw new Error(t("No captured terminal command matches: {selectors}", {
+                    selectors: terminalReferences.missing.map((selector) => `@terminal:${selector}`).join(", "),
+                }));
+            }
+            for (const command of terminalReferences.commands) {
+                this.contextStore.addTerminalCommand(command);
+            }
+            const promptText = terminalReferences.text;
             const explicitlyReferencesSelection = referencesSelection(text);
             const capture = this.contextStore.capturePromptContext({
                 includeCurrentSelection:
@@ -1066,7 +1261,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (explicitlyReferencesSelection && !capture.items.some((item) => item.kind === "selection")) {
                 throw new Error(t("@selection has no current selection. Select text in the active editor first."));
             }
-            const prompt = capture.text ? `${text}\n\n${capture.text}` : text;
+            const prompt = capture.text ? `${promptText}\n\n${capture.text}` : promptText;
             let limits = imageLimitsProjection(
                 this.runtime.getSessionStore().get(session)?.projections
                     .find((cell) => cell.key === "imageLimits")?.value,
@@ -1568,9 +1763,85 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.runtime.renameSession(this.sessionId, title);
     }
 
-    public async forkSession(): Promise<void> {
+    public async forkSession(atSeq?: number): Promise<void> {
         if (!this.sessionId) throw new Error(t("There is no current session."));
-        const forked = await this.runtime.forkSession(this.sessionId);
+        const forked = await this.runtime.forkSession(this.sessionId, atSeq);
+        await this.switchSession(forked.sessionId);
+    }
+
+    private checkpointMessage(seq: number): { sessionId: string; turn?: number } {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        const snapshot = this.runtime.getSessionStore().get(sessionId);
+        const message = snapshot?.events.find((stored) => stored.event.seq === seq);
+        const surfaceMessage = snapshot?.surface.nodes.find((node) => node.seq === seq);
+        const messageData = isRecord(message?.event.data) ? message.event.data : undefined;
+        const userSource = isRecord(messageData?.source) ? messageData.source : undefined;
+        if (
+            !snapshot ||
+            !message ||
+            !surfaceMessage ||
+            !isCheckpointMessageType(message.event.type) ||
+            (message.event.type === "user/message" && userSource?.kind !== "user")
+        ) {
+            throw new Error(t("This message is no longer available."));
+        }
+        return {
+            sessionId,
+            turn: checkpointMessageTurn(snapshot, seq),
+        };
+    }
+
+    private async forkFromMessage(seq: number): Promise<void> {
+        const checkpoint = this.checkpointMessage(seq);
+        const forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
+        await this.switchSession(forked.sessionId);
+    }
+
+    private async runCheckpointAction(action: () => Promise<void>): Promise<void> {
+        if (this.checkpointActionInFlight) return;
+        this.checkpointActionInFlight = true;
+        try {
+            await action();
+        } finally {
+            this.checkpointActionInFlight = false;
+        }
+    }
+
+    private async restoreCodeToMessage(seq: number): Promise<void> {
+        if (this.selectedSessionRunning()) {
+            throw new Error(t("Wait for the current turn to finish before restoring changes."));
+        }
+        const checkpoint = this.checkpointMessage(seq);
+        if (checkpoint.turn === undefined) {
+            throw new Error(t("This message is not associated with a turn."));
+        }
+        await this.changeReviews.restore(checkpoint.sessionId, checkpoint.turn);
+    }
+
+    private async forkAndRestoreCodeToMessage(seq: number): Promise<void> {
+        if (this.selectedSessionRunning()) {
+            throw new Error(t("Wait for the current turn to finish before restoring changes."));
+        }
+        const checkpoint = this.checkpointMessage(seq);
+        if (checkpoint.turn === undefined) {
+            throw new Error(t("This message is not associated with a turn."));
+        }
+
+        // Restore first so cancelling the confirmation does not leave behind a
+        // fork that did not receive the requested code rewind.
+        const restored = await this.changeReviews.restore(checkpoint.sessionId, checkpoint.turn);
+        if (!restored) return;
+        let forked;
+        try {
+            forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
+        } catch (error) {
+            // The restore already landed on disk and cannot be undone from here,
+            // so the failure has to name the half that did succeed.
+            throw new Error(t("Code was restored to this message, but forking the session failed: {message}", {
+                message: errorMessage(error),
+            }));
+        }
         await this.switchSession(forked.sessionId);
     }
 
@@ -1733,6 +2004,368 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
+    /** Start or reuse the sidecar list read for one selected Session. */
+    private refreshMessageFeedback(sessionId: string, force = false): Promise<void> {
+        if (!this.runtime.getUrl()) return Promise.resolve();
+        const inFlight = this.messageFeedbackRequests.get(sessionId);
+        if (inFlight) return inFlight;
+        const existing = this.messageFeedbackStates.get(sessionId);
+        if (!force && (existing?.status === "ready" || existing?.status === "unavailable")) {
+            return Promise.resolve();
+        }
+
+        const generation = (this.messageFeedbackGenerations.get(sessionId) ?? 0) + 1;
+        this.messageFeedbackGenerations.set(sessionId, generation);
+        const state: MessageFeedbackSessionState = existing ?? {
+            status: "loading",
+            items: new Map(),
+            pending: new Set(),
+            errors: new Map(),
+        };
+        state.status = "loading";
+        state.error = undefined;
+        state.errors.clear();
+        this.messageFeedbackStates.set(sessionId, state);
+        if (sessionId === this.sessionId) this.postState();
+
+        const request = this.runtime.listMessageFeedback(sessionId)
+            .then((raw) => {
+                if (this.messageFeedbackGenerations.get(sessionId) !== generation) return;
+                if (raw === undefined) {
+                    state.status = "unavailable";
+                    state.items.clear();
+                    state.pending.clear();
+                    state.errors.clear();
+                    state.error = undefined;
+                    return;
+                }
+                const result = normalizeMessageFeedbackListResult(raw);
+                if (!result) {
+                    throw new Error(t("Harness returned an invalid messageFeedback.list result."));
+                }
+                if (!result.ok) {
+                    if (result.error.code === "session-not-found") {
+                        state.status = "unavailable";
+                        state.items.clear();
+                        state.pending.clear();
+                        state.errors.clear();
+                        state.error = undefined;
+                    } else {
+                        state.status = "error";
+                        state.error = this.messageFeedbackFailure(result.error.code);
+                    }
+                    return;
+                }
+                state.status = "ready";
+                state.items = new Map(result.value.items.map((item) => [item.messageId, item]));
+                state.pending.clear();
+                state.errors.clear();
+                state.error = undefined;
+            })
+            .catch((error) => {
+                if (this.messageFeedbackGenerations.get(sessionId) !== generation) return;
+                state.status = "error";
+                state.error = errorMessage(error);
+            })
+            .finally(() => {
+                if (this.messageFeedbackRequests.get(sessionId) === request) {
+                    this.messageFeedbackRequests.delete(sessionId);
+                }
+                if (sessionId === this.sessionId) this.postState();
+            });
+        this.messageFeedbackRequests.set(sessionId, request);
+        return request;
+    }
+
+    /** Wait for a usable sidecar state, with older Runtimes degrading quietly. */
+    private async ensureMessageFeedback(sessionId: string): Promise<MessageFeedbackSessionState | undefined> {
+        await this.refreshMessageFeedback(sessionId);
+        const state = this.messageFeedbackStates.get(sessionId);
+        return state?.status === "ready" ? state : undefined;
+    }
+
+    /** Serialize feedback mutations per Session so every CAS compares the latest item. */
+    private enqueueMessageFeedback(
+        sessionId: string,
+        messageId: string,
+        operation: (state: MessageFeedbackSessionState) => Promise<void>,
+    ): Promise<void> {
+        const previous = this.messageFeedbackOperationTails.get(sessionId) ?? Promise.resolve();
+        const run = previous.then(async () => {
+            let state: MessageFeedbackSessionState | undefined;
+            try {
+                state = await this.ensureMessageFeedback(sessionId);
+                if (!state) return;
+                state.pending.add(messageId);
+                state.errors.delete(messageId);
+                this.postState();
+                await operation(state);
+            } catch (error) {
+                state ??= this.messageFeedbackStates.get(sessionId);
+                if (state) {
+                    state.status = state.status === "unavailable" ? "unavailable" : "error";
+                    state.errors.set(messageId, errorMessage(error));
+                    state.error = undefined;
+                }
+            } finally {
+                state?.pending.delete(messageId);
+                if (sessionId === this.sessionId) this.postState();
+            }
+        }, async () => {
+            // The operation body contains its own error presentation. Keep a
+            // rejected predecessor from starving later clicks in the queue.
+        });
+        const tail = run.then(() => undefined, () => undefined);
+        this.messageFeedbackOperationTails.set(sessionId, tail);
+        return run.finally(() => {
+            if (this.messageFeedbackOperationTails.get(sessionId) === tail) {
+                this.messageFeedbackOperationTails.delete(sessionId);
+            }
+        });
+    }
+
+    /** Human-readable fallback for the stable business failure codes. */
+    private messageFeedbackFailure(code: string): string {
+        switch (code) {
+            case "session-not-found":
+                return t("This session is no longer available for feedback.");
+            case "target-not-found":
+                return t("This message is no longer available for feedback.");
+            case "version-conflict":
+                return t("Feedback changed elsewhere; try again.");
+            case "note-blank":
+                return t("A feedback note must contain text.");
+            case "note-too-large":
+                return t("The feedback note is too long.");
+            default:
+                return t("The feedback operation was rejected.");
+        }
+    }
+
+    /** Mark the optional feature absent when a Runtime does not mount it. */
+    private disableMessageFeedback(state: MessageFeedbackSessionState): void {
+        state.status = "unavailable";
+        state.items.clear();
+        state.pending.clear();
+        state.errors.clear();
+        state.error = undefined;
+    }
+
+    /** Apply one put response and reconcile a lost CAS race from its authority. */
+    private async applyMessageFeedbackPut(
+        state: MessageFeedbackSessionState,
+        request: DshMessageFeedbackPutRequest,
+    ): Promise<void> {
+        const raw = await this.runtime.putMessageFeedback(request);
+        if (raw === undefined) {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        const result = normalizeMessageFeedbackPutResult(raw);
+        if (!result) throw new Error(t("Harness returned an invalid messageFeedback.put result."));
+        if (result.ok) {
+            if (result.value.messageId !== request.messageId) {
+                throw new Error(t("Harness returned an invalid messageFeedback.put result."));
+            }
+            state.status = "ready";
+            state.items.set(result.value.messageId, result.value);
+            state.error = undefined;
+            return;
+        }
+        if (result.error.code === "session-not-found") {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        if (result.error.code === "version-conflict") {
+            if (result.error.current === null || result.error.current === undefined) {
+                state.items.delete(request.messageId);
+            } else {
+                if (result.error.current.messageId !== request.messageId) {
+                    throw new Error(t("Harness returned an invalid messageFeedback.put result."));
+                }
+                state.items.set(request.messageId, result.error.current);
+            }
+        }
+        throw new Error(this.messageFeedbackFailure(result.error.code));
+    }
+
+    /** Apply one delete response and reconcile a lost CAS race from its authority. */
+    private async applyMessageFeedbackDelete(
+        state: MessageFeedbackSessionState,
+        request: DshMessageFeedbackDeleteRequest,
+    ): Promise<void> {
+        const raw = await this.runtime.deleteMessageFeedback(request);
+        if (raw === undefined) {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        const result = normalizeMessageFeedbackDeleteResult(raw);
+        if (!result) throw new Error(t("Harness returned an invalid messageFeedback.delete result."));
+        if (result.ok) {
+            state.status = "ready";
+            state.items.delete(request.messageId);
+            state.error = undefined;
+            return;
+        }
+        if (result.error.code === "session-not-found") {
+            this.disableMessageFeedback(state);
+            return;
+        }
+        if (result.error.code === "version-conflict") {
+            if (result.error.current === null || result.error.current === undefined) {
+                state.items.delete(request.messageId);
+            } else {
+                if (result.error.current.messageId !== request.messageId) {
+                    throw new Error(t("Harness returned an invalid messageFeedback.delete result."));
+                }
+                state.items.set(request.messageId, result.error.current);
+            }
+        }
+        throw new Error(this.messageFeedbackFailure(result.error.code));
+    }
+
+    private async toggleMessageFeedback(
+        messageId: string,
+        requested: DshMessageFeedbackRating,
+    ): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId || !hasAssistantFeedbackTarget(this.runtime.getSessionStore().get(sessionId), messageId)) {
+            return;
+        }
+        return this.enqueueMessageFeedback(sessionId, messageId, async (state) => {
+            const current = state.items.get(messageId);
+            if (current?.rating === requested) {
+                await this.applyMessageFeedbackDelete(state, {
+                    sessionId,
+                    messageId,
+                    ifVersion: current.version,
+                });
+                return;
+            }
+            await this.applyMessageFeedbackPut(state, {
+                sessionId,
+                messageId,
+                rating: requested,
+                ...(current?.note === undefined ? {} : { note: current.note }),
+                ifVersion: current?.version ?? null,
+            });
+        });
+    }
+
+    private async saveMessageFeedbackNote(messageId: string, note: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId || !hasAssistantFeedbackTarget(this.runtime.getSessionStore().get(sessionId), messageId)) {
+            return;
+        }
+        return this.enqueueMessageFeedback(sessionId, messageId, async (state) => {
+            const current = state.items.get(messageId);
+            if (!current) return;
+            await this.applyMessageFeedbackPut(state, {
+                sessionId,
+                messageId,
+                rating: current.rating,
+                ...(note.trim().length === 0 ? {} : { note }),
+                ifVersion: current.version,
+            });
+        });
+    }
+
+    private messageFeedbackView(sessionId: string | undefined): DshMessageFeedbackStateView | undefined {
+        if (!sessionId || !this.runtime.getUrl()) return undefined;
+        const state = this.messageFeedbackStates.get(sessionId);
+        if (!state || state.status === "unavailable") return undefined;
+        const items = Object.create(null) as Record<string, DshMessageFeedbackItem>;
+        for (const [messageId, item] of state.items) items[messageId] = item;
+        const pending = Object.create(null) as Record<string, true>;
+        for (const messageId of state.pending) pending[messageId] = true;
+        const errors = Object.create(null) as Record<string, string>;
+        for (const [messageId, error] of state.errors) errors[messageId] = error;
+        return {
+            status: state.status,
+            items,
+            pending,
+            errors,
+            ...(state.error === undefined ? {} : { error: state.error }),
+        };
+    }
+
+    /** Attach stable wire ids and sidecar state to the root chat messages only. */
+    private decorateMessageFeedback(
+        messages: readonly ChatMessage[],
+        snapshot: SessionStateSnapshot | undefined,
+        state: MessageFeedbackSessionState | undefined,
+    ): ChatMessage[] {
+        return messages.map((message) => {
+            if (message.role !== "assistant" || message.state !== "committed") return message;
+            const messageId = assistantFeedbackMessageId(snapshot, message.seq);
+            if (!messageId) return message;
+            if (!state || state.status === "unavailable") return { ...message, messageId };
+            const item = state.items.get(messageId);
+            const error = state.errors.get(messageId);
+            return {
+                ...message,
+                messageId,
+                feedback: {
+                    status: state.status,
+                    ...(item?.rating === undefined ? {} : { rating: item.rating }),
+                    ...(item?.note === undefined ? {} : { note: item.note }),
+                    ...(state.pending.has(messageId) ? { pending: true } : {}),
+                    ...(error === undefined ? {} : { error }),
+                },
+            };
+        });
+    }
+
+    private subagentTimingMap(
+        catalogs: ReadonlyMap<string, DshSubagentCatalog>,
+    ): Map<string, SubagentTimingView> {
+        const catalog = this.runtime.getSessionCatalog().snapshot();
+        const summaries = new Map(catalog.sessions.map((item) => [item.sessionId, item] as const));
+        const timings = new Map<string, SubagentTimingView>();
+        for (const childCatalog of catalogs.values()) {
+            for (const entry of childCatalog.entries) {
+                if (entry.kind !== "child") continue;
+                const snapshot = this.runtime.getSessionStore().get(entry.id);
+                const local = normalizeSubagentTiming(
+                    projectionValue(snapshot, "subagentTiming"),
+                );
+                const summary = summaries.get(entry.id);
+                const listed = normalizeSubagentTiming(
+                    summary?.projections?.values.subagentTiming,
+                );
+                // Attached sessions receive live projection frames through the mux; a cold
+                // child has no SessionStore row, so its session.list projection is the
+                // available baseline. During an initial history repair, retain that baseline
+                // until the store has a complete cut.
+                const timing = local ?? (!snapshot || snapshot.needsHistoryBaseline ? listed : undefined);
+                if (timing !== undefined) timings.set(entry.id, timing);
+            }
+        }
+        return timings;
+    }
+
+    private observeSubagentTiming(
+        sessionId: string,
+        snapshot: SessionStateSnapshot,
+    ): boolean {
+        const rootSessionId = this.sessionId;
+        if (!rootSessionId || sessionId === rootSessionId) return false;
+        const tree = this.subagentTrees.get(rootSessionId);
+        if (!tree?.nodes.some((node) => node.kind === "child" && node.id === sessionId)) {
+            return false;
+        }
+        const timing = normalizeSubagentTiming(projectionValue(snapshot, "subagentTiming"));
+        const changed = this.subagentTrees.updateTiming(rootSessionId, sessionId, timing);
+        if (
+            changed &&
+            this.subagentPreview?.rootSessionId === rootSessionId &&
+            this.subagentPreview.childSessionId === sessionId
+        ) {
+            this.subagentPreview = { ...this.subagentPreview, timing };
+        }
+        return changed;
+    }
+
     private async refreshSubagentTree(rootSessionId: string): Promise<void> {
         this.subagentTreeAborts.get(rootSessionId)?.abort();
         const controller = new AbortController();
@@ -1760,7 +2393,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     }
                 }
             }
-            const applied = this.subagentTrees.resolve(rootSessionId, generation, catalogs);
+            const applied = this.subagentTrees.resolve(
+                rootSessionId,
+                generation,
+                catalogs,
+                this.subagentTimingMap(catalogs),
+            );
             if (applied && this.subagentPreview?.rootSessionId === rootSessionId) {
                 const refreshed = this.subagentTrees
                     .get(rootSessionId)
@@ -1780,6 +2418,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         mode: refreshed.mode,
                         activity: refreshed.activity,
                         parentAvailable: refreshed.parentAvailable,
+                        timing: refreshed.timing,
                     };
                 } else {
                     this.subagentPreview = {
@@ -1871,6 +2510,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             mode: address.mode,
             parentAvailable: node.parentAvailable,
             activity: node.activity,
+            ...(node.timing === undefined ? {} : { timing: node.timing }),
             state: "loading",
             messages: [],
         };
@@ -1883,6 +2523,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 generation !== this.subagentPreviewGeneration ||
                 rootSessionId !== this.sessionId
             ) return;
+            const timing = normalizeSubagentTiming(history.projections?.values.subagentTiming) ?? node.timing;
             this.subagentPreview = {
                 ...this.subagentPreview,
                 rootSessionId,
@@ -1891,6 +2532,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 mode: address.mode,
                 parentAvailable: node.parentAvailable,
                 activity: node.activity,
+                ...(timing === undefined ? {} : { timing }),
                 state: "ready",
                 messages: projectSubagentHistory(childSessionId, history),
             };
@@ -2129,7 +2771,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private async runContextAction(
-        action: () => DshContextItem | Promise<DshContextItem>,
+        action: () => unknown | Promise<unknown>,
     ): Promise<void> {
         try {
             await action();
@@ -2283,6 +2925,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             throw new Error(text?.trim() || t("The dsh runtime rejected this command."));
         }
         if (text?.trim()) void vscode.window.showInformationMessage(`DSH: ${text.trim()}`);
+    }
+
+    /**
+     * Executes the composer-owned plan toggle without taking the prompt
+     * submission lock. Keeping these commands on a small serial tail makes
+     * repeated Shift+Tab presses deterministic while the Runtime projection
+     * catches up between requests.
+     */
+    private async setPlanMode(active: boolean): Promise<void> {
+        const operation = this.planCommandTail.then(async () => {
+            const session = this.sessionId;
+            if (!session) return;
+            const workspaceRoot = this.workspaceRoot();
+            if (!workspaceRoot) {
+                throw new Error(t("Open a workspace before sending a task to dsh."));
+            }
+            const autoStart = vscode.workspace.getConfiguration("dsh").get<boolean>("autoStart", true);
+            if (autoStart || this.runtime.getUrl()) {
+                await this.runtime.start(workspaceRoot);
+            } else {
+                throw new Error(t("dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”."));
+            }
+            await this.ensureCommandCatalog(session);
+            await this.runHostCommand(session, active ? "/plan" : "/plan off");
+        });
+        this.planCommandTail = operation.then(() => undefined, () => undefined);
+        await operation;
     }
 
     /**
@@ -2486,10 +3155,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
         const imageLimits = imageLimitsProjection(projectionValue(session, "imageLimits"));
+        const plan = planProjection(projectionValue(session, "plan"));
         const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));
         const host = presentHostBaseline(this.runtime.getHostDescription());
         const busy = selected?.running === true;
         const agentStatusLabel = this.agentStatusLabel(this.sessionId, busy);
+        const projectedMessages = focusChatMessages(
+            projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
+            this.focusMode,
+        );
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -2501,10 +3175,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) ?? [];
         const state: ChatViewState = {
             messages: this.renderMessages(
-                focusChatMessages(
-                    projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
-                    this.focusMode,
-                ),
+                projectedMessages,
                 `session:${this.sessionId ?? "none"}`,
                 this.sessionId,
             ),
@@ -2577,6 +3248,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(imageLimits === undefined ? {} : { imageLimits }),
+            ...(plan === undefined ? {} : { plan }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {

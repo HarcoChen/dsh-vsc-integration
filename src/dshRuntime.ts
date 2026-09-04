@@ -43,6 +43,8 @@ import {
     DshSkillEntry,
     DshSkillListResult,
     DshProviderListResult,
+    DshLlmModelsResult,
+    DshLlmDiscoverModelsResult,
     DshCredentialDescribeResult,
     DshSettingsDescribeResult,
     DshSettingsNamespaceView,
@@ -51,6 +53,12 @@ import {
     DshSubagentCatalog,
     DshSubagentHistoryResult,
     DshSubagentPromptResult,
+    DshMessageFeedbackDeleteRequest,
+    DshMessageFeedbackDeleteResult,
+    DshMessageFeedbackListRequest,
+    DshMessageFeedbackListResult,
+    DshMessageFeedbackPutRequest,
+    DshMessageFeedbackPutResult,
     DshRpcReceipt,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
@@ -83,6 +91,23 @@ const LEGACY_RUNTIME_LOCK_FILE = "dsh-vscode-runtime.lock";
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/**
+ * Assign the conventional title for a forked Session. The Host deliberately
+ * returns only the child id and preserves the source title; title disambiguation
+ * is a client-side Session action.
+ */
+function increasedForkTitle(title: string): string {
+    const ascii = /^(.*?)\((\d+)\)$/u.exec(title);
+    if (ascii?.[1] !== undefined && ascii[2] !== undefined) {
+        return `${ascii[1]}(${BigInt(ascii[2]) + 1n})`;
+    }
+    const fullWidth = /^(.*?)（(\d+)）$/u.exec(title);
+    if (fullWidth?.[1] !== undefined && fullWidth[2] !== undefined) {
+        return `${fullWidth[1]}（${BigInt(fullWidth[2]) + 1n}）`;
+    }
+    return `${title} (1)`;
 }
 
 function normalizeUrl(value: string): string {
@@ -1031,11 +1056,43 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async forkSession(sessionId: string, atSeq?: number): Promise<DshSessionForkResult> {
+        const source = this.harnessState.catalog
+            .snapshot()
+            .sessions.find((session) => session.sessionId === sessionId);
+        const sourceCwd = source?.cwd;
+        const sourceProjectionTitle = this.harnessState.sessions
+            .get(sessionId)
+            ?.projections.find((projection) => projection.key === "title")?.value;
+        const sourceTitle = source?.title?.trim() ||
+            (typeof sourceProjectionTitle === "string" && sourceProjectionTitle.trim()
+                ? sourceProjectionTitle.trim()
+                : undefined);
         const result = await this.apiClient.call("session.fork", {
             sessionId,
             ...(atSeq === undefined ? {} : { atSeq }),
         });
-        this.harnessState.catalog.upsertCreated(result.sessionId);
+        // The fork response intentionally contains only the child id. Seed the
+        // local catalog with the source metadata so switching immediately after
+        // the RPC does not lose the workspace lineage or mark a non-empty child
+        // as a blank session. The upsert merges with a host/session-added frame
+        // if that frame won the race against the RPC response.
+        this.harnessState.catalog.upsertCreated(result.sessionId, sourceCwd, {
+            blank: false,
+            parentSessionId: sessionId,
+        });
+        if (sourceTitle !== undefined) {
+            // Host fork preserves the inherited title. Rename the child after
+            // creation to match the client contract (e.g. Helo -> Helo (1)).
+            // Disambiguation is cosmetic and the fork itself already succeeded,
+            // so a rename failure must not reject the child id away.
+            try {
+                await this.renameSession(result.sessionId, increasedForkTitle(sourceTitle));
+            } catch (error) {
+                this.output.appendLine(
+                    `[dsh] fork title update failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
+        }
         return result;
     }
 
@@ -1217,6 +1274,52 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient.call("subagent.interrupt", address, signal);
     }
 
+    /** Reads the Host-owned per-message feedback sidecar for one Session. */
+    public async listMessageFeedback(
+        sessionId: string,
+        signal?: AbortSignal,
+    ): Promise<DshMessageFeedbackListResult | undefined> {
+        try {
+            return await this.apiClient.call("messageFeedback/list", {
+                args: { request: { sessionId } satisfies DshMessageFeedbackListRequest },
+            }, signal);
+        } catch (error) {
+            // The sidecar is optional on older or minimally composed Runtimes.
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Creates or replaces one feedback item using its observed CAS version. */
+    public async putMessageFeedback(
+        request: DshMessageFeedbackPutRequest,
+        signal?: AbortSignal,
+    ): Promise<DshMessageFeedbackPutResult | undefined> {
+        try {
+            return await this.apiClient.call("messageFeedback/put", {
+                args: { request },
+            }, signal);
+        } catch (error) {
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Removes one feedback item after observing its current CAS version. */
+    public async deleteMessageFeedback(
+        request: DshMessageFeedbackDeleteRequest,
+        signal?: AbortSignal,
+    ): Promise<DshMessageFeedbackDeleteResult | undefined> {
+        try {
+            return await this.apiClient.call("messageFeedback/delete", {
+                args: { request },
+            }, signal);
+        } catch (error) {
+            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     public respond<T>(response: HarnessClientResponse<T>): Promise<DshRpcReceipt> {
         return this.apiClient.respond(response);
     }
@@ -1228,6 +1331,25 @@ export class DshRuntime implements vscode.Disposable {
 
     public listProviders(): Promise<DshProviderListResult> {
         return this.apiClient.call("llm.providers", {});
+    }
+
+    /** Returns the host-scoped catalog used by provider configuration surfaces. */
+    public listLlmModels(): Promise<DshLlmModelsResult> {
+        return this.apiClient.call("llm.models", {});
+    }
+
+    /** Interrogates a provider endpoint using an unsaved configuration draft. */
+    public discoverLlmModels(
+        payload: {
+            settingsNs: string;
+            provider?: string;
+            baseURL?: string;
+            api?: string;
+            apiKey?: string;
+        },
+        signal?: AbortSignal,
+    ): Promise<DshLlmDiscoverModelsResult> {
+        return this.apiClient.call("llm.discoverModels", payload, signal);
     }
 
     public describeSettings(): Promise<DshSettingsDescribeResult> {
