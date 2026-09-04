@@ -63,6 +63,9 @@ export type ActivityDockState = Pick<
  */
 export const PERMISSION_PRESET_COMMAND = "permission";
 
+/** The optional Runtime command used by the plan-mode shortcut and chip. */
+export const PLAN_COMMAND_NAME = "plan";
+
 /**
  * Whether this session's Runtime exposes the permission-preset command. The
  * panel offers switching only then, because the registry — not the projection —
@@ -72,6 +75,13 @@ export function canSwitchPermissions(
     commands: ChatViewState["commands"],
 ): boolean {
     return commands.some((command) => command.name === PERMISSION_PRESET_COMMAND);
+}
+
+/** Whether the connected Runtime exposes the public `/plan` command. */
+export function canTogglePlan(
+    commands: ChatViewState["commands"],
+): boolean {
+    return commands.some((command) => command.name === PLAN_COMMAND_NAME);
 }
 
 export type ComposerState = Pick<

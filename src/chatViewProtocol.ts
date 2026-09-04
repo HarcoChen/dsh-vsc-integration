@@ -52,6 +52,7 @@ export type ChatViewAction =
     | { type: "openChangeDiff"; turn: number; fileId: string }
     | { type: "openToolDiff"; callId: string; path: string }
     | { type: "setPermissionPreset"; value: string }
+    | { type: "setPlanMode"; active: boolean }
     | { type: "restoreTurnChanges"; turn: number }
     | { type: "forkFromMessage"; seq: number }
     | { type: "restoreCodeToMessage"; seq: number }
@@ -251,6 +252,10 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             if (typeof value.value !== "string" || !/^[\w.-]{1,64}$/u.test(value.value) ||
                 !hasOnly(value, ["type", "value"])) return undefined;
             return { type: "setPermissionPreset", value: value.value };
+        case "setPlanMode":
+            return hasOnly(value, ["type", "active"]) && typeof value.active === "boolean"
+                ? { type: "setPlanMode", active: value.active }
+                : undefined;
         case "restoreTurnChanges":
             if (!positiveInteger(value.turn) || !hasOnly(value, ["type", "turn"])) return undefined;
             return { type: "restoreTurnChanges", turn: value.turn };

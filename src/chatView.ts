@@ -333,6 +333,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private pendingNewSessionWorkspacePath: string | undefined;
     private pendingNewSessionWorkspaceTitle: string | undefined;
     private submitting = false;
+    private planCommandTail: Promise<void> = Promise.resolve();
     private cancelRequested = false;
     private checkpointActionInFlight = false;
     private selectionEnabled = true;
@@ -989,6 +990,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                             `/permission ${message.value}`,
                         );
                     }
+                    break;
+                case "setPlanMode":
+                    await this.setPlanMode(message.active);
                     break;
                 case "openToolDiff":
                     await this.toolDiffs.openDiff(
@@ -2898,6 +2902,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             throw new Error(text?.trim() || t("The dsh runtime rejected this command."));
         }
         if (text?.trim()) void vscode.window.showInformationMessage(`DSH: ${text.trim()}`);
+    }
+
+    /**
+     * Executes the composer-owned plan toggle without taking the prompt
+     * submission lock. Keeping these commands on a small serial tail makes
+     * repeated Shift+Tab presses deterministic while the Runtime projection
+     * catches up between requests.
+     */
+    private async setPlanMode(active: boolean): Promise<void> {
+        const operation = this.planCommandTail.then(async () => {
+            const session = this.sessionId;
+            if (!session) return;
+            const workspaceRoot = this.workspaceRoot();
+            if (!workspaceRoot) {
+                throw new Error(t("Open a workspace before sending a task to dsh."));
+            }
+            const autoStart = vscode.workspace.getConfiguration("dsh").get<boolean>("autoStart", true);
+            if (autoStart || this.runtime.getUrl()) {
+                await this.runtime.start(workspaceRoot);
+            } else {
+                throw new Error(t("dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”."));
+            }
+            await this.ensureCommandCatalog(session);
+            await this.runHostCommand(session, active ? "/plan" : "/plan off");
+        });
+        this.planCommandTail = operation.then(() => undefined, () => undefined);
+        await operation;
     }
 
     /**
