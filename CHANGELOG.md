@@ -11,6 +11,7 @@
 
 - 修复托管 Runtime 解包：提取文件时重新应用归档中的权限位，`bin/node`、`bin/dsh` 和 node-pty 的 `spawn-helper` 不再因为落地成不可执行而导致 Runtime 起不来；同时跳过 tar 的全零结束块（其空文件名会解析回暂存目录本身），并去掉 GNU 长文件名条目结尾计入长度的 NUL 字节。
 - 新增 `scripts/verify-managed-runtime.mjs`：直接驱动扩展自己编译出的 `dist/managedRuntime` 校验某个 Runtime 发布是否真的可用，默认只检查远端契约（manifest 与五个平台资产），`--full` 会做一次真实安装并冒烟测试启动器（含 `web`）。
+- 新增单向 Debug Context：通过 `DSH: Explain Current Debug State`、暂停时 Debug Toolbar 的鲸鱼按钮或 `/ide` 选择器，采集当前调试线程/帧、停止原因、前 10 层调用栈、局部变量、源码附近 24 行和 workspace diagnostics；敏感变量脱敏并作为一次性 IDE context 注入下一条 prompt，暂不依赖 DSH 插件或双向调试 RPC。
 
 ## [0.6.0] - 2026-08-27
 
