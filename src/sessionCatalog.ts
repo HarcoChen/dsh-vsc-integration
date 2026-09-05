@@ -1,4 +1,3 @@
-import type { HarnessStreamEnvelope } from "./harnessClient";
 import {
     ChatViewState,
     DshHostFrame,
@@ -6,6 +5,7 @@ import {
     DshSessionListResult,
     DshSessionProjectionsBlock,
     DshSessionSummary,
+    HarnessStreamEnvelope,
     DshWorkspaceListResult,
     DshWorkspaceView,
 } from "./types";

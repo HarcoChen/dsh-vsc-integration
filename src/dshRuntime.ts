@@ -12,11 +12,6 @@ import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
 import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock } from "./remote/sessionState";
-import type {
-    HarnessHostDescription,
-    HarnessGoalEditChanges,
-    HarnessQueueAction,
-} from "./harnessProtocol";
 import { t } from "./localize";
 import {
     RUNTIME_DEFAULT_VERSION,
@@ -66,6 +61,9 @@ import {
     DshMessageFeedbackPutResult,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
+    HarnessGoalEditChanges,
+    HarnessHostDescription,
+    HarnessQueueAction,
     RuntimeStatus,
 } from "./types";
 

@@ -1,4 +1,3 @@
-import type { HarnessStreamEnvelope } from "./harnessClient";
 import { t } from "./localize";
 import {
     DshHistoryEntry,
@@ -15,6 +14,7 @@ import {
     DshRpcReceipt,
     DshSessionEvent,
     DshSessionProjectionsBlock,
+    HarnessStreamEnvelope,
 } from "./types";
 import { isRecord } from "./guards";
 

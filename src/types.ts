@@ -1169,6 +1169,32 @@ export interface TurnStatusView {
     detail?: string;
 }
 
+export interface HarnessHostDescription {
+    version: string;
+    cwd: string;
+    provider?: string;
+    model?: string;
+    attachedSessions: number;
+    canOpenPath: boolean;
+}
+
+/** Official goal.edit constraint: at least one replacement must be present. */
+export type HarnessGoalEditChanges =
+    | { objective: string; maxGoalRounds?: number }
+    | { objective?: never; maxGoalRounds: number };
+
+export type HarnessQueueAction =
+    | { kind: "edit"; content: Array<Record<string, unknown>> }
+    | { kind: "remove" }
+    | { kind: "steer" };
+
+/** Store-level record envelope: one host event with its identity and payload. */
+export interface HarnessStreamEnvelope<F> {
+    rpcId: string;
+    method: string;
+    payload: F;
+}
+
 export interface HostBaselineView {
     version: string;
     cwd: string;
