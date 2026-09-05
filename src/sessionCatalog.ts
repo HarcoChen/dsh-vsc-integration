@@ -1,4 +1,4 @@
-import { HarnessStreamEnvelope } from "./harnessClient";
+import type { HarnessStreamEnvelope } from "./harnessClient";
 import {
     ChatViewState,
     DshHostFrame,
@@ -141,6 +141,8 @@ export class HarnessCatalogStore {
     private archived = { ids: new Set<string>(), revision: 0 };
     private workspaceOrder: string[] = [];
     private revision = 0;
+    private remoteBaselineDepth = 0;
+    private remoteBaselineDirty = false;
 
     public constructor(private readonly now: () => number = Date.now) {}
 
@@ -157,6 +159,64 @@ export class HarnessCatalogStore {
 
     public baselineRevision(): number {
         return this.revision;
+    }
+
+    /** Suppress intermediate catalog notifications while a new Remote generation opens. */
+    public beginRemoteBaseline(): void {
+        this.remoteBaselineDepth += 1;
+    }
+
+    /** Publish the atomically replaced session/workspace opening state. */
+    public endRemoteBaseline(): void {
+        if (this.remoteBaselineDepth === 0) return;
+        this.remoteBaselineDepth -= 1;
+        if (this.remoteBaselineDepth === 0 && this.remoteBaselineDirty) {
+            this.remoteBaselineDirty = false;
+            this.publishNow();
+        }
+    }
+
+    /** Clear all generation-scoped Remote rows before a new baseline opens. */
+    public resetRemoteGeneration(): void {
+        this.sessions.clear();
+        this.workspaces.clear();
+        this.titles.clear();
+        this.pendingBySession.clear();
+        this.workspaceOrder = [];
+        this.archived = { ids: new Set(), revision: ++this.revision };
+        this.publish();
+    }
+
+    /** Replace the session-list baseline belonging to one Remote generation. */
+    public replaceRemoteSessions(result: DshSessionListResult): void {
+        this.sessions.clear();
+        this.titles.clear();
+        this.pendingBySession.clear();
+        const revision = ++this.revision;
+        for (const summary of result.items) {
+            const coldTitle = titleFromSummary(summary);
+            if (coldTitle) this.titles.set(summary.sessionId, coldTitle);
+            this.sessions.set(summary.sessionId, {
+                value: this.withDerivedState(summary),
+                revision,
+            });
+        }
+        this.publish();
+    }
+
+    /** Replace the workspace-follow baseline belonging to one Remote generation. */
+    public replaceRemoteWorkspaces(result: DshWorkspaceListResult): void {
+        this.workspaces.clear();
+        const revision = ++this.revision;
+        for (const workspace of result.items) {
+            this.workspaces.set(workspace.workspaceId, {
+                value: { ...workspace, sessionIds: [...workspace.sessionIds] },
+                revision,
+            });
+        }
+        this.workspaceOrder = result.items.map((item) => item.workspaceId);
+        this.archived = { ids: new Set(result.archivedSessionIds), revision };
+        this.publish();
     }
 
     public seedSessions(result: DshSessionListResult, baselineRevision: number): void {
@@ -369,7 +429,7 @@ export class HarnessCatalogStore {
     public upsertCreated(
         sessionId: string,
         cwd?: string,
-        options: { blank?: boolean; parentSessionId?: string } = {},
+        options: { blank?: boolean; parentSessionId?: string; agentPreset?: string } = {},
     ): void {
         const current = this.sessions.get(sessionId)?.value;
         const revision = ++this.revision;
@@ -384,8 +444,75 @@ export class HarnessCatalogStore {
                 ...(options.parentSessionId === undefined
                     ? {}
                     : { parentSessionId: options.parentSessionId }),
+                ...(options.agentPreset === undefined ? {} : { agentPreset: options.agentPreset }),
             }),
             revision,
+        });
+        this.publish();
+    }
+
+    /** Merge one RC `api-session/added` notification into the catalog. */
+    public upsertRemoteSession(summary: DshSessionSummary): void {
+        const current = this.sessions.get(summary.sessionId)?.value;
+        this.sessions.set(summary.sessionId, {
+            value: this.withDerivedState({ ...current, ...summary }),
+            revision: ++this.revision,
+        });
+        this.publish();
+    }
+
+    /** Remove a Session after an RC `api-session/removed` notification. */
+    public removeSession(sessionId: string): void {
+        this.sessions.delete(sessionId);
+        this.titles.delete(sessionId);
+        this.pendingBySession.delete(sessionId);
+        this.revision += 1;
+        this.publish();
+    }
+
+    public applyRemoteSessionStatus(sessionId: string, running: boolean): void {
+        const current = this.sessions.get(sessionId)?.value;
+        if (!current) return;
+        this.sessions.set(sessionId, {
+            value: {
+                ...current,
+                running,
+                blank: running ? false : current.blank,
+                ...(running ? { lastAgentError: undefined } : {}),
+            },
+            revision: ++this.revision,
+        });
+        this.publish();
+    }
+
+    public applyRemoteSessionActivity(sessionId: string, updatedAt: number): void {
+        const current = this.sessions.get(sessionId)?.value;
+        if (!current) return;
+        this.sessions.set(sessionId, {
+            value: { ...current, updatedAt: Math.max(current.updatedAt ?? 0, updatedAt), blank: false },
+            revision: ++this.revision,
+        });
+        this.publish();
+    }
+
+    public applyRemoteSessionError(sessionId: string, message: string): void {
+        const current = this.sessions.get(sessionId)?.value;
+        if (!current) return;
+        this.sessions.set(sessionId, {
+            value: { ...current, lastAgentError: message },
+            revision: ++this.revision,
+        });
+        this.publish();
+    }
+
+    /** Apply the generation-scoped preset selection notification to its Session row. */
+    public applyRemoteAgentPreset(sessionId: string, agentPreset: string): void {
+        if (!agentPreset) return;
+        const current = this.sessions.get(sessionId)?.value;
+        if (!current) return;
+        this.sessions.set(sessionId, {
+            value: { ...current, agentPreset },
+            revision: ++this.revision,
         });
         this.publish();
     }
@@ -536,6 +663,14 @@ export class HarnessCatalogStore {
     }
 
     private publish(): void {
+        if (this.remoteBaselineDepth > 0) {
+            this.remoteBaselineDirty = true;
+            return;
+        }
+        this.publishNow();
+    }
+
+    private publishNow(): void {
         const snapshot = this.snapshot();
         for (const listener of this.listeners) {
             listener(snapshot);

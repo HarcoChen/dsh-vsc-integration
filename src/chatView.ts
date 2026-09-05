@@ -40,7 +40,7 @@ import { MarkdownRenderCache } from "./markdownRenderCache";
 import { samePath } from "./paths";
 import { presentSessionRows } from "./sessionCatalog";
 import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
-import { HarnessRpcError } from "./harnessClient";
+import { isRemoteError } from "./remote/errors";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
 import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
@@ -78,7 +78,6 @@ import {
     ChatImageView,
     ChatMessage,
     DshAgentPresetEntry,
-    DshApprovalResponse,
     DshHistoryEntry,
     DshImageLimitsView,
     DshImageUpload,
@@ -87,7 +86,6 @@ import {
     DshMessageFeedbackPutRequest,
     DshMessageFeedbackRating,
     DshMessageFeedbackStateView,
-    DshQuestionResponse,
     DshReferenceCandidate,
     DshReasoningEffortOption,
     DshSessionSearchItem,
@@ -170,20 +168,16 @@ function looksLikeCommandLine(text: string): string | undefined {
     return /^\/([a-z][a-z0-9_-]*)(?:$|[\t\n\r ])/u.exec(text)?.[1];
 }
 
-const GOAL_RPC_ERROR_PREFIX = /^Harness RPC goal\.(?:create|edit|pause|resume|complete|clear) failed:\s*[^:]+:\s*/u;
-
 function goalErrorCode(error: unknown): string | undefined {
-    if (!(error instanceof HarnessRpcError)) return undefined;
-    const details = error.rpcError.details;
-    if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
-    const code = (details as { goalCode?: unknown }).goalCode;
-    return typeof code === "string" ? code : undefined;
+    if (!isRemoteError(error)) return undefined;
+    const details = error.details;
+    const code = details.goalCode;
+    return typeof code === "string" ? code : error.code;
 }
 
 function goalErrorForHud(error: unknown, operation: GoalMutationOperation): string {
     const raw = errorMessage(error).trim();
     const normalized = raw
-        .replace(GOAL_RPC_ERROR_PREFIX, "")
         .replace(/^GoalError:\s*/iu, "")
         .trim();
     const lower = normalized.toLowerCase();
@@ -201,9 +195,14 @@ function goalErrorForHud(error: unknown, operation: GoalMutationOperation): stri
         summary = t("Goal is already paused.");
     } else if (operation === "complete" && /\bcomplete(?:d)?\b/u.test(lower)) {
         summary = t("Goal is already completed.");
-    } else if (code === "GOAL_NOT_FOUND" || /not found|does not exist|no goal|missing/u.test(lower)) {
+    } else if (code === "GOAL_NOT_FOUND" || code === "goal/not-found" || /not found|does not exist|no goal|missing/u.test(lower)) {
         summary = t("The current session has no Goal to change.");
-    } else if (code === "GOAL_STALE_REVISION" || /revision|stale|conflict|compare[- ]and[- ]set|\bcas\b/u.test(lower)) {
+    } else if (
+        code === "GOAL_STALE_REVISION" ||
+        code === "goal/conflict" ||
+        code === "goal/stale-revision" ||
+        /revision|stale|conflict|compare[- ]and[- ]set|\bcas\b/u.test(lower)
+    ) {
         summary = t("Goal changed elsewhere; refresh and try again.");
     }
     return summary === raw ? summary : `${summary}\n${raw}`;
@@ -431,11 +430,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             runtime.onDidChange(() => this.schedulePostState()),
             agentStatusPresentations?.onDidChange(() => this.schedulePostState()) ?? new vscode.Disposable(() => {}),
             runtime.onDidRemoteEvent((event) => {
-                // Registry-wide catalog invalidation: the forwarded signal
-                // carries no diff, so every session's snapshot is repulled.
-                if (event !== "commands/change") return;
-                this.commandCatalogs.clear();
-                if (this.sessionId) this.refreshCommandCatalog(this.sessionId);
+                // Forwarded RC events carry no diff. Invalidate the affected
+                // local cache and repull the visible session when possible.
+                switch (event) {
+                    case "commands/change":
+                        this.commandCatalogs.clear();
+                        if (this.sessionId) this.refreshCommandCatalog(this.sessionId);
+                        break;
+                    case "agent-preset/selected":
+                        this.agentPresetCatalog = undefined;
+                        this.refreshAgentPresetCatalog();
+                        break;
+                    case "llm/adapters-updated":
+                    case "credentials/reference-updated":
+                        this.modelCatalogs.clear();
+                        if (this.sessionId) this.refreshModelCatalog(this.sessionId);
+                        break;
+                    case "settings/document-updated":
+                        ++this.settingsPanelGeneration;
+                        this.settingsPanel = undefined;
+                        this.settingsNamespaces.clear();
+                        this.postState();
+                        break;
+                    default:
+                        break;
+                }
             }),
             runtime.onDidHarnessConnect(() => {
                 this.commandRegistryUnavailable = false;
@@ -1286,6 +1305,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             optimistic = {
                 id: `optimistic:${randomUUID()}`,
                 sessionId: session,
+                requestId: randomUUID(),
                 displayText: text,
                 wireText: prompt,
                 ...(prepared.views.length === 0 ? {} : { images: prepared.views }),
@@ -1296,7 +1316,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.optimisticPrompts.push(optimistic);
             this.postState();
             const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
-            const promptResult = await this.runtime.prompt(session, prompt, mode, prepared.uploads);
+            const promptResult = await this.runtime.prompt(
+                session,
+                prompt,
+                mode,
+                prepared.uploads,
+                optimistic.requestId,
+            );
             if (promptResult.accepted === false) {
                 throw new Error(t("The dsh runtime rejected this prompt. Check the current model and API Key configuration."));
             }
@@ -1338,6 +1364,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 optimistic.wireText,
                 "queue",
                 optimistic.imageUploads ?? [],
+                optimistic.requestId,
             );
             if (result.accepted === false) throw new Error(t("The dsh runtime rejected this retry."));
         } catch (error) {
@@ -1712,7 +1739,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         try {
             result = await this.runtime.selectAgentPreset(sessionId, target.id);
         } catch (error) {
-            if (!(error instanceof HarnessRpcError) || error.rpcError.code !== "agent-preset-locked") {
+            if (!isRemoteError(error) || !/(?:^|\/)locked$/u.test(error.code)) {
                 throw error;
             }
             const createWithMode = t("Create a session with {mode}", { mode: target.name || target.id });
@@ -2672,19 +2699,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const interaction = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
         if (!interaction || interaction.kind !== "approval") return;
         try {
-            const receipt = await this.runtime.respond<DshApprovalResponse>({
-                type: "client-response",
-                rpcId: interaction.rpcId,
-                result: {
-                    ok: true,
-                    value: {
-                        sessionId,
-                        approvalId: interaction.approvalId,
-                        outcome: action.outcome,
-                    },
-                },
+            await this.runtime.respondRemoteEvent(interaction.rpcId, {
+                kind: "result",
+                value: action.outcome,
             });
-            this.runtime.getSessionStore().settleInteractionReceipt(sessionId, action.key, receipt);
+            this.runtime.getSessionStore().settleRemoteInteraction(sessionId, action.key);
         } catch (error) {
             this.runtime
                 .getSessionStore()
@@ -2708,15 +2727,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const interaction = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
         if (!interaction || interaction.kind !== "question") return;
         try {
-            const receipt = await this.runtime.respond<DshQuestionResponse>({
-                type: "client-response",
-                rpcId: interaction.rpcId,
-                result: {
-                    ok: true,
-                    value: { sessionId, answer: { answers: action.answers } },
-                },
+            await this.runtime.respondRemoteEvent(interaction.rpcId, {
+                kind: "result",
+                value: { answers: action.answers },
             });
-            this.runtime.getSessionStore().settleInteractionReceipt(sessionId, action.key, receipt);
+            this.runtime.getSessionStore().settleRemoteInteraction(sessionId, action.key);
         } catch (error) {
             this.runtime
                 .getSessionStore()

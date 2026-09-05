@@ -904,6 +904,22 @@ export interface DshWorkspaceCreateResult {
     created: boolean;
 }
 
+/** Client-safe directory browser rows returned by the RC picker capability. */
+export interface DshDirectoryEntry {
+    name: string;
+    path: string;
+    hidden: boolean;
+}
+
+/** One directory level and its breadcrumb ancestry. */
+export interface DshDirectoryListing {
+    path: string;
+    home: string;
+    crumbs: DshDirectoryEntry[];
+    entries: DshDirectoryEntry[];
+    truncated: boolean;
+}
+
 export interface DshHostWorkspaceChangedFrame {
     type: "host/workspace-changed";
     workspace: DshWorkspaceView;
