@@ -77,7 +77,7 @@ Content-Type: application/json
   "type": "client-request",
   "rpcId": "r-1",
   "method": "session/list",
-  "payload": { "args": { "cursor": "..." } }
+  "payload": { "args": { "request": { "cursor": "..." } } }
 }
 ```
 
@@ -85,7 +85,7 @@ Content-Type: application/json
 
 1. endpoint 必须恰好是两个非空 segment，即 `<namespace>/<method>`；`session.list` 不再是合法的 Remote endpoint。
 2. `payload` 必须恰好只有一个普通对象字段 `args`；把旧业务对象直接放进 `payload` 会得到 `gateway/arguments-invalid` 或 bad request。
-3. `args` 必须与生成 descriptor 精确匹配；缺字段和多余字段都会拒绝，不能再依赖旧 handler 忽略未知字段。
+3. `args` 必须与生成 descriptor 的**顶层参数名**精确匹配；例如 `list(request, signal)` 的业务 DTO 要放在 `args.request`，而 `signal` 不上 wire。缺字段和多余字段都会拒绝，不能把业务 DTO 直接摊平进 `args`，也不能再依赖旧 handler 忽略未知字段。
 4. URL 中的 endpoint 必须和 envelope 的 `method` 完全相同。
 5. HTTP 仍然要求 POST + JSON；不满足时由 Connection 在业务 dispatch 之前返回 404/415/400。
 
@@ -158,7 +158,7 @@ RC 只有一个物理流路径：
 
 | 旧端点 | RC 端点/处理方式 | 备注 |
 | --- | --- | --- |
-| `session.list` | `session/list` | payload 变为 `{args:{cursor?}}` |
+| `session.list` | `session/list` | payload 变为 `{args:{request:{cursor?}}}` |
 | `session.search` | `session/search` | 同上，descriptor 严格校验 |
 | `session.create` | `session/create` | 结果仍有 `sessionId`，但由 Remote descriptor 定义 |
 | `session.history` | `session/page` + `session/follow` | history 被拆成分页 unary 和可重连 stream |
@@ -280,11 +280,10 @@ RC 在 `packages/api/session-controller/src/types.ts` 引入 `SessionAddress`：
 RC：
 
 ```ts
-{ ok: false, error: RemoteError }
-// RemoteError: { isDSHRemoteError: true, code, message, details }
+{ ok: false, error: { code, message, details } }
 ```
 
-`packages/typert/protocol/src/remote-error.ts` 定义了跨 realm 可识别的 `RemoteError`；业务代码按 `error.code` 判别，不应再用 `instanceof` 或旧的全局 union。错误码由 namespace 扩展，例如：
+Host Gateway 会把 `RemoteError` 投影成上述 JSON-safe failure；官方 Client face 收到后才重建带 `isDSHRemoteError: true` 的 `RemoteError` 实例。`packages/typert/protocol/src/remote-error.ts` 定义了跨 realm 可识别的本地错误；业务代码按 `error.code` 判别，不应再用 `instanceof` 或旧的全局 union。错误码由 namespace 扩展，例如：
 
 - Gateway：`gateway/arguments-invalid`、`gateway/method-unavailable`、`gateway/result-invalid`、`gateway/internal`；
 - Session：`session/not-found`、`session/model-unavailable`、`session/conflict`、`session/agent-busy`、`session/queue-item-not-found`；
