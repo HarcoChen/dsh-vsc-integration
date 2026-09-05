@@ -79,10 +79,66 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 - [ ] **项目记忆入口**：优先复用 Harness 公开 Memory/Skill 能力；无公开协议时只提供打开明确文件的 IDE 操作，不自动把自建记忆拼入所有 prompt。
 - [x] S：Debug Context——让 DSH 真正“看见断点现场”。 现在你已经能附加 Diagnostics，但 Debugger 是明显的下一步。`vscode.debug.activeStackItem` 可以直接拿当前 thread/frame，当前 frame 有 `frameId`/`threadId`/`session`，再通过标准 DAP `stackTrace` → `scopes` → `variables` 就能拿调用栈和局部变量。已实现单向快照：`DSH: Explain Current Debug State` 从当前聚焦的调试线程/帧采集停止原因、前 10 层 stack、局部变量、当前源码附近 24 行和 workspace diagnostics，敏感变量名脱敏并限制总大小；快照作为一次性 IDE context 注入下一条 prompt。Debug Toolbar 在暂停时提供入口，`/ide` 选择器也可手动触发。暂不引入 DSH 插件、双向 RPC 或 evaluate/step 控制。
 
-## P1：上游暂无契约（本轮已在 `0.1.1-rc.2` 复核，保持搁置）
+### 新 RPC（0.1.2-rc.1）解锁的功能候选（2026-09-06 对照 `dsh-v0.1.2-rc.1` 源码复核）
 
-- [ ] **Hook 可观测性**：`deepseek-harness/packages/hooks` 下 `@Remote` 计数为 0，无公开查询契约。
-- [ ] **Session 内容查询**：`deepseek-harness/packages/session-query` 下 `@Remote` 计数为 0；`session.search` 已消费，服务端全文检索无公开入口。
+适配完成后（上一节），RC Remote 的消费面盘点：18 个下行事件已消费 12 个
+（catalog 6 个 + approval/question waterfall 2 个 + chatView 失效刷新 4 个，
+未消费的 6 个 `cordis/*` 见下）；已注册 session
+projection 已消费 10 个（goal、todos、tokenUsage、contextPressure、title、
+sessionStats、permissions、imageLimits、plan、subagentTiming），且
+`GenericProjectionStore` 本就缓存全部 projection —— 以下多数条目是**纯呈现层
+工作**，不动传输。按性价比排序：
+
+- [ ] **占用归因（`contextBreakdown`）**：`{systemTokens, toolsTokens, messageTokens, claim?}`
+      （`dsh-v0.1.2-rc.1:packages/llm/token-meter/src/breakdown-projection.ts:59`）。
+      正好补全上方「上下文用量与超限反馈补全」缺的一半：在统计面板里把
+      上下文占用拆成 system / tools / messages 三段。零新请求。
+- [ ] **跨会话引用 `@session`**：`sessionReferenceResolver/candidates`（`{agentId, query}`）返回
+      `{sessionId, label, cwd, sameWorkspace, createdAt, mention}`，`mention` 是规范
+      `@[label](dsh-session:…)` 串（`dsh-v0.1.2-rc.1:packages/context/session-reference/src/index.ts:250`）。
+      宿主在 agent pre-step 自动把引用会话做成有预算、有 provenance（capturedThroughSeq /
+      compacted / omitted 计数）、声明 untrusted 的只读快照（:130-160）。IDE 侧只做三件事：
+      Composer `@` 候选拉取、mention 插入草稿、消息流展示引用来源徽标。这是新 RPC 里感知价值最高的一项。
+- [ ] **服务端文件/目录 `@` 候选**：`fileReferences/list`（`{agentId, query}`，`dsh-v0.1.2-rc.1:packages/api/session-controller/src/file-references.ts:32`）
+      返回 Agent 工作目录下确定性的路径候选（含目录）。与现有本地 VS Code 候选互补：
+      服务端候选与 Agent 实际 cwd 对齐（远程工作区/容器场景下本地路径根本不对），
+      也部分解锁上方「扩展 @ 引用类型」的目录项。
+- [ ] **对话大纲投影（`turnOutline`）**：`{turns: [{turn, seq, prompt, response}], draft}`
+      （`dsh-v0.1.2-rc.1:packages/session/session-turn-outline/src/projection.ts:86`）。
+      上游特意为「翻页窗口之外的 turn」提供宿主权威大纲——现有 conversationNavigation
+      TreeView 只能看本地已加载范围，对齐后大纲在长会话翻页时不缺行。
+- [ ] **定时提醒只读面板（`schedule`）**：active reminders `{prompt, afterSeconds|everySeconds, scheduledAt}`
+      （`dsh-v0.1.2-rc.1:packages/schedule/schedule/src/projection.ts:70`）。创建只在
+      agent 侧 tools（`schedule/src/tools.ts`），IDE 只读展示 + 失效重拉，不做伪造创建入口。
+- [ ] **会话模型选择实时投影（`modelSelection`）**（`dsh-v0.1.2-rc.1:packages/api/session-controller/src/model-selection-projection.ts:59`）：
+      模型被别处（Web UI、agent）切换时状态条即时跟上，代替现在只在发送前拉 catalog。
+- [ ] **插件库存只读视图（`pluginInventory`）**：`pluginInventory/list` → `{entries: [{entryId, moduleName, enabled, fiberPhase}], agentPresets: [{id, trust, name, isDefault, rows: [{moduleName, enabled, fiberPhase, condition}]}]}`
+      （`dsh-v0.1.2-rc.1:packages/host/plugin-inventory/src/index.ts:65`、`types.ts`）。
+      Loader 条目与每个 preset 的插件组合 + Fiber 生命周期相位（`failed` 可见）。
+      可做设置页「插件与组合」标签或 Agent Preset 详情扩展；注意 MCP server 状态
+      仍无契约，下方「明确不做」的 MCP 条目不变。
+- [ ] **动态插件面板（`dynamic`，进阶）**：cordis-host-runner 暴露 `undefineFromPanel`、`run`、
+      `runHostHalf`、`getClientCode`、`resolveRequestRun`（`dsh-v0.1.2-rc.1:packages/extensions/cordis-host-runner/src/index.ts:226,248,324,383,412`），
+      配套 6 个未消费的 `cordis/*` 下行事件。最小可行：只读状态 + 移除 + `cordis/request-run`
+      审批联动；`getClientCode` 渲染动态插件 client half 属独立大项，暂不做。
+- [ ] **远程工作区支持评估**（激活上方 P1「Runtime 可靠性」的搁置项）：`directoryPicker/*`、
+      `fileReferences/list`、`session/canOpenWorkspacePath|openWorkspacePath` 本轮已全部迁移，
+      Runtime 侧文件浏览/打开的 RPC 解法就位，剩验证 Remote SSH/WSL/Dev Container 下
+      Extension Host 与 Runtime 同侧性的实机评估。
+
+附注（证据与边界）：
+
+- `fileUploads` remote（`@deepseek-ai/dsh-client-file-upload`）是 `0.1.3-alpha.1` 新增，
+  rc.1 挂载清单里没有 —— 跟随 alpha 前必须按 `RPC_ADAPTATION_PLAN.md` §14 做 tag 增量审计。
+- hooks、session-query、session-title、mcp 在 rc.1 的 `@Remote` 计数仍为 0，
+  「上游暂无契约」三项维持搁置；`session/search` 本身已是公开 remote（本次 smoke 验证过），
+  但部署可禁用索引（返回 `gateway/internal: session search is disabled`），调用方需保留该降级。
+- `agentTeam` projection（`packages/experimental/agent-team`）属 experimental，未列入候选。
+
+## P1：上游暂无契约（rc.1 复核维持搁置）
+
+- [ ] **Hook 可观测性**：`deepseek-harness/packages/hooks` 下 `@Remote` 计数为 0（`0.1.1-rc.2`、`0.1.2-rc.1` 两轮复核一致），无公开查询契约。
+- [ ] **Session 内容查询**：`deepseek-harness/packages/session-query` 下 `@Remote` 计数为 0；`session.search` 已消费（rc.1 起为公开 remote，但部署可禁用索引），服务端全文检索管理面无公开入口。
 - [ ] **自动标题状态**：`deepseek-harness/packages/session/session-title` 下 `@Remote` 计数为 0；`title` projection 已消费，但生成状态与失败降级无公开契约。
 
 ## P1：Runtime 可靠性
