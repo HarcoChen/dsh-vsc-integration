@@ -265,9 +265,19 @@ function hasNpmOptionArgument(args: string[], option: string): boolean {
     return args.some((argument) => argument === option || argument.startsWith(`${option}=`));
 }
 
-function withNpmRegistry(args: string[], registry: string | undefined): string[] | undefined {
+function withNpmRegistry(
+    args: string[],
+    registry: string | undefined,
+    packageManager: "npx" | "pnpm",
+): string[] | undefined {
     if (!registry || hasNpmRegistryArgument(args)) return undefined;
-    return ["--registry", registry, ...args];
+    // `--registry` is an npm/npx option. pnpm's `dlx` command does not expose
+    // it and reports it as an unknown dlx option, even when it is placed before
+    // `dlx`. Use pnpm's dotted config override instead so the fallback reaches
+    // the registry without changing the configured invocation.
+    return packageManager === "pnpm"
+        ? [`--config.registry=${registry}`, ...args]
+        : ["--registry", registry, ...args];
 }
 
 function alternateNpmRegistry(
@@ -1698,7 +1708,7 @@ export class DshRuntime implements vscode.Disposable {
             } catch (error) {
                 const registry = npmRegistry;
                 if (!isPackageManagerSource(launcher.source) || registry === undefined) throw error;
-                const mirrorArgs = withNpmRegistry(args, registry);
+                const mirrorArgs = withNpmRegistry(args, registry, launcher.source.kind);
                 if (!mirrorArgs || !isLikelyNpmDownloadFailure(error, error instanceof RuntimeLaunchFailure ? error.outputTail : "")) {
                     throw error;
                 }
