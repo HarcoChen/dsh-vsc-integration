@@ -75,6 +75,7 @@ const DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS = 30_000;
 const DEFAULT_NPM_REGISTRY = "https://registry.npmmirror.com";
 const OFFICIAL_NPM_REGISTRY = "https://registry.npmjs.org";
 const NPM_REGISTRY_QUERY_TIMEOUT_MS = 5_000;
+type PackageManager = "npx" | "pnpm";
 /**
  * The start lock every dsh editor integration shares, so one Runtime serves the
  * machine instead of one per editor. The name is deliberately editor-neutral:
@@ -175,8 +176,9 @@ function portFromArgs(args: string[]): number | undefined {
     return Number.isInteger(value) && value > 0 && value <= 65_535 ? value : undefined;
 }
 
-function launcherNeedsShell(command: string): boolean {
-    if (process.platform !== "win32") return false;
+/** Returns whether a launcher needs a shell; package managers stay shell-free on Windows. */
+function launcherNeedsShell(command: string, packageManager?: PackageManager): boolean {
+    if (process.platform !== "win32" || packageManager !== undefined) return false;
     return !/\.exe$/iu.test(command);
 }
 
@@ -257,20 +259,26 @@ function normalizeNpmRegistry(value: string | undefined): string | undefined {
     }
 }
 
-function hasNpmRegistryArgument(args: string[]): boolean {
-    return args.some((argument) => argument === "--registry" || argument.startsWith("--registry="));
+/** Returns whether arguments already select a registry for the active package manager. */
+function hasNpmRegistryArgument(args: string[], packageManager?: PackageManager): boolean {
+    return args.some((argument) => {
+        if (argument === "--registry" || argument.startsWith("--registry=")) return true;
+        return packageManager === "pnpm" &&
+            (argument === "--config.registry" || argument.startsWith("--config.registry="));
+    });
 }
 
 function hasNpmOptionArgument(args: string[], option: string): boolean {
     return args.some((argument) => argument === option || argument.startsWith(`${option}=`));
 }
 
+/** Adds a package-manager-specific registry override when one is not configured. */
 function withNpmRegistry(
     args: string[],
     registry: string | undefined,
-    packageManager: "npx" | "pnpm",
+    packageManager: PackageManager,
 ): string[] | undefined {
-    if (!registry || hasNpmRegistryArgument(args)) return undefined;
+    if (!registry || hasNpmRegistryArgument(args, packageManager)) return undefined;
     // `--registry` is an npm/npx option. pnpm's `dlx` command does not expose
     // it and reports it as an unknown dlx option, even when it is placed before
     // `dlx`. Use pnpm's dotted config override instead so the fallback reaches
@@ -854,7 +862,8 @@ export class DshRuntime implements vscode.Disposable {
         const npmRegistry = normalizeNpmRegistry(
             configuration.get<string>("npmRegistry", DEFAULT_NPM_REGISTRY),
         );
-        const hasExplicitRegistry = hasNpmRegistryArgument(args);
+        const packageManager = isPackageManagerCommand(command) ? command : undefined;
+        const hasExplicitRegistry = hasNpmRegistryArgument(args, packageManager);
         const activeRegistry = isPackageManagerCommand(command) && !hasExplicitRegistry
             ? await activeNpmRegistry(workspaceRoot, command)
             : undefined;
@@ -1584,7 +1593,8 @@ export class DshRuntime implements vscode.Disposable {
         const configuredNpmRegistry = normalizeNpmRegistry(
             configuration.get<string>("npmRegistry", DEFAULT_NPM_REGISTRY),
         );
-        const hasExplicitRegistry = hasNpmRegistryArgument(args);
+        const packageManager = isPackageManagerSource(launcher.source) ? launcher.source.kind : undefined;
+        const hasExplicitRegistry = hasNpmRegistryArgument(args, packageManager);
         const activeRegistry = isPackageManagerSource(launcher.source) && !hasExplicitRegistry
             ? await activeNpmRegistry(workspaceRoot, launcher.source.kind)
             : undefined;
@@ -1627,7 +1637,10 @@ export class DshRuntime implements vscode.Disposable {
                 env: launchEnv,
                 // Windows batch and PowerShell launchers fail with EINVAL unless
                 // executed through the shell; native executables do not need it.
-                shell: launcherNeedsShell(command),
+                // Package-manager arguments can contain a configured registry
+                // URL. Keep those invocations off cmd.exe on Windows so URL
+                // metacharacters cannot be interpreted as shell syntax.
+                shell: launcherNeedsShell(command, packageManager),
                 stdio: ["ignore", "pipe", "pipe"],
                 windowsHide: true,
             });
