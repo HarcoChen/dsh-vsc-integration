@@ -1,6 +1,22 @@
 # TODO
 
-更新时间：2026-08-26。
+更新时间：2026-09-06。
+
+## 本轮进展（2026-09-06）
+
+`0.1.2-rc.1` RC Remote 全量适配完成（`RPC_ADAPTATION_PLAN.md` 第 1–7 步）：
+`src/remote/` 九模块 carrier 落地，旧 ApiProxy 协议（`harnessClient`/
+`harnessState`/`harnessConnection`/`harnessProtocol`）及其测试删除；类型迁移
+仅动 `types.ts` 与四个导入点，store 的 envelope reducer 保留为护栏测试入口。
+对真实 `0.1.2-rc.1` runtime 跑了 32 项自动化 smoke（鉴权、unary/流握手、
+baseline、workspace 生命周期、能力端点、错误路径）全绿；**UI 级流式、审批/
+提问交互、断线恢复仍是未覆盖的人工冒烟项**（无模型 provider 的环境发不出
+prompt）。第 8 步的版本发布用 `npm run release` 执行，CHANGELOG
+[Unreleased] 已备好。
+
+下方「契约基线」一节仍是 `0.1.1-rc.2` 时代的数字；本轮 rc.1 的 endpoint
+审计在 `RPC_new.md` 与 `RPC_ADAPTATION_PLAN.md`，下次升级按其 §14 门禁先做
+tag diff 再动 pin。
 
 ## 本轮进展（2026-08-26）
 
