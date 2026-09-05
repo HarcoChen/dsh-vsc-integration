@@ -123,6 +123,22 @@ interface RuntimeEndpoint {
 
 const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
+function isLoopbackHostname(hostname: string): boolean {
+    return hostname === "127.0.0.1" ||
+        hostname === "localhost" ||
+        hostname === "0.0.0.0" ||
+        hostname === "[::1]";
+}
+
+function isInsecureRemoteRuntimeUrl(value: string): boolean {
+    try {
+        const url = new URL(value.trim());
+        return url.protocol === "http:" && !isLoopbackHostname(url.hostname);
+    } catch {
+        return false;
+    }
+}
+
 /** Parse a Runtime URL while keeping the launch token separate from requests. */
 function parseRuntimeEndpoint(value: unknown, loopbackOnly = false): RuntimeEndpoint | undefined {
     if (typeof value !== "string") return undefined;
@@ -137,10 +153,7 @@ function parseRuntimeEndpoint(value: unknown, loopbackOnly = false): RuntimeEndp
             (loopbackOnly && (
                 url.protocol !== "http:" ||
                 !url.port ||
-                (url.hostname !== "127.0.0.1" &&
-                    url.hostname !== "localhost" &&
-                    url.hostname !== "0.0.0.0" &&
-                    url.hostname !== "[::1]")
+                !isLoopbackHostname(url.hostname)
             ))
         ) {
             return undefined;
@@ -1511,6 +1524,12 @@ export class DshRuntime implements vscode.Disposable {
             throw new Error(message);
         }
 
+        if (configuredUrl && isInsecureRemoteRuntimeUrl(configuredUrl)) {
+            const message = t("Remote dsh Runtime URLs must use HTTPS.");
+            this.setStatus({ state: "error", message });
+            throw new Error(message);
+        }
+
         this.setStatus({ state: "starting", message: t("Connecting to dsh web...") });
 
         if (configuredUrl) {
@@ -1881,6 +1900,11 @@ export class DshRuntime implements vscode.Disposable {
         return this.authCookie === undefined ? {} : { cookie: this.authCookie };
     }
 
+    private clearRuntimeAuthentication(): void {
+        this.authCookie = undefined;
+        this.authPromise = undefined;
+    }
+
     /** Exchange dsh web's launch token for its authority-bound session cookie. */
     private async ensureAuthenticated(signal?: AbortSignal): Promise<void> {
         const launchUrl = this.launchUrl;
@@ -1952,14 +1976,30 @@ export class DshRuntime implements vscode.Disposable {
             if (await this.isHarnessHealthy(advertisedEndpoint.baseUrl)) {
                 return advertisedEndpoint;
             }
+            this.clearRuntimeAuthentication();
         }
         const ports = (configuredPort > 0 ? [configuredPort, 3080] : [3080]).filter(
             (port, index, all): port is number => Number.isInteger(port) && port > 0 && all.indexOf(port) === index,
         );
         for (const port of ports) {
             const url = `http://127.0.0.1:${port}`;
-            if (await this.isHarnessHealthy(url)) return { baseUrl: url };
+            // A different port is a different origin. Restore the advertised
+            // endpoint only for its own port; never reuse its Cookie elsewhere.
+            const endpoint = advertisedEndpoint?.baseUrl === url
+                ? advertisedEndpoint
+                : { baseUrl: url };
+            this.setRuntimeEndpoint(endpoint);
+            if (await this.isHarnessHealthy(url)) return endpoint;
+            this.clearRuntimeAuthentication();
         }
+        // Probing writes the candidate endpoint so ensureAuthenticated can read
+        // its launch token. None of them answered, so drop it again: getUrl() is
+        // how the rest of the extension decides a Runtime is live, and a caller
+        // that throws after this point would otherwise keep advertising a dead
+        // port instead of its own startup failure.
+        this.baseUrl = undefined;
+        this.launchUrl = undefined;
+        this.clearRuntimeAuthentication();
         return undefined;
     }
 
