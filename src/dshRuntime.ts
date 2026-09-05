@@ -382,6 +382,27 @@ function alternatePackageManagerArgs(
     return undefined;
 }
 
+const DSH_PACKAGE = "@deepseek-ai/dsh";
+
+/**
+ * Pin every package-manager invocation to the Runtime this build speaks.
+ *
+ * A bare `@deepseek-ai/dsh` resolves to the dist-tag `latest`, so publishing a
+ * Runtime moves existing installations onto it at the next cold start — and a
+ * Runtime release may replace the wire protocol wholesale. The pin is a
+ * compile-time constant rather than a setting because the manifest default of
+ * dsh.commandArgs already spells the package out, so every installation that
+ * never touched its settings carries the unpinned spec.
+ *
+ * An operator who wrote an explicit `@deepseek-ai/dsh@<version>` asked for that
+ * version and keeps it; only the unpinned spec is rewritten.
+ */
+function pinDshPackageArgs(args: string[]): string[] {
+    return args.map((argument) =>
+        argument === DSH_PACKAGE ? `${DSH_PACKAGE}@${RUNTIME_DEFAULT_VERSION}` : argument,
+    );
+}
+
 function npxArgsForDsh(configuredArgs: string[]): string[] {
     const dlxIndex = configuredArgs.findIndex((argument) => argument === "dlx");
     if (dlxIndex >= 0) {
@@ -398,7 +419,7 @@ function npxArgsForDsh(configuredArgs: string[]): string[] {
         return [...prefix, "--yes", ...configuredArgs.slice(packageIndex)];
     }
 
-    return ["--yes", "@deepseek-ai/dsh", ...configuredArgs.filter(
+    return ["--yes", DSH_PACKAGE, ...configuredArgs.filter(
         (argument) => argument !== "-y" && argument !== "--yes",
     )];
 }
@@ -1520,9 +1541,13 @@ export class DshRuntime implements vscode.Disposable {
         command = launcher.command;
         // The managed launcher is an absolute path to the standalone runtime
         // binary; package-manager commandArgs do not apply to it.
-        args = launcher.usesConfiguredArgs === false
+        const launchArgs = launcher.usesConfiguredArgs === false
             ? [...launcher.args]
             : [...launcher.args, ...(launcher.source.kind === "managed" ? ["web", "--no-open"] : [...configuredArgs])];
+        // Every launcher path lands here — the manifest default, a user's own
+        // commandArgs, the pnpm/npx conversion, and the discovery fallback — so
+        // this is the one place the pin cannot be routed around.
+        args = isPackageManagerSource(launcher.source) ? pinDshPackageArgs(launchArgs) : launchArgs;
         this.output.appendLine(`[dsh] discovered executable: ${command} (${describeSource(launcher.source)})`);
 
         if (!(await this.acquireRuntimeLock())) {
