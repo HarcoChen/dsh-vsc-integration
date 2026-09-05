@@ -6,7 +6,7 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [Unreleased]
-
+- 紧急修复：锁定dsh版本，上游巨大RPC变化后面慢慢做
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
 ## [0.6.1] - 2026-09-04
