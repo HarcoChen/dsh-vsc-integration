@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import NodeWebSocket from "ws";
 import {
     ABSENT_VALUE_METHODS,
     HarnessClientResponse,
@@ -27,8 +28,10 @@ export interface HarnessClientDiagnostic {
 export interface HarnessApiClientOptions {
     baseUrl: string | (() => string | undefined);
     fetch?: typeof fetch;
+    /** Headers sent with every authenticated HTTP/SSE request. */
+    requestHeaders?: () => Record<string, string>;
     /** WebSocket constructor used for Harness event streams (injectable for non-browser hosts/tests). */
-    webSocketFactory?: (url: string) => WebSocket;
+    webSocketFactory?: (url: string, headers?: Record<string, string>) => WebSocket;
     timeoutMs?: number | (() => number);
     mintRpcId?: () => string;
     onDiagnostic?: (diagnostic: HarnessClientDiagnostic) => void;
@@ -107,7 +110,10 @@ export class HarnessApiClient {
         try {
             const response = await this.doFetch(this.url(`/api/${method}`), {
                 method: "POST",
-                headers: { "content-type": "application/json" },
+                headers: {
+                    ...this.requestHeaders(),
+                    "content-type": "application/json",
+                },
                 body: JSON.stringify({
                     type: "client-request",
                     rpcId,
@@ -178,7 +184,10 @@ export class HarnessApiClient {
     ): Promise<DshRpcReceipt> {
         const httpResponse = await this.doFetch(this.url("/api/respond"), {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+                ...this.requestHeaders(),
+                "content-type": "application/json",
+            },
             body: JSON.stringify(response),
             signal,
         });
@@ -212,7 +221,7 @@ export class HarnessApiClient {
         }
 
         const factory = this.options.webSocketFactory ?? defaultWebSocketFactory;
-        const socket = factory(toWebSocketUrl(this.url(path)));
+        const socket = factory(toWebSocketUrl(this.url(path)), this.requestHeaders());
         yield* this.readWebSocket(socket, channel, signal, onOpen);
     }
 
@@ -222,7 +231,7 @@ export class HarnessApiClient {
         signal: AbortSignal,
         onOpen?: () => void,
     ): AsyncGenerator<HarnessStreamEnvelope<F>> {
-        const queue: Array<string | ArrayBuffer | Blob> = [];
+        const queue: Array<string | ArrayBuffer | Blob | Uint8Array> = [];
         let wake: (() => void) | undefined;
         let closed = false;
         let failure: unknown;
@@ -272,7 +281,7 @@ export class HarnessApiClient {
             socket.removeEventListener("message", onMessage);
             socket.removeEventListener("error", onError);
             socket.removeEventListener("close", onClose);
-            if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+            if (socket.readyState === WEB_SOCKET_OPEN || socket.readyState === WEB_SOCKET_CONNECTING) {
                 socket.close();
             }
         }
@@ -284,7 +293,10 @@ export class HarnessApiClient {
         signal: AbortSignal,
         onOpen?: () => void,
     ): AsyncGenerator<HarnessStreamEnvelope<F>> {
-        const response = await this.doFetch(this.url(path), { signal });
+        const response = await this.doFetch(this.url(path), {
+            headers: this.requestHeaders(),
+            signal,
+        });
         if (!response.ok || response.body === null) {
             throw new Error(`Harness ${channel} stream returned HTTP ${response.status}`);
         }
@@ -364,6 +376,10 @@ export class HarnessApiClient {
         return Math.max(1, value);
     }
 
+    private requestHeaders(): Record<string, string> {
+        return this.options.requestHeaders?.() ?? {};
+    }
+
     private diagnostic(
         channel: "rpc" | "mux" | "host",
         message: string,
@@ -378,11 +394,17 @@ interface SseDataResult {
     rest: string;
 }
 
-function defaultWebSocketFactory(url: string): WebSocket {
-    if (typeof WebSocket !== "function") {
-        throw new Error("Harness WebSocket is unavailable in this runtime");
+function defaultWebSocketFactory(url: string, headers: Record<string, string> = {}): WebSocket {
+    if (Object.keys(headers).length > 0) {
+        // Node's built-in WebSocket does not allow setting a Cookie header.
+        // The ws client does, which is required by Harness's authenticated
+        // WebSocket upgrade path.
+        return new NodeWebSocket(url, { headers }) as unknown as WebSocket;
     }
-    return new WebSocket(url);
+    if (typeof WebSocket === "function") {
+        return new WebSocket(url);
+    }
+    return new NodeWebSocket(url) as unknown as WebSocket;
 }
 
 function toWebSocketUrl(url: string): string {
@@ -392,7 +414,7 @@ function toWebSocketUrl(url: string): string {
 }
 
 function waitForWebSocketOpen(socket: WebSocket, signal: AbortSignal): Promise<void> {
-    if (socket.readyState === WebSocket.OPEN) {
+    if (socket.readyState === WEB_SOCKET_OPEN) {
         return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
@@ -426,10 +448,13 @@ function waitForWebSocketOpen(socket: WebSocket, signal: AbortSignal): Promise<v
     });
 }
 
-async function webSocketDataToText(data: string | ArrayBuffer | Blob): Promise<string> {
+const WEB_SOCKET_CONNECTING = 0;
+const WEB_SOCKET_OPEN = 1;
+
+async function webSocketDataToText(data: string | ArrayBuffer | Blob | Uint8Array): Promise<string> {
     if (typeof data === "string") return data;
-    if (data instanceof Blob) return data.text();
-    return new TextDecoder().decode(data);
+    if (typeof Blob !== "undefined" && data instanceof Blob) return data.text();
+    return new TextDecoder().decode(data as ArrayBuffer | Uint8Array);
 }
 
 /** Extract all complete SSE records while retaining an incomplete tail. */

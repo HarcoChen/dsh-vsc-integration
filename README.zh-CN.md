@@ -94,7 +94,7 @@ graph TD
 | `dsh.serverUrl` | `""` | 已运行的 dsh web Runtime 地址，设置后扩展将直接连接。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.1.1-rc.2` | 托管 Runtime 的锁定版本。 |
+| `dsh.runtimeVersion` | `0.1.2-rc.1` | 托管 Runtime 的锁定版本。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |

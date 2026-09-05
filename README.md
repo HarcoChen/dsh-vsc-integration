@@ -94,7 +94,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverUrl` | `""` | URL of an already running dsh web Runtime; when set, the extension connects directly. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.1.1-rc.2` | Locked version of the managed Runtime. |
+| `dsh.runtimeVersion` | `0.1.2-rc.1` | Locked version of the managed Runtime. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |

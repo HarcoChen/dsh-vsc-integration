@@ -862,7 +862,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public async openBrowser(): Promise<void> {
-        const url = this.runtime.getUrl() ?? (await this.runtime.start(this.workspaceRoot()));
+        const url = this.runtime.getBrowserUrl() ?? (await this.runtime.start(this.workspaceRoot()));
         await vscode.env.openExternal(vscode.Uri.parse(url));
     }
 
