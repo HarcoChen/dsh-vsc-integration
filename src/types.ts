@@ -904,6 +904,22 @@ export interface DshWorkspaceCreateResult {
     created: boolean;
 }
 
+/** Client-safe directory browser rows returned by the RC picker capability. */
+export interface DshDirectoryEntry {
+    name: string;
+    path: string;
+    hidden: boolean;
+}
+
+/** One directory level and its breadcrumb ancestry. */
+export interface DshDirectoryListing {
+    path: string;
+    home: string;
+    crumbs: DshDirectoryEntry[];
+    entries: DshDirectoryEntry[];
+    truncated: boolean;
+}
+
 export interface DshHostWorkspaceChangedFrame {
     type: "host/workspace-changed";
     workspace: DshWorkspaceView;
@@ -1151,6 +1167,32 @@ export interface TurnStatusView {
     phase: "queued" | "running" | "waiting" | "completed" | "cancelled" | "failed";
     turn?: number;
     detail?: string;
+}
+
+export interface HarnessHostDescription {
+    version: string;
+    cwd: string;
+    provider?: string;
+    model?: string;
+    attachedSessions: number;
+    canOpenPath: boolean;
+}
+
+/** Official goal.edit constraint: at least one replacement must be present. */
+export type HarnessGoalEditChanges =
+    | { objective: string; maxGoalRounds?: number }
+    | { objective?: never; maxGoalRounds: number };
+
+export type HarnessQueueAction =
+    | { kind: "edit"; content: Array<Record<string, unknown>> }
+    | { kind: "remove" }
+    | { kind: "steer" };
+
+/** Store-level record envelope: one host event with its identity and payload. */
+export interface HarnessStreamEnvelope<F> {
+    rpcId: string;
+    method: string;
+    payload: F;
 }
 
 export interface HostBaselineView {

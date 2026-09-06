@@ -21,6 +21,8 @@ import { diffViewPaths, storedDiffView } from "./toolDiff";
 export interface OptimisticPrompt {
     id: string;
     sessionId: string;
+    /** Client-minted RC prompt identity used to reconcile retries with the durable message. */
+    requestId?: string;
     displayText: string;
     wireText: string;
     afterSeq: number;
@@ -183,6 +185,13 @@ function directUser(event: StoredSessionEvent): boolean {
 function eventText(event: StoredSessionEvent): string {
     const message = messageRecord(event);
     return contentText(message?.content ?? message?.text);
+}
+
+function eventRequestId(event: StoredSessionEvent): string | undefined {
+    if (event.event.type !== "user/message") return undefined;
+    const message = messageRecord(event);
+    const source = isRecord(message?.source) ? message.source : undefined;
+    return typeof source?.rpcId === "string" ? source.rpcId : undefined;
 }
 
 function oneLine(value: string, limit = TOOL_SUMMARY_LIMIT): string {
@@ -687,9 +696,10 @@ export function projectChatMessages(
         const candidate = snapshot.events.find(
             (stored) =>
                 !matched.has(`event:${stored.event.seq}`) &&
-                stored.event.seq > item.afterSeq &&
                 directUser(stored) &&
-                eventText(stored) === item.wireText,
+                (item.requestId !== undefined
+                    ? eventRequestId(stored) === item.requestId
+                    : stored.event.seq > item.afterSeq && eventText(stored) === item.wireText),
         );
         if (candidate) {
             matchBySeq.set(candidate.event.seq, item);

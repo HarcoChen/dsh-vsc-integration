@@ -9,6 +9,11 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+- 完整适配 `dsh 0.1.2-rc.1` 的 RC Remote 协议（契约 pin：`dsh-v0.1.2-rc.1@a66e4702047846cdaa10c66c9d3df3951f5ea70d`，见 `RPC_ADAPTATION_PLAN.md`）。新增 `src/remote/` carrier：unary（`/api/<namespace>/<method>` + `{args}` envelope，严格校验 `server-response` 与 rpcId）、单 WebSocket 多逻辑流的 `remote.mux`（open/cancel/item/error/end，终止帧幂等）、`$events` ready 作为每代连接的就绪屏障（generation 退避重连，旧代结果不得污染新状态）、`workspace/follow`/`session/control`/`session/follow`+`session/page` 原子 baseline 与增量合并、approval/question waterfall 以同代 `clientId` 应答 `$events/result`、prompt 幂等 `requestId` 防重发重复。
+- 旧 ApiProxy 协议整体移除：`harnessClient`（点号 endpoint、双 WebSocket、`/api/respond`）、`harnessState`、`harnessConnection`、`harnessProtocol` 与其测试删除；`sessionStore`/`sessionCatalog` 改为接收 Remote 状态协调器的明确 mutation/baseline（其 envelope reducer 保留为护栏测试入口）；`HarnessHostDescription`/`HarnessGoalEditChanges`/`HarnessQueueAction`/`HarnessStreamEnvelope` 迁入 `types.ts`。
+- 会话与工作区全量改走 RC Remote 端点：session（list/search/create/rename/fork/prompt/attachment/updateQueue/cancel/canOpenWorkspacePath/openWorkspacePath/modelCatalog/selectModel）、workspace（create/rename/insertBefore/insertSessionBefore/archiveSession/delete）、agentPresets、goals（携带 agentId 与 ref.revision 冲突语义）、commands、subagents、skills、messageFeedback、settings、credentials、llm、directoryPicker；`directoryPicker/*` 不可用时安全降级。
+- 错误分层落地：401/403 报鉴权、404 报能力缺失不降级旧协议、`gateway/arguments-invalid` 视为契约不匹配、未知 namespaced code 显示服务端文案并记录脱敏 details。已对真实 `0.1.2-rc.1` runtime 完成 32 项自动化 smoke（鉴权交换、unary/流握手、baseline、workspace 生命周期、能力端点、错误路径），UI 级流式与审批交互仍需人工冒烟。
+
 ## [0.6.2] - 2026-09-05
 
 - 紧急修复：锁定dsh版本，上游巨大RPC变化后面慢慢做

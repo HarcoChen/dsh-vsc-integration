@@ -1,5 +1,4 @@
-import { HarnessHostDescription } from "./harnessProtocol";
-import { HostBaselineView } from "./types";
+import { HarnessHostDescription, HostBaselineView } from "./types";
 import { isRecord } from "./guards";
 
 /** Validate the exact host.describe value currently exported by Harness. */

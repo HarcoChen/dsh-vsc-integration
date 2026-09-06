@@ -1,18 +1,17 @@
 import { ChildProcess, execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, open, readFile, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
-import { HarnessApiClient, HarnessHttpError } from "./harnessClient";
-import {
-    HarnessClientResponse,
-    HarnessHostDescription,
-    HarnessGoalEditChanges,
-    HarnessQueueAction,
-} from "./harnessProtocol";
-import { HarnessStateCoordinator } from "./harnessState";
+import { RemoteConnectionController } from "./remote/connection";
+import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
+import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
+import { RemoteStateCoordinator } from "./remote/stateCoordinator";
+import { RemoteUnaryClient } from "./remote/unaryClient";
+import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock } from "./remote/sessionState";
 import { t } from "./localize";
 import {
     RUNTIME_DEFAULT_VERSION,
@@ -46,6 +45,7 @@ import {
     DshLlmModelsResult,
     DshLlmDiscoverModelsResult,
     DshCredentialDescribeResult,
+    DshDirectoryListing,
     DshSettingsDescribeResult,
     DshSettingsNamespaceView,
     DshSettingsPathOperation,
@@ -59,9 +59,11 @@ import {
     DshMessageFeedbackListResult,
     DshMessageFeedbackPutRequest,
     DshMessageFeedbackPutResult,
-    DshRpcReceipt,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
+    HarnessGoalEditChanges,
+    HarnessHostDescription,
+    HarnessQueueAction,
     RuntimeStatus,
 } from "./types";
 
@@ -110,16 +112,119 @@ function increasedForkTitle(title: string): string {
     return `${title} (1)`;
 }
 
-function normalizeUrl(value: string): string {
-    return value.trim().replace(/\/+$/, "");
+function isRemoteRecord(value: unknown): value is Record<string, any> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** One lock file's advertised Runtime URL, or undefined when it has none. */
-async function readLockRecordUrl(path: string): Promise<string | undefined> {
+function isSafeRemoteSeq(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= -1 && !Object.is(value, -0);
+}
+
+function remoteGoalRef(value: unknown): DshGoalRef | undefined {
+    if (!isRemoteRecord(value) || typeof value.id !== "string" || value.id.length === 0) return undefined;
+    return typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0
+        ? { id: value.id, revision: value.revision }
+        : undefined;
+}
+
+/** Keep the editor-facing goal facade stable while RC mutations return GoalView. */
+function normalizeGoalRefResult(value: unknown, endpoint: string): DshGoalRefResult {
+    const record = isRemoteRecord(value) ? value : undefined;
+    const ref = remoteGoalRef(record?.ref) ?? remoteGoalRef(record);
+    if (!ref) throw new RemoteProtocolError(`Remote ${endpoint} returned an invalid goal reference`);
+    return { ref };
+}
+
+interface RuntimeEndpoint {
+    /** URL used for HTTP requests; it never contains the launch token. */
+    baseUrl: string;
+    /** URL printed by dsh web, carrying the one-time launch token. */
+    launchUrl?: string;
+}
+
+const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/u;
+
+function isLoopbackHostname(hostname: string): boolean {
+    return hostname === "127.0.0.1" ||
+        hostname === "localhost" ||
+        hostname === "0.0.0.0" ||
+        hostname === "[::1]";
+}
+
+function isInsecureRemoteRuntimeUrl(value: string): boolean {
+    try {
+        const url = new URL(value.trim());
+        return url.protocol === "http:" && !isLoopbackHostname(url.hostname);
+    } catch {
+        return false;
+    }
+}
+
+/** Parse a Runtime URL while keeping the launch token separate from requests. */
+function parseRuntimeEndpoint(value: unknown, loopbackOnly = false): RuntimeEndpoint | undefined {
+    if (typeof value !== "string") return undefined;
+    try {
+        const url = new URL(value.trim());
+        if (
+            (url.protocol !== "http:" && url.protocol !== "https:") ||
+            url.username ||
+            url.password ||
+            url.hash ||
+            (url.pathname !== "/" && url.pathname !== "") ||
+            (loopbackOnly && (
+                url.protocol !== "http:" ||
+                !url.port ||
+                !isLoopbackHostname(url.hostname)
+            ))
+        ) {
+            return undefined;
+        }
+
+        const tokenValues = url.searchParams.getAll("token");
+        if (
+            [...url.searchParams.keys()].some((key) => key !== "token") ||
+            tokenValues.length > 1 ||
+            (tokenValues.length === 1 && !AUTH_TOKEN_PATTERN.test(tokenValues[0] ?? ""))
+        ) {
+            return undefined;
+        }
+
+        const base = new URL(url.href);
+        base.search = "";
+        base.hash = "";
+        base.pathname = "/";
+        if (loopbackOnly) {
+            base.hostname = base.hostname === "[::1]" ? "[::1]" : "127.0.0.1";
+        }
+        const baseUrl = base.toString().replace(/\/$/u, "");
+        if (tokenValues.length === 0) return { baseUrl };
+
+        const launch = new URL(baseUrl);
+        launch.searchParams.set("token", tokenValues[0] as string);
+        return { baseUrl, launchUrl: launch.href };
+    } catch {
+        return undefined;
+    }
+}
+
+/** One lock file's advertised Runtime endpoint, or undefined when it has none. */
+async function readLockRecord(path: string): Promise<RuntimeEndpoint | undefined> {
     try {
         const contents = await readFile(path, "utf8");
-        const record = JSON.parse(contents) as { url?: unknown };
-        return loopbackRuntimeUrl(record.url);
+        const record = JSON.parse(contents) as { url?: unknown; launchUrl?: unknown };
+        const advertised = parseRuntimeEndpoint(record.url, true);
+        const launch = parseRuntimeEndpoint(record.launchUrl, true);
+        const baseUrl = advertised?.baseUrl ?? launch?.baseUrl;
+        if (!baseUrl) return undefined;
+        const launchUrl = launch?.baseUrl === baseUrl
+            ? launch.launchUrl
+            : advertised?.baseUrl === baseUrl
+                ? advertised.launchUrl
+                : undefined;
+        return {
+            baseUrl,
+            ...(launchUrl === undefined ? {} : { launchUrl }),
+        };
     } catch {
         // A missing, half-written, or concurrently updated lock advertises nothing.
         return undefined;
@@ -127,36 +232,15 @@ async function readLockRecordUrl(path: string): Promise<string | undefined> {
 }
 
 function loopbackRuntimeUrl(value: unknown): string | undefined {
-    if (typeof value !== "string") return undefined;
-    try {
-        const url = new URL(normalizeUrl(value));
-        if (
-            url.protocol !== "http:" ||
-            !url.port ||
-            (url.hostname !== "127.0.0.1" &&
-                url.hostname !== "localhost" &&
-                url.hostname !== "0.0.0.0" &&
-                url.hostname !== "[::1]") ||
-            (url.pathname !== "/" && url.pathname !== "") ||
-            url.username ||
-            url.password ||
-            url.search ||
-            url.hash
-        ) {
-            return undefined;
-        }
-        const hostname = url.hostname === "[::1]" ? "[::1]" : "127.0.0.1";
-        return `http://${hostname}:${url.port}`;
-    } catch {
-        return undefined;
-    }
+    const endpoint = parseRuntimeEndpoint(value, true);
+    return endpoint?.launchUrl === undefined ? endpoint?.baseUrl : undefined;
 }
 
-function extractUrl(value: string): string | undefined {
+function extractRuntimeEndpoint(value: string): RuntimeEndpoint | undefined {
     const match = value.match(
-        /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):\d+/i,
+        /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):\d+(?:\/\?token=[A-Za-z0-9_-]+)?/i,
     );
-    return match ? loopbackRuntimeUrl(match[0]) : undefined;
+    return match ? parseRuntimeEndpoint(match[0], true) : undefined;
 }
 
 function portFromArgs(args: string[]): number | undefined {
@@ -242,6 +326,10 @@ function redactUrl(value: string): string {
     } catch {
         return "<invalid URL>";
     }
+}
+
+function redactRuntimeOutput(value: string): string {
+    return value.replace(/([?&]token=)[A-Za-z0-9_-]+/gu, "$1<redacted>");
 }
 
 function normalizeNpmRegistry(value: string | undefined): string | undefined {
@@ -753,10 +841,15 @@ export class DshRuntime implements vscode.Disposable {
     private readonly listeners = new Set<RuntimeListener>();
     private readonly harnessConnectedListeners = new Set<HarnessConnectedListener>();
     private readonly remoteEventListeners = new Set<RemoteEventListener>();
-    private readonly apiClient: HarnessApiClient;
-    private readonly harnessState: HarnessStateCoordinator;
+    private readonly apiClient: RemoteUnaryClient;
+    private readonly remoteConnection: RemoteConnectionController;
+    private readonly harnessState: RemoteStateCoordinator;
+    private readonly subagentHistoryCursors = new Map<string, number>();
     private child: ChildProcess | undefined;
     private baseUrl: string | undefined;
+    private launchUrl: string | undefined;
+    private authCookie: string | undefined;
+    private authPromise: Promise<void> | undefined;
     private startPromise: Promise<string> | undefined;
     private startedByExtension = false;
     private runtimeLock: { handle: FileHandle; path: string; createdAt: number } | undefined;
@@ -770,20 +863,36 @@ export class DshRuntime implements vscode.Disposable {
         private readonly output: vscode.OutputChannel,
         private readonly storagePath: string,
     ) {
-        this.apiClient = new HarnessApiClient({
+        this.apiClient = new RemoteUnaryClient({
             baseUrl: () => this.baseUrl,
+            requestHeaders: () => this.requestHeaders(),
             timeoutMs: () =>
                 this.configuration().get<number>("requestTimeoutMs", 600_000),
-            onDiagnostic: ({ channel, message, cause }) => {
+            onDiagnostic: (message, cause) => {
                 const suffix = cause === undefined ? "" : `: ${String(cause)}`;
-                this.output.appendLine(`[dsh:${channel}] ${message}${suffix}`);
+                this.output.appendLine(`[dsh:rpc] ${message}${suffix}`);
             },
         });
-        this.harnessState = new HarnessStateCoordinator(this.apiClient, {
-            onConnectionState: (state) =>
-                this.output.appendLine(`[dsh:events] connection ${state}`),
+        this.remoteConnection = new RemoteConnectionController({
+            baseUrl: () => this.baseUrl,
+            requestHeaders: () => this.requestHeaders(),
+            unary: this.apiClient,
+            onDiagnostic: (message, cause) => {
+                const suffix = cause === undefined ? "" : `: ${String(cause)}`;
+                this.output.appendLine(`[dsh:remote] ${message}${suffix}`);
+            },
+        });
+        this.harnessState = new RemoteStateCoordinator(this.remoteConnection, {
+            onConnectionState: (state) => this.output.appendLine(`[dsh:remote] connection ${state}`),
             onHostDescription: (description) => {
-                this.hostDescription = description;
+                this.hostDescription = {
+                    ...description,
+                    canOpenPath: description.canOpenPath,
+                };
+                // A follow/page cut is generation-scoped. Any subagent page
+                // request after reconnect must reopen its follow snapshot
+                // instead of reusing a cursor from the dead carrier.
+                this.subagentHistoryCursors.clear();
                 for (const listener of this.harnessConnectedListeners) listener();
             },
             onHostFrame: (frame) => {
@@ -792,20 +901,11 @@ export class DshRuntime implements vscode.Disposable {
                 if (typeof event !== "string") return;
                 for (const listener of this.remoteEventListeners) listener(event);
             },
-            onDiagnostic: (diagnostic) => {
-                let prefix: string;
-                let cause: unknown;
-                if ("channel" in diagnostic) {
-                    prefix = diagnostic.channel;
-                    cause = diagnostic.cause;
-                } else {
-                    prefix = diagnostic.code;
-                    cause = diagnostic.value;
-                }
+            onDiagnostic: (message, cause) => {
                 const suffix = cause === undefined ? "" : `: ${String(cause)}`;
-                this.output.appendLine(`[dsh:${prefix}] ${diagnostic.message}${suffix}`);
+                this.output.appendLine(`[dsh:remote] ${message}${suffix}`);
             },
-        });
+        }, { runtimeVersion: RUNTIME_DEFAULT_VERSION });
     }
 
     public onDidChange(listener: RuntimeListener): vscode.Disposable {
@@ -835,6 +935,11 @@ export class DshRuntime implements vscode.Disposable {
 
     public getUrl(): string | undefined {
         return this.baseUrl;
+    }
+
+    /** URL suitable for opening in a browser, including the launch token. */
+    public getBrowserUrl(): string | undefined {
+        return this.launchUrl ?? this.baseUrl;
     }
 
     public getHostDescription(): HarnessHostDescription | undefined {
@@ -914,7 +1019,8 @@ export class DshRuntime implements vscode.Disposable {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 3_000);
             try {
-                hostDescription = await this.apiClient.describe(controller.signal);
+                await this.apiClient.probe(controller.signal);
+                hostDescription = this.hostDescription;
                 rpcHealth = "ok";
             } catch {
                 rpcHealth = "failed";
@@ -950,7 +1056,9 @@ export class DshRuntime implements vscode.Disposable {
             `Runtime status: ${this.status.state}`,
             `Runtime URL: ${this.baseUrl ? redactUrl(this.baseUrl) : "<none>"}`,
             `Runtime health: ${health}`,
-            `Public host.describe RPC: ${rpcHealth}`,
+            `Remote RPC probe: ${rpcHealth}`,
+            `Remote protocol: RC Remote v1 (generation ${this.remoteConnection.currentGeneration || "<none>"})`,
+            `Configured Runtime version: ${runtimeVersion}`,
             `Host version: ${hostDescription?.version ?? "<unknown>"}`,
             `Host cwd: ${hostDescription?.cwd ?? "<unknown>"}`,
             `API key reference: ${apiKeyRef || "<empty>"}`,
@@ -959,15 +1067,15 @@ export class DshRuntime implements vscode.Disposable {
         return lines.join("\n");
     }
 
-    public getApiClient(): HarnessApiClient {
+    public getApiClient(): RemoteUnaryClient {
         return this.apiClient;
     }
 
-    public getSessionStore(): HarnessStateCoordinator["sessions"] {
+    public getSessionStore(): RemoteStateCoordinator["sessions"] {
         return this.harnessState.sessions;
     }
 
-    public getSessionCatalog(): HarnessStateCoordinator["catalog"] {
+    public getSessionCatalog(): RemoteStateCoordinator["catalog"] {
         return this.harnessState.catalog;
     }
 
@@ -999,9 +1107,13 @@ export class DshRuntime implements vscode.Disposable {
 
     public async stop(): Promise<void> {
         await this.harnessState.stop();
+        this.subagentHistoryCursors.clear();
         const child = this.child;
         this.child = undefined;
         this.baseUrl = undefined;
+        this.launchUrl = undefined;
+        this.authCookie = undefined;
+        this.authPromise = undefined;
         this.hostDescription = undefined;
 
         if (child && this.startedByExtension) {
@@ -1015,24 +1127,28 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public createWorkspace(path: string): Promise<DshWorkspaceCreateResult> {
-        return this.apiClient.call("workspace.create", { path });
+        return this.apiClient.call("workspace/create", { request: { path } });
     }
 
     public async renameWorkspace(workspaceId: string, title: string): Promise<DshWorkspaceView> {
-        const result = await this.apiClient.call("workspace.rename", { workspaceId, title });
+        const result = await this.apiClient.call<{ workspace: DshWorkspaceView }>("workspace/rename", {
+            request: { workspaceId, title },
+        });
         this.harnessState.catalog.upsertWorkspace(result.workspace);
         return result.workspace;
     }
 
     public async deleteWorkspace(workspaceId: string): Promise<void> {
-        await this.apiClient.call("workspace.delete", { workspaceId });
+        await this.apiClient.call("workspace/delete", { request: { workspaceId } });
         this.harnessState.catalog.removeWorkspace(workspaceId);
     }
 
     public async moveWorkspace(workspaceId: string, beforeWorkspaceId?: string): Promise<void> {
-        const result = await this.apiClient.call("workspace.insertBefore", {
-            workspaceId,
-            ...(beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId }),
+        const result = await this.apiClient.call<{ workspaceIds: string[] }>("workspace/insertBefore", {
+            request: {
+                workspaceId,
+                ...(beforeWorkspaceId === undefined ? {} : { beforeWorkspaceId }),
+            },
         });
         this.harnessState.catalog.replaceWorkspaceOrder(result.workspaceIds);
     }
@@ -1042,10 +1158,12 @@ export class DshRuntime implements vscode.Disposable {
         sessionId: string,
         beforeSessionId?: string,
     ): Promise<void> {
-        const result = await this.apiClient.call("workspace.insertSessionBefore", {
-            workspaceId,
-            sessionId,
-            ...(beforeSessionId === undefined ? {} : { beforeSessionId }),
+        const result = await this.apiClient.call<{ workspace: DshWorkspaceView }>("workspace/insertSessionBefore", {
+            request: {
+                workspaceId,
+                sessionId,
+                ...(beforeSessionId === undefined ? {} : { beforeSessionId }),
+            },
         });
         this.harnessState.catalog.upsertWorkspace(result.workspace);
     }
@@ -1055,23 +1173,31 @@ export class DshRuntime implements vscode.Disposable {
         agentPreset?: string,
         workspaceId?: string,
     ): Promise<DshSessionCreateResult> {
-        const result = await this.apiClient.call("session.create", {
-            ...(workspaceId === undefined ? { cwd } : { workspaceId }),
-            ...(agentPreset === undefined ? {} : { agentPreset }),
+        const result = await this.apiClient.call<DshSessionCreateResult>("session/create", {
+            request: {
+                ...(workspaceId === undefined ? {} : { workspaceId }),
+                ...(cwd === undefined ? {} : { cwd }),
+                ...(agentPreset === undefined ? {} : { agentPreset }),
+            },
         });
-        this.harnessState.catalog.upsertCreated(result.sessionId, cwd);
+        this.harnessState.catalog.upsertCreated(result.sessionId, cwd, {
+            ...(result.agentPreset === undefined ? {} : { agentPreset: result.agentPreset }),
+        });
+        this.harnessState.watchSession(result.sessionId);
         return result;
     }
 
     public searchSessions(query: string, signal?: AbortSignal): Promise<DshSessionSearchResult> {
-        return this.apiClient.call("session.search", { query }, signal);
+        return this.apiClient.call("session/search", { request: { query } }, signal);
     }
 
     public async renameSession(
         sessionId: string,
         title: string,
     ): Promise<DshSessionRenameResult> {
-        const result = await this.apiClient.call("session.rename", { sessionId, title });
+        const result = await this.apiClient.call<DshSessionRenameResult>("session/rename", {
+            request: { sessionId, title },
+        });
         this.harnessState.catalog.applyRename(sessionId, result.title, result.seq);
         return result;
     }
@@ -1088,9 +1214,11 @@ export class DshRuntime implements vscode.Disposable {
             (typeof sourceProjectionTitle === "string" && sourceProjectionTitle.trim()
                 ? sourceProjectionTitle.trim()
                 : undefined);
-        const result = await this.apiClient.call("session.fork", {
-            sessionId,
-            ...(atSeq === undefined ? {} : { atSeq }),
+        const result = await this.apiClient.call<DshSessionForkResult>("session/fork", {
+            request: {
+                sessionId,
+                ...(atSeq === undefined ? {} : { atSeq }),
+            },
         });
         // The fork response intentionally contains only the child id. Seed the
         // local catalog with the source metadata so switching immediately after
@@ -1118,8 +1246,35 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async archiveSession(sessionId: string): Promise<void> {
-        const result = await this.apiClient.call("workspace.archiveSession", { sessionId });
+        const result = await this.apiClient.call<{ archivedSessionIds: string[] }>("workspace/archiveSession", {
+            request: { sessionId },
+        });
         this.harnessState.catalog.replaceArchived(result.archivedSessionIds);
+    }
+
+    /** Report whether the composed Runtime can open a Session workspace path. */
+    public canOpenWorkspacePath(signal?: AbortSignal): Promise<boolean> {
+        return this.apiClient.call("session/canOpenWorkspacePath", {}, signal);
+    }
+
+    /** Open a Session-aware path through the Runtime's native opener. */
+    public openWorkspacePath(path: string, signal?: AbortSignal): Promise<{ opened: true }> {
+        return this.apiClient.call("session/openWorkspacePath", { request: { path } }, signal);
+    }
+
+    /** Pick a directory when the Runtime composes a native picker capability. */
+    public pickDirectory(signal?: AbortSignal): Promise<string | null> {
+        return this.apiClient.call("directoryPicker/pick", {}, signal);
+    }
+
+    /** List one directory level through the Runtime's browse capability. */
+    public listDirectory(path?: string, signal?: AbortSignal): Promise<DshDirectoryListing> {
+        return this.apiClient.call("directoryPicker/list", path === undefined ? {} : { path }, signal);
+    }
+
+    /** Create one child directory through the Runtime's browse capability. */
+    public createDirectory(path: string, name: string, signal?: AbortSignal): Promise<string> {
+        return this.apiClient.call("directoryPicker/createDirectory", { path, name }, signal);
     }
 
     public async refreshSessions(): Promise<void> {
@@ -1127,10 +1282,21 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async history(sessionId: string, maxMessages = 100): Promise<DshHistoryResult> {
-        return this.apiClient.call("session.history", {
-            sessionId,
-            maxMessages,
-        });
+        await this.harnessState.syncHistory(sessionId);
+        const snapshot = this.harnessState.sessions.get(sessionId);
+        const events = snapshot?.events.slice(-Math.max(1, maxMessages)).map((entry) => ({
+            event: entry.event,
+            ...(entry.view === undefined ? {} : { view: entry.view }),
+        })) ?? [];
+        const projections = snapshot
+            ? snapshot.projections.length > 0
+                ? {
+                      asOfSeq: Math.max(...snapshot.projections.map((cell) => cell.seq), -1),
+                      values: Object.fromEntries(snapshot.projections.map((cell) => [cell.key, cell.value])),
+                  }
+                : undefined
+            : undefined;
+        return { events, hasMore: false, ...(projections === undefined ? {} : { projections }) };
     }
 
     public async prompt(
@@ -1138,28 +1304,53 @@ export class DshRuntime implements vscode.Disposable {
         text: string,
         mode: "queue" | "steer" = "queue",
         images: readonly DshImageUpload[] = [],
+        requestId: string = randomUUID(),
     ): Promise<DshSessionPromptResult> {
-        return this.apiClient.call("session.prompt", {
-            sessionId,
-            mode,
-            content: [
-                ...images.map((image) => ({
-                    type: "image" as const,
-                    mediaType: image.mediaType,
-                    data: image.data,
-                    ...(image.name === undefined ? {} : { name: image.name }),
-                })),
-                ...(text ? [{ type: "text" as const, text }] : []),
-            ],
+        return this.apiClient.call("session/prompt", {
+            request: {
+                requestId,
+                sessionId,
+                mode,
+                content: [
+                    ...(text ? [{ type: "text" as const, text }] : []),
+                    ...images.map((image) => ({
+                        type: "image" as const,
+                        mediaType: image.mediaType,
+                        data: image.data,
+                        ...(image.name === undefined ? {} : { name: image.name }),
+                    })),
+                ],
+                ...(Intl.DateTimeFormat().resolvedOptions().timeZone
+                    ? { clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+                    : {}),
+            },
         });
     }
 
     public attachment(sessionId: string, attachmentId: string): Promise<DshImageAttachmentResult> {
-        return this.apiClient.call("session.attachment", { sessionId, attachmentId });
+        return this.apiClient.call("session/attachment", { request: { sessionId, attachmentId } });
     }
 
-    public models(sessionId: string): Promise<DshSessionModelsResult> {
-        return this.apiClient.call("session.models", { sessionId });
+    public async models(sessionId: string): Promise<DshSessionModelsResult> {
+        const catalog = await this.apiClient.call<{
+            default: { provider: string; model: string; reasoningEffort?: string };
+            routableProviders: string[];
+            groups: DshSessionModelsResult["groups"];
+            failures: DshSessionModelsResult["failures"];
+        }>("session/modelCatalog", {});
+        const selected = this.harnessState.sessions.get(sessionId)?.projections
+            .find((cell) => cell.key === "modelSelection")?.value;
+        const selection = selected && typeof selected === "object" && selected !== null
+            ? ((selected as { next?: typeof catalog.default; lastUsed?: typeof catalog.default }).next ??
+                (selected as { lastUsed?: typeof catalog.default }).lastUsed)
+            : undefined;
+        const current = selection ?? catalog.default;
+        return {
+            current,
+            routable: catalog.routableProviders.includes(current.provider),
+            groups: catalog.groups,
+            failures: catalog.failures,
+        };
     }
 
     public selectModel(selection: {
@@ -1168,47 +1359,56 @@ export class DshRuntime implements vscode.Disposable {
         model: string;
         reasoningEffort?: string;
     }): Promise<DshSessionSelectModelResult> {
-        return this.apiClient.call("session.selectModel", selection);
+        return this.apiClient.call("session/selectModel", { request: selection });
     }
 
-    public agentPresets(): Promise<DshAgentPresetListResult> {
-        return this.apiClient.call("agentPreset.list", {});
+    public async agentPresets(): Promise<DshAgentPresetListResult> {
+        const result = await this.apiClient.call<Partial<DshAgentPresetListResult>>("agentPresets/list", {});
+        return {
+            presets: result.presets ?? [],
+            authorable: result.authorable === true,
+            hasDocument: result.hasDocument ?? result.authorable === true,
+        };
     }
 
-    public selectAgentPreset(sessionId: string, agentPreset: string): Promise<DshAgentPresetSelectResult> {
-        return this.apiClient.call("agentPreset.select", { sessionId, agentPreset });
+    public async selectAgentPreset(sessionId: string, agentPreset: string): Promise<DshAgentPresetSelectResult> {
+        const selected = await this.apiClient.call<string>("agentPresets/select", {
+            agentId: sessionId,
+            agentPreset,
+        });
+        return { agentPreset: selected };
     }
 
     public readAgentPreset(agentPreset: string): Promise<DshAgentPresetReadResult> {
-        return this.apiClient.call("agentPreset.read", { agentPreset });
+        return this.apiClient.call("agentPresets/read", { agentPreset });
     }
 
     public async copyAgentPreset(from: string, agentPreset: string, name?: string): Promise<string> {
-        const result = await this.apiClient.call("agentPreset.copy", {
+        await this.apiClient.call("agentPresets/copy", {
             from,
-            agentPreset,
+            id: agentPreset,
             ...(name === undefined ? {} : { name }),
         });
-        return result.agentPreset;
+        return agentPreset;
     }
 
     public openAgentPresetDocument(agentPreset: string): Promise<DshAgentPresetOpenResult> {
-        return this.apiClient.call("agentPreset.openDocument", { agentPreset });
+        return this.apiClient.call("settings/openAgentPresetDirectory", { agentPreset });
     }
 
     public async removeAgentPreset(agentPreset: string): Promise<void> {
-        await this.apiClient.call("agentPreset.remove", { agentPreset });
+        await this.apiClient.call("agentPresets/deletePreset", { id: agentPreset });
     }
 
     public async setDefaultAgentPreset(agentPreset: string): Promise<void> {
-        await this.apiClient.call("settings.update", {
+        await this.apiClient.call("settings/update", {
             ns: "agent-presets",
             patch: { default: agentPreset },
         });
     }
 
     public async cancel(sessionId: string): Promise<void> {
-        await this.apiClient.call("session.cancel", { sessionId });
+        await this.apiClient.call("session/cancel", { request: { sessionId } });
     }
 
     public async updateQueue(
@@ -1216,7 +1416,7 @@ export class DshRuntime implements vscode.Disposable {
         itemId: string,
         action: HarnessQueueAction,
     ): Promise<void> {
-        await this.apiClient.call("session.updateQueue", { sessionId, itemId, action });
+        await this.apiClient.call("session/updateQueue", { request: { sessionId, itemId, action } });
     }
 
     public createGoal(
@@ -1224,11 +1424,13 @@ export class DshRuntime implements vscode.Disposable {
         objective: string,
         maxGoalRounds?: number,
     ): Promise<DshGoalRefResult> {
-        return this.apiClient.call("goal.create", {
-            sessionId,
-            objective,
-            ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }),
-        });
+        return this.apiClient.call("goals/create", {
+            agentId: sessionId,
+            request: {
+                objective,
+                ...(maxGoalRounds === undefined ? {} : { maxGoalRounds }),
+            },
+        }).then((value) => normalizeGoalRefResult(value, "goals/create"));
     }
 
     public editGoal(
@@ -1236,43 +1438,133 @@ export class DshRuntime implements vscode.Disposable {
         ref: DshGoalRef,
         changes: HarnessGoalEditChanges,
     ): Promise<DshGoalRefResult> {
-        return this.apiClient.call("goal.edit", { sessionId, ref, ...changes });
+        return this.apiClient
+            .call("goals/edit", { agentId: sessionId, ref, request: changes })
+            .then((value) => normalizeGoalRefResult(value, "goals/edit"));
     }
 
     public pauseGoal(sessionId: string, ref: DshGoalRef): Promise<DshGoalRefResult> {
-        return this.apiClient.call("goal.pause", { sessionId, ref });
+        return this.apiClient
+            .call("goals/pause", { agentId: sessionId, ref })
+            .then((value) => normalizeGoalRefResult(value, "goals/pause"));
     }
 
     public resumeGoal(sessionId: string, ref: DshGoalRef): Promise<DshGoalRefResult> {
-        return this.apiClient.call("goal.resume", { sessionId, ref });
+        return this.apiClient
+            .call("goals/resume", { agentId: sessionId, ref })
+            .then((value) => normalizeGoalRefResult(value, "goals/resume"));
     }
 
     public completeGoal(sessionId: string, ref: DshGoalRef): Promise<DshGoalRefResult> {
-        return this.apiClient.call("goal.complete", { sessionId, ref });
+        return this.apiClient
+            .call("goals/complete", { agentId: sessionId, ref })
+            .then((value) => normalizeGoalRefResult(value, "goals/complete"));
     }
 
-    public clearGoal(sessionId: string, ref: DshGoalRef): Promise<{ cleared: true }> {
-        return this.apiClient.call("goal.clear", { sessionId, ref });
+    public async clearGoal(sessionId: string, ref: DshGoalRef): Promise<{ cleared: true }> {
+        const value = await this.apiClient.call("goals/clear", { agentId: sessionId, ref });
+        // RC returns the tombstone GoalRef; the editor facade keeps its
+        // historical `{ cleared: true }` acknowledgement shape.
+        normalizeGoalRefResult(value, "goals/clear");
+        return { cleared: true };
     }
 
     public listSubagents(
         parentSessionId: string,
         signal?: AbortSignal,
     ): Promise<DshSubagentCatalog> {
-        return this.apiClient.call("subagent.list", { parentSessionId }, signal);
+        return this.apiClient.call("subagents/list", { parentSessionId }, signal);
     }
 
-    public subagentHistory(
+    public async subagentHistory(
         address: DshSubagentAddress,
         beforeSeq?: number,
         maxMessages?: number,
         signal?: AbortSignal,
     ): Promise<DshSubagentHistoryResult> {
-        return this.apiClient.call("subagent.history", {
-            ...address,
-            ...(beforeSeq === undefined ? {} : { beforeSeq }),
-            ...(maxMessages === undefined ? {} : { maxMessages }),
+        const wireAddress = {
+            kind: "subagent" as const,
+            parentSessionId: address.parentSessionId,
+            childSessionId: address.childSessionId,
+            mode: address.mode,
+        };
+        const cacheKey = `${address.parentSessionId}:${address.childSessionId}:${address.mode}`;
+        let throughSeq = this.subagentHistoryCursors.get(cacheKey);
+
+        // The first page is opened through the addressed follow stream. This
+        // supplies both the message-aligned tail and the cursor that must stay
+        // fixed for subsequent backwards pagination.
+        if (beforeSeq === undefined || throughSeq === undefined) {
+            const oneShot = new AbortController();
+            const followSignal = signal === undefined
+                ? oneShot.signal
+                : AbortSignal.any([signal, oneShot.signal]);
+            let snapshot: { records: unknown[]; hasMore: boolean; projections?: unknown; cursor: number } | undefined;
+            try {
+                for await (const value of this.remoteConnection.open("session/follow", {
+                    request: {
+                        address: wireAddress,
+                        ...(maxMessages === undefined ? {} : { maxMessages }),
+                    },
+                }, followSignal)) {
+                    if (!isRemoteRecord(value) || value.type !== "snapshot") {
+                        throw new RemoteProtocolError("Remote subagent follow did not begin with a snapshot");
+                    }
+                    if (!isSafeRemoteSeq(value.cursor)) throw new RemoteProtocolError("Remote subagent follow returned an invalid cursor");
+                    if (!Array.isArray(value.records) || typeof value.hasMore !== "boolean") {
+                        throw new RemoteProtocolError("Remote subagent follow snapshot is malformed");
+                    }
+                    snapshot = {
+                        records: value.records,
+                        hasMore: value.hasMore,
+                        ...(value.projections === undefined ? {} : { projections: value.projections }),
+                        cursor: value.cursor,
+                    };
+                    break;
+                }
+            } finally {
+                oneShot.abort();
+            }
+            if (!snapshot) throw new Error(`Remote subagent ${address.childSessionId} did not provide a follow snapshot`);
+            throughSeq = snapshot.cursor;
+            this.subagentHistoryCursors.set(cacheKey, throughSeq);
+            this.harnessState.watchSubagent(wireAddress);
+            if (beforeSeq === undefined) {
+                return {
+                    events: remoteHistoryEntries(snapshot.records),
+                    hasMore: snapshot.hasMore,
+                    ...(snapshot.projections === undefined ? {} : { projections: remoteProjectionBlock(snapshot.projections) }),
+                };
+            }
+        }
+
+        const page = await this.apiClient.call<unknown>("session/page", {
+            request: {
+                address: wireAddress,
+                throughSeq,
+                beforeSeq,
+                ...(maxMessages === undefined ? {} : { maxMessages }),
+            },
         }, signal);
+        if (!isRemoteRecord(page) || !Array.isArray(page.records) || typeof page.hasMore !== "boolean") {
+            throw new RemoteProtocolError("Remote subagent page is malformed");
+        }
+        const records = page.records;
+        const events = remoteHistoryEntries(records);
+        if (beforeSeq !== undefined) {
+            for (const entry of events) {
+                if (typeof entry.event.seq !== "number" || entry.event.seq >= beforeSeq) {
+                    throw new RemoteProtocolError("Remote subagent page contains an out-of-range sequence");
+                }
+            }
+            if (page.hasMore && events.length === 0) {
+                throw new RemoteProtocolError("Remote subagent page advertised more history without records");
+            }
+        }
+        return {
+            events,
+            hasMore: page.hasMore,
+        };
     }
 
     public promptSubagent(
@@ -1281,8 +1573,11 @@ export class DshRuntime implements vscode.Disposable {
         signal?: AbortSignal,
     ): Promise<DshSubagentPromptResult> {
         const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        return this.apiClient.call("subagent.prompt", {
-            ...address,
+        return this.apiClient.call("subagents/prompt", {
+            parentSessionId: address.parentSessionId,
+            childSessionId: address.childSessionId,
+            mode: address.mode,
+            requestId: randomUUID(),
             content: [{ type: "text", text }],
             ...(clientTimeZone ? { clientTimeZone } : {}),
         }, signal);
@@ -1292,7 +1587,7 @@ export class DshRuntime implements vscode.Disposable {
         address: Extract<DshSubagentAddress, { mode: "continuable" }>,
         signal?: AbortSignal,
     ): Promise<{ accepted: true }> {
-        return this.apiClient.call("subagent.interrupt", address, signal);
+        return this.apiClient.call("subagents/interruptByParent", address, signal);
     }
 
     /** Reads the Host-owned per-message feedback sidecar for one Session. */
@@ -1302,11 +1597,11 @@ export class DshRuntime implements vscode.Disposable {
     ): Promise<DshMessageFeedbackListResult | undefined> {
         try {
             return await this.apiClient.call("messageFeedback/list", {
-                args: { request: { sessionId } satisfies DshMessageFeedbackListRequest },
+                request: { sessionId } satisfies DshMessageFeedbackListRequest,
             }, signal);
         } catch (error) {
             // The sidecar is optional on older or minimally composed Runtimes.
-            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
     }
@@ -1317,11 +1612,9 @@ export class DshRuntime implements vscode.Disposable {
         signal?: AbortSignal,
     ): Promise<DshMessageFeedbackPutResult | undefined> {
         try {
-            return await this.apiClient.call("messageFeedback/put", {
-                args: { request },
-            }, signal);
+            return await this.apiClient.call("messageFeedback/put", { request }, signal);
         } catch (error) {
-            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
     }
@@ -1332,31 +1625,55 @@ export class DshRuntime implements vscode.Disposable {
         signal?: AbortSignal,
     ): Promise<DshMessageFeedbackDeleteResult | undefined> {
         try {
-            return await this.apiClient.call("messageFeedback/delete", {
-                args: { request },
-            }, signal);
+            return await this.apiClient.call("messageFeedback/delete", { request }, signal);
         } catch (error) {
-            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
     }
 
-    public respond<T>(response: HarnessClientResponse<T>): Promise<DshRpcReceipt> {
-        return this.apiClient.respond(response);
+    public async respondRemoteEvent(
+        eventId: string,
+        outcome: import("./remote/contracts").RemoteEventOutcome,
+    ): Promise<void> {
+        await this.remoteConnection.answerRemoteEvent(eventId, outcome);
     }
 
     /** Stores a credential in the runtime-owned credential provider. */
     public async setCredential(ref: string, value: string): Promise<void> {
-        await this.apiClient.call("credentials.set", { ref, value });
+        await this.apiClient.call("credentials/set", { ref, value });
     }
 
     public listProviders(): Promise<DshProviderListResult> {
-        return this.apiClient.call("llm.providers", {});
+        return Promise.all([
+            this.apiClient.call<readonly { id: string }[]>("llm/listProviders", {}),
+            this.apiClient.call<readonly {
+                provider: string;
+                displayName: string;
+                settingsNs: string;
+                settingsPath: string[];
+                declared?: boolean;
+            }[]>(
+                "llm/listConfigurableProviders",
+                {},
+            ),
+        ]).then(([activeProviders, configurableProviders]) => {
+            const active = new Set(activeProviders.map((provider) => provider.id));
+            return {
+                providers: configurableProviders.map((provider) => ({
+                    ...provider,
+                    active: active.has(provider.provider),
+                })),
+            };
+        });
     }
 
     /** Returns the host-scoped catalog used by provider configuration surfaces. */
     public listLlmModels(): Promise<DshLlmModelsResult> {
-        return this.apiClient.call("llm.models", {});
+        return this.apiClient.call("session/modelCatalog", {}).then((result) => ({
+            groups: (result as { groups?: DshLlmModelsResult["groups"] }).groups ?? [],
+            failures: (result as { failures?: DshLlmModelsResult["failures"] }).failures ?? [],
+        }));
     }
 
     /** Interrogates a provider endpoint using an unsaved configuration draft. */
@@ -1370,23 +1687,27 @@ export class DshRuntime implements vscode.Disposable {
         },
         signal?: AbortSignal,
     ): Promise<DshLlmDiscoverModelsResult> {
-        return this.apiClient.call("llm.discoverModels", payload, signal);
+        const { settingsNs, ...request } = payload;
+        return this.apiClient.call<DshLlmDiscoverModelsResult["models"]>("llm/discoverModels", {
+            settingsNs,
+            request,
+        }, signal).then((models) => ({ models }));
     }
 
     public describeSettings(): Promise<DshSettingsDescribeResult> {
-        return this.apiClient.call("settings.describe", {});
+        return this.apiClient.call("settings/describe", {});
     }
 
     public describeCredentials(refs: string[]): Promise<DshCredentialDescribeResult> {
-        return this.apiClient.call("credentials.describe", { refs });
+        return this.apiClient.call("credentials/describe", { refs });
     }
 
     public async unsetCredential(ref: string): Promise<void> {
-        await this.apiClient.call("credentials.unset", { ref });
+        await this.apiClient.call("credentials/unset", { ref });
     }
 
     public async openSettingsDocument(): Promise<void> {
-        await this.apiClient.call("settings.openDocument", {});
+        await this.apiClient.call("settings/openSettingsDocument", {});
     }
 
     public mutateSettings(
@@ -1394,7 +1715,7 @@ export class DshRuntime implements vscode.Disposable {
         ops: DshSettingsPathOperation[],
         expectedRevision?: number,
     ): Promise<DshSettingsNamespaceView> {
-        return this.apiClient.call("settings.mutate", {
+        return this.apiClient.call("settings/mutate", {
             ns,
             ops,
             ...(expectedRevision === undefined ? {} : { expectedRevision }),
@@ -1402,13 +1723,16 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async describeHost(): Promise<HarnessHostDescription> {
-        return this.apiClient.describe();
+        return this.hostDescription ?? {
+            version: "0.1.2-rc.1",
+            cwd: "",
+            attachedSessions: this.harnessState.catalog.snapshot().sessions.length,
+            canOpenPath: true,
+        };
     }
 
     public async listSkills(sessionId: string): Promise<DshSkillEntry[]> {
-        const result = await this.apiClient.call("skill.list", {
-            sessionId,
-        });
+        const result = await this.apiClient.call<{ skills: DshSkillEntry[] }>("skills/list", { request: { sessionId } });
         return result.skills;
     }
 
@@ -1420,12 +1744,10 @@ export class DshRuntime implements vscode.Disposable {
      */
     public async listCommands(sessionId: string): Promise<DshCommandDescriptor[] | undefined> {
         try {
-            const commands = await this.apiClient.call("commands/list", {
-                args: { agentId: sessionId },
-            });
+            const commands = await this.apiClient.call<readonly DshCommandDescriptor[]>("commands/list", { agentId: sessionId });
             return [...commands];
         } catch (error) {
-            if (error instanceof HarnessHttpError && error.status === 404) return undefined;
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
     }
@@ -1445,9 +1767,7 @@ export class DshRuntime implements vscode.Disposable {
         line: string,
         images: readonly DshImageUpload[] = [],
     ): Promise<DshCommandExecution | undefined> {
-        return this.apiClient.call("commands/execute", {
-            args: { agentId: sessionId, line, images },
-        });
+        return this.apiClient.call("commands/execute", { agentId: sessionId, line, images });
     }
 
     public async dispose(): Promise<void> {
@@ -1466,6 +1786,12 @@ export class DshRuntime implements vscode.Disposable {
             throw new Error(message);
         }
 
+        if (configuredUrl && isInsecureRemoteRuntimeUrl(configuredUrl)) {
+            const message = t("Remote dsh Runtime URLs must use HTTPS.");
+            this.setStatus({ state: "error", message });
+            throw new Error(message);
+        }
+
         this.setStatus({ state: "starting", message: t("Connecting to dsh web...") });
 
         if (configuredUrl) {
@@ -1473,7 +1799,14 @@ export class DshRuntime implements vscode.Disposable {
                 await this.stop();
                 this.setStatus({ state: "starting", message: t("Connecting to dsh web...") });
             }
-            const url = normalizeUrl(configuredUrl);
+            const endpoint = parseRuntimeEndpoint(configuredUrl);
+            if (!endpoint) {
+                const message = t("Invalid dsh Runtime URL.");
+                this.setStatus({ state: "error", message });
+                throw new Error(message);
+            }
+            const url = endpoint.baseUrl;
+            this.setRuntimeEndpoint(endpoint);
             await this.waitForReady(url, startupTimeout);
             this.baseUrl = url;
             this.startedByExtension = false;
@@ -1482,7 +1815,7 @@ export class DshRuntime implements vscode.Disposable {
             return url;
         }
 
-        if (this.baseUrl && (await this.isHealthy(this.baseUrl))) {
+        if (this.baseUrl && (await this.isHarnessHealthy(this.baseUrl))) {
             this.setStatus({ state: "running", url: this.baseUrl });
             this.harnessState.start();
             return this.baseUrl;
@@ -1492,13 +1825,13 @@ export class DshRuntime implements vscode.Disposable {
         // previous extension instance before creating another writer process.
         // Harness's web profile defaults to port 3080; an explicit setting wins.
         const configuredPort = this.configuration().get<number>("serverPort", 0);
-        const existingUrl = await this.findExistingRuntime(configuredPort);
-        if (existingUrl) {
-            this.baseUrl = existingUrl;
+        const existingEndpoint = await this.findExistingRuntime(configuredPort);
+        if (existingEndpoint) {
+            this.setRuntimeEndpoint(existingEndpoint);
             this.startedByExtension = false;
-            this.setStatus({ state: "running", url: existingUrl });
+            this.setStatus({ state: "running", url: existingEndpoint.baseUrl });
             this.harnessState.start();
-            return existingUrl;
+            return existingEndpoint.baseUrl;
         }
 
         if (!workspaceRoot) {
@@ -1553,13 +1886,13 @@ export class DshRuntime implements vscode.Disposable {
         if (!(await this.acquireRuntimeLock())) {
             const deadline = Date.now() + startupTimeout;
             while (Date.now() < deadline) {
-                const url = await this.findExistingRuntime(configuredPort);
-                if (url) {
-                    this.baseUrl = url;
+                const endpoint = await this.findExistingRuntime(configuredPort);
+                if (endpoint) {
+                    this.setRuntimeEndpoint(endpoint);
                     this.startedByExtension = false;
-                    this.setStatus({ state: "running", url });
+                    this.setStatus({ state: "running", url: endpoint.baseUrl });
                     this.harnessState.start();
-                    return url;
+                    return endpoint.baseUrl;
                 }
                 await delay(250);
             }
@@ -1622,6 +1955,9 @@ export class DshRuntime implements vscode.Disposable {
             this.baseUrl = candidatePort
                 ? `http://127.0.0.1:${candidatePort}`
                 : undefined;
+            this.launchUrl = undefined;
+            this.authCookie = undefined;
+            this.authPromise = undefined;
 
             this.output.appendLine(`[dsh] starting: ${command} ${attemptArgs.join(" ")}`);
             const launchEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -1654,13 +1990,17 @@ export class DshRuntime implements vscode.Disposable {
             let outputTail = "";
             const recordOutput = (chunk: Buffer, stream: string): void => {
                 const text = chunk.toString("utf8");
-                outputTail = `${outputTail}${text}`.slice(-8_000);
-                this.output.append(`[dsh:${stream}] ${text}`);
+                const safeText = redactRuntimeOutput(text);
+                outputTail = `${outputTail}${safeText}`.slice(-8_000);
+                this.output.append(`[dsh:${stream}] ${safeText}`);
 
-                const discoveredUrl = extractUrl(text);
-                if (discoveredUrl && discoveredUrl !== this.baseUrl) {
-                    this.baseUrl = discoveredUrl;
-                    void this.publishRuntimeLockUrl(discoveredUrl).catch((error) => {
+                const discoveredEndpoint = extractRuntimeEndpoint(text);
+                if (discoveredEndpoint && (
+                    discoveredEndpoint.baseUrl !== this.baseUrl ||
+                    discoveredEndpoint.launchUrl !== this.launchUrl
+                )) {
+                    this.setRuntimeEndpoint(discoveredEndpoint);
+                    void this.publishRuntimeLockUrl(discoveredEndpoint).catch((error) => {
                         this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
                     });
                 }
@@ -1700,7 +2040,10 @@ export class DshRuntime implements vscode.Disposable {
                 );
                 this.baseUrl = url;
                 try {
-                    await this.publishRuntimeLockUrl(url);
+                    await this.publishRuntimeLockUrl({
+                        baseUrl: url,
+                        ...(this.launchUrl === undefined ? {} : { launchUrl: this.launchUrl }),
+                    });
                 } catch (error) {
                     this.output.appendLine(`[dsh] failed to publish Runtime URL: ${String(error)}`);
                 }
@@ -1709,6 +2052,9 @@ export class DshRuntime implements vscode.Disposable {
                 await this.terminate(child);
                 this.child = undefined;
                 this.baseUrl = undefined;
+                this.launchUrl = undefined;
+                this.authCookie = undefined;
+                this.authPromise = undefined;
                 this.startedByExtension = false;
                 throw new RuntimeLaunchFailure(outputTail, error);
             } finally {
@@ -1788,7 +2134,7 @@ export class DshRuntime implements vscode.Disposable {
             }
 
             const url = initialUrl ?? this.baseUrl;
-            if (url && (await this.isHealthy(url))) {
+            if (url && (await this.isHarnessHealthy(url, initialUrl !== undefined))) {
                 return url;
             }
 
@@ -1807,11 +2153,85 @@ export class DshRuntime implements vscode.Disposable {
         }));
     }
 
+    private setRuntimeEndpoint(endpoint: RuntimeEndpoint): void {
+        const previousBaseUrl = this.baseUrl;
+        const previousLaunchUrl = this.launchUrl;
+        const launchUrl = endpoint.launchUrl ?? (
+            previousBaseUrl === endpoint.baseUrl ? previousLaunchUrl : undefined
+        );
+        this.baseUrl = endpoint.baseUrl;
+        this.launchUrl = launchUrl;
+        if (previousBaseUrl !== this.baseUrl || previousLaunchUrl !== this.launchUrl) {
+            this.authCookie = undefined;
+            this.authPromise = undefined;
+        }
+    }
+
+    private requestHeaders(): Record<string, string> {
+        return this.authCookie === undefined ? {} : { cookie: this.authCookie };
+    }
+
+    private clearRuntimeAuthentication(): void {
+        this.authCookie = undefined;
+        this.authPromise = undefined;
+    }
+
+    /** Exchange dsh web's launch token for its authority-bound session cookie. */
+    private async ensureAuthenticated(signal?: AbortSignal): Promise<void> {
+        const launchUrl = this.launchUrl;
+        if (!launchUrl || this.authCookie !== undefined) return;
+        if (this.authPromise) return this.authPromise;
+
+        const exchange = async (): Promise<void> => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 1_500);
+            const relayAbort = (): void => controller.abort(signal?.reason);
+            signal?.addEventListener("abort", relayAbort, { once: true });
+            try {
+                const response = await fetch(launchUrl, {
+                    redirect: "manual",
+                    headers: { accept: "text/plain" },
+                    signal: controller.signal,
+                });
+                if (response.status === 303) {
+                    const setCookie = response.headers.get("set-cookie");
+                    const cookie = setCookie?.split(";", 1)[0]?.trim();
+                    if (!cookie || !/^[^=;]+=[^;]*$/u.test(cookie)) {
+                        throw new Error("dsh web authentication did not return a session cookie");
+                    }
+                    if (this.launchUrl === launchUrl) {
+                        this.authCookie = cookie;
+                    }
+                    return;
+                }
+                // Pre-0.1.2 runtimes did not require authentication. Keep the
+                // compatibility path so an existing local server still works.
+                if (response.ok) return;
+                throw new Error(`dsh web authentication returned HTTP ${response.status}`);
+            } finally {
+                clearTimeout(timeout);
+                signal?.removeEventListener("abort", relayAbort);
+            }
+        };
+
+        const promise = exchange();
+        this.authPromise = promise;
+        try {
+            await promise;
+        } finally {
+            if (this.authPromise === promise) this.authPromise = undefined;
+        }
+    }
+
     private async isHealthy(url: string): Promise<boolean> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 1_500);
         try {
-            const response = await fetch(url, { signal: controller.signal });
+            await this.ensureAuthenticated(controller.signal);
+            const response = await fetch(url, {
+                headers: this.requestHeaders(),
+                signal: controller.signal,
+            });
             return response.ok;
         } catch {
             return false;
@@ -1820,41 +2240,125 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    private async findExistingRuntime(configuredPort: number): Promise<string | undefined> {
-        const advertisedUrl = await this.readRuntimeLockUrl();
-        if (advertisedUrl && (await this.isHarnessHealthy(advertisedUrl))) {
-            return advertisedUrl;
+    private async findExistingRuntime(configuredPort: number): Promise<RuntimeEndpoint | undefined> {
+        const advertisedEndpoint = await this.readRuntimeEndpoint();
+        if (advertisedEndpoint) {
+            this.setRuntimeEndpoint(advertisedEndpoint);
+            if (await this.isHarnessHealthy(advertisedEndpoint.baseUrl)) {
+                return advertisedEndpoint;
+            }
+            this.clearRuntimeAuthentication();
         }
         const ports = (configuredPort > 0 ? [configuredPort, 3080] : [3080]).filter(
             (port, index, all): port is number => Number.isInteger(port) && port > 0 && all.indexOf(port) === index,
         );
         for (const port of ports) {
             const url = `http://127.0.0.1:${port}`;
-            if (await this.isHarnessHealthy(url)) return url;
+            // A different port is a different origin. Restore the advertised
+            // endpoint only for its own port; never reuse its Cookie elsewhere.
+            const endpoint = advertisedEndpoint?.baseUrl === url
+                ? advertisedEndpoint
+                : { baseUrl: url };
+            this.setRuntimeEndpoint(endpoint);
+            if (await this.isHarnessHealthy(url)) return endpoint;
+            this.clearRuntimeAuthentication();
         }
+        // Probing writes the candidate endpoint so ensureAuthenticated can read
+        // its launch token. None of them answered, so drop it again: getUrl() is
+        // how the rest of the extension decides a Runtime is live, and a caller
+        // that throws after this point would otherwise keep advertising a dead
+        // port instead of its own startup failure.
+        this.baseUrl = undefined;
+        this.launchUrl = undefined;
+        this.clearRuntimeAuthentication();
         return undefined;
     }
 
-    private async isHarnessHealthy(url: string): Promise<boolean> {
+    private async isHarnessHealthy(url: string, failFast = false): Promise<boolean> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 1_500);
+        const rpcId = `dsh-remote-probe-${process.pid}-${randomUUID()}`;
         try {
-            const response = await fetch(`${url}/api/host.describe`, {
+            try {
+                await this.ensureAuthenticated(controller.signal);
+            } catch (error) {
+                if (failFast && error instanceof Error && /HTTP 401\b/u.test(error.message)) {
+                    throw new RemoteHttpError("session/list", 401);
+                }
+                if (failFast && error instanceof Error && /HTTP 403\b/u.test(error.message)) {
+                    throw new RemoteHttpError("session/list", 403);
+                }
+                if (failFast) throw error;
+                return false;
+            }
+            const response = await fetch(remoteEndpointUrl(url, "session/list"), {
                 method: "POST",
-                headers: { "content-type": "application/json" },
+                headers: {
+                    ...this.requestHeaders(),
+                    "content-type": "application/json",
+                },
                 body: JSON.stringify({
                     type: "client-request",
-                    rpcId: `dsh-vscode-probe-${process.pid}`,
-                    method: "host.describe",
-                    payload: {},
+                    rpcId,
+                    method: "session/list",
+                    // RC's session.list descriptor names this reserved
+                    // parameter `_request` (the DTO is intentionally empty).
+                    payload: { args: { _request: {} } },
                 }),
                 signal: controller.signal,
             });
-            if (!response.ok) return false;
-            const body: unknown = await response.json();
-            return typeof body === "object" && body !== null
-                && (body as { type?: unknown }).type === "server-response";
-        } catch {
+            if (!response.ok) {
+                if (failFast && (response.status === 401 || response.status === 403)) {
+                    throw new RemoteHttpError("session/list", response.status);
+                }
+                if (failFast && response.status === 404) {
+                    throw new RemoteProtocolError(
+                        t("Configured dsh Runtime does not expose RC Remote RPC (HTTP 404). Upgrade dsh to 0.1.2-rc.1."),
+                    );
+                }
+                return false;
+            }
+            let body: unknown;
+            try {
+                body = await response.json();
+            } catch (error) {
+                if (failFast) {
+                    throw new RemoteProtocolError(
+                        t("Configured dsh Runtime returned invalid JSON from its RPC endpoint."),
+                        { cause: error },
+                    );
+                }
+                return false;
+            }
+            let envelope;
+            try {
+                envelope = parseRemoteServerResponse(body);
+            } catch (error) {
+                if (failFast) {
+                    throw new RemoteProtocolError(
+                        t("Configured dsh Runtime returned an incompatible RPC response."),
+                        { cause: error },
+                    );
+                }
+                return false;
+            }
+            // A structurally valid Remote failure is still proof that the
+            // target speaks RC Remote v1; capability/domain failure is handled
+            // by the actual facade call, not misclassified as an old protocol.
+            if (envelope.rpcId !== rpcId) {
+                if (failFast) {
+                    throw new RemoteProtocolError(t("Configured dsh Runtime returned a mismatched RPC id."));
+                }
+                return false;
+            }
+            return true;
+        } catch (error) {
+            if (!failFast) return false;
+            if (error instanceof RemoteHttpError || error instanceof RemoteProtocolError) throw error;
+            // A transport failure can mean that the Runtime is still starting;
+            // let waitForReady retry until its startup deadline. Protocol-level
+            // failures above remain fail-fast so incompatible endpoints surface
+            // immediately.
             return false;
         } finally {
             clearTimeout(timeout);
@@ -1895,12 +2399,12 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    private async readRuntimeLockUrl(): Promise<string | undefined> {
+    private async readRuntimeEndpoint(): Promise<RuntimeEndpoint | undefined> {
         // The shared lock wins; the legacy one still answers for a peer that
         // has not updated yet.
         for (const name of [RUNTIME_LOCK_FILE, LEGACY_RUNTIME_LOCK_FILE]) {
-            const url = await readLockRecordUrl(join(tmpdir(), name));
-            if (url) return url;
+            const endpoint = await readLockRecord(join(tmpdir(), name));
+            if (endpoint) return endpoint;
         }
         return undefined;
     }
@@ -1925,10 +2429,13 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    private publishRuntimeLockUrl(url: string): Promise<void> {
+    private publishRuntimeLockUrl(endpoint: RuntimeEndpoint): Promise<void> {
         const lock = this.runtimeLock;
-        const advertisedUrl = loopbackRuntimeUrl(url);
+        const advertisedUrl = loopbackRuntimeUrl(endpoint.baseUrl);
         if (!lock || !advertisedUrl) return Promise.resolve();
+        const launchUrl = endpoint.launchUrl === undefined
+            ? undefined
+            : parseRuntimeEndpoint(endpoint.launchUrl, true)?.launchUrl;
 
         const write = this.runtimeLockWrite
             .catch(() => undefined)
@@ -1938,6 +2445,7 @@ export class DshRuntime implements vscode.Disposable {
                     pid: process.pid,
                     createdAt: lock.createdAt,
                     url: advertisedUrl,
+                    ...(launchUrl === undefined ? {} : { launchUrl }),
                 });
                 await lock.handle.truncate(0);
                 await lock.handle.write(contents, 0, "utf8");
