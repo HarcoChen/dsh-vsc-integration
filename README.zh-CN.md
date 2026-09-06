@@ -5,10 +5,7 @@
 <h1 align="center">DeepSeek Harness for VS Code</h1>
 
 <p align="center">
-  <strong>让 AI 动手写代码，让每次改动清晰可见。</strong><br>
-
-
-  将 DeepSeek Harness（DSH）带进 VS Code：结合代码上下文完成任务，用原生 Diff 审查改动，通过 Trace 和用量面板了解执行过程。
+  将 DeepSeek Harness（DSH）带进 VS Code：结合IDE的上下文完成任务，查看原生Diff，通过 Trace 和用量面板了解Agent的执行过程。
 </p>
 
 <p align="center">
@@ -56,7 +53,6 @@
 2. **打开聊天**：打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。扩展会自动启动或连接 Runtime；缺少可用环境时，默认尝试下载托管 Runtime。
 3. **完成首次配置**：通过 `DSH: 配置 API Key`（`DSH: Configure API Key`）设置 DeepSeek 凭据。其他 Provider 可在 `DSH: 在浏览器中打开 dsh Web UI` 中配置。选择或注册 DSH Workspace，再选择模型。
 4. **开始一个任务**：输入 `@` 引用文件，或右键选区选择 DSH 操作。查看执行过程，在需要审批时确认操作，并通过工具卡打开 Diff 审查结果。
-
 
 ### 从这些任务开始
 
