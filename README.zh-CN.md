@@ -15,12 +15,12 @@
 <p align="center">
   <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
+  <a href="https://github.com/HarcoChen/deepseek-harness-vscode/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/deepseek-harness-vscode?style=flat-square" alt="GitHub Stars"></a>
+  <a href="https://github.com/HarcoChen/deepseek-harness-vscode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/deepseek-harness-vscode?style=flat-square" alt="许可证"></a>
 </p>
 
 <p align="center">
-  <em>独立社区项目，欢迎提 <a href="https://github.com/HarcoChen/dsh-vsc-integration/issues">issue</a>。</em>
+  <em>独立社区项目，欢迎提 <a href="https://github.com/HarcoChen/deepseek-harness-vscode/issues">issue</a>。</em>
 </p>
 
 <p align="center">
@@ -105,7 +105,7 @@ graph TD
 
 ## 其他安装方式
 
-**从 GitHub Releases 安装**：下载 [Releases](https://github.com/HarcoChen/dsh-vsc-integration/releases) 里的 `.vsix`，运行 `Extensions: Install from VSIX...`。预发布版本仅发布到 GitHub Releases。
+**从 GitHub Releases 安装**：下载 [Releases](https://github.com/HarcoChen/deepseek-harness-vscode/releases) 里的 `.vsix`，运行 `Extensions: Install from VSIX...`。预发布版本仅发布到 GitHub Releases。
 
 **从源码构建**：
 
