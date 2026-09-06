@@ -15,12 +15,12 @@
 <p align="center">
   <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20downloads" alt="Open VSX downloads"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="License"></a>
+  <a href="https://github.com/HarcoChen/deepseek-harness-vscode/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/deepseek-harness-vscode?style=flat-square" alt="GitHub Stars"></a>
+  <a href="https://github.com/HarcoChen/deepseek-harness-vscode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/deepseek-harness-vscode?style=flat-square" alt="License"></a>
 </p>
 
 <p align="center">
-  <em>An independent community project. <a href="https://github.com/HarcoChen/dsh-vsc-integration/issues">Issues</a> welcome.</em>
+  <em>An independent community project. <a href="https://github.com/HarcoChen/deepseek-harness-vscode/issues">Issues</a> welcome.</em>
 </p>
 
 <p align="center">
@@ -94,7 +94,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverUrl` | `""` | URL of an already running dsh web Runtime; when set, the extension connects directly. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.1.1-rc.2` | Locked version of the managed Runtime. |
+| `dsh.runtimeVersion` | `0.1.2-rc.1` | Locked version of the managed Runtime. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |
@@ -105,7 +105,7 @@ Search `dsh` in VS Code settings for the full list.
 
 ## Other ways to install
 
-**From GitHub Releases** — download the `.vsix` from [Releases](https://github.com/HarcoChen/dsh-vsc-integration/releases) and run `Extensions: Install from VSIX...`. Pre-release builds are published only to GitHub Releases.
+**From GitHub Releases** — download the `.vsix` from [Releases](https://github.com/HarcoChen/deepseek-harness-vscode/releases) and run `Extensions: Install from VSIX...`. Pre-release builds are published only to GitHub Releases.
 
 **Build from source**:
 

@@ -6,6 +6,9 @@ webview/types/**
 webview/tsconfig.json
 webview/index.html
 node_modules/**
+!node_modules/
+!node_modules/ws/
+!node_modules/ws/**
 deepseek-harness/**
 .dsh/**
 test/**

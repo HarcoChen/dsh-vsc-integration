@@ -1,4 +1,3 @@
-import { HarnessStreamEnvelope } from "./harnessClient";
 import { t } from "./localize";
 import {
     DshHistoryEntry,
@@ -15,6 +14,7 @@ import {
     DshRpcReceipt,
     DshSessionEvent,
     DshSessionProjectionsBlock,
+    HarnessStreamEnvelope,
 } from "./types";
 import { isRecord } from "./guards";
 
@@ -371,6 +371,41 @@ export class SessionEventStore {
         return changed;
     }
 
+    /**
+     * Install a complete Remote follow/page history baseline.
+     *
+     * A generation rebaseline replaces stale history, while retaining live
+     * events that arrived after the opening snapshot was read. This keeps a
+     * concurrent follow stream from being truncated by a slow page request.
+     */
+    public replaceHistory(entries: readonly DshHistoryEntry[]): boolean {
+        const incoming = new Map<number, StoredSessionEvent>();
+        for (const entry of entries) {
+            const event = normalizeEvent(entry.event);
+            if (!event) {
+                this.diagnostic("invalid-event", "Remote history contained an invalid session event", entry);
+                continue;
+            }
+            incoming.set(event.seq, { event, view: entry.view, source: "history" });
+        }
+        let incomingHighest = -1;
+        for (const seq of incoming.keys()) incomingHighest = Math.max(incomingHighest, seq);
+        for (const [seq, stored] of this.events) {
+            if (seq > incomingHighest && stored.source === "live") incoming.set(seq, stored);
+        }
+        this.events.clear();
+        for (const [seq, stored] of incoming) this.events.set(seq, stored);
+        this.highestSequence = -1;
+        this.contiguousSequence = -1;
+        while (this.events.has(this.contiguousSequence + 1)) this.contiguousSequence += 1;
+        for (const seq of this.events.keys()) this.highestSequence = Math.max(this.highestSequence, seq);
+        this.gapObserved = this.contiguousSequence < (this.subscribedLastSeq ?? -1);
+        this.orderedCache = undefined;
+        this.surfaceState = undefined;
+        this.surfaceCache = undefined;
+        return true;
+    }
+
     public ingestLive(eventValue: DshSessionEvent, view?: unknown): boolean {
         const event = normalizeEvent(eventValue);
         if (!event) {
@@ -398,6 +433,17 @@ export class SessionEventStore {
         if (this.contiguousSequence < lastSeq) {
             this.gapObserved = true;
         }
+    }
+
+    /** Set the latest sequence represented by an RC follow opening snapshot. */
+    public followCursor(cursor: number, incomplete = false): void {
+        if (!isSeq(cursor, true)) {
+            this.diagnostic("invalid-frame", "session/follow carried an invalid cursor", cursor);
+            return;
+        }
+        this.subscribedLastSeq = cursor;
+        this.highestSequence = Math.max(this.highestSequence, cursor);
+        this.gapObserved = incomplete;
     }
 
     public get needsHistoryBaseline(): boolean {
@@ -731,7 +777,12 @@ class SessionState {
             toolName: frame.toolName,
             ...(frame.callId === undefined ? {} : { callId: frame.callId }),
             ...(frame.reason === undefined ? {} : { reason: frame.reason }),
-            status: current?.status ?? "pending",
+            // A reconnect may replay the same Gateway event id. Re-open cards
+            // that were made unavailable by the dead generation, while
+            // preserving an in-flight submission against duplicate delivery.
+            status: current?.status === "unavailable" || current?.status === "failed"
+                ? "pending"
+                : current?.status ?? "pending",
             ...(current?.outcome === undefined ? {} : { outcome: current.outcome }),
             ...(current?.error === undefined ? {} : { error: current.error }),
             receivedAt,
@@ -765,7 +816,9 @@ class SessionState {
             rpcId,
             sessionId: frame.sessionId,
             questions: frame.questions.map((question) => ({ ...question })),
-            status: current?.status ?? "pending",
+            status: current?.status === "unavailable" || current?.status === "failed"
+                ? "pending"
+                : current?.status ?? "pending",
             ...(current?.outcome === undefined ? {} : { outcome: current.outcome }),
             ...(current?.error === undefined ? {} : { error: current.error }),
             receivedAt,
@@ -849,6 +902,48 @@ class SessionState {
         };
     }
 
+    /** Mark an RC Remote-event answer as accepted without depending on a legacy receipt frame. */
+    public settleRemoteInteraction(key: string): void {
+        const interaction = this.interactions.get(key);
+        if (!interaction || interaction.status !== "submitting") return;
+        this.interactions.set(key, {
+            ...interaction,
+            status: "resolved",
+            error: undefined,
+        });
+    }
+
+    /** Cancel one pending Remote waterfall by its event id (used on reconnect/withdrawal). */
+    public cancelRemoteInteraction(eventId: string): void {
+        for (const [key, interaction] of this.interactions) {
+            if (interaction.rpcId !== eventId) continue;
+            this.interactions.set(key, {
+                ...interaction,
+                status: "unavailable",
+                error: t("The request is no longer waiting for an answer."),
+            });
+        }
+    }
+
+    /**
+     * A Remote generation is gone, so no pending waterfall answer can be
+     * submitted safely against it. Keep the card visible but inert until the
+     * next generation replays an authoritative request.
+     */
+    public markRemoteInteractionsUnavailable(): boolean {
+        let changed = false;
+        for (const [key, interaction] of this.interactions) {
+            if (interaction.status !== "pending" && interaction.status !== "submitting") continue;
+            this.interactions.set(key, {
+                ...interaction,
+                status: "unavailable",
+                error: t("The Remote connection was reset before the request received an answer."),
+            });
+            changed = true;
+        }
+        return changed;
+    }
+
     public snapshot(): SessionStateSnapshot {
         return {
             sessionId: this.sessionId,
@@ -898,6 +993,105 @@ export class HarnessSessionStore {
             state.projections.seed(history.projections);
         }
         return this.publish(state);
+    }
+
+    /** Install a generation-scoped RC follow baseline and clear stale stream state. */
+    public replaceRemoteBaseline(
+        sessionId: string,
+        history: DshHistoryResult,
+        cursor?: number,
+    ): SessionStateSnapshot {
+        const state = this.state(sessionId);
+        state.events.replaceHistory(history.events);
+        if (cursor !== undefined) state.events.followCursor(cursor, history.hasMore === true);
+        if (history.projections) state.projections.seed(history.projections);
+        return this.publish(state);
+    }
+
+    /** Apply an RC journal event after its Remote envelope has been decoded. */
+    public applyRemoteEvent(sessionId: string, event: unknown): void {
+        if (!isRecord(event)) {
+            this.diagnostic("invalid-frame", "Remote session event is malformed", event);
+            return;
+        }
+        const state = this.state(sessionId);
+        state.events.ingestLive(event as unknown as DshSessionEvent);
+        this.schedulePublish(state);
+    }
+
+    public applyRemoteProjection(sessionId: string, key: string, value: unknown, seq: number): void {
+        const state = this.state(sessionId);
+        if (state.projections.apply(key, value, seq)) this.schedulePublish(state);
+    }
+
+    public applyRemoteQueue(sessionId: string, items: unknown[]): void {
+        const state = this.state(sessionId);
+        state.replaceQueue(items as unknown as DshQueuedInboxItem[], this.now(), "remote-control");
+        this.schedulePublish(state);
+    }
+
+    public applyRemoteJobs(sessionId: string, jobs: unknown[]): void {
+        const state = this.state(sessionId);
+        state.replaceJobs(jobs as unknown as DshJobView[], this.now(), "remote-control");
+        this.schedulePublish(state);
+    }
+
+    public applyRemoteControl(
+        sessionId: string,
+        queue: unknown[],
+        jobs: unknown[],
+        projections: DshSessionProjectionsBlock | undefined,
+    ): void {
+        const state = this.state(sessionId);
+        state.replaceQueue(queue as unknown as DshQueuedInboxItem[], this.now(), "remote-control");
+        state.replaceJobs(jobs as unknown as DshJobView[], this.now(), "remote-control");
+        if (projections) state.projections.seed(projections);
+        this.schedulePublish(state);
+    }
+
+    public applyRemoteApproval(sessionId: string, eventId: string, request: Record<string, unknown>): boolean {
+        if (typeof request.toolName !== "string") return false;
+        const state = this.state(sessionId);
+        state.requestApproval({
+            type: "approval/requested",
+            sessionId,
+            approvalId: eventId,
+            toolName: request.toolName,
+            ...(typeof request.callId === "string" ? { callId: request.callId } : {}),
+            ...(typeof request.reason === "string" ? { reason: request.reason } : {}),
+        }, eventId, this.now());
+        this.schedulePublish(state);
+        return true;
+    }
+
+    public applyRemoteQuestion(sessionId: string, eventId: string, request: Record<string, unknown>): boolean {
+        const questions = normalizeQuestionItems(request.questions);
+        if (!questions) return false;
+        const state = this.state(sessionId);
+        state.requestQuestion({ type: "question/requested", sessionId, questions }, eventId, this.now());
+        this.schedulePublish(state);
+        return true;
+    }
+
+    public cancelRemoteInteraction(eventId: string): void {
+        for (const state of this.sessions.values()) {
+            state.cancelRemoteInteraction(eventId);
+            this.schedulePublish(state);
+        }
+    }
+
+    /** Mark all in-flight Remote waterfall cards unavailable after a generation loss. */
+    public markRemoteInteractionsUnavailable(): void {
+        for (const state of this.sessions.values()) {
+            if (state.markRemoteInteractionsUnavailable()) this.schedulePublish(state);
+        }
+    }
+
+    public settleRemoteInteraction(sessionId: string, key: string): void {
+        const state = this.sessions.get(sessionId);
+        if (!state) return;
+        state.settleRemoteInteraction(key);
+        this.publish(state);
     }
 
     /**
