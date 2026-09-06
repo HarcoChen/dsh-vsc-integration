@@ -260,9 +260,9 @@ function portFromArgs(args: string[]): number | undefined {
     return Number.isInteger(value) && value > 0 && value <= 65_535 ? value : undefined;
 }
 
-/** Returns whether a launcher needs a shell; package managers stay shell-free on Windows. */
-function launcherNeedsShell(command: string, packageManager?: PackageManager): boolean {
-    if (process.platform !== "win32" || packageManager !== undefined) return false;
+/** Returns whether a launcher needs a shell on the current platform. */
+function launcherNeedsShell(command: string): boolean {
+    if (process.platform !== "win32") return false;
     return !/\.exe$/iu.test(command);
 }
 
@@ -347,13 +347,83 @@ function normalizeNpmRegistry(value: string | undefined): string | undefined {
     }
 }
 
+interface RegistryArgument {
+    value?: string;
+    consumed: number;
+}
+
+function registryArgumentAt(
+    args: string[],
+    index: number,
+    packageManager: PackageManager,
+): RegistryArgument | undefined {
+    const argument = args[index];
+    if (argument === undefined) return undefined;
+
+    const prefixes = packageManager === "pnpm"
+        ? ["--registry=", "--config.registry="]
+        : ["--registry="];
+    const inlinePrefix = prefixes.find((prefix) => argument.startsWith(prefix));
+    if (inlinePrefix !== undefined) {
+        return {
+            value: argument.slice(inlinePrefix.length),
+            consumed: 1,
+        };
+    }
+
+    const separated = packageManager === "pnpm"
+        ? argument === "--registry" || argument === "--config.registry"
+        : argument === "--registry";
+    if (!separated) return undefined;
+
+    const next = args[index + 1];
+    return {
+        ...(next !== undefined && !next.startsWith("-") ? { value: next } : {}),
+        consumed: next !== undefined && !next.startsWith("-") ? 2 : 1,
+    };
+}
+
 /** Returns whether arguments already select a registry for the active package manager. */
 function hasNpmRegistryArgument(args: string[], packageManager?: PackageManager): boolean {
-    return args.some((argument) => {
-        if (argument === "--registry" || argument.startsWith("--registry=")) return true;
-        return packageManager === "pnpm" &&
-            (argument === "--config.registry" || argument.startsWith("--config.registry="));
-    });
+    if (packageManager === undefined) {
+        return args.some((argument) => argument === "--registry" || argument.startsWith("--registry="));
+    }
+    return args.some((_, index) => registryArgumentAt(args, index, packageManager) !== undefined);
+}
+
+interface NormalizedRegistryArguments {
+    args: string[];
+    registryArgs: string[];
+}
+
+/** Converts registry flags while keeping their values as separate arguments. */
+function normalizeRegistryArguments(
+    args: string[],
+    fromPackageManager: PackageManager,
+    toPackageManager: PackageManager,
+): NormalizedRegistryArguments {
+    const remaining: string[] = [];
+    const registryArgs: string[] = [];
+    for (let index = 0; index < args.length;) {
+        const registry = registryArgumentAt(args, index, fromPackageManager);
+        if (registry === undefined) {
+            remaining.push(args[index] as string);
+            index += 1;
+            continue;
+        }
+
+        if (toPackageManager === "pnpm") {
+            registryArgs.push(
+                registry.value === undefined ? "--config.registry" : `--config.registry=${registry.value}`,
+            );
+        } else if (registry.value === undefined) {
+            registryArgs.push("--registry");
+        } else {
+            registryArgs.push("--registry", registry.value);
+        }
+        index += registry.consumed;
+    }
+    return { args: remaining, registryArgs };
 }
 
 function hasNpmOptionArgument(args: string[], option: string): boolean {
@@ -469,21 +539,28 @@ function isPackageManagerCommand(command: string): command is "npx" | "pnpm" {
     return command === "npx" || command === "pnpm";
 }
 
-/** Convert the packaged dlx invocation when falling back between pnpm and npx. */
+/** Convert a package-manager invocation while normalizing registry flags. */
 function alternatePackageManagerArgs(
-    fromCommand: string,
-    toCommand: string,
+    fromCommand: PackageManager,
+    toCommand: PackageManager,
     configuredArgs: string[],
 ): string[] | undefined {
     if (fromCommand === "pnpm" && toCommand === "npx") {
-        const dlxIndex = configuredArgs.findIndex((argument) => argument === "dlx");
+        const normalized = normalizeRegistryArguments(configuredArgs, fromCommand, toCommand);
+        const dlxIndex = normalized.args.findIndex((argument) => argument === "dlx");
         if (dlxIndex < 0) return undefined;
-        const pnpmOptions = configuredArgs.slice(0, dlxIndex);
-        return [...pnpmOptions, "--yes", ...configuredArgs.slice(dlxIndex + 1)];
+        const pnpmOptions = normalized.args.slice(0, dlxIndex);
+        return [
+            ...normalized.registryArgs,
+            ...pnpmOptions,
+            "--yes",
+            ...normalized.args.slice(dlxIndex + 1),
+        ];
     }
     if (fromCommand === "npx" && toCommand === "pnpm") {
-        const npxArgs = configuredArgs.filter((argument) => argument !== "-y" && argument !== "--yes");
-        return ["dlx", ...npxArgs];
+        const normalized = normalizeRegistryArguments(configuredArgs, fromCommand, toCommand);
+        const npxArgs = normalized.args.filter((argument) => argument !== "-y" && argument !== "--yes");
+        return [...normalized.registryArgs, "dlx", ...npxArgs];
     }
     return undefined;
 }
@@ -510,24 +587,34 @@ function pinDshPackageArgs(args: string[]): string[] {
 }
 
 function npxArgsForDsh(configuredArgs: string[]): string[] {
-    const dlxIndex = configuredArgs.findIndex((argument) => argument === "dlx");
+    const normalized = normalizeRegistryArguments(configuredArgs, "pnpm", "npx");
+    const dlxIndex = normalized.args.findIndex((argument) => argument === "dlx");
     if (dlxIndex >= 0) {
-        return ["--yes", ...configuredArgs.slice(dlxIndex + 1)];
+        return [
+            ...normalized.registryArgs,
+            "--yes",
+            ...normalized.args.slice(dlxIndex + 1),
+        ];
     }
 
-    const packageIndex = configuredArgs.findIndex((argument) =>
+    const packageIndex = normalized.args.findIndex((argument) =>
         /^@deepseek-ai\/dsh(?:@|$)/u.test(argument),
     );
     if (packageIndex >= 0) {
-        const prefix = configuredArgs
+        const prefix = normalized.args
             .slice(0, packageIndex)
             .filter((argument) => argument !== "-y" && argument !== "--yes");
-        return [...prefix, "--yes", ...configuredArgs.slice(packageIndex)];
+        return [...normalized.registryArgs, ...prefix, "--yes", ...normalized.args.slice(packageIndex)];
     }
 
-    return ["--yes", DSH_PACKAGE, ...configuredArgs.filter(
-        (argument) => argument !== "-y" && argument !== "--yes",
-    )];
+    return [
+        ...normalized.registryArgs,
+        "--yes",
+        DSH_PACKAGE,
+        ...normalized.args.filter(
+            (argument) => argument !== "-y" && argument !== "--yes",
+        ),
+    ];
 }
 
 function webProfileIndex(args: string[]): number {
@@ -1998,10 +2085,7 @@ export class DshRuntime implements vscode.Disposable {
                 env: launchEnv,
                 // Windows batch and PowerShell launchers fail with EINVAL unless
                 // executed through the shell; native executables do not need it.
-                // Package-manager arguments can contain a configured registry
-                // URL. Keep those invocations off cmd.exe on Windows so URL
-                // metacharacters cannot be interpreted as shell syntax.
-                shell: launcherNeedsShell(command, packageManager),
+                shell: launcherNeedsShell(command),
                 stdio: ["ignore", "pipe", "pipe"],
                 windowsHide: true,
             });
