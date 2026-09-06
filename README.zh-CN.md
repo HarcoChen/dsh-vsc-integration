@@ -6,6 +6,8 @@
 
 <p align="center">
   <strong>让 AI 动手写代码，让每次改动清晰可见。</strong><br>
+
+
   将 DeepSeek Harness（DSH）带进 VS Code：结合代码上下文完成任务，用原生 Diff 审查改动，通过 Trace 和用量面板了解执行过程。
 </p>
 
@@ -55,14 +57,13 @@
 3. **完成首次配置**：通过 `DSH: 配置 API Key`（`DSH: Configure API Key`）设置 DeepSeek 凭据。其他 Provider 可在 `DSH: 在浏览器中打开 dsh Web UI` 中配置。选择或注册 DSH Workspace，再选择模型。
 4. **开始一个任务**：输入 `@` 引用文件，或右键选区选择 DSH 操作。查看执行过程，在需要审批时确认操作，并通过工具卡打开 Diff 审查结果。
 
-> **DSH Workspace** 是 Harness 中组织会话的分组，可关联项目路径；使用同一 Runtime 时，可以继续在 Web UI 中创建的会话。
 
 ### 从这些任务开始
 
 | 你想做什么 | 可以这样开始 |
 | --- | --- |
 | 读懂一段代码 | 选中代码并右键使用 DSH 解释：“说明这段代码的执行流程和边界条件。” |
-| 审查改动 | 在 Source Control 中对 Git Diff 使用 DSH 评审：“检查这些改动是否引入回归，并标出相关位置。” |
+| 审查改动 | 对 Git Diff 使用 DSH 评审：“检查这些改动是否引入回归，并标出相关位置。” |
 | 排查断点 | 调试暂停时运行 `DSH: Explain Current Debug State`，附加调用栈和局部变量等上下文。 |
 | 继续之前的工作 | 切换到历史会话，通过对话大纲定位之前的讨论。 |
 
@@ -107,7 +108,7 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址。默认托管版本为 `0.1.1-rc.2`；连接其他版本前请确认兼容性，上游 RPC 变化可能影响插件功能。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址。扩展已适配 `dsh 0.1.2-rc.1` 的 RC Remote RPC，默认托管 Runtime 为 `0.1.2-rc.1`。
 
 **启动失败怎么办？** 在命令面板运行 `DSH: Diagnose Environment` 查看诊断，再用 `DSH: Show dsh Runtime Logs` 查看日志。提交 [issue](https://github.com/HarcoChen/deepseek-harness-vscode/issues) 时请附上扩展版本、操作系统和脱敏后的错误信息。
 
@@ -115,11 +116,13 @@
 
 ## 架构与运行机制
 
+扩展通过 RC Remote RPC 连接 Runtime，使用 HTTP 调用和多路复用 WebSocket 获取实时会话更新。
+
 多个 VS Code 窗口优先复用同一个本地 Harness Runtime。扩展启动的 Runtime 通过进程锁公布其随机 loopback 端口，后续窗口直接连接，避免多写冲突。
 
 ```mermaid
 graph TD
-    A[VS Code Extension Host] <-->|RPC via Loopback Port| B[Standalone Harness Runtime]
+    A[VS Code Extension Host] <-->|RC Remote RPC| B[Standalone Harness Runtime]
     A <-->|Typed Full-State Bridge| C[React Webview UI]
     B <-->|CNB Distribution| D[Managed Local Engine]
     A <-->|Process Lock| E[Multi-Window Shared Runtime]
@@ -134,7 +137,7 @@ graph TD
 | `dsh.serverUrl` | `""` | 已运行的 dsh web Runtime 地址，设置后扩展将直接连接。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.1.1-rc.2` | 托管 Runtime 的锁定版本。 |
+| `dsh.runtimeVersion` | `0.1.2-rc.1` | 下载托管 Runtime 时使用的版本。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
@@ -214,7 +217,7 @@ node scripts/verify-managed-runtime.mjs --full       # 安装并冒烟测试
 
 ## 致谢
 
-感谢 [dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) 提供推理强度控件的跑步 sprite 参考。对话大纲受 `dsh-milestone` 项目启发。
+感谢 [dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) 提供推理强度控件的"大肥鱼跑步"参考。对话大纲受 `dsh-milestone` 项目启发。
 
 ## 许可证
 

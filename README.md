@@ -107,7 +107,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
 
-**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address. The default managed version is `0.1.1-rc.2`; check compatibility before connecting another version, as upstream RPC changes can affect extension features.
+**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address. The extension supports the RC Remote RPC introduced in `dsh 0.1.2-rc.1`; the default managed Runtime is `0.1.2-rc.1`.
 
 **What if startup fails?** Run `DSH: Diagnose Environment`, then `DSH: Show dsh Runtime Logs` from the Command Palette. Include your extension version, OS, and redacted error details when opening an [issue](https://github.com/HarcoChen/deepseek-harness-vscode/issues).
 
@@ -115,11 +115,13 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 ## Architecture and runtime
 
+The extension connects to the Runtime through RC Remote RPC, using HTTP calls and a multiplexed WebSocket for live session updates.
+
 Multiple VS Code windows preferentially reuse the same local Harness Runtime. The Runtime launched by the extension publishes a random loopback port through a process lock; later windows connect directly, avoiding competing writes.
 
 ```mermaid
 graph TD
-    A[VS Code Extension Host] <-->|RPC via Loopback Port| B[Standalone Harness Runtime]
+    A[VS Code Extension Host] <-->|RC Remote RPC| B[Standalone Harness Runtime]
     A <-->|Typed Full-State Bridge| C[React Webview UI]
     B <-->|CNB Distribution| D[Managed Local Engine]
     A <-->|Process Lock| E[Multi-Window Shared Runtime]
@@ -134,7 +136,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverUrl` | `""` | URL of an already running dsh web Runtime; when set, the extension connects directly. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.1.1-rc.2` | Locked version of the managed Runtime. |
+| `dsh.runtimeVersion` | `0.1.2-rc.1` | Version to download for the managed Runtime. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |

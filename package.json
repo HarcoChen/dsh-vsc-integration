@@ -528,7 +528,7 @@
                 },
                 "dsh.runtimeVersion": {
                     "type": "string",
-                    "default": "0.1.1-rc.2",
+                    "default": "0.1.2-rc.1",
                     "pattern": "^[0-9A-Za-z.-]+$",
                     "description": "%config.runtimeVersion.description%"
                 },
@@ -619,11 +619,15 @@
         "package": "npm run compile && vsce package",
         "release": "node ./scripts/release.mjs"
     },
+    "dependencies": {
+        "ws": "8.21.0"
+    },
     "devDependencies": {
         "@types/react": "^18.3.24",
         "@types/react-dom": "^18.3.7",
         "@types/node": "^22.10.2",
         "@types/vscode": "^1.106.0",
+        "@types/ws": "8.18.1",
         "@vscode/vsce": "^3.6.0",
         "esbuild": "^0.25.9",
         "react": "^18.3.1",
