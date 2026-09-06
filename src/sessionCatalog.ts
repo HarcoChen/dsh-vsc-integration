@@ -191,7 +191,10 @@ export class HarnessCatalogStore {
     public replaceRemoteSessions(result: DshSessionListResult): void {
         this.sessions.clear();
         this.titles.clear();
-        this.pendingBySession.clear();
+        const incoming = new Set(result.items.map((item) => item.sessionId));
+        for (const sessionId of [...this.pendingBySession.keys()]) {
+            if (!incoming.has(sessionId)) this.pendingBySession.delete(sessionId);
+        }
         const revision = ++this.revision;
         for (const summary of result.items) {
             const coldTitle = titleFromSummary(summary);

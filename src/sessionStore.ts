@@ -436,14 +436,14 @@ export class SessionEventStore {
     }
 
     /** Set the latest sequence represented by an RC follow opening snapshot. */
-    public followCursor(cursor: number): void {
+    public followCursor(cursor: number, incomplete = false): void {
         if (!isSeq(cursor, true)) {
             this.diagnostic("invalid-frame", "session/follow carried an invalid cursor", cursor);
             return;
         }
         this.subscribedLastSeq = cursor;
         this.highestSequence = Math.max(this.highestSequence, cursor);
-        this.gapObserved = false;
+        this.gapObserved = incomplete;
     }
 
     public get needsHistoryBaseline(): boolean {
@@ -1003,7 +1003,7 @@ export class HarnessSessionStore {
     ): SessionStateSnapshot {
         const state = this.state(sessionId);
         state.events.replaceHistory(history.events);
-        if (cursor !== undefined) state.events.followCursor(cursor);
+        if (cursor !== undefined) state.events.followCursor(cursor, history.hasMore === true);
         if (history.projections) state.projections.seed(history.projections);
         return this.publish(state);
     }

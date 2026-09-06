@@ -14,6 +14,10 @@
 - 会话与工作区全量改走 RC Remote 端点：session（list/search/create/rename/fork/prompt/attachment/updateQueue/cancel/canOpenWorkspacePath/openWorkspacePath/modelCatalog/selectModel）、workspace（create/rename/insertBefore/insertSessionBefore/archiveSession/delete）、agentPresets、goals（携带 agentId 与 ref.revision 冲突语义）、commands、subagents、skills、messageFeedback、settings、credentials、llm、directoryPicker；`directoryPicker/*` 不可用时安全降级。
 - 错误分层落地：401/403 报鉴权、404 报能力缺失不降级旧协议、`gateway/arguments-invalid` 视为契约不匹配、未知 namespaced code 显示服务端文案并记录脱敏 details。已对真实 `0.1.2-rc.1` runtime 完成 32 项自动化 smoke（鉴权交换、unary/流握手、baseline、workspace 生命周期、能力端点、错误路径），UI 级流式与审批交互仍需人工冒烟。
 
+## [0.6.2] - 2026-09-05
+
+- 紧急修复：锁定dsh版本，上游巨大RPC变化后面慢慢做
+
 ## [0.6.1] - 2026-09-04
 
 - 修复托管 Runtime 解包：提取文件时重新应用归档中的权限位，`bin/node`、`bin/dsh` 和 node-pty 的 `spawn-helper` 不再因为落地成不可执行而导致 Runtime 起不来；同时跳过 tar 的全零结束块（其空文件名会解析回暂存目录本身），并去掉 GNU 长文件名条目结尾计入长度的 NUL 字节。
@@ -151,6 +155,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.6.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.5.2...v0.5.3

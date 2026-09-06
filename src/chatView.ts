@@ -171,7 +171,7 @@ function looksLikeCommandLine(text: string): string | undefined {
 function goalErrorCode(error: unknown): string | undefined {
     if (!isRemoteError(error)) return undefined;
     const details = error.details;
-    const code = details.goalCode;
+    const code = isRecord(details) ? details.goalCode : undefined;
     return typeof code === "string" ? code : error.code;
 }
 
@@ -349,10 +349,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly selectedModels = new Map<string, SelectedModelSnapshot>();
     private readonly modelCatalogs = new Map<string, DshSessionModelsResult>();
     private readonly modelCatalogRequests = new Map<string, Promise<void>>();
+    private readonly modelCatalogGenerations = new Map<string, number>();
+    private readonly modelCatalogRefreshPending = new Set<string>();
     private readonly skillCatalogs = new Map<string, DshSkillEntry[]>();
     private readonly skillCatalogRequests = new Map<string, Promise<void>>();
     private readonly commandCatalogs = new Map<string, DshCommandDescriptor[]>();
     private readonly commandCatalogRequests = new Map<string, Promise<void>>();
+    private readonly commandCatalogGenerations = new Map<string, number>();
+    private readonly commandCatalogRefreshPending = new Set<string>();
     private readonly messageFeedbackStates = new Map<string, MessageFeedbackSessionState>();
     private readonly messageFeedbackRequests = new Map<string, Promise<void>>();
     private readonly messageFeedbackGenerations = new Map<string, number>();
@@ -365,6 +369,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private commandRegistryUnavailable = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private agentPresetCatalogRequest: Promise<void> | undefined;
+    private agentPresetCatalogGeneration = 0;
+    private agentPresetCatalogRefreshPending = false;
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
     private readonly agentPresetDocuments = new Map<string, string>();
     private readonly imageCache = new Map<string, { src?: string; error?: string; loading?: boolean }>();
@@ -434,16 +440,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 // local cache and repull the visible session when possible.
                 switch (event) {
                     case "commands/change":
-                        this.commandCatalogs.clear();
+                        this.invalidateCommandCatalogs();
                         if (this.sessionId) this.refreshCommandCatalog(this.sessionId);
                         break;
                     case "agent-preset/selected":
-                        this.agentPresetCatalog = undefined;
+                        this.invalidateAgentPresetCatalog();
                         this.refreshAgentPresetCatalog();
                         break;
                     case "llm/adapters-updated":
                     case "credentials/reference-updated":
-                        this.modelCatalogs.clear();
+                        this.invalidateModelCatalogs();
                         if (this.sessionId) this.refreshModelCatalog(this.sessionId);
                         break;
                     case "settings/document-updated":
@@ -2862,12 +2868,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     }
 
+    private invalidateModelCatalogs(): void {
+        this.modelCatalogs.clear();
+        for (const sessionId of this.modelCatalogRequests.keys()) {
+            this.modelCatalogRefreshPending.add(sessionId);
+            this.modelCatalogGenerations.set(
+                sessionId,
+                (this.modelCatalogGenerations.get(sessionId) ?? 0) + 1,
+            );
+        }
+    }
+
     private refreshModelCatalog(sessionId: string): void {
         if (!this.runtime.getUrl() || this.modelCatalogs.has(sessionId) || this.modelCatalogRequests.has(sessionId)) {
             return;
         }
+        const generation = this.modelCatalogGenerations.get(sessionId) ?? 0;
         const request = this.runtime.models(sessionId)
             .then((catalog) => {
+                if (this.modelCatalogGenerations.get(sessionId) !== generation) return;
                 this.modelCatalogs.set(sessionId, catalog);
                 const efforts = reasoningEffortOptions(
                     catalog,
@@ -2891,6 +2910,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             })
             .finally(() => {
                 this.modelCatalogRequests.delete(sessionId);
+                if (this.modelCatalogRefreshPending.delete(sessionId)) {
+                    this.refreshModelCatalog(sessionId);
+                }
             });
         this.modelCatalogRequests.set(sessionId, request);
     }
@@ -2990,6 +3012,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         void this.ensureCommandCatalog(sessionId);
     }
 
+    private invalidateCommandCatalogs(): void {
+        this.commandCatalogs.clear();
+        for (const sessionId of this.commandCatalogRequests.keys()) {
+            this.commandCatalogRefreshPending.add(sessionId);
+            this.commandCatalogGenerations.set(
+                sessionId,
+                (this.commandCatalogGenerations.get(sessionId) ?? 0) + 1,
+            );
+        }
+    }
+
     /**
      * Resolves once this session's command registry is known, sharing one
      * in-flight pull. A prompt that may be a command line awaits this, so a
@@ -3006,8 +3039,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) {
             return;
         }
+        const generation = this.commandCatalogGenerations.get(sessionId) ?? 0;
         const request = this.runtime.listCommands(sessionId)
             .then((commands) => {
+                if (this.commandCatalogGenerations.get(sessionId) !== generation) return;
                 if (commands === undefined) {
                     this.commandRegistryUnavailable = true;
                     this.output.appendLine(
@@ -3023,15 +3058,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             })
             .finally(() => {
                 this.commandCatalogRequests.delete(sessionId);
+                if (this.commandCatalogRefreshPending.delete(sessionId)) {
+                    this.refreshCommandCatalog(sessionId);
+                }
             });
         this.commandCatalogRequests.set(sessionId, request);
         return request;
     }
 
+    private invalidateAgentPresetCatalog(): void {
+        this.agentPresetCatalog = undefined;
+        this.agentPresetCatalogGeneration += 1;
+        if (this.agentPresetCatalogRequest) this.agentPresetCatalogRefreshPending = true;
+    }
+
     private refreshAgentPresetCatalog(): void {
         if (!this.runtime.getUrl() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
+        const generation = this.agentPresetCatalogGeneration;
         const request = this.runtime.agentPresets()
             .then((catalog) => {
+                if (this.agentPresetCatalogGeneration !== generation) return;
                 this.agentPresetCatalog = catalog.presets;
                 this.postState();
             })
@@ -3039,7 +3085,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.output.appendLine(`[dsh:agent-preset] catalog refresh failed: ${errorMessage(error)}`);
             })
             .finally(() => {
+                if (this.agentPresetCatalogRequest !== request) return;
                 this.agentPresetCatalogRequest = undefined;
+                if (this.agentPresetCatalogRefreshPending) {
+                    this.agentPresetCatalogRefreshPending = false;
+                    this.refreshAgentPresetCatalog();
+                }
             });
         this.agentPresetCatalogRequest = request;
     }

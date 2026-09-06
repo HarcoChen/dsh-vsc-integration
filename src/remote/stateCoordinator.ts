@@ -459,7 +459,11 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             this.catalog.applyProjectionBaseline(sessionId, snapshot.projections);
             this.sessions.replaceRemoteBaseline(
                 sessionId,
-                { events: snapshot.events, projections: snapshot.projections },
+                {
+                    events: snapshot.events,
+                    hasMore: snapshot.hasMore,
+                    projections: snapshot.projections,
+                },
                 snapshot.cursor,
             );
             return;

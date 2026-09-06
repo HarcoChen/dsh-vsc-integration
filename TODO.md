@@ -4,7 +4,7 @@
 
 ## 本轮进展（2026-09-06）
 
-`0.1.2-rc.1` RC Remote 全量适配完成（`RPC_ADAPTATION_PLAN.md` 第 1–7 步）：
+`0.1.2-rc.1` RC Remote 实现完成，部分验收待完成（`RPC_ADAPTATION_PLAN.md` 第 1–7 步）：
 `src/remote/` 九模块 carrier 落地，旧 ApiProxy 协议（`harnessClient`/
 `harnessState`/`harnessConnection`/`harnessProtocol`）及其测试删除；类型迁移
 仅动 `types.ts` 与四个导入点，store 的 envelope reducer 保留为护栏测试入口。
