@@ -7,13 +7,17 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/HarcoChen/dsh-vsc-integration.git"
+        "url": "https://github.com/HarcoChen/deepseek-harness-vscode.git"
     },
     "bugs": {
-        "url": "https://github.com/HarcoChen/dsh-vsc-integration/issues"
+        "url": "https://github.com/HarcoChen/deepseek-harness-vscode/issues"
     },
-    "homepage": "https://github.com/HarcoChen/dsh-vsc-integration#readme",
+    "homepage": "https://github.com/HarcoChen/deepseek-harness-vscode#readme",
     "icon": "resources/dsh.png",
+    "galleryBanner": {
+        "color": "#0F172A",
+        "theme": "dark"
+    },
     "l10n": "./l10n",
     "engines": {
         "vscode": "^1.106.0"
@@ -29,15 +33,19 @@
         }
     },
     "categories": [
-        "Other",
-        "Chat"
+        "Chat",
+        "Machine Learning"
     ],
     "keywords": [
         "DeepSeek",
         "DeepSeek Harness",
         "dsh",
-        "agent",
         "AI",
+        "coding agent",
+        "AI assistant",
+        "code review",
+        "diff",
+        "debugging",
         "chat"
     ],
     "main": "./dist/extension.js",

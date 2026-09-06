@@ -1,6 +1,6 @@
 {
-    "extension.displayName": "DeepSeek Harness VS Code 集成",
-    "extension.description": "在 VS Code 内提供完整的 DeepSeek Harness Agent 工作流：流式持久会话、@ 文件引用、IDE/Git 上下文、工具审批、计划评审、Trace 查看、变更审查与恢复保护，以及模型、Token、缓存和上下文可观测性。",
+    "extension.displayName": "DeepSeek Harness (DSH) — AI 编程助手",
+    "extension.description": "在 VS Code 中使用 DeepSeek Harness：结合代码上下文完成编程任务，原生 Diff 审查改动，支持工具审批、持久会话、Trace 分析与 Token 用量查看。",
     "extension.untrustedWorkspace": "DSH IDE 需要受信任的工作区才能启动 Agent Runtime。",
     "chatParticipant.description": "向当前 DeepSeek Harness 会话发送任务",
     "view.chat.name": "聊天",

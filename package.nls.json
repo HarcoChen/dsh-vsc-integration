@@ -1,6 +1,6 @@
 {
-    "extension.displayName": "DeepSeek Harness VS Code Integration",
-    "extension.description": "A complete DeepSeek Harness Agent workflow for VS Code: persistent streaming sessions, @file references, IDE and Git context, tool approvals, plan reviews, Trace inspection, change review and restore safeguards, plus model, token, cache, and context observability.",
+    "extension.displayName": "DeepSeek Harness (DSH) — AI Coding Agent",
+    "extension.description": "Bring DeepSeek Harness to VS Code: AI coding with native diffs, tool approvals, persistent sessions, and built-in Trace and token usage insights.",
     "extension.untrustedWorkspace": "DSH IDE requires a trusted workspace before it can start an agent runtime.",
     "chatParticipant.description": "Send a task to the current DeepSeek Harness session",
     "view.chat.name": "Chat",
