@@ -11,7 +11,7 @@ import type { ManagedRuntime, RuntimeInstallPhase, RuntimeInstallMetadata } from
 
 export { resolveTarget, supportedTargets } from "./runtimePlatform";
 export { checkInstalled, readMetadata, versionDir } from "./runtimeCache";
-export { RUNTIME_DEFAULT_VERSION, RUNTIME_SUPPORTED_VERSIONS, isSupportedRuntimeVersion, CNB_RUNTIME_BASE_URL } from "./types";
+export { RUNTIME_DEFAULT_VERSION, RUNTIME_MINIMUM_VERSION, isSupportedRuntimeVersion, CNB_RUNTIME_BASE_URL } from "./types";
 export type {
     ManagedRuntime,
     RuntimeInstallPhase,

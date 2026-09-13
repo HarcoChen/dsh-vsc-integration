@@ -78,6 +78,11 @@ if (!process.argv.includes("--worker")) {
             await owner.releaseRuntimeLock();
             assert.equal((await contents()).ownerId, record.ownerId);
             assert.ok(owner.runtimeLock, "retained live lock must retain ownership for later release");
+            await writeFile(path, JSON.stringify({ ...record, runtimeVersion: "1.0.0" }));
+            assert.equal((await runtime().readRuntimeEndpoint()).baseUrl, url, "newer Runtime locks must be reusable");
+            await writeFile(path, JSON.stringify({ ...record, runtimeVersion: "0.1.5-rc.0" }));
+            await assert.rejects(() => runtime().readRuntimeEndpoint(), /0\.1\.5-rc\.0/u,
+                "a prerelease below the minimum must still request migration");
             await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimePid: deadPid }));
             assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false,
                 "a surviving listener blocks reclamation even when recorded PIDs exited");

@@ -33,7 +33,7 @@ import type {
     RecoveryStatusView,
 } from "./recovery/types";
 import {
-    RUNTIME_DEFAULT_VERSION, RUNTIME_SUPPORTED_VERSIONS, isSupportedRuntimeVersion,
+    RUNTIME_DEFAULT_VERSION, RUNTIME_MINIMUM_VERSION, isSupportedRuntimeVersion,
     acquireManagedRuntime,
     checkInstalled,
     resolveTarget,
@@ -612,13 +612,13 @@ function configuredLaunchArgs(configuration: vscode.WorkspaceConfiguration, comm
     return ["web", "--no-open"];
 }
 
-/** The requested download/upgrade version must be in the audited compatibility list. */
+/** The requested download/upgrade version must meet the minimum compatibility version. */
 function configuredRuntimeVersion(configuration: vscode.WorkspaceConfiguration): string {
     const version = configuration.get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION).trim() || RUNTIME_DEFAULT_VERSION;
     if (!isSupportedRuntimeVersion(version)) {
         throw new RemoteProtocolError(t(
             "dsh.runtimeVersion is {actual}; this extension only supports {expected}. Reset dsh.runtimeVersion before starting a local Runtime.",
-            { actual: version, expected: RUNTIME_SUPPORTED_VERSIONS.join(", ") },
+            { actual: version, expected: t("{version} or newer", { version: RUNTIME_MINIMUM_VERSION }) },
         ));
     }
     return version;
@@ -681,7 +681,7 @@ const DSH_PACKAGE = "@deepseek-ai/dsh";
  * A bare `@deepseek-ai/dsh` resolves to the dist-tag `latest`, so publishing a
  * Runtime moves existing installations onto it at the next cold start — and a
  * Runtime release may replace the wire protocol wholesale. The pin is
- * validated against the audited versions; both automatic fallbacks and
+ * validated against the minimum version; both automatic fallbacks and
  * explicit package-manager commands pass through this pin.
  *
  * An operator who wrote an explicit `@deepseek-ai/dsh@<version>` asked for that
@@ -1003,7 +1003,7 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
             version = await options.onOutdatedLocal(path, version) ?? version;
         }
         if (!isSupportedRuntimeVersion(version)) {
-            const reason = `[dsh] skipped local CLI ${path}: version ${version ?? "unknown"}; requires ${RUNTIME_DEFAULT_VERSION}`;
+            const reason = `[dsh] skipped local CLI ${path}: version ${version ?? "unknown"}; requires ${RUNTIME_MINIMUM_VERSION} or newer`;
             failures.push(reason);
             options.onLog?.(reason);
             return undefined;
@@ -3170,7 +3170,7 @@ export class DshRuntime implements vscode.Disposable {
         if (isSupportedRuntimeVersion(version)) return;
         throw new RemoteProtocolError(t(
             "DSH Runtime version is {actual}; this extension requires {expected}. Stop or upgrade the existing Runtime in its owning editor, then restart DSH. The shared lock was not removed and no process was stopped.",
-            { actual: version ?? t("unknown (unversioned lock or launcher)"), expected: RUNTIME_DEFAULT_VERSION },
+            { actual: version ?? t("unknown (unversioned lock or launcher)"), expected: t("{version} or newer", { version: RUNTIME_MINIMUM_VERSION }) },
         ));
     }
 

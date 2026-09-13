@@ -3,37 +3,10 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import * as vscode from "vscode";
 import { spawnOwnedRuntime, terminateOwnedRuntime } from "./runtimeProcess";
 import { t } from "./localize";
+import { isOlderRuntimeVersion } from "./runtimeVersion";
 import { isSupportedRuntimeVersion } from "./managedRuntime/types";
 
 const PACKAGE = "@deepseek-ai/dsh";
-
-/** Compare SemVer precedence, including numeric prerelease ids; unknown versions never imply an upgrade. */
-export function isOlderRuntimeVersion(actual: string | undefined, target: string): boolean {
-    const parse = (value: string): string[] | undefined => {
-        const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.exec(value);
-        if (!match || match[4]?.split(".").some(id => /^0\d+$/u.test(id))) return undefined;
-        return match.slice(1);
-    };
-    const left = actual === undefined ? undefined : parse(actual);
-    const right = parse(target);
-    if (!left || !right) return false;
-    for (let index = 0; index < 3; index += 1) {
-        if (BigInt(left[index]) !== BigInt(right[index])) return BigInt(left[index]) < BigInt(right[index]);
-    }
-    if (left[3] === undefined || right[3] === undefined) return left[3] !== undefined && right[3] === undefined;
-    const a = left[3].split(".");
-    const b = right[3].split(".");
-    for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-        if (a[index] === b[index]) continue;
-        if (a[index] === undefined || b[index] === undefined) return a[index] === undefined;
-        const numericA = /^\d+$/u.test(a[index]);
-        const numericB = /^\d+$/u.test(b[index]);
-        if (numericA && numericB) return BigInt(a[index]) < BigInt(b[index]);
-        if (numericA !== numericB) return numericA;
-        return a[index] < b[index];
-    }
-    return false;
-}
 
 interface NpmInstallation { prefix: string; cli: string; entry: string; node: string }
 
@@ -135,7 +108,7 @@ export async function offerLocalRuntimeUpgrade(options: LocalRuntimeUpgradeOptio
         const copy = t("Copy target version");
         const selected = await choose(vscode.window.showWarningMessage(
             t("Local dsh reports {actual} and is not compatible. Install the supported version {target} with its original installer: {path}", { actual: actual ?? t("unknown"), target, path: command }),
-            { modal: true, detail: t("Automatic upgrade requires an older, verified npm global installation. Unknown or newer versions are not overwritten. Skip to use the plugin Runtime, or copy the target version and restart DSH after upgrading manually.") }, copy, skip,
+            { modal: true, detail: t("Automatic upgrade requires an older, verified npm global installation. Unknown versions are not overwritten. Skip to use the plugin Runtime, or copy the target version and restart DSH after upgrading manually.") }, copy, skip,
         ), signal);
         signal.throwIfAborted();
         if (selected === copy) {

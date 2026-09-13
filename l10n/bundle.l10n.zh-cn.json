@@ -1,8 +1,9 @@
 {
+    "{version} or newer": "{version} 或更高版本",
     "Skip upgrade": "暂不升级",
     "Copy target version": "复制目标版本",
     "Local dsh reports {actual} and is not compatible. Install the supported version {target} with its original installer: {path}": "本机 dsh 版本为 {actual}，当前不兼容。请使用原安装方式将此 CLI 更新到支持的版本 {target}：{path}",
-    "Automatic upgrade requires an older, verified npm global installation. Unknown or newer versions are not overwritten. Skip to use the plugin Runtime, or copy the target version and restart DSH after upgrading manually.": "一键升级仅适用于已确认的旧版 npm 全局安装，不覆盖版本未知或较新的程序。暂不升级则使用插件 Runtime；复制目标版本后请手动升级并重新启动 DSH。",
+    "Automatic upgrade requires an older, verified npm global installation. Unknown versions are not overwritten. Skip to use the plugin Runtime, or copy the target version and restart DSH after upgrading manually.": "一键升级仅适用于已确认的旧版 npm 全局安装，不覆盖版本未知的程序。暂不升级则使用插件 Runtime；复制目标版本后请手动升级并重新启动 DSH。",
     "Upgrade to {version}": "升级到 {version}",
     "Local dsh {actual} is older than the required {target}. Upgrade it now?": "本机 dsh {actual} 低于目标版本 {target}，是否现在升级？",
     "CLI: {path}\nnpm prefix: {prefix}\nThis runs npm install --global @deepseek-ai/dsh@{target} in this prefix. Other tools using this installation will use the new version.": "CLI：{path}\nnpm 全局目录：{prefix}\n将在此目录执行 npm install --global @deepseek-ai/dsh@{target}。使用此安装的其他工具也会使用新版本。",

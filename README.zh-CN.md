@@ -104,13 +104,13 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展兼容 `dsh 0.1.5-rc.1` 和 `0.1.5-rc.2`，包含 V3 历史和显式订阅的 Assistant 流；默认下载及升级目标仍是 RC.1，其他版本需另行审计。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及升级目标仍是 RC.1，继续使用 V3 历史和显式订阅的 Assistant 流。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
 
-源码审计覆盖上游 master `c291e7961a` 和发布标签 `dsh-v0.1.5-rc.2`（`fb2c4b9e698e30edb738bca4cf0618587db7d203`）。消息反馈保留正负评价的分类，包括编辑及版本冲突返回值。Runtime 提供 master 新增的可选 `modeSelectionEnabled` 策略时，关闭开关会隐藏 IDE 模式选项、清除暂存模式，并在空会话首次发送前恢复有效默认模式；已开始的会话保留原有组合。Skill 补全悬浮提示展示 Runtime 提供的 `SKILL.md` 路径；缺少可选字段时保留 RC.2 行为。这不代表自动接受任意源码构建版本。
+源码审计覆盖上游 master `c291e7961a` 和发布标签 `dsh-v0.1.5-rc.2`（`fb2c4b9e698e30edb738bca4cf0618587db7d203`）。消息反馈保留正负评价的分类，包括编辑及版本冲突返回值。Runtime 提供 master 新增的可选 `modeSelectionEnabled` 策略时，关闭开关会隐藏 IDE 模式选项、清除暂存模式，并在空会话首次发送前恢复有效默认模式；已开始的会话保留原有组合。Skill 补全悬浮提示展示 Runtime 提供的 `SKILL.md` 路径；缺少可选字段时保留 RC.2 行为。版本是否可用按最低版本判断，不受此次源码审计版本限制。
 
 本次检查时，npm 的 `latest` 仍指向 RC.1，RC.2 发布在 `next` 标签；扩展默认仍请求 `0.1.5-rc.1`，本机已有兼容的 RC.2 时直接复用，不降级。
 
-默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知、较新或不属于当前 npm 全局目录的安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
+默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
 
 默认应用参数为 `web --no-open`，没有保存参数覆盖时会自动为 pnpm/npx 补齐启动前缀。已有包管理器参数配置保留，auto 选中本机 CLI 时移除包管理器及包名前缀。共享 Runtime 的发现及锁迁移仍先于新启动器选择，回退不会绕过占用中的锁。
 
@@ -130,7 +130,7 @@
 
 多个 VS Code 窗口优先复用同一个本地 Harness Runtime。扩展启动的 Runtime 通过进程锁公布其随机 loopback 端口，后续窗口直接连接，避免多写冲突。
 
-共享锁仍叫 `dsh-runtime.lock`，位于系统临时目录。内容记录 `runtimeVersion`、所有者 `pid` / `ownerId` / `createdAt`、启动进程 `runtimePid` / `runtimeProcess`、本实例的 POSIX `runtimeProcessGroup` 和连接地址。版本来自固定 npm 包规格、托管版本或本地启动器的 `--version`，不会把未知启动器标记成本扩展的默认版本。自动复用仅接受已审计的 RC.1/RC.2，保留实际探测的版本；无版本或版本不匹配的存活实例进入下述迁移流程，没有版本锁记录的自动端口发现仍被拒绝。手动指定 `dsh.serverUrl` 仍由使用者保证 Runtime 版本。
+共享锁仍叫 `dsh-runtime.lock`，位于系统临时目录。内容记录 `runtimeVersion`、所有者 `pid` / `ownerId` / `createdAt`、启动进程 `runtimePid` / `runtimeProcess`、本实例的 POSIX `runtimeProcessGroup` 和连接地址。版本来自固定 npm 包规格、托管版本或本地启动器的 `--version`，不会把未知启动器标记成本扩展的默认版本。自动复用接受所有不低于最低版本的版本，保留实际探测值；无版本或版本过旧的存活实例进入下述迁移流程，没有版本锁记录的自动端口发现仍被拒绝。手动指定 `dsh.serverUrl` 仍由使用者保证 Runtime 版本。
 
 锁清理规则：
 
@@ -160,7 +160,7 @@ graph TD
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.1.5-rc.1` | 用户同意后的 CLI 升级及插件下载目标，支持已审计的 RC.1/RC.2；CNB 下载需镜像已发布。 |
+| `dsh.runtimeVersion` | `0.1.5-rc.1` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 RC.1 的合法 SemVer；CNB 下载需镜像已发布。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
