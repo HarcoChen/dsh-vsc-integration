@@ -46,6 +46,7 @@ export function SlashCompletionMenu({
                         aria-selected={index === activeIndex}
                         className={index === activeIndex ? "active" : ""}
                         key={`skill:${skill.name}`}
+                        title={skill.path}
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => onChooseSkill(skill.name)}
                     >
@@ -78,6 +79,7 @@ export function SkillCompletionMenu({
                     aria-selected={index === activeIndex}
                     className={index === activeIndex ? "active" : ""}
                     key={skill.name}
+                    title={skill.path}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onChooseSkill(skill.name)}
                 >

@@ -43,6 +43,7 @@ export const IDE_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
  */
 export function mergeSlashCommands(
     hostCommands: readonly DshCommandDescriptor[],
+    modeSelectionEnabled = true,
 ): SlashCommand[] {
     const fromHost = hostCommands.map((command): SlashCommand => ({
         name: `/${command.name}`,
@@ -53,7 +54,8 @@ export function mergeSlashCommands(
     const claimed = new Set(fromHost.map((command) => command.name));
     return [
         ...fromHost,
-        ...IDE_SLASH_COMMANDS.filter((command) => !claimed.has(command.name)),
+        ...IDE_SLASH_COMMANDS.filter((command) => !claimed.has(command.name) &&
+            (modeSelectionEnabled || command.action?.type !== "selectAgentPreset")),
     ].sort((left, right) => left.name.localeCompare(right.name));
 }
 

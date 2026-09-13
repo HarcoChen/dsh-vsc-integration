@@ -195,10 +195,21 @@ export interface ChatMessage {
 
 export type DshMessageFeedbackRating = "positive" | "negative";
 
+/** Durable category ids shared by positive and negative feedback. */
+export type DshFeedbackCategory =
+    | "task-result"
+    | "instruction-following"
+    | "product-interaction"
+    | "service-stability"
+    | "resource-cost"
+    | "security-privacy-permission"
+    | "other";
+
 export interface DshMessageFeedbackItem {
     messageId: string;
     rating: DshMessageFeedbackRating;
     note?: string;
+    category?: DshFeedbackCategory;
     version: string;
     createdAt: number;
     updatedAt: number;
@@ -217,6 +228,7 @@ export interface DshMessageFeedbackPutRequest {
     messageId: string;
     rating: DshMessageFeedbackRating;
     note?: string;
+    category?: DshFeedbackCategory;
     ifVersion: string | null;
 }
 
@@ -258,6 +270,7 @@ export interface ChatMessageFeedbackView {
     status: Exclude<DshMessageFeedbackStatus, "unavailable">;
     rating?: DshMessageFeedbackRating;
     note?: string;
+    category?: DshFeedbackCategory;
     pending?: boolean;
     error?: string;
 }
@@ -477,6 +490,8 @@ export interface DshAgentPresetListResult {
     presets: DshAgentPresetEntry[];
     authorable: boolean;
     hasDocument: boolean;
+    /** Older releases omit this policy and allow mode selection. */
+    modeSelectionEnabled?: boolean;
 }
 
 export interface DshAgentPresetSelectResult {
@@ -738,6 +753,8 @@ export interface DshSubagentPromptResult {
 }
 
 export interface DshSkillEntry {
+    /** Absolute instruction file path, absent for virtual skills and older runtimes. */
+    path?: string;
     name: string;
     description: string;
     whenToUse?: string;
@@ -1180,6 +1197,7 @@ export interface ChatViewState {
     sessionId?: string;
     agentPreset?: string;
     agentPresetLabel?: string;
+    modeSelectionEnabled?: boolean;
     draftWorkspaceId?: string;
     draftWorkspaceTitle?: string;
     sessions: Array<{

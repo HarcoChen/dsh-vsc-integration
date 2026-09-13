@@ -31,7 +31,7 @@ export interface AgentPresetActionsHost {
     readonly output: vscode.OutputChannel;
     workspaceRoot(): string | undefined;
     /** The picker just pulled a fresh catalog; the view may cache it. */
-    onCatalog(presets: readonly DshAgentPresetEntry[]): void;
+    onCatalog(presets: readonly DshAgentPresetEntry[], modeSelectionEnabled: boolean): void;
     /** Body of a read-only snapshot document, to serve under this exact URI. */
     onSnapshotDocument(uri: string, content: string): void;
     /** A user Preset was deleted; a draft pinned to it must be cleared. */
@@ -60,7 +60,7 @@ export async function manageAgentPresets(host: AgentPresetActionsHost): Promise<
                     return false;
                 }),
         ]);
-        host.onCatalog(catalog.presets);
+        host.onCatalog(catalog.presets, catalog.modeSelectionEnabled !== false);
         if (catalog.presets.length === 0) {
             void vscode.window.showInformationMessage(t("Harness returned no Agent Presets to manage."));
             return;
@@ -90,7 +90,7 @@ export async function manageAgentPresets(host: AgentPresetActionsHost): Promise<
         const action = await chooseAgentPresetAction(
             selected.preset,
             catalog.authorable,
-            settingsWritable,
+            settingsWritable && catalog.modeSelectionEnabled !== false,
         );
         if (!action) continue;
         if (action === "view") {

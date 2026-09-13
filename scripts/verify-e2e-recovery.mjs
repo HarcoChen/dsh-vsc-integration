@@ -63,7 +63,7 @@ const http = require("node:http");
 const path = require("node:path");
 // The extension probes a custom command with --version before it will launch it.
 if (process.argv.includes("--version")) {
-  console.log("0.1.5-rc.1");
+  console.log("0.1.5-rc.2");
   process.exit(0);
 }
 function dshHome() {
@@ -113,6 +113,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     const configuration = { get: (key, fallback) => settings.has(key) ? settings.get(key) : fallback };
     Module._load = function (id, ...args) {
         if (id === "vscode") return {
+            Disposable: class { constructor(dispose) { this.dispose = dispose; } },
             workspace: { isTrusted: true, getConfiguration: () => configuration,
                 workspaceFolders: [{ uri: { fsPath: workspace } }] },
             window: { showWarningMessage: async () => undefined, showInformationMessage: async () => undefined },
@@ -130,14 +131,17 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     const runtime = new DshRuntime(output, storage);
 
     const seen = [];
-    const deadline = Date.now() + 180_000;
-    let settled;
-    const watch = setInterval(() => {
-        const status = runtime.getStatus();
+    // Recovery can publish its terminal phase and resume startup within one poll interval.
+    const subscription = runtime.onDidChange(status => {
         const last = seen[seen.length - 1];
         if (!last || last.state !== status.state || last.phase !== status.recovery?.phase) {
             seen.push({ state: status.state, phase: status.recovery?.phase, message: status.message });
         }
+    });
+    const deadline = Date.now() + 180_000;
+    let settled;
+    const watch = setInterval(() => {
+        const status = runtime.getStatus();
         if (status.state === "running" || status.state === "error" || Date.now() > deadline) {
             clearInterval(watch);
             settled = status;
@@ -148,6 +152,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
     runtime.start(workspace).catch(error => lines.push("start rejected: " + String(error)));
     while (!settled) await sleep(250);
     await sleep(500);
+    subscription.dispose();
 
     console.log("--- runtime log (recovery lines) ---");
     for (const line of lines.filter(l => l.includes("recovery") || l.includes("exited") || l.includes("discovered"))) {

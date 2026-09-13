@@ -104,13 +104,17 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展适配目标为 `dsh 0.1.5-rc.1`，包含 V3 历史和显式订阅的 Assistant 流。手动管理的实例也需要升级：更早的 RC 没有所需的流式契约，更高版本则需另行审计。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展适配目标为 `dsh 0.1.5-rc.2`，包含 V3 历史和显式订阅的 Assistant 流。手动管理的实例也需要升级。RC.1 已提供 V3 历史与 Assistant 流，本次审计后的启动目标提升至 RC.2；更高版本需另行审计。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
 
-默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。兼容的本机 CLI 优先使用；缺失、版本未知或不兼容则回退固定 `0.1.5-rc.1` 的 pnpm/npx，再尝试托管 Runtime。目前只接受该精确版本，不把任意更高版本视为兼容，也不会升级或覆盖全局安装。显式指定启动器路径时，版本不兼容直接报错；显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置该设置或改为 `auto` 才会启用本机优先。
+源码审计覆盖上游 master `c291e7961a` 和发布标签 `dsh-v0.1.5-rc.2`（`fb2c4b9e698e30edb738bca4cf0618587db7d203`）。消息反馈保留正负评价的分类，包括编辑及版本冲突返回值。Runtime 提供 master 新增的可选 `modeSelectionEnabled` 策略时，关闭开关会隐藏 IDE 模式选项、清除暂存模式，并在空会话首次发送前恢复有效默认模式；已开始的会话保留原有组合。Skill 补全悬浮提示展示 Runtime 提供的 `SKILL.md` 路径；缺少可选字段时保留 RC.2 行为。这不代表自动接受任意源码构建版本。
+
+本次检查时，npm 的 `latest` 仍指向 RC.1，RC.2 发布在 `next` 标签；扩展显式请求 `0.1.5-rc.2`。
+
+默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。兼容的本机 CLI 优先使用；缺失、版本未知或不兼容则回退固定 `0.1.5-rc.2` 的 pnpm/npx，再尝试托管 Runtime。目前只接受该精确版本，不把任意更高版本视为兼容，也不会升级或覆盖全局安装。显式指定启动器路径时，版本不兼容直接报错；显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置该设置或改为 `auto` 才会启用本机优先。
 
 默认应用参数为 `web --no-open`，没有保存参数覆盖时会自动为 pnpm/npx 补齐启动前缀。已有包管理器参数配置保留，auto 选中本机 CLI 时移除包管理器及包名前缀。共享 Runtime 的发现及锁迁移仍先于新启动器选择，回退不会绕过占用中的锁。
 
-本次适配检查时，CNB 独立 Runtime 镜像的 `0.1.5-rc.1` 仍返回 404；镜像发布前可使用兼容的本机 CLI、固定版本的 pnpm/npx 回退或已有实例，独立 Runtime 下载路径尚未验证通过。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证选择及实际启动参数，不下载包、不请求模型。
+本次适配检查时，CNB 独立 Runtime 镜像的 `0.1.5-rc.2` 仍返回 404；镜像发布前可使用兼容的本机 CLI、固定版本的 pnpm/npx 回退或已有实例，独立 Runtime 下载路径尚未验证通过。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证选择及实际启动参数，不下载包、不请求模型。
 
 **支持多根工作区吗？** DSH 支持多个彼此独立的 Workspace，但每个 Session 只有一个工作目录（`cwd`）。VS Code 多根工作区启动 Runtime 时使用第一个 workspace folder；如果不同根目录需要不同工作目录，请分别建立 DSH Workspace 或 Session。
 
@@ -156,7 +160,7 @@ graph TD
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.1.5-rc.1` | 下载托管 Runtime 时使用的版本，需 CNB 镜像已发布该版本。 |
+| `dsh.runtimeVersion` | `0.1.5-rc.2` | 下载托管 Runtime 时使用的版本，需 CNB 镜像已发布该版本。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
@@ -221,7 +225,7 @@ npm run package    # 编译 + vsce 打包
 npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 ```
 
-用已安装的 `0.1.5-rc.1` 启动器验证 Remote 集成：
+用已安装的 `0.1.5-rc.2` 启动器验证 Remote 集成：
 
 ```bash
 npm run compile

@@ -67,11 +67,10 @@ export interface MessageFeedbackControllerDeps {
 }
 
 /**
- * Owns the messageFeedback sidecar: per-session list state, the serialized
- * CAS mutation queue, and the (reserved) presentation half. The webview entry
- * points exist; the visible feedback UI deliberately waits for an evaluation
- * loop — see TODO.md — so nothing here writes to the Session log, model
- * context, or telemetry.
+ * Owns the messageFeedback cache and serialized CAS mutations. The Runtime
+ * persists feedback in the Session log without adding it to model context.
+ * The visible feedback UI remains reserved; existing Webview entry points
+ * preserve notes and categories written by other clients.
  */
 export class MessageFeedbackController {
     private readonly states = new Map<string, MessageFeedbackSessionState>();
@@ -323,6 +322,7 @@ export class MessageFeedbackController {
                 sessionId,
                 messageId,
                 rating: requested,
+                ...(current?.category === undefined ? {} : { category: current.category }),
                 ...(current?.note === undefined ? {} : { note: current.note }),
                 ifVersion: current?.version ?? null,
             });
@@ -341,6 +341,7 @@ export class MessageFeedbackController {
                 sessionId,
                 messageId,
                 rating: current.rating,
+                ...(current.category === undefined ? {} : { category: current.category }),
                 ...(note.trim().length === 0 ? {} : { note }),
                 ifVersion: current.version,
             });
@@ -386,6 +387,7 @@ export class MessageFeedbackController {
                     status: state.status,
                     ...(item?.rating === undefined ? {} : { rating: item.rating }),
                     ...(item?.note === undefined ? {} : { note: item.note }),
+                    ...(item?.category === undefined ? {} : { category: item.category }),
                     ...(state.pending.has(messageId) ? { pending: true } : {}),
                     ...(error === undefined ? {} : { error }),
                 },

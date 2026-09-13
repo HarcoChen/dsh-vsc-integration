@@ -299,6 +299,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
      */
     private commandRegistryUnavailable = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
+    private modeSelectionEnabled = true;
     private agentPresetCatalogRequest: Promise<void> | undefined;
     private agentPresetCatalogGeneration = 0;
     private agentPresetCatalogRefreshPending = false;
@@ -410,6 +411,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         if (this.sessionId) this.refreshModelCatalog(this.sessionId);
                         break;
                     case "settings/document-updated":
+                        this.invalidateAgentPresetCatalog();
+                        this.refreshAgentPresetCatalog();
                         ++this.settingsPanelGeneration;
                         ++this.pluginInventoryGeneration;
                         this.settingsPanel = undefined;
@@ -427,6 +430,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }),
             runtime.onDidHarnessConnect(() => {
+                this.invalidateAgentPresetCatalog();
+                this.refreshAgentPresetCatalog();
                 this.goalActivation.reset();
                 this.commandRegistryUnavailable = false;
                 this.commandCatalogs.clear();
@@ -626,8 +631,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             runtime: this.runtime,
             output: this.output,
             workspaceRoot: () => this.workspaceRoot(),
-            onCatalog: (presets) => {
+            onCatalog: (presets, enabled) => {
                 this.agentPresetCatalog = [...presets];
+                this.applyModeSelectionPolicy(enabled);
+                this.postState();
             },
             onSnapshotDocument: (uri, content) => {
                 this.agentPresetDocuments.set(uri, content);
@@ -1729,6 +1736,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             await this.restorePersistedSession(workspaceRoot);
         }
 
+        if (this.sessionId) {
+            const current = this.runtime.getSessionCatalog().snapshot().sessions
+                .find((session) => session.sessionId === this.sessionId);
+            if (current?.blank === true) {
+                const catalog = await this.runtime.agentPresets();
+                this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);
+                const defaultPreset = catalog.presets.find((preset) => preset.isDefault && !preset.broken);
+                if (!this.modeSelectionEnabled && defaultPreset && current.agentPreset !== defaultPreset.id) {
+                    try {
+                        await this.runtime.selectAgentPreset(this.sessionId, defaultPreset.id);
+                        this.skillCatalogs.delete(this.sessionId);
+                        this.refreshSkillCatalog(this.sessionId);
+                        this.commandCatalogs.delete(this.sessionId);
+                        this.refreshCommandCatalog(this.sessionId);
+                        await this.runtime.refreshSessions();
+                    } catch (error) {
+                        // Another client may have started the session since the blank snapshot.
+                        if (!isRemoteError(error) || !/(?:^|\/)locked$/u.test(error.code)) throw error;
+                    }
+                }
+            }
+        }
+
         // The selected DSH Session may belong to a different DSH Workspace than
         // the folder currently open in VS Code. Once a Session is explicitly
         // selected, keep using it; the VS Code folder only determines which
@@ -1741,6 +1771,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                       },
                   }
                 : await this.runtime.createWorkspace(workspaceRoot);
+            // Recheck the Host policy before sending a draft's previously selected mode.
+            if (this.pendingNewSessionPreset) {
+                const catalog = await this.runtime.agentPresets();
+                this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);
+            }
             const created = await this.runtime.createSession(
                 undefined,
                 this.pendingNewSessionPreset,
@@ -2019,6 +2054,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.restorePersistedSession(workspaceRoot);
         const catalog = await this.runtime.agentPresets();
         this.agentPresetCatalog = catalog.presets;
+        this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);
+        this.postState();
+        if (!this.modeSelectionEnabled) {
+            throw new Error(t("Agent mode selection is disabled in Harness settings."));
+        }
         const available = catalog.presets.filter((preset) => !preset.broken);
         if (available.length === 0) throw new Error(t("Harness returned no available agent modes."));
 
@@ -2739,6 +2779,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    private applyModeSelectionPolicy(enabled: boolean): void {
+        this.modeSelectionEnabled = enabled;
+        if (!enabled && this.pendingNewSessionPreset) {
+            this.pendingNewSessionPreset = undefined;
+            this.pendingNewSessionSkills = undefined;
+        }
+    }
+
     private invalidateAgentPresetCatalog(): void {
         this.agentPresetCatalog = undefined;
         this.agentPresetCatalogGeneration += 1;
@@ -2752,6 +2800,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .then((catalog) => {
                 if (this.agentPresetCatalogGeneration !== generation) return;
                 this.agentPresetCatalog = catalog.presets;
+                this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);
                 this.postState();
             })
             .catch((error) => {
@@ -2887,7 +2936,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshSkillCatalog(this.sessionId);
             this.refreshCommandCatalog(this.sessionId);
         }
-        if (selected?.agentPreset) this.refreshAgentPresetCatalog();
+        this.refreshAgentPresetCatalog();
         const selectedAgentPreset = selected?.agentPreset;
         const selectedAgentPresetLabel = this.agentPresetCatalog
             ?.find((preset) => preset.id === selectedAgentPreset)?.name;
@@ -2964,6 +3013,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                   }),
             host,
             sessionId: this.sessionId,
+            modeSelectionEnabled: this.modeSelectionEnabled,
             ...(selectedAgentPreset === undefined ? {} : { agentPreset: selectedAgentPreset }),
             ...(selectedAgentPresetLabel === undefined ? {} : { agentPresetLabel: selectedAgentPresetLabel }),
             ...(this.newSessionDraft && this.pendingNewSessionWorkspaceId

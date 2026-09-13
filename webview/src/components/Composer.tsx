@@ -23,6 +23,7 @@ interface ComposerProps {
     selectionEnabled: ComposerState["selectionEnabled"];
     fileReferenceCandidates: ComposerState["fileReferenceCandidates"];
     skills: ComposerState["skills"];
+    modeSelectionEnabled: ComposerState["modeSelectionEnabled"];
     commands: ComposerState["commands"];
     permissions: ComposerState["permissions"];
     tokenUsage: ComposerState["tokenUsage"];
@@ -42,6 +43,7 @@ export const Composer = React.memo(function Composer({
     selectionEnabled,
     fileReferenceCandidates,
     skills,
+    modeSelectionEnabled,
     commands,
     permissions,
     tokenUsage,
@@ -102,6 +104,7 @@ export const Composer = React.memo(function Composer({
         text,
         setText,
         skills,
+        modeSelectionEnabled,
         commands,
         reasoningEffort,
         onShowEffort,

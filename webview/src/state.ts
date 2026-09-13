@@ -93,6 +93,7 @@ export type ComposerState = Pick<
     | "selectionEnabled"
     | "fileReferenceCandidates"
     | "skills"
+    | "modeSelectionEnabled"
     | "commands"
     | "permissions"
     | "tokenUsage"

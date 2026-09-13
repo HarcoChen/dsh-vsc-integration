@@ -1,5 +1,6 @@
 import { isRecord } from "./guards";
 import {
+    DshFeedbackCategory,
     DshMessageFeedbackDeleteResult,
     DshMessageFeedbackError,
     DshMessageFeedbackItem,
@@ -26,6 +27,15 @@ function rating(value: unknown): value is DshMessageFeedbackRating {
     return value === "positive" || value === "negative";
 }
 
+const FEEDBACK_CATEGORIES: ReadonlySet<string> = new Set<DshFeedbackCategory>([
+    "task-result", "instruction-following", "product-interaction", "service-stability",
+    "resource-cost", "security-privacy-permission", "other",
+]);
+
+function category(value: unknown): value is DshFeedbackCategory {
+    return typeof value === "string" && FEEDBACK_CATEGORIES.has(value);
+}
+
 /** Parse one Host-owned item without trusting any business value from the wire. */
 export function normalizeMessageFeedbackItem(value: unknown): DshMessageFeedbackItem | undefined {
     if (!isRecord(value) ||
@@ -36,6 +46,7 @@ export function normalizeMessageFeedbackItem(value: unknown): DshMessageFeedback
         !safeTime(value.createdAt) ||
         !safeTime(value.updatedAt) ||
         value.updatedAt < value.createdAt ||
+        (value.category !== undefined && !category(value.category)) ||
         (value.note !== undefined && !nonEmptyString(value.note, MAX_NOTE_LENGTH))) {
         return undefined;
     }
@@ -43,6 +54,7 @@ export function normalizeMessageFeedbackItem(value: unknown): DshMessageFeedback
         messageId: value.messageId,
         rating: value.rating,
         ...(value.note === undefined ? {} : { note: value.note }),
+        ...(value.category === undefined ? {} : { category: value.category }),
         version: value.version,
         createdAt: value.createdAt,
         updatedAt: value.updatedAt,

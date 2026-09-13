@@ -19,6 +19,7 @@ const require = createRequire(import.meta.url);
 const { RemoteConnectionController } = require(join(root, "dist/remote/connection"));
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
+const { normalizeMessageFeedbackPutResult, normalizeMessageFeedbackListResult } = require(join(root, "dist/messageFeedback"));
 const argv = process.argv.slice(2);
 const launcherIndex = argv.indexOf("--launcher");
 if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launcher /absolute/path/to/dsh");
@@ -159,7 +160,7 @@ try {
     coordinator = new RemoteStateCoordinator(connection, {
         onHostDescription: () => { descriptions += 1; },
         onDiagnostic: (message, cause) => diagnostics.push(`${message}: ${cause?.message ?? cause ?? ""}`),
-    }, { historyPageSize: 2, runtimeVersion: "0.1.5-rc.1" });
+    }, { historyPageSize: 2, runtimeVersion: "0.1.5-rc.2" });
     coordinator.start();
     await until(() => descriptions > 0, "coordinator baseline");
     await connection.unary.probe();
@@ -189,6 +190,30 @@ try {
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
+    const feedbackRequest = { sessionId: seededSessionId, messageId: "assistant-1",
+        rating: "positive", category: "task-result", note: "Useful answer", ifVersion: null };
+    const feedback = normalizeMessageFeedbackPutResult(await connection.unary.call("messageFeedback/put", { request: feedbackRequest }));
+    assert.equal(feedback?.ok, true);
+    assert.equal(feedback.value.category, "task-result");
+    const feedbackEdit = normalizeMessageFeedbackPutResult(await connection.unary.call("messageFeedback/put", {
+        request: { ...feedbackRequest, rating: "negative", note: "Needs more detail", ifVersion: feedback.value.version },
+    }));
+    assert.equal(feedbackEdit?.ok, true);
+    assert.equal(feedbackEdit.value.category, "task-result");
+    const feedbackList = normalizeMessageFeedbackListResult(await connection.unary.call("messageFeedback/list", {
+        request: { sessionId: seededSessionId },
+    }));
+    assert.equal(feedbackList?.ok, true);
+    assert.deepEqual(feedbackList.value.items, [feedbackEdit.value]);
+    const feedbackConflict = normalizeMessageFeedbackPutResult(await connection.unary.call("messageFeedback/put", { request: feedbackRequest }));
+    assert.equal(feedbackConflict?.ok, false);
+    assert.equal(feedbackConflict.error.code, "version-conflict");
+    assert.equal(feedbackConflict.error.current.category, "task-result");
+    const feedbackDeleted = await connection.unary.call("messageFeedback/delete", {
+        request: { sessionId: seededSessionId, messageId: "assistant-1", ifVersion: feedbackEdit.value.version },
+    });
+    assert.equal(feedbackDeleted.ok, true);
+    pass("positive/negative feedback categories survive edits, list reads and CAS conflicts");
     const oldGeneration = connection.currentGeneration;
     const oldDescriptions = descriptions;
     connection.reconnect();

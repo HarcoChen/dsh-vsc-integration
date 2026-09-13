@@ -71,10 +71,10 @@ setInterval(() => {}, 1000);
 }
 `, { mode: 0o700 });
     const localVersion = scenario === "old" || scenario === "explicit-old" || scenario === "prefix" ? "0.1.2-rc.1"
-        : scenario === "unknown" ? "not a version" : scenario === "newer" ? "0.1.5-rc.2"
-        : ["timeout", "cancel"].includes(scenario) ? "hang" : "0.1.5-rc.1";
+        : scenario === "unknown" ? "not a version" : scenario === "newer" ? "0.1.5-rc.3"
+        : ["timeout", "cancel"].includes(scenario) ? "hang" : "0.1.5-rc.2";
     if (!["missing", "npx-fallback", "config-managed"].includes(scenario)) await executable(join(bin, "dsh"), "local", localVersion);
-    if (scenario === "prefix") await executable(join(prefix, "bin", "dsh"), "prefix", "0.1.5-rc.1");
+    if (scenario === "prefix") await executable(join(prefix, "bin", "dsh"), "prefix", "0.1.5-rc.2");
     if (scenario !== "config-managed") {
         await executable(join(bin, "npm"), "npm", "11.0.0");
         if (scenario !== "npx-fallback") await executable(join(bin, "pnpm"), "pnpm", "10.0.0");
@@ -142,7 +142,7 @@ setInterval(() => {}, 1000);
             assert.equal(launches.length, scenario === "download-fallback" ? 2 : 1);
             assert.equal(runtime.getRecoveryStatus(), undefined, "writer-lock failures must not start bundle isolation");
         } else if (scenario.startsWith("config-")) {
-            await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.1/u);
+            await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.2/u);
             await assert.rejects(() => runtime.diagnoseEnvironment(directory), /dsh\.runtimeVersion/u);
             await assert.rejects(() => readFile(probeMarker), { code: "ENOENT" });
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
@@ -169,10 +169,10 @@ setInterval(() => {}, 1000);
                 : ["local", "legacy-args"].includes(scenario) ? "local" : "pnpm";
             assert.equal(launched.name, expected, "default discovery must prefer a compatible local CLI and otherwise pin the fallback");
             const appArgs = scenario === "legacy-args" ? ["web", "--no-open", "--port", "49151"] : ["web", "--no-open", "--port", "0"];
-            assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", "@deepseek-ai/dsh@0.1.5-rc.1", ...appArgs]
-                : expected === "npx" ? ["--yes", "@deepseek-ai/dsh@0.1.5-rc.1", ...appArgs] : appArgs);
+            assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", "@deepseek-ai/dsh@0.1.5-rc.2", ...appArgs]
+                : expected === "npx" ? ["--yes", "@deepseek-ai/dsh@0.1.5-rc.2", ...appArgs] : appArgs);
             const lock = JSON.parse(await readFile(join(directory, "dsh-runtime.lock"), "utf8"));
-            assert.equal(lock.runtimeVersion, "0.1.5-rc.1");
+            assert.equal(lock.runtimeVersion, "0.1.5-rc.2");
             assert.equal(lock.runtimePid, runtime.child.pid);
         }
         console.log(`PASS ${scenario}: launcher selection, actual argv and versioned lock`);

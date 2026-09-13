@@ -11,6 +11,7 @@ export interface SlashCompletionOptions {
     text: string;
     setText: (text: string) => void;
     skills: DshSkillEntry[];
+    modeSelectionEnabled?: boolean;
     /** Host-registered commands for the current session. */
     commands: DshCommandDescriptor[];
     reasoningEffort: ChatViewState["reasoningEffort"];
@@ -36,6 +37,7 @@ export function useSlashCompletion({
     text,
     setText,
     skills,
+    modeSelectionEnabled,
     commands,
     reasoningEffort,
     onShowEffort,
@@ -44,7 +46,7 @@ export function useSlashCompletion({
     const [slashIndex, setSlashIndex] = useState(0);
     const resetSlashIndex = useCallback((): void => setSlashIndex(0), []);
 
-    const available = useMemo(() => mergeSlashCommands(commands), [commands]);
+    const available = useMemo(() => mergeSlashCommands(commands, modeSelectionEnabled), [commands, modeSelectionEnabled]);
 
     const executeSlashCommand = useCallback((name: string): boolean => {
         const handled = runSlashCommand(name, {

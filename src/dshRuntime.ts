@@ -1828,6 +1828,7 @@ export class DshRuntime implements vscode.Disposable {
             presets: result.presets ?? [],
             authorable: result.authorable === true,
             hasDocument: result.hasDocument ?? result.authorable === true,
+            modeSelectionEnabled: result.modeSelectionEnabled !== false,
         };
     }
 
@@ -2148,7 +2149,7 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient.call("subagents/interruptByParent", address, signal);
     }
 
-    /** Reads the Host-owned per-message feedback sidecar for one Session. */
+    /** Reads the Host projection of persisted per-message feedback for one Session. */
     public async listMessageFeedback(
         sessionId: string,
         signal?: AbortSignal,
@@ -2158,7 +2159,7 @@ export class DshRuntime implements vscode.Disposable {
                 request: { sessionId } satisfies DshMessageFeedbackListRequest,
             }, signal);
         } catch (error) {
-            // The sidecar is optional on older or minimally composed Runtimes.
+            // Feedback is optional on minimally composed Runtimes.
             if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
