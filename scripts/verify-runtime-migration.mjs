@@ -41,6 +41,7 @@ if (!process.argv.includes("--worker")) {
     const { readRuntimeLock } = require(join(root, "dist/runtimeLock"));
     const { inspectLegacyRuntime, stopLegacyRuntime } = require(join(root, "dist/runtimeMigration"));
     const runtime = () => Object.assign(Object.create(DshRuntime.prototype), {
+        harnessState: { setRuntimeVersion() {} },
         runtimeLockWrite: Promise.resolve(), output: { appendLine() {} }, isHarnessHealthy: async () => false,
     });
     const lockPath = join(tmpdir(), "dsh-runtime.lock");

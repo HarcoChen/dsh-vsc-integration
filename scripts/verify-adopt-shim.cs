@@ -5,7 +5,7 @@ using System.Text;
 class DshShim {
     static int Main(string[] args) {
         foreach (var a in args) {
-            if (a == "--version") { Console.WriteLine("0.1.5-rc.2"); return 0; }
+            if (a == "--version") { Console.WriteLine("0.1.5-rc.1"); return 0; }
         }
         var dir = AppDomain.CurrentDomain.BaseDirectory;
         var psi = new ProcessStartInfo(Environment.GetEnvironmentVariable("DSH_SHIM_NODE"),

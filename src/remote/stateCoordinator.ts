@@ -124,6 +124,11 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         });
     }
 
+    /** Version verified from the selected CLI or shared lock, before starting its streams. */
+    public setRuntimeVersion(version: string): void {
+        this.runtimeVersion = version;
+    }
+
     public start(): void {
         this.stopped = false;
         this.connection.start();

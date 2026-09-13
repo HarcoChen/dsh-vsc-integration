@@ -15,7 +15,7 @@ const pause = ms => new Promise(done => setTimeout(done, ms));
 if (!process.argv.includes("--worker")) {
     if (process.platform === "win32") throw new Error("This executable-fixture smoke requires POSIX; run Windows validation separately.");
     const selected = process.argv.slice(2);
-    for (const scenario of selected.length ? selected : ["writer-lock", "runtime-error", "download-fallback", "config-local", "config-pnpm", "config-managed", "local", "prefix", "old", "unknown", "missing", "newer", "npx-fallback", "timeout", "cancel", "explicit-old", "explicit-missing", "explicit-pnpm", "explicit-npx", "legacy-args", "legacy-version"]) {
+    for (const scenario of selected.length ? selected : ["writer-lock", "runtime-error", "download-fallback", "config-local", "config-pnpm", "config-managed", "local", "prefix", "old", "unknown", "missing", "newer", "npx-fallback", "timeout", "cancel", "explicit-old", "explicit-missing", "explicit-pnpm", "explicit-npx", "legacy-args", "legacy-version", "compatible-rc2", "upgrade-accept", "upgrade-decline", "upgrade-close", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel", "upgrade-stop", "upgrade-prompt-stop", "upgrade-diagnose", "upgrade-race"]) {
         const directory = await mkdtemp(join(tmpdir(), "dsh-discovery-verify-"));
         try {
             const child = spawn(process.execPath, [script, "--worker", scenario], {
@@ -32,13 +32,18 @@ if (!process.argv.includes("--worker")) {
     assert.equal(resolve(tmpdir()), resolve(directory));
     const scenario = process.argv.at(-1);
     const bin = join(directory, "bin");
-    const prefix = join(directory, "prefix");
+    const prefix = join(directory, "prefix with spaces");
+    const upgrading = scenario.startsWith("upgrade-");
+    const versionFile = join(directory, "installed-version");
+    const upgradeMarker = join(directory, "upgrade.json");
+    if (upgrading) await writeFile(versionFile, "0.1.2-rc.1");
     const marker = join(directory, "launched.json");
     const attempts = join(directory, "attempts.jsonl");
     const probeMarker = join(directory, "probe-started");
     await mkdir(bin);
     await mkdir(join(prefix, "bin"), { recursive: true });
     await symlink("/bin/ps", join(bin, "ps"));
+    await symlink(process.execPath, join(bin, "node"));
     const executable = async (path, name, version) => writeFile(path, `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -47,10 +52,17 @@ if (args.includes('--version')) {
     if (${JSON.stringify(version)} === 'hang') {
         fs.writeFileSync(${JSON.stringify(probeMarker)}, 'started');
         setInterval(() => {}, 1000);
-    } else { console.log(${JSON.stringify(version)}); process.exit(0); }
+    } else { console.log(${JSON.stringify(name)} === 'local' && fs.existsSync(${JSON.stringify(versionFile)}) ? fs.readFileSync(${JSON.stringify(versionFile)}, 'utf8') : ${JSON.stringify(version)}); process.exit(0); }
 } else {
 if (args[0] === 'prefix') { console.log(${JSON.stringify(prefix)}); process.exit(0); }
 if (args[0] === 'config') { console.log('https://registry.npmjs.org'); process.exit(0); }
+if (args[0] === 'install') {
+    fs.writeFileSync(${JSON.stringify(upgradeMarker)}, JSON.stringify(args));
+    if (${JSON.stringify(scenario)} === 'upgrade-failed') process.exit(1);
+    if (['upgrade-cancel', 'upgrade-stop'].includes(${JSON.stringify(scenario)})) { setInterval(() => {}, 1000); return; }
+    if (${JSON.stringify(scenario)} !== 'upgrade-mismatch') fs.writeFileSync(${JSON.stringify(versionFile)}, '0.1.5-rc.1');
+    process.exit(0);
+}
 fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({name:${JSON.stringify(name)}, args}));
 fs.appendFileSync(${JSON.stringify(attempts)}, JSON.stringify(args) + '\\n');
 if (${JSON.stringify(scenario)} === 'writer-lock') {
@@ -71,12 +83,25 @@ setInterval(() => {}, 1000);
 }
 `, { mode: 0o700 });
     const localVersion = scenario === "old" || scenario === "explicit-old" || scenario === "prefix" ? "0.1.2-rc.1"
-        : scenario === "unknown" ? "not a version" : scenario === "newer" ? "0.1.5-rc.3"
-        : ["timeout", "cancel"].includes(scenario) ? "hang" : "0.1.5-rc.2";
+        : scenario === "compatible-rc2" ? "0.1.5-rc.2" : scenario === "unknown" ? "not a version" : scenario === "newer" ? "0.1.5-rc.3"
+        : ["timeout", "cancel"].includes(scenario) ? "hang" : "0.1.5-rc.1";
     if (!["missing", "npx-fallback", "config-managed"].includes(scenario)) await executable(join(bin, "dsh"), "local", localVersion);
-    if (scenario === "prefix") await executable(join(prefix, "bin", "dsh"), "prefix", "0.1.5-rc.2");
+    if (scenario === "prefix") await executable(join(prefix, "bin", "dsh"), "prefix", "0.1.5-rc.1");
     if (scenario !== "config-managed") {
-        await executable(join(bin, "npm"), "npm", "11.0.0");
+        if (upgrading) {
+            const packageRoot = join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh");
+            const npmRoot = join(prefix, "lib", "node_modules", "npm");
+            await mkdir(join(packageRoot, "lib"), { recursive: true });
+            await mkdir(join(npmRoot, "bin"), { recursive: true });
+            await writeFile(join(packageRoot, "package.json"), JSON.stringify({ name: "@deepseek-ai/dsh", bin: { dsh: "lib/bin.js" } }));
+            await writeFile(join(npmRoot, "package.json"), JSON.stringify({ name: "npm" }));
+            await executable(join(packageRoot, "lib", "bin.js"), "local", "0.1.2-rc.1");
+            await rm(join(bin, "dsh"));
+            await symlink(join(packageRoot, "lib", "bin.js"), join(bin, "dsh"));
+            await symlink(join(packageRoot, "lib", "bin.js"), join(prefix, "bin", "dsh"));
+            await executable(join(npmRoot, "bin", "npm-cli.js"), "npm", "11.0.0");
+            await symlink(join(npmRoot, "bin", "npm-cli.js"), join(bin, "npm"));
+        } else await executable(join(bin, "npm"), "npm", "11.0.0");
         if (scenario !== "npx-fallback") await executable(join(bin, "pnpm"), "pnpm", "10.0.0");
         await executable(join(bin, "npx"), "npx", "11.0.0");
     }
@@ -100,10 +125,32 @@ setInterval(() => {}, 1000);
     const require = createRequire(import.meta.url);
     const Module = require("node:module");
     const originalLoad = Module._load;
+    const prompts = [];
+    let pendingChoice;
     Module._load = function (id, ...args) {
         if (id === "vscode") return {
             workspace: { isTrusted: true, getConfiguration: () => configuration },
-            window: { withProgress: async (_options, action) => action({ report() {} }, { onCancellationRequested() { return { dispose() {} }; } }) },
+            window: {
+                showWarningMessage: async (message, _options, ...choices) => {
+                    prompts.push({ message, choices });
+                    await assert.rejects(() => readFile(marker), { code: "ENOENT" }, "no fallback may launch before the choice");
+                    if (choices.includes("Use plugin Runtime")) return "Use plugin Runtime";
+                    await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" }, "no install may start before approval");
+                    if (scenario === "upgrade-prompt-stop") return new Promise(resolve => { pendingChoice = resolve; });
+                    if (scenario === "upgrade-race") await writeFile(versionFile, "0.1.5-rc.2");
+                    if (scenario === "upgrade-close") return undefined;
+                    return upgrading && scenario !== "upgrade-decline" ? choices.find(choice => choice.startsWith("Upgrade to ")) : "Skip upgrade";
+                },
+                withProgress: async (_options, action) => action({ report() {} }, {
+                    onCancellationRequested(callback) {
+                        if (scenario !== "upgrade-cancel") return { dispose() {} };
+                        const timer = setInterval(async () => {
+                            try { await readFile(upgradeMarker); clearInterval(timer); callback(); } catch {}
+                        }, 20);
+                        return { dispose() { clearInterval(timer); } };
+                    },
+                }),
+            },
             ProgressLocation: { Notification: 15 },
         };
         return originalLoad.call(this, id, ...args);
@@ -141,8 +188,28 @@ setInterval(() => {}, 1000);
             const launches = (await readFile(attempts, "utf8")).trim().split("\n").map(line => JSON.parse(line));
             assert.equal(launches.length, scenario === "download-fallback" ? 2 : 1);
             assert.equal(runtime.getRecoveryStatus(), undefined, "writer-lock failures must not start bundle isolation");
+        } else if (scenario === "upgrade-diagnose") {
+            await runtime.diagnoseEnvironment(directory);
+            assert.equal(prompts.length, 0);
+            await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
+            await assert.rejects(() => readFile(marker), { code: "ENOENT" });
+        } else if (["upgrade-stop", "upgrade-prompt-stop"].includes(scenario)) {
+            const starting = assert.rejects(() => runtime.start(directory), /cancelled/u);
+            const deadline = Date.now() + 5000;
+            while (Date.now() < deadline) {
+                if (scenario === "upgrade-prompt-stop" && pendingChoice) break;
+                if (scenario === "upgrade-stop") { try { await readFile(upgradeMarker); break; } catch {} }
+                await pause(20);
+            }
+            if (scenario === "upgrade-prompt-stop") assert.ok(pendingChoice);
+            else await readFile(upgradeMarker);
+            await runtime.stop();
+            pendingChoice?.("Upgrade to 0.1.5-rc.1");
+            await starting;
+            await assert.rejects(() => readFile(marker), { code: "ENOENT" });
+            if (scenario === "upgrade-prompt-stop") await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
         } else if (scenario.startsWith("config-")) {
-            await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.2/u);
+            await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.1/u);
             await assert.rejects(() => runtime.diagnoseEnvironment(directory), /dsh\.runtimeVersion/u);
             await assert.rejects(() => readFile(probeMarker), { code: "ENOENT" });
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
@@ -158,7 +225,7 @@ setInterval(() => {}, 1000);
             await starting;
             assert.equal(runtime.getStatus().state, "stopped");
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
-        } else if (["explicit-old", "explicit-missing", "legacy-version"].includes(scenario)) {
+        } else if (["explicit-missing", "legacy-version"].includes(scenario)) {
             await assert.rejects(() => runtime.start(directory), scenario === "explicit-missing" ? /absent-dsh/u : /0\.1\.2-rc\.1/u);
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
             await assert.rejects(() => readFile(join(directory, "dsh-runtime.lock")), { code: "ENOENT" });
@@ -166,15 +233,25 @@ setInterval(() => {}, 1000);
             await runtime.start(directory);
             const launched = JSON.parse(await readFile(marker, "utf8"));
             const expected = scenario === "prefix" ? "prefix" : ["explicit-npx", "npx-fallback"].includes(scenario) ? "npx"
-                : ["local", "legacy-args"].includes(scenario) ? "local" : "pnpm";
+                : ["local", "legacy-args", "compatible-rc2", "upgrade-accept", "upgrade-race"].includes(scenario) ? "local" : "pnpm";
             assert.equal(launched.name, expected, "default discovery must prefer a compatible local CLI and otherwise pin the fallback");
             const appArgs = scenario === "legacy-args" ? ["web", "--no-open", "--port", "49151"] : ["web", "--no-open", "--port", "0"];
-            assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", "@deepseek-ai/dsh@0.1.5-rc.2", ...appArgs]
-                : expected === "npx" ? ["--yes", "@deepseek-ai/dsh@0.1.5-rc.2", ...appArgs] : appArgs);
+            assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", "@deepseek-ai/dsh@0.1.5-rc.1", ...appArgs]
+                : expected === "npx" ? ["--yes", "@deepseek-ai/dsh@0.1.5-rc.1", ...appArgs] : appArgs);
             const lock = JSON.parse(await readFile(join(directory, "dsh-runtime.lock"), "utf8"));
-            assert.equal(lock.runtimeVersion, "0.1.5-rc.2");
+            assert.equal(lock.runtimeVersion, ["compatible-rc2", "upgrade-race"].includes(scenario) ? "0.1.5-rc.2" : "0.1.5-rc.1");
             assert.equal(lock.runtimePid, runtime.child.pid);
+            assert.equal(runtime.harnessState.runtimeVersion, lock.runtimeVersion, "host metadata must use the detected version");
         }
+        if (upgrading && !["upgrade-diagnose", "upgrade-prompt-stop", "upgrade-stop"].includes(scenario)) {
+            const attempted = ["upgrade-accept", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel"].includes(scenario);
+            assert.equal(prompts.length, ["upgrade-failed", "upgrade-mismatch", "upgrade-cancel"].includes(scenario) ? 2 : 1);
+            if (attempted) {
+                assert.deepEqual(JSON.parse(await readFile(upgradeMarker, "utf8")), ["install", "--global", "--prefix", prefix,
+                    "@deepseek-ai/dsh@0.1.5-rc.1", "--registry", "https://registry.npmmirror.com"]);
+            } else await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
+        }
+        if (["local", "compatible-rc2"].includes(scenario)) assert.equal(prompts.length, 0);
         console.log(`PASS ${scenario}: launcher selection, actual argv and versioned lock`);
     } finally { await runtime.dispose(); }
     await assert.rejects(() => readFile(join(directory, "dsh-runtime.lock")), { code: "ENOENT" });

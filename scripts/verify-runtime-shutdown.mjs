@@ -93,7 +93,7 @@ exec /bin/ps "$@"
             child.once("error", reject);
         });
         assert.equal(await listening(server.port), true);
-        assert.equal(await owner.acquireRuntimeLock("0.1.5-rc.2"), true);
+        assert.equal(await owner.acquireRuntimeLock("0.1.5-rc.1"), true);
         owner.child = child;
         owner.startedByExtension = true;
         owner.runtimeLock.record.runtimePid = child.pid;
@@ -128,7 +128,7 @@ exec /bin/ps "$@"
 const fs = require('node:fs');
 if (process.argv.includes('--version')) {
     fs.writeFileSync(${JSON.stringify(versionMarker)}, 'ready');
-    setTimeout(() => console.log('0.1.5-rc.2'), 400);
+    setTimeout(() => console.log('0.1.5-rc.1'), 400);
 } else fs.writeFileSync(${JSON.stringify(launchMarker)}, 'started');
 `, { mode: 0o700 });
         settings.set("command", delayedLauncher);
@@ -158,7 +158,7 @@ if (process.argv.includes('--version')) {
             const exitMarker = join(tmpdir(), `${failure}.started`);
             const exitLauncher = join(tmpdir(), `${failure}.cjs`);
             await writeFile(exitLauncher, `#!${process.execPath}
-if (process.argv.includes('--version')) console.log('0.1.5-rc.2');
+if (process.argv.includes('--version')) console.log('0.1.5-rc.1');
 else { require('node:fs').writeFileSync(${JSON.stringify(exitMarker)}, 'started'); setInterval(() => {}, 1000); }
 `, { mode: 0o700 });
             settings.set("command", exitLauncher);

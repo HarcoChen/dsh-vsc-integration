@@ -124,7 +124,7 @@ if (!process.argv.includes("--worker")) {
 const fs = require("node:fs");
 // The extension probes a custom command with --version before it will launch it.
 if (process.argv.includes("--version")) {
-  console.log("0.1.5-rc.2");
+  console.log("0.1.5-rc.1");
   process.exit(0);
 }
 const argv = process.argv.slice(2);
@@ -188,7 +188,7 @@ setTimeout(() => process.exit(9), 15_000);
         command: shim,
         resolvedPath: shim,
         source: "configured",
-        version: "0.1.5-rc.2",
+        version: "0.1.5-rc.1",
         launcherArgs: [],
         appArgs: ["web", "--no-open", "--port", String(adoptPort)],
         workspaceRoot: workspace,

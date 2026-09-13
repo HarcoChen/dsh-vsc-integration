@@ -38,25 +38,26 @@ if (!process.argv.includes("--worker")) {
     const path = join(tmpdir(), "dsh-runtime.lock");
     const legacyPath = join(tmpdir(), "dsh-vscode-runtime.lock");
     const runtime = () => Object.assign(Object.create(DshRuntime.prototype), {
+        harnessState: { setRuntimeVersion() {} },
         runtimeLockWrite: Promise.resolve(), output: { appendLine() {} },
     });
     const contents = () => readFile(path, "utf8").then(JSON.parse);
     const absent = async target => assert.rejects(() => readFile(target), { code: "ENOENT" });
     if (process.argv.includes("--contender")) {
         const owner = runtime();
-        process.send(await owner.acquireRuntimeLock("0.1.5-rc.2"));
+        process.send(await owner.acquireRuntimeLock("0.1.5-rc.1"));
         process.once("message", async () => { await owner.releaseRuntimeLock(); process.exit(0); });
     } else {
         const exited = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
         await new Promise(done => exited.once("exit", done));
         const deadPid = exited.pid;
         const first = runtime();
-        assert.equal(await first.acquireRuntimeLock("0.1.5-rc.2"), true);
+        assert.equal(await first.acquireRuntimeLock("0.1.5-rc.1"), true);
         let record = await contents();
-        assert.equal(record.runtimeVersion, "0.1.5-rc.2", "new locks must advertise the launch version");
+        assert.equal(record.runtimeVersion, "0.1.5-rc.1", "new locks must advertise the launch version");
         assert.equal(record.pid, process.pid);
         assert.equal(typeof record.ownerId, "string");
-        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.2"), false);
+        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
         await first.releaseRuntimeLock();
         await absent(path);
         console.log("PASS versioned creation, exclusive acquisition, and normal owner release");
@@ -66,11 +67,11 @@ if (!process.argv.includes("--worker")) {
         const url = `http://127.0.0.1:${server.address().port}`;
         const owner = runtime();
         try {
-            assert.equal(await owner.acquireRuntimeLock("0.1.5-rc.2"), true);
+            assert.equal(await owner.acquireRuntimeLock("0.1.5-rc.1"), true);
             owner.child = { pid: process.pid };
             await owner.publishRuntimeLockUrl({ baseUrl: url, launchUrl: `${url}/?token=smoke-only` });
             record = await contents();
-            assert.equal(record.runtimeVersion, "0.1.5-rc.2");
+            assert.equal(record.runtimeVersion, "0.1.5-rc.1");
             assert.equal(record.runtimePid, process.pid);
             assert.equal((await runtime().readRuntimeEndpoint()).baseUrl, url);
             // Releasing while the child is alive must not expose a second writer.
@@ -78,13 +79,13 @@ if (!process.argv.includes("--worker")) {
             assert.equal((await contents()).ownerId, record.ownerId);
             assert.ok(owner.runtimeLock, "retained live lock must retain ownership for later release");
             await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimePid: deadPid }));
-            assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.2"), false,
+            assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false,
                 "a surviving listener blocks reclamation even when recorded PIDs exited");
             await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimeVersion: "0.1.2-rc.1" }));
             await assert.rejects(() => runtime().readRuntimeEndpoint(), /0\.1\.2-rc\.1/u);
             await writeFile(path, JSON.stringify({ pid: deadPid, url }));
             await assert.rejects(() => runtime().readRuntimeEndpoint(), /version|版本/u);
-            assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.2"), false);
+            assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
             console.log("PASS live/orphan service preserved; mismatched and unversioned locks rejected");
         } finally {
             await new Promise(done => server.close(done));
@@ -94,35 +95,35 @@ if (!process.argv.includes("--worker")) {
 
         // Upgrade migration: a dead editor + refused published port reclaims an unversioned legacy lock.
         const migrated = runtime();
-        assert.equal(await migrated.acquireRuntimeLock("0.1.5-rc.2"), true);
-        assert.equal((await contents()).runtimeVersion, "0.1.5-rc.2");
+        assert.equal(await migrated.acquireRuntimeLock("0.1.5-rc.1"), true);
+        assert.equal((await contents()).runtimeVersion, "0.1.5-rc.1");
         await migrated.releaseRuntimeLock();
         await absent(path);
         console.log("PASS unversioned legacy lock migrates after its owner and listener exit");
         // Failure before URL publication cannot prove that a wrapper's descendant exited.
         await writeFile(path, JSON.stringify({ pid: deadPid, runtimePid: deadPid,
-            runtimeVersion: "0.1.5-rc.2", runtimeProcess: "wrapper" }));
-        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.2"), false);
+            runtimeVersion: "0.1.5-rc.1", runtimeProcess: "wrapper" }));
+        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
         await rm(path);
         await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimePid: deadPid }));
         const replacement = runtime();
-        assert.equal(await replacement.acquireRuntimeLock("0.1.5-rc.2"), true);
+        assert.equal(await replacement.acquireRuntimeLock("0.1.5-rc.1"), true);
         assert.notEqual((await contents()).ownerId, record.ownerId);
         await replacement.releaseRuntimeLock();
         console.log("PASS confirmed dead owner/child and refused local port allow stale cleanup");
 
         await writeFile(path, "{incomplete");
-        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.2"), false);
+        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
         await assert.rejects(() => runtime().readRuntimeEndpoint(), /lock|锁/u);
         assert.equal(await readFile(path, "utf8"), "{incomplete");
         await rm(path);
         await writeFile(legacyPath, JSON.stringify({ pid: process.pid }));
-        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.2"), false);
+        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
         await rm(legacyPath);
         console.log("PASS malformed/legacy locks are not silently removed");
 
         const superseded = runtime();
-        assert.equal(await superseded.acquireRuntimeLock("0.1.5-rc.2"), true);
+        assert.equal(await superseded.acquireRuntimeLock("0.1.5-rc.1"), true);
         const nextOwner = { ...await contents(), ownerId: "different-owner" };
         await rm(path);
         await writeFile(path, JSON.stringify(nextOwner));
@@ -132,7 +133,7 @@ if (!process.argv.includes("--worker")) {
         console.log("PASS release cannot unlink another owner's replacement lock");
 
         const retained = runtime();
-        assert.equal(await retained.acquireRuntimeLock("0.1.5-rc.2"), true);
+        assert.equal(await retained.acquireRuntimeLock("0.1.5-rc.1"), true);
         retained.runtimeLock.record.runtimePid = process.pid;
         retained.runtimeLock.record.runtimeProcess = "direct";
         await retained.publishRuntimeLockUrl();
@@ -175,7 +176,7 @@ if (!process.argv.includes("--worker")) {
 
         const abandoned = JSON.stringify({ pid: deadPid, createdAt: Date.now() });
         await writeFile(`${path}.mutation`, abandoned);
-        await assert.rejects(() => runtime().acquireRuntimeLock("0.1.5-rc.2"), /mutation/u);
+        await assert.rejects(() => runtime().acquireRuntimeLock("0.1.5-rc.1"), /mutation/u);
         assert.equal(await readFile(`${path}.mutation`, "utf8"), abandoned);
         await rm(`${path}.mutation`);
         console.log("PASS abandoned mutation guard is reported and preserved for manual inspection");

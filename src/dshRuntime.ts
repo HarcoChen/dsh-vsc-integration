@@ -19,6 +19,7 @@ import {
 } from "./runtimeLock";
 import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock } from "./remote/sessionState";
 import { t } from "./localize";
+import { LocalRuntimeUpgradeCancelledError, offerLocalRuntimeUpgrade } from "./localRuntimeUpgrade";
 import { buildComposition, patchPathsFromArgs, profileNameFromArgs } from "./recovery/composition";
 import { RecoveryDiagnostics } from "./recovery/diagnostics";
 import { FixExecutor } from "./recovery/fixExecutor";
@@ -32,7 +33,7 @@ import type {
     RecoveryStatusView,
 } from "./recovery/types";
 import {
-    RUNTIME_DEFAULT_VERSION,
+    RUNTIME_DEFAULT_VERSION, RUNTIME_SUPPORTED_VERSIONS, isSupportedRuntimeVersion,
     acquireManagedRuntime,
     checkInstalled,
     resolveTarget,
@@ -589,6 +590,9 @@ interface DiscoverDshOptions {
     configuredArgs: string[];
     /** Permit the managed Runtime fallback (may download). Disabled during diagnosis. */
     allowManaged: boolean;
+    skipLocal?: boolean;
+    /** Startup only; diagnostics must never offer or perform upgrades. */
+    onOutdatedLocal?: (command: string, actual: string | undefined) => Promise<string | undefined>;
     /** HTTP(S) proxy URL, e.g. from the VS Code http.proxy setting. */
     proxy?: string;
     onLog?: (message: string) => void;
@@ -608,16 +612,16 @@ function configuredLaunchArgs(configuration: vscode.WorkspaceConfiguration, comm
     return ["web", "--no-open"];
 }
 
-/** This build's protocol pin applies to every local launcher, including managed downloads. */
+/** The requested download/upgrade version must be in the audited compatibility list. */
 function configuredRuntimeVersion(configuration: vscode.WorkspaceConfiguration): string {
     const version = configuration.get<string>("runtimeVersion", RUNTIME_DEFAULT_VERSION).trim() || RUNTIME_DEFAULT_VERSION;
-    if (version !== RUNTIME_DEFAULT_VERSION) {
+    if (!isSupportedRuntimeVersion(version)) {
         throw new RemoteProtocolError(t(
             "dsh.runtimeVersion is {actual}; this extension only supports {expected}. Reset dsh.runtimeVersion before starting a local Runtime.",
-            { actual: version, expected: RUNTIME_DEFAULT_VERSION },
+            { actual: version, expected: RUNTIME_SUPPORTED_VERSIONS.join(", ") },
         ));
     }
-    return RUNTIME_DEFAULT_VERSION;
+    return version;
 }
 
 async function probeRuntimeVersion(command: string, options: { cwd?: string; signal?: AbortSignal }): Promise<string | undefined> {
@@ -676,16 +680,16 @@ const DSH_PACKAGE = "@deepseek-ai/dsh";
  *
  * A bare `@deepseek-ai/dsh` resolves to the dist-tag `latest`, so publishing a
  * Runtime moves existing installations onto it at the next cold start — and a
- * Runtime release may replace the wire protocol wholesale. The pin is a
- * compile-time constant rather than a setting; both automatic fallbacks and
+ * Runtime release may replace the wire protocol wholesale. The pin is
+ * validated against the audited versions; both automatic fallbacks and
  * explicit package-manager commands pass through this pin.
  *
  * An operator who wrote an explicit `@deepseek-ai/dsh@<version>` asked for that
  * version and keeps it; only the unpinned spec is rewritten.
  */
-function pinDshPackageArgs(args: string[]): string[] {
+function pinDshPackageArgs(args: string[], version: string): string[] {
     return args.map((argument) =>
-        argument === DSH_PACKAGE ? `${DSH_PACKAGE}@${RUNTIME_DEFAULT_VERSION}` : argument,
+        argument === DSH_PACKAGE ? `${DSH_PACKAGE}@${version}` : argument,
     );
 }
 
@@ -919,8 +923,9 @@ async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshL
 
 /**
  * Auto resolves compatible PATH/npm-global dsh, then pinned pnpm/npx, then
- * managed Runtime. Explicit launchers take priority and are never replaced by
- * local auto-discovery. Every provider failure is aggregated into the final error so a
+ * managed Runtime. An incompatible local launcher gets an upgrade choice
+ * before package-manager fallback. Explicit package-manager commands keep
+ * their requested startup path. Every provider failure is aggregated so a
  * failed download is never masked as a generic "dsh not available".
  */
 async function discoverDsh(command: string, options: DiscoverDshOptions): Promise<DshLauncher> {
@@ -928,9 +933,16 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
 
     options.signal?.throwIfAborted();
     if (command !== "auto" && await executableExists(command)) {
-        return isPackageManagerCommand(command)
-            ? packageManagerLauncher(command, [])
-            : { command, args: [], source: { kind: "configured", command, args: [] } };
+        if (isPackageManagerCommand(command)) return packageManagerLauncher(command, []);
+        const path = await findExecutable(command);
+        let version = await probeRuntimeVersion(command, options);
+        if (!isSupportedRuntimeVersion(version) && options.onOutdatedLocal && path) {
+            version = await options.onOutdatedLocal(path, version) ?? version;
+            if (!isSupportedRuntimeVersion(version)) {
+                return discoverDsh("auto", { ...options, skipLocal: true });
+            }
+        }
+        return { command, args: [], source: { kind: "configured", command, args: [] } };
     }
     // pnpm dlx and npx are interchangeable package-manager launchers for the
     // published DSH package. Prefer the other one when the configured default
@@ -981,13 +993,16 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
     const packageIndex = options.configuredArgs.findIndex(arg => /^@deepseek-ai\/dsh(?:@|$)/u.test(arg));
     const packageSpec = packageIndex < 0 ? undefined : options.configuredArgs[packageIndex];
     const localArgs = packageIndex < 0 ? options.configuredArgs : options.configuredArgs.slice(packageIndex + 1);
-    const permitsLocal = packageSpec === undefined || packageSpec === DSH_PACKAGE || packageSpec === `${DSH_PACKAGE}@${RUNTIME_DEFAULT_VERSION}`;
+    const permitsLocal = packageSpec === undefined || packageSpec === DSH_PACKAGE;
     const checked = new Set<string>();
     const compatibleLocal = async (path: string, kind: "path" | "npm-prefix"): Promise<DshLauncher | undefined> => {
-        if (!permitsLocal || checked.has(path)) return undefined;
+        if (options.skipLocal || !permitsLocal || checked.has(path)) return undefined;
         checked.add(path);
-        const version = await probeRuntimeVersion(path, options);
-        if (version !== RUNTIME_DEFAULT_VERSION) {
+        let version = await probeRuntimeVersion(path, options);
+        if (!isSupportedRuntimeVersion(version) && options.onOutdatedLocal) {
+            version = await options.onOutdatedLocal(path, version) ?? version;
+        }
+        if (!isSupportedRuntimeVersion(version)) {
             const reason = `[dsh] skipped local CLI ${path}: version ${version ?? "unknown"}; requires ${RUNTIME_DEFAULT_VERSION}`;
             failures.push(reason);
             options.onLog?.(reason);
@@ -1022,7 +1037,8 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
                 }
             }
         }
-    } catch {
+    } catch (error) {
+        if (error instanceof CanceledError) throw error;
         options.signal?.throwIfAborted();
         failures.push(t("npm: unavailable"));
     }
@@ -2396,7 +2412,7 @@ export class DshRuntime implements vscode.Disposable {
 
         const runtimeVersion = configuredRuntimeVersion(configuration);
         if (this.baseUrl && this.startedByExtension &&
-            this.runtimeLock?.record.runtimeVersion === RUNTIME_DEFAULT_VERSION &&
+            isSupportedRuntimeVersion(this.runtimeLock?.record.runtimeVersion) &&
             (await this.isHarnessHealthy(this.baseUrl))) {
             checkStarting();
             this.setStatus({ state: "running", url: this.baseUrl });
@@ -2439,6 +2455,24 @@ export class DshRuntime implements vscode.Disposable {
         // Discovery may trigger a managed Runtime download. This deliberately
         // happens before the runtime start lock so one window can download or
         // reuse the cache while another window keeps using an installed runtime.
+        let upgradeOffered = false;
+        const onOutdatedLocal = async (path: string, actual: string | undefined): Promise<string | undefined> => {
+            if (upgradeOffered) return undefined;
+            upgradeOffered = true;
+            try {
+                return await offerLocalRuntimeUpgrade({
+                    command: path, actual, target: runtimeVersion,
+                    npm: await findExecutable("npm"), node: await findExecutable("node"), prefix: await globalNpmPrefix(),
+                    registry: normalizeNpmRegistry(configuration.get<string>("npmRegistry")),
+                    timeout: configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS),
+                    signal, probe: () => probeRuntimeVersion(path, { cwd: workspaceRoot, signal }),
+                    log: message => this.output.appendLine(message),
+                });
+            } catch (error) {
+                if (error instanceof LocalRuntimeUpgradeCancelledError) throw new CanceledError();
+                throw error;
+            }
+        };
         let launcher: DshLauncher;
         try {
             launcher = await discoverDsh(command, {
@@ -2447,6 +2481,7 @@ export class DshRuntime implements vscode.Disposable {
                 runtimeVersion,
                 configuredArgs,
                 allowManaged: true,
+                onOutdatedLocal,
                 cwd: workspaceRoot,
                 signal,
                 proxy: this.httpProxy(),
@@ -2468,7 +2503,7 @@ export class DshRuntime implements vscode.Disposable {
         // Every launcher path lands here — the manifest default, a user's own
         // commandArgs, the pnpm/npx conversion, and the discovery fallback — so
         // this is the one place the pin cannot be routed around.
-        args = isPackageManagerSource(launcher.source) ? pinDshPackageArgs(launchArgs) : launchArgs;
+        args = isPackageManagerSource(launcher.source) ? pinDshPackageArgs(launchArgs, runtimeVersion) : launchArgs;
         this.output.appendLine(`[dsh] discovered executable: ${command} (${describeSource(launcher.source)})`);
 
         // Never label an arbitrary installed binary with the extension's target version.
@@ -2481,9 +2516,14 @@ export class DshRuntime implements vscode.Disposable {
             launchVersion = launcher.source.version;
         } else {
             launchVersion = await probeRuntimeVersion(command, { cwd: workspaceRoot, signal });
+            if (!isSupportedRuntimeVersion(launchVersion)) {
+                const path = await findExecutable(command);
+                if (path) launchVersion = await onOutdatedLocal(path, launchVersion) ?? launchVersion;
+            }
         }
         checkStarting();
         this.requireRuntimeVersion(launchVersion);
+        this.harnessState.setRuntimeVersion(launchVersion!);
 
         if (!(await this.acquireRuntimeLock(launchVersion!, signal))) {
             const deadline = Date.now() + startupTimeout;
@@ -3127,7 +3167,7 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     private requireRuntimeVersion(version: string | undefined): void {
-        if (version === RUNTIME_DEFAULT_VERSION) return;
+        if (isSupportedRuntimeVersion(version)) return;
         throw new RemoteProtocolError(t(
             "DSH Runtime version is {actual}; this extension requires {expected}. Stop or upgrade the existing Runtime in its owning editor, then restart DSH. The shared lock was not removed and no process was stopped.",
             { actual: version ?? t("unknown (unversioned lock or launcher)"), expected: RUNTIME_DEFAULT_VERSION },
@@ -3221,10 +3261,13 @@ export class DshRuntime implements vscode.Disposable {
             if (!record) {
                 throw new RemoteProtocolError(t("The shared DSH Runtime lock is unreadable or incomplete. Retry after startup finishes; if it persists, inspect the lock and its processes before removing it: {path}", { path: snapshot.path }));
             }
-            if (record.runtimeVersion !== RUNTIME_DEFAULT_VERSION) {
+            if (!isSupportedRuntimeVersion(record.runtimeVersion)) {
                 throw new RuntimeMigrationRequiredError(snapshot, RUNTIME_DEFAULT_VERSION);
             }
-            endpoint ??= lockRecordEndpoint(record);
+            if (!endpoint) {
+                endpoint = lockRecordEndpoint(record);
+                this.harnessState.setRuntimeVersion(record.runtimeVersion);
+            }
         }
         return endpoint;
     }

@@ -63,7 +63,7 @@ const http = require("node:http");
 const path = require("node:path");
 // The extension probes a custom command with --version before it will launch it.
 if (process.argv.includes("--version")) {
-  console.log("0.1.5-rc.2");
+  console.log("0.1.5-rc.1");
   process.exit(0);
 }
 function dshHome() {
