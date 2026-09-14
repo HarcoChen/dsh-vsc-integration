@@ -3262,7 +3262,7 @@ export class DshRuntime implements vscode.Disposable {
                 throw new RemoteProtocolError(t("The shared DSH Runtime lock is unreadable or incomplete. Retry after startup finishes; if it persists, inspect the lock and its processes before removing it: {path}", { path: snapshot.path }));
             }
             if (!isSupportedRuntimeVersion(record.runtimeVersion)) {
-                throw new RuntimeMigrationRequiredError(snapshot, RUNTIME_DEFAULT_VERSION);
+                throw new RuntimeMigrationRequiredError(snapshot, RUNTIME_MINIMUM_VERSION);
             }
             if (!endpoint) {
                 endpoint = lockRecordEndpoint(record);

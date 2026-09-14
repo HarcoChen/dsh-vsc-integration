@@ -76,7 +76,11 @@ export interface SlashCommandContext {
  */
 export function runSlashCommand(name: string, context: SlashCommandContext): boolean {
     const mode = name.match(/^\/(?:mode|preset)(?:\s+(.+))?$/iu);
-    if (mode && !context.commands.some((entry) => entry.origin === "host" && /^\/(?:mode|preset)$/iu.test(entry.name))) {
+    const ideModeSelectionEnabled = context.commands.some(
+        (entry) => entry.origin === "ide" && entry.action?.type === "selectAgentPreset",
+    );
+    if (mode && ideModeSelectionEnabled &&
+        !context.commands.some((entry) => entry.origin === "host" && /^\/(?:mode|preset)$/iu.test(entry.name))) {
         const agentPreset = mode[1]?.trim();
         postAction({
             type: "selectAgentPreset",

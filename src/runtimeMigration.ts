@@ -12,7 +12,8 @@ const exec = promisify(execFile);
 export class RuntimeMigrationRequiredError extends RemoteProtocolError {
     public constructor(public readonly snapshot: RuntimeLockSnapshot, expectedVersion: string) {
         super(t("The shared DSH Runtime is {actual}; this extension requires {expected}. Upgrade the existing Runtime before reconnecting.", {
-            actual: snapshot.record?.runtimeVersion ?? t("unversioned (legacy lock)"), expected: expectedVersion,
+            actual: snapshot.record?.runtimeVersion ?? t("unversioned (legacy lock)"),
+            expected: t("{version} or newer", { version: expectedVersion }),
         }));
     }
 }

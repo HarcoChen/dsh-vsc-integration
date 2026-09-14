@@ -19,7 +19,11 @@ const require = createRequire(import.meta.url);
 const { RemoteConnectionController } = require(join(root, "dist/remote/connection"));
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
-const { normalizeMessageFeedbackPutResult, normalizeMessageFeedbackListResult } = require(join(root, "dist/messageFeedback"));
+const {
+    normalizeMessageFeedbackPutResult,
+    normalizeMessageFeedbackListResult,
+    normalizeMessageFeedbackDeleteResult,
+} = require(join(root, "dist/messageFeedback"));
 const argv = process.argv.slice(2);
 const launcherIndex = argv.indexOf("--launcher");
 if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launcher /absolute/path/to/dsh");
@@ -209,10 +213,11 @@ try {
     assert.equal(feedbackConflict?.ok, false);
     assert.equal(feedbackConflict.error.code, "version-conflict");
     assert.equal(feedbackConflict.error.current.category, "task-result");
-    const feedbackDeleted = await connection.unary.call("messageFeedback/delete", {
+    const feedbackDeleted = normalizeMessageFeedbackDeleteResult(await connection.unary.call("messageFeedback/delete", {
         request: { sessionId: seededSessionId, messageId: "assistant-1", ifVersion: feedbackEdit.value.version },
-    });
-    assert.equal(feedbackDeleted.ok, true);
+    }));
+    assert.equal(feedbackDeleted?.ok, true);
+    assert.equal(feedbackDeleted.value.absent, true);
     pass("positive/negative feedback categories survive edits, list reads and CAS conflicts");
     const oldGeneration = connection.currentGeneration;
     const oldDescriptions = descriptions;
