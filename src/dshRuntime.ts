@@ -630,11 +630,11 @@ function configuredRuntimeVersion(configuration: vscode.WorkspaceConfiguration):
     return version;
 }
 
-async function probeRuntimeVersion(command: string, options: { cwd?: string; signal?: AbortSignal }): Promise<string | undefined> {
+async function probeRuntimeVersion(command: string, options: { cwd?: string; signal?: AbortSignal; args?: string[]; timeout?: number }): Promise<string | undefined> {
     options.signal?.throwIfAborted();
     try {
-        const result = await execFileAsync(launcherShellCommand(command), ["--version"], {
-            cwd: options.cwd, signal: options.signal, timeout: 5_000,
+        const result = await execFileAsync(launcherShellCommand(command), [...(options.args ?? []), "--version"], {
+            cwd: options.cwd, signal: options.signal, timeout: options.timeout ?? 5_000,
             windowsHide: true, shell: launcherNeedsShell(command),
         });
         const version = result.stdout.trim();
@@ -2537,9 +2537,25 @@ export class DshRuntime implements vscode.Disposable {
         // Never label an arbitrary installed binary with the extension's target version.
         let launchVersion: string | undefined;
         if (isPackageManagerSource(launcher.source)) {
-            const spec = args.find(argument => argument.startsWith(`${DSH_PACKAGE}@`));
+            const packageIndex = args.findIndex(argument => argument.startsWith(`${DSH_PACKAGE}@`));
+            const spec = args[packageIndex];
             const version = spec?.slice(DSH_PACKAGE.length + 1);
-            if (exactRuntimeVersion(version)) launchVersion = version;
+            if (exactRuntimeVersion(version)) {
+                launchVersion = version;
+            } else if (spec) {
+                // Dist-tags (including next/latest) are selectors, not Runtime versions.
+                // Probe the selected package without starting the Web app, then freeze
+                // that selection so a moving tag cannot change the version in the lock.
+                const timeout = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
+                launchVersion = await probeRuntimeVersion(command, {
+                    cwd: workspaceRoot, signal, args: args.slice(0, packageIndex + 1),
+                    timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_NPX_TIMEOUT_MS,
+                });
+                if (launchVersion) {
+                    args[packageIndex] = `${DSH_PACKAGE}@${launchVersion}`;
+                    this.output.appendLine(`[dsh] resolved ${spec} to ${launchVersion}`);
+                }
+            }
         } else if (launcher.source.kind === "managed") {
             launchVersion = launcher.source.version;
         } else {
