@@ -12,6 +12,12 @@ import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts
 import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
+import type {
+    DshTeamView,
+    DshCreateTeamTaskRequest,
+    DshUpdateTeamTaskRequest,
+    DshTeamTaskMutationResult,
+} from "./agentTeamTypes";
 import { inspectLegacyRuntime, RuntimeMigrationRequiredError, stopLegacyRuntime } from "./runtimeMigration";
 import {
     canReclaimRuntimeLock, exactRuntimeVersion, mutateRuntimeLock, readRuntimeLock, removeRuntimeLock,
@@ -2039,6 +2045,28 @@ export class DshRuntime implements vscode.Disposable {
         // historical `{ cleared: true }` acknowledgement shape.
         normalizeGoalRefResult(value, "goals/clear");
         return { cleared: true };
+    }
+
+    /** Internal opt-in Team API; no UI registration or background probing. */
+    public getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamView> {
+        return this.apiClient.call("agentTeams/view", { agentId: sessionId }, signal);
+    }
+
+    public createAgentTeamTask(
+        sessionId: string,
+        request: DshCreateTeamTaskRequest,
+        signal?: AbortSignal,
+    ): Promise<DshTeamTaskMutationResult> {
+        return this.apiClient.call("agentTeams/createTask", { agentId: sessionId, request }, signal);
+    }
+
+    /** Preserve expectedRevision and typed conflicts; never retry a stale mutation. */
+    public updateAgentTeamTask(
+        sessionId: string,
+        request: DshUpdateTeamTaskRequest,
+        signal?: AbortSignal,
+    ): Promise<DshTeamTaskMutationResult> {
+        return this.apiClient.call("agentTeams/updateTask", { agentId: sessionId, request }, signal);
     }
 
     public listSubagents(

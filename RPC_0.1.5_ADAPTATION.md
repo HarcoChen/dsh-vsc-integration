@@ -59,3 +59,35 @@ Workspace follow、session/control 的 queue/jobs/projection、会话 catalog/mo
 后续按用户确认统一迁移和退出行为：旧锁缺少版本字段不再直接判为不可回收，原编辑器已退出且公布的数字回环端口关闭即可迁移。存活孤儿进程必须核实 DSH npm 入口，并经明确确认及二次身份校验后才发送 TERM；不明实例仍保留。正常 deactivate 等待统一、幂等的停止流程，取消启动并停止所属进程树，再释放锁。新 POSIX 启动记录 `runtimeProcessGroup`，解决 pnpm/npx 包装进程提前退出或尚未公布 URL 时的子进程清理问题；不能证明进程树退出时仍保留锁，具体边界见 README。
 
 验证入口：`scripts/verify-runtime-lock.mjs`、`scripts/verify-runtime-migration.mjs`、`scripts/verify-runtime-shutdown.mjs`，使用隔离临时目录、实际子进程及回环监听器检查并发回收、确认取消、锁替换、非 DSH 进程保护、子进程树退出及启动取消。没有新增或修改单元测试。现场旧进程在用户明确授权后停止，旧锁已备份移走，磁盘会话未修改。
+
+
+## Agent Team preparation (v0.1.5-rc.2, internal only)
+
+The optional experimental Team service is mirrored in `src/agentTeamTypes.ts`
+and exposed through three internal `DshRuntime` methods:
+
+| Runtime method | Remote endpoint | Wire arguments |
+| --- | --- | --- |
+| `getAgentTeam` | `agentTeams/view` | `{ agentId }` |
+| `createAgentTeamTask` | `agentTeams/createTask` | `{ agentId, request }` |
+| `updateAgentTeamTask` | `agentTeams/updateTask` | `{ agentId, request }` |
+
+Source of truth: `deepseek-harness/packages/experimental/agent-team/src/types.ts`
+and the `@Remote` methods in its `src/index.ts`. The Agent lookup uses `agentId`
+as declared in `packages/core/agent/src/index.ts`.
+
+Task mutations return a nested business result. Preserve `team-task-conflict`
+and `team-rejected` independently from Remote transport failures. Updates send
+exactly the caller's `expectedRevision`; callers must reload the full Team view
+before resolving a conflict, rather than automatically retrying a stale update.
+Team views are snapshots, not event subscriptions.
+
+There are no commands, settings, webview messages, background requests, or
+profile/plugin installation changes for this feature. Runtime version alone does
+not imply that the experimental service is installed; endpoint failures propagate
+to the internal caller. Future UI activation must be explicitly wired separately.
+Teammate history and human continuation should reuse the existing addressed
+subagent channel after verifying membership in the direct-child catalog.
+
+Validation: host and webview TypeScript checks. No unit tests added. Live Team
+service integration has not been exercised as part of this preparation.
