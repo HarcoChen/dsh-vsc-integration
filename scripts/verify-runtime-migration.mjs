@@ -12,7 +12,7 @@ const script = fileURLToPath(import.meta.url);
 if (!process.argv.includes("--worker")) {
     const directory = await mkdtemp(join(tmpdir(), "dsh-migration-verify-"));
     try {
-        const worker = spawn(process.execPath, [script, "--worker"], {
+        const worker = spawn(process.execPath, [script, "--worker", ...process.argv.slice(2)], {
             env: { ...process.env, TMPDIR: directory, TMP: directory, TEMP: directory,
                 DSH_MIGRATION_VERIFY_DIRECTORY: directory }, stdio: "inherit",
         });
@@ -44,21 +44,23 @@ if (!process.argv.includes("--worker")) {
         harnessState: { setRuntimeVersion() {} },
         runtimeLockWrite: Promise.resolve(), output: { appendLine() {} }, isHarnessHealthy: async () => false,
     });
+    const stubborn = process.argv.includes("--stubborn");
+    const versioned = process.argv.includes("--versioned");
     const lockPath = join(tmpdir(), "dsh-runtime.lock");
     const fixture = join(tmpdir(), "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
     await mkdir(dirname(fixture), { recursive: true });
-    await writeFile(fixture, 'const server=require("node:net").createServer(s=>s.end()); server.listen(0,"127.0.0.1",()=>process.send({port:server.address().port})); process.on("SIGTERM",()=>server.close(()=>process.exit(0)));');
+    await writeFile(fixture, 'const server=require("node:net").createServer(s=>s.end()); server.listen(0,"127.0.0.1",()=>process.send({port:server.address().port})); process.on("SIGTERM",()=>{ if (!process.argv.includes("--stubborn")) server.close(()=>process.exit(0)); });');
     const dead = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
     await new Promise(done => dead.once("exit", done));
-    const child = spawn(process.execPath, [fixture], { stdio: ["ignore", "inherit", "inherit", "ipc"] });
+    const child = spawn(process.execPath, [fixture, ...(stubborn ? ["--stubborn"] : [])], { stdio: ["ignore", "inherit", "inherit", "ipc"] });
     const childExit = new Promise(done => child.once("exit", done));
     try {
         const { port } = await new Promise((done, reject) => { child.once("message", done); child.once("error", reject); });
-        await writeFile(lockPath, JSON.stringify({ pid: dead.pid, url: `http://127.0.0.1:${port}` }));
+        await writeFile(lockPath, JSON.stringify({ pid: dead.pid, url: `http://127.0.0.1:${port}`, ...(versioned ? { runtimeVersion: "0.1.5-rc.2" } : {}) }));
         const snapshot = await readRuntimeLock(lockPath);
         const identity = await inspectLegacyRuntime(snapshot);
         assert.equal(identity.pid, child.pid);
-        await assert.rejects(() => runtime().findExistingRuntime(0), /unversioned/u);
+        await assert.rejects(() => runtime().findExistingRuntime(0), versioned ? /not responding/u : /unversioned/u);
         assert.equal(prompts.at(-1)[1].modal, true);
         assert.equal(child.exitCode, null);
         assert.ok(await readRuntimeLock(lockPath));
@@ -74,11 +76,17 @@ if (!process.argv.includes("--worker")) {
         confirmed = true;
         assert.equal(await runtime().findExistingRuntime(0), undefined);
         await childExit;
-        assert.equal(child.exitCode, 0);
+        if (stubborn) assert.equal(child.signalCode, "SIGKILL");
+        else assert.equal(child.exitCode, 0);
         assert.equal(await readRuntimeLock(lockPath), undefined);
-        console.log("PASS confirmed upgrade stops only the identified DSH process and reclaims its unchanged legacy lock");
+        const replacement = runtime();
+        assert.equal(await replacement.acquireRuntimeLock("0.1.5-rc.2"), true);
+        assert.equal((await readRuntimeLock(lockPath)).record.runtimeVersion, "0.1.5-rc.2");
+        assert.equal((await readRuntimeLock(lockPath)).record.pid, process.pid);
+        await replacement.releaseRuntimeLock();
+        console.log(`PASS ${versioned ? "versioned" : "unversioned"} orphan ${stubborn ? "forced" : "graceful"} stop, lock cleanup, and replacement acquisition`);
     } finally {
-        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         await childExit;
     }
 
@@ -86,7 +94,7 @@ if (!process.argv.includes("--worker")) {
     const unrelatedExit = new Promise(done => unrelated.once("exit", done));
     try {
         const port = await new Promise(done => unrelated.once("message", done));
-        await writeFile(lockPath, JSON.stringify({ pid: dead.pid, url: `http://127.0.0.1:${port}` }));
+        await writeFile(lockPath, JSON.stringify({ pid: dead.pid, url: `http://127.0.0.1:${port}`, ...(versioned ? { runtimeVersion: "0.1.5-rc.2" } : {}) }));
         assert.equal(await inspectLegacyRuntime(await readRuntimeLock(lockPath)), undefined);
         assert.equal(unrelated.exitCode, null);
         console.log("PASS an unrelated listener is never eligible for automatic upgrade termination");

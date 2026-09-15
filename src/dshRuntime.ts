@@ -3089,6 +3089,19 @@ export class DshRuntime implements vscode.Disposable {
                 return advertisedEndpoint;
             }
             this.clearRuntimeAuthentication();
+            // A compatible version does not make an orphan healthy. Offer the
+            // same restart recovery when its editor has exited but RPC is dead.
+            for (const name of [RUNTIME_LOCK_FILE, LEGACY_RUNTIME_LOCK_FILE]) {
+                const snapshot = await readRuntimeLock(join(tmpdir(), name));
+                if (snapshot?.record && lockRecordEndpoint(snapshot.record)?.baseUrl === advertisedEndpoint.baseUrl &&
+                    await inspectLegacyRuntime(snapshot)) {
+                    const migration = new RuntimeMigrationRequiredError(snapshot, RUNTIME_MINIMUM_VERSION);
+                    if (!await this.offerRuntimeMigration(migration)) {
+                        throw new RemoteProtocolError(t("The orphan DSH Runtime is not responding. Restart was cancelled; its shared lock was retained."));
+                    }
+                    return this.findExistingRuntime(configuredPort);
+                }
+            }
         }
         const ports = (configuredPort > 0 ? [configuredPort, 3080] : [3080]).filter(
             (port, index, all): port is number => Number.isInteger(port) && port > 0 && all.indexOf(port) === index,
@@ -3233,10 +3246,10 @@ export class DshRuntime implements vscode.Disposable {
             );
             return !this.disposed && !this.startAbort?.signal.aborted && answer === retry;
         }
-        const upgrade = t("Stop old Runtime and upgrade");
+        const upgrade = t("Stop orphan Runtime and restart");
         const answer = await vscode.window.showWarningMessage(
-            t("Stop the orphan DSH Runtime (PID {pid}, {url}) and start {version}? This interrupts its running tasks and may affect other connected editors. Sessions on disk are kept; unsaved in-flight output may be lost.", {
-                pid: candidate.pid, url: candidate.baseUrl, version: RUNTIME_DEFAULT_VERSION,
+            t("Stop the orphan DSH Runtime (PID {pid}, {url}), reclaim its shared lock, and restart? If it does not exit, it will be forcibly stopped. This interrupts its running tasks and may affect other connected editors. Sessions on disk are kept; unsaved in-flight output may be lost.", {
+                pid: candidate.pid, url: candidate.baseUrl,
             }),
             { modal: true }, upgrade,
         );

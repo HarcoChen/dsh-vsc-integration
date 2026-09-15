@@ -85,8 +85,26 @@ export async function stopLegacyRuntime(snapshot: RuntimeLockSnapshot, approved:
         while (Date.now() < deadline && (!processHasExited(actual.pid) || !await runtimeHasExited(current.record!))) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
+        if (!processHasExited(actual.pid)) {
+            // The restart prompt authorizes force only for this same orphan.
+            // Recheck after the graceful wait: neither a replacement lock nor
+            // a reused PID may inherit that authorization.
+            const latest = await readRuntimeLock(snapshot.path);
+            const remaining = latest && latest.contents === current.contents &&
+                sameRuntimeLockFile(current.stat, latest.stat) ? await inspectLegacyRuntime(latest) : undefined;
+            if (!remaining || remaining.pid !== actual.pid || remaining.signature !== actual.signature ||
+                remaining.baseUrl !== actual.baseUrl) {
+                throw new Error(t("The old Runtime process changed or its owner is still alive. No process was stopped."));
+            }
+            signal?.throwIfAborted();
+            process.kill(actual.pid, "SIGKILL");
+            const forceDeadline = Date.now() + 3_000;
+            while (Date.now() < forceDeadline && !processHasExited(actual.pid)) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+        }
         if (!processHasExited(actual.pid) || !await runtimeHasExited(current.record!)) {
-            throw new Error(t("The old Runtime did not finish shutting down. Its lock was retained; no forced termination was attempted."));
+            throw new Error(t("The old Runtime or its listener is still running. Its shared lock was retained. Retry after it exits."));
         }
         if (!await removeRuntimeLock(current)) {
             throw new Error(t("The Runtime stopped, but its lock changed. Retry to inspect the current lock."));

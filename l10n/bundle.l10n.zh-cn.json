@@ -527,5 +527,9 @@
     "The old Runtime process changed or its owner is still alive. No process was stopped.": "旧 Runtime 进程已变化或所属编辑器仍在运行。未停止任何进程。",
     "The old Runtime did not finish shutting down. Its lock was retained; no forced termination was attempted.": "旧 Runtime 尚未完成退出。已保留锁文件，没有尝试强制终止。",
     "The Runtime stopped, but its lock changed. Retry to inspect the current lock.": "Runtime 已停止，但锁文件已变化。请重试以检查当前锁。",
-    "dsh.runtimeVersion is {actual}; this extension only supports {expected}. Reset dsh.runtimeVersion before starting a local Runtime.": "dsh.runtimeVersion 为 {actual}，本扩展仅支持 {expected}。请重置 dsh.runtimeVersion 后再启动本地 Runtime。"
+    "dsh.runtimeVersion is {actual}; this extension only supports {expected}. Reset dsh.runtimeVersion before starting a local Runtime.": "dsh.runtimeVersion 为 {actual}，本扩展仅支持 {expected}。请重置 dsh.runtimeVersion 后再启动本地 Runtime。",
+    "Stop orphan Runtime and restart": "停止孤儿 Runtime 并重新启动",
+    "Stop the orphan DSH Runtime (PID {pid}, {url}), reclaim its shared lock, and restart? If it does not exit, it will be forcibly stopped. This interrupts its running tasks and may affect other connected editors. Sessions on disk are kept; unsaved in-flight output may be lost.": "是否停止孤儿 DSH Runtime（PID {pid}，{url}）、清理共享锁并重新启动？若进程未退出，将强制终止。这会中断其运行中的任务，可能影响其他已连接的编辑器。磁盘上的会话会保留，尚未保存的实时输出可能丢失。",
+    "The old Runtime or its listener is still running. Its shared lock was retained. Retry after it exits.": "旧 Runtime 或其监听端口仍在运行。已保留共享锁，请在进程退出后重试。",
+    "The orphan DSH Runtime is not responding. Restart was cancelled; its shared lock was retained.": "孤儿 DSH Runtime 无响应。已取消重启，保留其共享锁。"
 }
