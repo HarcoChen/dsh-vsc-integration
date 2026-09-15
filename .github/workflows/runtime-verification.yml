@@ -1,0 +1,70 @@
+name: Runtime verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-verification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    name: Runtime (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Compile extension and webview
+        run: npm run compile
+
+      # Real subprocesses and files in isolated temporary directories, including
+      # abandoned guards, concurrent recovery, process death and cleanup faults.
+      - name: Verify Runtime locks and crash recovery
+        run: node scripts/verify-runtime-lock.mjs
+
+      # Discovery uses executable shebang fixtures and /bin/ps; migration's
+      # stubborn fixture relies on catching SIGTERM. These are POSIX scenarios,
+      # not a claim of Windows launcher or forced-migration coverage.
+      - name: Verify launcher discovery and package selectors (POSIX)
+        if: runner.os != 'Windows'
+        run: node scripts/verify-runtime-discovery.mjs
+
+      - name: Verify graceful orphan migration (POSIX)
+        if: runner.os != 'Windows'
+        run: node scripts/verify-runtime-migration.mjs
+
+      - name: Verify forced orphan migration (POSIX)
+        if: runner.os != 'Windows'
+        run: node scripts/verify-runtime-migration.mjs --stubborn
+
+      - name: Verify compatible but unresponsive orphan (POSIX)
+        if: runner.os != 'Windows'
+        run: node scripts/verify-runtime-migration.mjs --versioned --stubborn
+
+      - name: Verify exit race during forced migration (POSIX)
+        if: runner.os != 'Windows'
+        run: node scripts/verify-runtime-migration.mjs --stubborn --exit-race
