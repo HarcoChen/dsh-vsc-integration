@@ -202,6 +202,42 @@ if (!process.argv.includes("--worker")) {
         }
         console.log("PASS live-owner and unreadable legacy mutation guards remain protected");
 
+        // Inject staging deletion failure after the real hard-link publication.
+        const fs = require("node:fs/promises");
+        const originalUnlink = fs.unlink;
+        const originalOpen = fs.open;
+        for (const replaceGuard of [false, true]) {
+            let stagedHandle;
+            let injected = false;
+            const replacementContents = JSON.stringify({ pid: process.pid, ownerId: "replacement" });
+            fs.open = async (...args) => {
+                const handle = await originalOpen(...args);
+                if (String(args[0]).endsWith(".tmp")) stagedHandle = handle;
+                return handle;
+            };
+            fs.unlink = async target => {
+                if (!injected && String(target).endsWith(".tmp")) {
+                    injected = true;
+                    if (replaceGuard) {
+                        await originalUnlink(`${path}.mutation`);
+                        await writeFile(`${path}.mutation`, replacementContents);
+                    }
+                    throw Object.assign(new Error("injected staging cleanup failure"), { code: "EACCES" });
+                }
+                return originalUnlink(target);
+            };
+            try {
+                await assert.rejects(() => mutateRuntimeLock(path, async () => assert.fail("action must not run")), /injected staging/u);
+                assert.equal(stagedHandle.fd, -1, "failed publication closes its handle");
+                if (replaceGuard) {
+                    assert.equal(await readFile(`${path}.mutation`, "utf8"), replacementContents);
+                    await originalUnlink(`${path}.mutation`);
+                } else await absent(`${path}.mutation`);
+            } finally { fs.open = originalOpen; fs.unlink = originalUnlink; }
+        }
+        await mutateRuntimeLock(path, async () => {});
+        console.log("PASS staging cleanup failure closes handles, rolls back only its guard, and permits retry");
+
         const crashed = spawn(process.execPath, [script, "--worker", "--crash-mutation"], {
             env: process.env, stdio: ["ignore", "inherit", "inherit", "ipc"],
         });

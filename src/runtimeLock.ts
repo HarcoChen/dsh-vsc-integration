@@ -191,15 +191,24 @@ async function mutateRuntimeLockWithGate<T>(path: string, action: () => Promise<
 async function publishMutationGuard(path: string, contents: string) {
     const staging = `${path}.${randomUUID()}.tmp`;
     const handle = await open(staging, "wx", 0o600);
+    let published = false;
     try {
         await handle.writeFile(contents, "utf8");
         await link(staging, path);
+        published = true;
+        await unlink(staging);
         return handle;
     } catch (error) {
-        await handle.close();
+        const stat = await handle.stat().finally(() => handle.close());
+        if (published) {
+            const current = await readRuntimeLock(path);
+            if (current && sameRuntimeLockFile(stat, current.stat) && current.contents === contents) {
+                await removeRuntimeLock(current);
+            }
+        }
+        // Staging is not the mutex; preserve the original failure if cleanup also fails.
+        await unlink(staging).catch(() => undefined);
         throw error;
-    } finally {
-        await unlink(staging);
     }
 }
 

@@ -97,7 +97,11 @@ export async function stopLegacyRuntime(snapshot: RuntimeLockSnapshot, approved:
                 throw new Error(t("The old Runtime process changed or its owner is still alive. No process was stopped."));
             }
             signal?.throwIfAborted();
-            process.kill(actual.pid, "SIGKILL");
+            try {
+                process.kill(actual.pid, "SIGKILL");
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+            }
             const forceDeadline = Date.now() + 3_000;
             while (Date.now() < forceDeadline && !processHasExited(actual.pid)) {
                 await new Promise(resolve => setTimeout(resolve, 50));

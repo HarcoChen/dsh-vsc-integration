@@ -298,6 +298,8 @@ function extractRuntimeEndpoint(value: string): RuntimeEndpoint | undefined {
 }
 
 function portFromArgs(args: string[]): number | undefined {
+    const invocation = dshPackageInvocation(args);
+    if (invocation) args = args.slice(invocation.probeArgs.length);
     const inline = args.find((argument) => argument.startsWith("--port="));
     if (inline) {
         const value = Number(inline.slice("--port=".length));
@@ -695,8 +697,23 @@ const DSH_PACKAGE = "@deepseek-ai/dsh";
  */
 function pinDshPackageArgs(args: string[], version: string): string[] {
     return args.map((argument) =>
-        argument === DSH_PACKAGE ? `${DSH_PACKAGE}@${version}` : argument,
+        argument === DSH_PACKAGE || argument === `--package=${DSH_PACKAGE}` || argument === `-p=${DSH_PACKAGE}`
+            ? `${argument}@${version}` : argument,
     );
+}
+
+/** Locate positional DSH packages and npx --package/-p forms, retaining the executable for probes. */
+function dshPackageInvocation(args: string[]): { index: number; spec: string; prefix: string; probeArgs: string[] } | undefined {
+    for (let index = 0; index < args.length; index += 1) {
+        const prefix = /^(?:--package|-p)=/u.exec(args[index])?.[0] ?? "";
+        const spec = args[index].slice(prefix.length);
+        if (spec !== DSH_PACKAGE && !spec.startsWith(`${DSH_PACKAGE}@`)) continue;
+        const packageOption = prefix !== "" || args[index - 1] === "--package" || args[index - 1] === "-p";
+        const executable = packageOption ? args.indexOf("dsh", index + 1) : index;
+        if (executable < 0) return undefined;
+        return { index, spec, prefix, probeArgs: args.slice(0, executable + 1) };
+    }
+    return undefined;
 }
 
 function npxArgsForDsh(configuredArgs: string[]): string[] {
@@ -2537,22 +2554,22 @@ export class DshRuntime implements vscode.Disposable {
         // Never label an arbitrary installed binary with the extension's target version.
         let launchVersion: string | undefined;
         if (isPackageManagerSource(launcher.source)) {
-            const packageIndex = args.findIndex(argument => argument.startsWith(`${DSH_PACKAGE}@`));
-            const spec = args[packageIndex];
+            const invocation = dshPackageInvocation(args);
+            const spec = invocation?.spec;
             const version = spec?.slice(DSH_PACKAGE.length + 1);
             if (exactRuntimeVersion(version)) {
                 launchVersion = version;
-            } else if (spec) {
+            } else if (invocation) {
                 // Dist-tags (including next/latest) are selectors, not Runtime versions.
                 // Probe the selected package without starting the Web app, then freeze
                 // that selection so a moving tag cannot change the version in the lock.
                 const timeout = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
                 launchVersion = await probeRuntimeVersion(command, {
-                    cwd: workspaceRoot, signal, args: args.slice(0, packageIndex + 1),
+                    cwd: workspaceRoot, signal, args: invocation.probeArgs,
                     timeout: Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_NPX_TIMEOUT_MS,
                 });
                 if (launchVersion) {
-                    args[packageIndex] = `${DSH_PACKAGE}@${launchVersion}`;
+                    args[invocation.index] = `${invocation.prefix}${DSH_PACKAGE}@${launchVersion}`;
                     this.output.appendLine(`[dsh] resolved ${spec} to ${launchVersion}`);
                 }
             }
@@ -2606,7 +2623,9 @@ export class DshRuntime implements vscode.Disposable {
         }
         args = ensureNoOpen(args);
 
-        if (!args.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
+        const packageInvocation = isPackageManagerSource(launcher.source) ? dshPackageInvocation(args) : undefined;
+        const appArgs = packageInvocation ? args.slice(packageInvocation.probeArgs.length) : args;
+        if (!appArgs.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
             // Port 0 asks Harness/the OS for a free port. This preserves the
             // normal 3080 default for discovery while still working when it is
             // occupied by another service or Runtime.

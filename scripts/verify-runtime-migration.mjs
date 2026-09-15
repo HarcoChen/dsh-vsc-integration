@@ -74,7 +74,22 @@ if (!process.argv.includes("--worker")) {
 
         await writeFile(lockPath, snapshot.contents);
         confirmed = true;
-        assert.equal(await runtime().findExistingRuntime(0), undefined);
+        const originalKill = process.kill;
+        let exitRaceInjected = false;
+        if (process.argv.includes("--exit-race")) {
+            process.kill = (pid, signal) => {
+                if (pid === child.pid && signal === "SIGKILL") {
+                    originalKill(pid, signal);
+                    exitRaceInjected = true;
+                    throw Object.assign(new Error("process already exited"), { code: "ESRCH" });
+                }
+                return originalKill(pid, signal);
+            };
+        }
+        try {
+            assert.equal(await runtime().findExistingRuntime(0), undefined);
+            if (process.argv.includes("--exit-race")) assert.equal(exitRaceInjected, true);
+        } finally { process.kill = originalKill; }
         await childExit;
         if (stubborn) assert.equal(child.signalCode, "SIGKILL");
         else assert.equal(child.exitCode, 0);
