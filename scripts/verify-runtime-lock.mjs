@@ -35,6 +35,7 @@ if (!process.argv.includes("--worker")) {
     };
     const { DshRuntime } = require(join(resolve(dirname(script), ".."), "dist/dshRuntime"));
     Module._load = originalLoad;
+    const { mutateRuntimeLock } = require(join(resolve(dirname(script), ".."), "dist/runtimeLock"));
     const path = join(tmpdir(), "dsh-runtime.lock");
     const legacyPath = join(tmpdir(), "dsh-vscode-runtime.lock");
     const runtime = () => Object.assign(Object.create(DshRuntime.prototype), {
@@ -43,7 +44,12 @@ if (!process.argv.includes("--worker")) {
     });
     const contents = () => readFile(path, "utf8").then(JSON.parse);
     const absent = async target => assert.rejects(() => readFile(target), { code: "ENOENT" });
-    if (process.argv.includes("--contender")) {
+    if (process.argv.includes("--crash-mutation")) {
+        await mutateRuntimeLock(path, async () => {
+            process.send("holding");
+            await new Promise(() => {});
+        });
+    } else if (process.argv.includes("--contender")) {
         const owner = runtime();
         process.send(await owner.acquireRuntimeLock("0.1.5-rc.1"));
         process.once("message", async () => { await owner.releaseRuntimeLock(); process.exit(0); });
@@ -163,7 +169,8 @@ if (!process.argv.includes("--worker")) {
         console.log("PASS cached automatic endpoint cannot bypass lock version checks on retry");
 
         await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimePid: deadPid }));
-        const contenders = [0, 1].map(() => spawn(process.execPath, [script, "--worker", "--contender"], {
+        await writeFile(`${path}.mutation`, JSON.stringify({ pid: deadPid, createdAt: Date.now() }));
+        const contenders = [0, 1, 2, 3].map(() => spawn(process.execPath, [script, "--worker", "--contender"], {
             env: process.env, stdio: ["ignore", "inherit", "inherit", "ipc"],
         }));
         const results = await Promise.all(contenders.map(child => new Promise((done, reject) => {
@@ -177,13 +184,46 @@ if (!process.argv.includes("--worker")) {
         assert.equal(results.filter(Boolean).length, 1);
         await absent(path);
         await absent(`${path}.mutation`);
-        console.log("PASS concurrent stale reclamation has exactly one owner and removes mutation guards");
+        console.log("PASS four concurrent recoverers reclaim an abandoned mutation guard with exactly one Runtime owner");
 
         const abandoned = JSON.stringify({ pid: deadPid, createdAt: Date.now() });
         await writeFile(`${path}.mutation`, abandoned);
-        await assert.rejects(() => runtime().acquireRuntimeLock("0.1.5-rc.1"), /mutation/u);
-        assert.equal(await readFile(`${path}.mutation`, "utf8"), abandoned);
-        await rm(`${path}.mutation`);
-        console.log("PASS abandoned mutation guard is reported and preserved for manual inspection");
+        const recovered = runtime();
+        assert.equal(await recovered.acquireRuntimeLock("0.1.5-rc.1"), true);
+        await recovered.releaseRuntimeLock();
+        await absent(`${path}.mutation`);
+        console.log("PASS legacy dead-owner mutation guard is reclaimed automatically");
+
+        for (const occupied of [JSON.stringify({ pid: process.pid }), "{incomplete"]) {
+            await writeFile(`${path}.mutation`, occupied);
+            await assert.rejects(() => runtime().acquireRuntimeLock("0.1.5-rc.1"), /mutation/u);
+            assert.equal(await readFile(`${path}.mutation`, "utf8"), occupied);
+            await rm(`${path}.mutation`);
+        }
+        console.log("PASS live-owner and unreadable legacy mutation guards remain protected");
+
+        const crashed = spawn(process.execPath, [script, "--worker", "--crash-mutation"], {
+            env: process.env, stdio: ["ignore", "inherit", "inherit", "ipc"],
+        });
+        const crashedExit = new Promise(done => crashed.once("exit", done));
+        try {
+            await new Promise((done, reject) => {
+                crashed.once("message", done); crashed.once("error", reject);
+                crashed.once("exit", () => reject(new Error("Mutation owner exited before holding the guard")));
+            });
+            const held = JSON.parse(await readFile(`${path}.mutation`, "utf8"));
+            assert.equal(held.pid, crashed.pid);
+            await assert.rejects(() => mutateRuntimeLock(path, async () => assert.fail("overlapping mutation")), /recovery is busy/u);
+            crashed.kill("SIGKILL");
+            await crashedExit;
+            const restarted = runtime();
+            assert.equal(await restarted.acquireRuntimeLock("0.1.5-rc.2"), true);
+            await restarted.releaseRuntimeLock();
+            await absent(`${path}.mutation`);
+            console.log("PASS real process crash releases kernel exclusion and next startup recovers its file guard");
+        } finally {
+            if (crashed.exitCode === null && crashed.signalCode === null) crashed.kill("SIGKILL");
+            await crashedExit;
+        }
     }
 }

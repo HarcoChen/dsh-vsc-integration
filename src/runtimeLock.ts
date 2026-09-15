@@ -1,6 +1,7 @@
-import { createConnection } from "node:net";
-import { randomUUID } from "node:crypto";
-import { lstat, open, readFile, unlink } from "node:fs/promises";
+import { createConnection, createServer, type Server } from "node:net";
+import { createHash, randomUUID } from "node:crypto";
+import { link, lstat, open, readFile, realpath, unlink } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import type { Stats } from "node:fs";
 import { t } from "./localize";
 import { processGroupHasExited } from "./runtimeProcess";
@@ -117,35 +118,88 @@ export function sameRuntimeLockFile(left: Stats, right: Stats): boolean {
     return left.dev === right.dev && left.ino === right.ino && right.isFile();
 }
 
+/** Kernel-owned exclusion disappears on process death, including before file publication. */
+async function acquireMutationGate(path: string, deadline: number): Promise<Server> {
+    const canonical = join(await realpath(dirname(path)), basename(path));
+    const key = process.platform === "win32" ? canonical.toLowerCase() : canonical;
+    // Stay below the usual ephemeral range used by Runtime's --port 0.
+    const port = 16384 + createHash("sha256").update(key).digest().readUInt32BE(0) % 16384;
+    while (true) {
+        const server = createServer(socket => socket.destroy());
+        try {
+            await new Promise<void>((resolve, reject) => {
+                server.once("error", reject);
+                server.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
+                    server.removeListener("error", reject);
+                    resolve();
+                });
+            });
+            return server;
+        } catch (error) {
+            server.close();
+            if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+            // A port collision only delays/fails acquisition; never bypass exclusion.
+            if (Date.now() >= deadline) throw new Error(t("DSH Runtime lock recovery is busy: {path}. Retry shortly.", { path }));
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+    }
+}
+
 /**
- * Serialize create/publish/reclaim/release across updated editors. Identity checks
- * alone cannot prevent two stale readers from unlinking each other's replacement.
- * A crashed mutation is deliberately fail-closed: never recursively reclaim a
- * mutex using the same racy check-and-unlink operation it exists to protect.
+ * The kernel gate serializes recovery and normal mutations across new editors.
+ * Keep the file guard too, so older editors still participate in exclusion.
+ * A dead guard owner cannot resume; only gate holders may reclaim its file.
  */
 export async function mutateRuntimeLock<T>(path: string, action: () => Promise<T>): Promise<T> {
+    const gate = await acquireMutationGate(path, Date.now() + 2_000);
+    try {
+        return await mutateRuntimeLockWithGate(path, action);
+    } finally {
+        await new Promise<void>((resolve, reject) => gate.close(error => error ? reject(error) : resolve()));
+    }
+}
+
+async function mutateRuntimeLockWithGate<T>(path: string, action: () => Promise<T>): Promise<T> {
     const guardPath = `${path}.mutation`;
     const deadline = Date.now() + 2_000;
+    const contents = JSON.stringify({ pid: process.pid, createdAt: Date.now(), ownerId: randomUUID() });
     let guard;
     while (!guard) {
-        try { guard = await open(guardPath, "wx", 0o600); }
+        try { guard = await publishMutationGuard(guardPath, contents); }
         catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            const abandoned = await readRuntimeLock(guardPath);
+            if (!abandoned) continue;
+            if (abandoned.record && processHasExited(abandoned.record.pid) && await removeRuntimeLock(abandoned)) continue;
             if (Date.now() >= deadline) {
                 throw new Error(t("DSH Runtime lock mutation is busy or abandoned: {path}. Retry; if it persists, verify its owner has exited before manual cleanup.", { path: guardPath }));
             }
             await new Promise(resolve => setTimeout(resolve, 25));
         }
     }
-    const contents = JSON.stringify({ pid: process.pid, createdAt: Date.now(), ownerId: randomUUID() });
     try {
-        await guard.writeFile(contents, "utf8");
         return await action();
     } finally {
         const stat = await guard.stat();
         await guard.close();
         const current = await readRuntimeLock(guardPath);
         if (current && current.contents === contents && sameRuntimeLockFile(stat, current.stat)) await removeRuntimeLock(current);
+    }
+}
+
+/** Publish a complete owner record atomically; a crash cannot leave an empty guard. */
+async function publishMutationGuard(path: string, contents: string) {
+    const staging = `${path}.${randomUUID()}.tmp`;
+    const handle = await open(staging, "wx", 0o600);
+    try {
+        await handle.writeFile(contents, "utf8");
+        await link(staging, path);
+        return handle;
+    } catch (error) {
+        await handle.close();
+        throw error;
+    } finally {
+        await unlink(staging);
     }
 }
 
