@@ -36,6 +36,15 @@ export function ImageIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function FileIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M9 1.8H4.2a1.2 1.2 0 0 0-1.2 1.2v10a1.2 1.2 0 0 0 1.2 1.2h7.6a1.2 1.2 0 0 0 1.2-1.2V5.8Z" />
+            <path d="M9 1.8v4h4" />
+        </svg>
+    );
+}
+
 export function AppShotIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>

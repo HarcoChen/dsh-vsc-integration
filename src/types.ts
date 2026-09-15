@@ -64,6 +64,14 @@ export interface DshImageUpload {
     name?: string;
 }
 
+/** File bytes cross the webview boundary as base64; images use DshImageUpload. */
+export interface DshFileDraft {
+    /** Display name; the Host reduces it to a leaf before uploading. */
+    name: string;
+    /** Exact file bytes, canonically base64 encoded. */
+    data: string;
+}
+
 export interface ChatImageView {
     attachmentId?: string;
     mediaType: DshImageMediaType;

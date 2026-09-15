@@ -1,5 +1,6 @@
 import {
     DshApprovalOutcome,
+    DshFileDraft,
     DshImageUpload,
     DshMessageFeedbackRating,
     DshQuestionAnswerItem,
@@ -15,7 +16,7 @@ import { isImageMediaType, isRecord } from "./guards";
 
 export type ChatViewAction =
     | { type: "ready" }
-    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[] }
+    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
     | { type: "retryPrompt"; id: string }
     | { type: "toggleFocus" }
     | { type: "cancel" }
@@ -124,6 +125,34 @@ function hasOnly(value: Record<string, unknown>, keys: readonly string[]): boole
 
 const MAX_IMAGE_BASE64_CHARACTERS = 16 * 1024 * 1024;
 const MAX_MESSAGE_IMAGE_BASE64_CHARACTERS = 128 * 1024 * 1024;
+
+// Bound webview messages before decoding; this is not a configurable upload policy.
+const MAX_FILE_BASE64_CHARACTERS = 2 * 1024 * 1024 * 1024;
+const MAX_FILE_DRAFTS = 20;
+const MAX_MESSAGE_FILE_BASE64_CHARACTERS = 8 * 1024 * 1024 * 1024;
+const MAX_FILE_NAME_CHARACTERS = 512;
+
+function fileDrafts(value: unknown): DshFileDraft[] | undefined {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.length > MAX_FILE_DRAFTS) return undefined;
+    const files: DshFileDraft[] = [];
+    let totalCharacters = 0;
+    for (const candidate of value) {
+        if (!isRecord(candidate) || !hasOnly(candidate, ["name", "data"])) return undefined;
+        if (
+            typeof candidate.name !== "string" ||
+            candidate.name.length === 0 ||
+            candidate.name.length > MAX_FILE_NAME_CHARACTERS ||
+            typeof candidate.data !== "string" ||
+            candidate.data.length === 0 ||
+            candidate.data.length > MAX_FILE_BASE64_CHARACTERS
+        ) return undefined;
+        totalCharacters += candidate.data.length;
+        if (totalCharacters > MAX_MESSAGE_FILE_BASE64_CHARACTERS) return undefined;
+        files.push({ name: candidate.name, data: candidate.data });
+    }
+    return files;
+}
 
 function imageUploads(value: unknown): DshImageUpload[] | undefined {
     if (value === undefined) return [];
@@ -405,17 +434,20 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                   };
         }
         case "sendPrompt":
-            if (!hasOnly(value, ["type", "text", "mode", "images"]) ||
+            if (!hasOnly(value, ["type", "text", "mode", "images", "files"]) ||
                 typeof value.text !== "string" ||
                 (value.mode !== "queue" && value.mode !== "steer")) return undefined;
             {
                 const images = imageUploads(value.images);
-                if (!images || (!value.text.trim() && images.length === 0)) return undefined;
+                const files = fileDrafts(value.files);
+                if (!images || !files) return undefined;
+                if (!value.text.trim() && images.length === 0 && files.length === 0) return undefined;
                 return {
                     type: "sendPrompt",
                     text: value.text,
                     mode: value.mode,
                     ...(images.length === 0 ? {} : { images }),
+                    ...(files.length === 0 ? {} : { files }),
                 };
             }
         case "retryPrompt":

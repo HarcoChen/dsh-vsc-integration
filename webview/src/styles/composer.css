@@ -11,6 +11,97 @@
     margin-bottom: var(--dsh-space-2);
 }
 
+/* ---------- pending file cards ---------- */
+
+/* Metrics mirror the Harness web composer's file card: a 240x64 card with a
+   16px radius, the glyph on the left, and name over a metadata line. */
+.dsh-file-drafts {
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-file-draft-rail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    padding-bottom: var(--dsh-space-1);
+}
+
+.dsh-file-card {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    box-sizing: border-box;
+    width: 240px;
+    height: 64px;
+    padding: 0 12px;
+    border: 1px solid var(--vscode-widget-border, var(--dsh-border));
+    border-radius: 16px;
+    background: var(--vscode-input-background);
+}
+
+.dsh-file-card-icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    color: var(--vscode-foreground);
+}
+
+.dsh-file-card-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    padding: 8px 0;
+    text-align: left;
+}
+
+.dsh-file-card-name {
+    overflow: hidden;
+    padding-right: 18px;
+    color: var(--vscode-foreground);
+    font-size: var(--dsh-font-sm);
+    font-weight: 500;
+    line-height: 22px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dsh-file-card-meta {
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    line-height: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The remove control stays visible: a pointer device needs no hover to find it,
+   and hiding it would strand keyboard users. */
+.dsh-file-card-remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    color: var(--vscode-button-foreground, #fff);
+    background: var(--vscode-button-background, #000000b8);
+    cursor: pointer;
+}
+
+.dsh-file-card-remove:hover {
+    background: var(--vscode-button-hoverBackground, #000000d9);
+}
+
 .dsh-image-draft-rail {
     display: flex;
     gap: var(--dsh-space-2);

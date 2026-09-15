@@ -83,6 +83,7 @@ import {
     DshDynamicPluginPanelView,
     DshImageLimitsView,
     DshImageUpload,
+    DshFileDraft,
     DshFileReferenceCandidate,
     DshSessionReferenceCandidate,
     DshReferenceCandidate,
@@ -1132,7 +1133,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (this.sessionId) void this.subagents.refreshSubagentTree(this.sessionId);
                     break;
                 case "sendPrompt":
-                    await this.sendPrompt(message.text ?? "", message.mode, message.images ?? []);
+                    await this.sendPrompt(
+                        message.text ?? "",
+                        message.mode,
+                        message.images ?? [],
+                        message.files ?? [],
+                    );
                     break;
                 case "retryPrompt":
                     await this.retryPrompt(message.id);
@@ -1553,15 +1559,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         rawText: string,
         requestedMode: "queue" | "steer",
         requestedImages: readonly DshImageUpload[] = [],
+        requestedFiles: readonly DshFileDraft[] = [],
     ): Promise<void> {
         const text = rawText.trim();
-        if ((!text && requestedImages.length === 0) || this.submitting) {
+        const hasAttachments = requestedImages.length > 0 || requestedFiles.length > 0;
+        if ((!text && !hasAttachments) || this.submitting) {
             return;
         }
 
         // Do not let a disabled optional command fall through as ordinary model input.
         if (
-            requestedImages.length === 0 && /^\/compact$/u.test(text) &&
+            !hasAttachments && /^\/compact$/u.test(text) &&
             !vscode.workspace.getConfiguration("dsh").get<boolean>("enableCompaction", true)
         ) {
             this.reportError(new Error(t("The connected dsh server does not expose the /compact command. Update dsh or enable the command-compact package.")));
@@ -1588,7 +1596,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const session = await this.getOrCreateSession(workspaceRoot);
-            if (requestedImages.length === 0 && /^\/ide(?:$|[\t\n\r ])/u.test(text)) {
+            if (!hasAttachments && /^\/ide(?:$|[\t\n\r ])/u.test(text)) {
                 await this.openIdeContextPicker();
                 return;
             }
@@ -1649,6 +1657,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 wireText: prompt,
                 ...(prepared.views.length === 0 ? {} : { images: prepared.views }),
                 ...(prepared.uploads.length === 0 ? {} : { imageUploads: prepared.uploads }),
+                ...(requestedFiles.length === 0 ? {} : { fileUploads: [...requestedFiles] }),
                 afterSeq: highestKnownSeq(this.runtime.getSessionStore().get(session)),
                 createdAt: Date.now(),
             };
@@ -1661,6 +1670,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 mode,
                 prepared.uploads,
                 optimistic.requestId,
+                requestedFiles,
             );
             if (promptResult.accepted === false) {
                 throw new Error(t("The dsh runtime rejected this prompt. Check the current model and API Key configuration."));
@@ -1704,6 +1714,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 "queue",
                 optimistic.imageUploads ?? [],
                 optimistic.requestId,
+                optimistic.fileUploads ?? [],
             );
             if (result.accepted === false) throw new Error(t("The dsh runtime rejected this retry."));
         } catch (error) {

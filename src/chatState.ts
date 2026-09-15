@@ -6,6 +6,7 @@ import {
     ChatToolCall,
     ChatWebResultView,
     ChatWebSourceView,
+    DshFileDraft,
     DshImageUpload,
     DshQueuedInboxItem,
     TurnStatusView,
@@ -29,6 +30,8 @@ export interface OptimisticPrompt {
     createdAt: number;
     images?: ChatImageView[];
     imageUploads?: DshImageUpload[];
+    /** Drafts retained so a failed send can replay the same upload. */
+    fileUploads?: DshFileDraft[];
     error?: string;
 }
 

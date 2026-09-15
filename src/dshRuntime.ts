@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, open, readFile, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, extname, isAbsolute, join } from "node:path";
+import { delimiter, extname, isAbsolute, join, posix } from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
@@ -57,6 +57,7 @@ import {
     DshSessionPromptResult,
     DshImageAttachmentResult,
     DshImageUpload,
+    DshFileDraft,
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
@@ -111,6 +112,7 @@ import {
     normalizeDynamicPluginStopResult,
 } from "./dynamicPlugins";
 import { normalizePluginInventory } from "./pluginInventory";
+import { isRecord } from "./guards";
 import { samePath } from "./paths";
 
 type RuntimeListener = (status: RuntimeStatus) => void;
@@ -1806,7 +1808,12 @@ export class DshRuntime implements vscode.Disposable {
         mode: "queue" | "steer" = "queue",
         images: readonly DshImageUpload[] = [],
         requestId: string = randomUUID(),
+        files: readonly DshFileDraft[] = [],
     ): Promise<DshSessionPromptResult> {
+        const receiptIds: string[] = [];
+        for (const file of files) {
+            receiptIds.push(await this.uploadFile(sessionId, file.name, Buffer.from(file.data, "base64")));
+        }
         return this.apiClient.call("session/prompt", {
             request: {
                 requestId,
@@ -1820,12 +1827,72 @@ export class DshRuntime implements vscode.Disposable {
                         data: image.data,
                         ...(image.name === undefined ? {} : { name: image.name }),
                     })),
+                    ...receiptIds.map((receiptId) => ({
+                        type: "file" as const,
+                        receiptId,
+                    })),
                 ],
                 ...(Intl.DateTimeFormat().resolvedOptions().timeZone
                     ? { clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
                     : {}),
             },
         });
+    }
+
+    /** The binary route returns a session-scoped receipt, never a client-derived path. */
+    private async uploadFile(sessionId: string, name: string, data: Uint8Array): Promise<string> {
+        const base = this.getUrl();
+        if (!base) throw new Error(t("The dsh Runtime is not running, so the file cannot be uploaded."));
+        const leaf = posix.basename(name.replaceAll("\\", "/")).slice(0, 255);
+        if (!leaf) throw new Error(t("A file to upload needs a name."));
+        if (data.byteLength === 0) throw new Error(t("Attached file {name} is empty.", { name }));
+        await this.ensureAuthenticated();
+        const url = new URL("/api/session/uploadFileBinary", base);
+        url.searchParams.set("sessionId", sessionId);
+        url.searchParams.set("name", leaf);
+        let response: Response;
+        try {
+            response = await fetch(url, {
+                method: "POST",
+                headers: { ...this.requestHeaders(), "content-type": "application/octet-stream" },
+                body: data as BodyInit,
+                signal: AbortSignal.timeout(this.configuration().get<number>("requestTimeoutMs", 600_000)),
+            });
+        } catch (cause) {
+            throw new Error(t("The file upload could not reach the dsh Runtime."), { cause });
+        }
+        if (!response.ok) {
+            throw new Error(t("The dsh Runtime refused the upload (HTTP {status}).", { status: response.status }));
+        }
+        let envelope: unknown;
+        try {
+            envelope = await response.json();
+        } catch (cause) {
+            throw new Error(t("The upload response was not JSON."), { cause });
+        }
+        if (!isRecord(envelope)) throw new Error(t("The upload response was malformed."));
+        // Business failures also use HTTP 200.
+        if (envelope.ok === false) {
+            const message = isRecord(envelope.error) ? envelope.error.message : undefined;
+            throw new Error(typeof message === "string" && message
+                ? message
+                : t("The dsh Runtime refused the upload."));
+        }
+        const result = envelope.value;
+        if (
+            envelope.ok !== true || !isRecord(result) ||
+            typeof result.receiptId !== "string" || !result.receiptId ||
+            !isRecord(result.file) || typeof result.file.attachmentId !== "string" ||
+            typeof result.file.name !== "string" || !result.file.name || /[/\\]/u.test(result.file.name) ||
+            typeof result.file.bytes !== "number" || !Number.isSafeInteger(result.file.bytes) || result.file.bytes < 0
+        ) throw new Error(t("The dsh Runtime returned an unusable upload receipt."));
+        if (result.file.bytes !== data.byteLength) {
+            throw new Error(t("The dsh Runtime stored {stored} bytes for a {expected} byte file.", {
+                stored: result.file.bytes.toLocaleString(),
+                expected: data.byteLength.toLocaleString(),
+            }));
+        }
+        return result.receiptId;
     }
 
     public attachment(sessionId: string, attachmentId: string): Promise<DshImageAttachmentResult> {
