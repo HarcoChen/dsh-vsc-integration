@@ -61,10 +61,8 @@ function MessageCopyButton({ message }: { message: ChatMessage }): React.JSX.Ele
 }
 
 function MessageActions({
-    message,
     checkpointSeq,
 }: {
-    message: ChatMessage;
     checkpointSeq?: number;
 }): React.JSX.Element | null {
     const [open, setOpen] = useState(false);
@@ -94,41 +92,61 @@ function MessageActions({
         setOpen(false);
     };
 
-    if (checkpointSeq === undefined && !canCopyMessage(message)) return null;
+    if (checkpointSeq === undefined) return null;
 
     return (
         <div className={`dsh-message-actions${open ? " open" : ""}`} ref={menuRef}>
-            <MessageCopyButton message={message} />
-            {checkpointSeq === undefined ? null : (
-                <>
-                    <button
-                        type="button"
-                        className="dsh-message-action-trigger dsh-icon-button"
-                        aria-label={t("Message actions")}
-                        aria-expanded={open}
-                        title={t("Message actions")}
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            setOpen((current) => !current);
-                        }}
-                    >
-                        <MoreIcon />
+            <button
+                type="button"
+                className="dsh-message-action-trigger dsh-icon-button"
+                aria-label={t("Message actions")}
+                aria-expanded={open}
+                title={t("Message actions")}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    setOpen((current) => !current);
+                }}
+            >
+                <MoreIcon />
+            </button>
+            {open ? (
+                <div className="dsh-message-action-menu">
+                    <button type="button" onClick={(event) => { event.stopPropagation(); run("forkFromMessage"); }}>
+                        {t("Fork from here")}
                     </button>
-                    {open ? (
-                        <div className="dsh-message-action-menu">
-                            <button type="button" onClick={(event) => { event.stopPropagation(); run("forkFromMessage"); }}>
-                                {t("Fork from here")}
-                            </button>
-                            <button type="button" onClick={(event) => { event.stopPropagation(); run("restoreCodeToMessage"); }}>
-                                {t("Restore code to here")}
-                            </button>
-                            <button type="button" onClick={(event) => { event.stopPropagation(); run("forkAndRestoreCodeToMessage"); }}>
-                                {t("Fork + restore code")}
-                            </button>
-                        </div>
-                    ) : null}
-                </>
+                    <button type="button" onClick={(event) => { event.stopPropagation(); run("restoreCodeToMessage"); }}>
+                        {t("Restore code to here")}
+                    </button>
+                    <button type="button" onClick={(event) => { event.stopPropagation(); run("forkAndRestoreCodeToMessage"); }}>
+                        {t("Fork + restore code")}
+                    </button>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function MessageFooterActions({
+    message,
+    traceSeq,
+}: {
+    message: ChatMessage;
+    traceSeq?: number;
+}): React.JSX.Element | null {
+    if (traceSeq === undefined && !canCopyMessage(message)) return null;
+    return (
+        <div className="dsh-message-footer-actions">
+            {traceSeq === undefined ? null : (
+                <button
+                    type="button"
+                    className="dsh-message-trace"
+                    data-trace-seq={traceSeq}
+                    title={t("Locate in Trace")}
+                >
+                    trace
+                </button>
             )}
+            <MessageCopyButton message={message} />
         </div>
     );
 }
@@ -174,23 +192,14 @@ export const MessageItem = React.memo(function MessageItem({
             <div className="dsh-message-label">
                 {ROLE_LABELS[message.role]}
                 {stateLabel}
-                {hasTrace ? (
-                    <button
-                        type="button"
-                        className="dsh-message-trace"
-                        data-trace-seq={message.seq}
-                        title={t("Locate in Trace")}
-                    >
-                        trace
-                    </button>
-                ) : null}
-                <MessageActions message={message} checkpointSeq={checkpointSeq} />
+                <MessageActions checkpointSeq={checkpointSeq} />
             </div>
             <MessageContent
                 message={message}
                 agentStatusLabel={agentStatusLabel}
                 autoOpenReasoning={autoOpenReasoning}
             />
+            <MessageFooterActions message={message} traceSeq={hasTrace ? message.seq : undefined} />
             {message.state === "failed" ? (
                 <button
                     type="button"
