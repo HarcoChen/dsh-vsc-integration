@@ -27,6 +27,18 @@ export class SessionCatalogCache<T> {
         this.values.delete(sessionId);
     }
 
+    /**
+     * Drops one cached value and invalidates an in-flight pull for that
+     * session. The stale pull is discarded and one fresh pull is queued after
+     * it settles.
+     */
+    public invalidateSession(sessionId: string): void {
+        this.values.delete(sessionId);
+        if (!this.requests.has(sessionId)) return;
+        this.refreshPending.add(sessionId);
+        this.generations.set(sessionId, (this.generations.get(sessionId) ?? 0) + 1);
+    }
+
     /** Drops cached values only; in-flight pulls keep applying their result. */
     public clear(): void {
         this.values.clear();
