@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.9.4] - 2026-09-16
+
 ### 修复
 
 - 支持 npx 的 `--package`/`-p` 版本探测
@@ -252,6 +254,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.9.4]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.0...v0.9.1
