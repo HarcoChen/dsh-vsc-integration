@@ -136,6 +136,7 @@ if (process.argv.includes('--version')) {
         const runtime = new DshRuntime(output, join(tmpdir(), "storage"));
         // Exclude machine-wide port discovery: this smoke must never contact a user's Runtime.
         runtime.findExistingRuntime = async () => undefined;
+        runtime.probeLoopbackPort = async () => "free";
         const starting = runtime.start(tmpdir());
         const rejected = assert.rejects(starting, /cancelled/u);
         const deadline = Date.now() + 5000;
@@ -164,6 +165,7 @@ else { require('node:fs').writeFileSync(${JSON.stringify(exitMarker)}, 'started'
             settings.set("command", exitLauncher);
             const runtime = new DshRuntime(output, join(tmpdir(), "storage"));
             runtime.findExistingRuntime = async () => undefined;
+            runtime.probeLoopbackPort = async () => "free";
             runtime.harnessState.start = () => {};
             runtime.waitForReady = async () => {
                 const deadline = Date.now() + 3000;

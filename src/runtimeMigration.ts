@@ -25,6 +25,24 @@ export interface LegacyRuntimeIdentity {
     baseUrl: string;
 }
 
+/**
+ * A pre-versioned lock with no Runtime identity evidence left behind. The
+ * editor owner must be gone before this can be offered for explicit recovery;
+ * without a user confirmation we still retain it so an untracked descendant
+ * cannot race a new Runtime into existence.
+ */
+export function isReclaimableUnaddressedLegacyLock(snapshot: RuntimeLockSnapshot): boolean {
+    const record = snapshot.record;
+    return record !== undefined &&
+        record.runtimeVersion === undefined &&
+        record.runtimePid === undefined &&
+        record.runtimeProcess === undefined &&
+        record.runtimeProcessGroup === undefined &&
+        record.url === undefined &&
+        record.launchUrl === undefined &&
+        processHasExited(record.pid);
+}
+
 function migrationUrl(snapshot: RuntimeLockSnapshot): URL | undefined {
     try {
         const url = new URL(snapshot.record?.url ?? snapshot.record?.launchUrl ?? "");
@@ -112,6 +130,36 @@ export async function stopLegacyRuntime(snapshot: RuntimeLockSnapshot, approved:
         }
         if (!await removeRuntimeLock(current)) {
             throw new Error(t("The Runtime stopped, but its lock changed. Retry to inspect the current lock."));
+        }
+    });
+}
+
+/**
+ * Remove a dead, pre-versioned lock that never recorded a Runtime endpoint or
+ * child identity. This is intentionally user-authorized: an old wrapper may
+ * have left a detached descendant that cannot be reconstructed from the lock.
+ */
+export async function reclaimUnaddressedLegacyLock(
+    snapshot: RuntimeLockSnapshot,
+    sharedLockPath: string,
+    signal?: AbortSignal,
+): Promise<void> {
+    signal?.throwIfAborted();
+    // The old lock has its own compatibility filename. Serialize the final
+    // read/identity check/unlink beside that file; using only the new lock's
+    // mutex would let two updated editors reclaim the legacy file concurrently.
+    const mutationPath = snapshot.path === sharedLockPath ? sharedLockPath : snapshot.path;
+    await mutateRuntimeLock(mutationPath, async () => {
+        signal?.throwIfAborted();
+        const current = await readRuntimeLock(snapshot.path);
+        if (!current || !sameRuntimeLockFile(snapshot.stat, current.stat) || current.contents !== snapshot.contents) {
+            throw new Error(t("The Runtime lock changed while awaiting confirmation. Retry without stopping any process."));
+        }
+        if (!isReclaimableUnaddressedLegacyLock(current)) {
+            throw new Error(t("The old Runtime process changed or its owner is still alive. No process was stopped."));
+        }
+        if (!await removeRuntimeLock(current)) {
+            throw new Error(t("The Runtime lock changed while awaiting confirmation. Retry without stopping any process."));
         }
     });
 }
