@@ -1757,9 +1757,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 if (!this.modeSelectionEnabled && defaultPreset && current.agentPreset !== defaultPreset.id) {
                     try {
                         await this.runtime.selectAgentPreset(this.sessionId, defaultPreset.id);
-                        this.skillCatalogs.delete(this.sessionId);
+                        this.skillCatalogs.invalidateSession(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
-                        this.commandCatalogs.delete(this.sessionId);
+                        this.commandCatalogs.invalidateSession(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
                         await this.runtime.refreshSessions();
                     } catch (error) {
@@ -1836,7 +1836,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
         const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
         const candidates = [
-            ...(persisted?.cwd === workspaceRoot ? [persisted.sessionId] : []),
+            ...(persisted?.cwd && samePath(persisted.cwd, workspaceRoot) ? [persisted.sessionId] : []),
             ...this.runtime
                 .getSessionCatalog()
                 .sessionsForWorkspace(workspaceRoot)
@@ -1844,6 +1844,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ].filter((sessionId, index, all) => all.indexOf(sessionId) === index);
         const sessionId = candidates[0];
         if (!sessionId) {
+            this.output.appendLine(
+                `[dsh] no persisted or registered session matches workspace ${workspaceRoot}`,
+            );
             return;
         }
 
@@ -1867,7 +1870,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshCommandCatalog(sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
-            if (latest?.sessionId === sessionId && latest.cwd === workspaceRoot) {
+            if (latest?.sessionId === sessionId && latest?.cwd && samePath(latest.cwd, workspaceRoot)) {
                 await this.extensionContext.workspaceState.update("session", undefined);
             }
             this.output.appendLine(
@@ -2145,10 +2148,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return;
         }
         this.output.appendLine(`[dsh:agent-preset] selected ${result.agentPreset}`);
-        this.skillCatalogs.delete(sessionId);
+        this.skillCatalogs.invalidateSession(sessionId);
         this.refreshSkillCatalog(sessionId);
         // Recomposing the agent re-decides both catalogs this session serves.
-        this.commandCatalogs.delete(sessionId);
+        this.commandCatalogs.invalidateSession(sessionId);
         this.refreshCommandCatalog(sessionId);
         await this.runtime.refreshSessions();
         this.postState();

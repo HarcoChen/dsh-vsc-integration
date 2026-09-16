@@ -27,6 +27,18 @@ export class SessionCatalogCache<T> {
         this.values.delete(sessionId);
     }
 
+    /**
+     * Drops one cached value and invalidates an in-flight pull for that
+     * session. The stale pull is discarded and one fresh pull is queued after
+     * it settles.
+     */
+    public invalidateSession(sessionId: string): void {
+        this.values.delete(sessionId);
+        if (!this.requests.has(sessionId)) return;
+        this.refreshPending.add(sessionId);
+        this.generations.set(sessionId, (this.generations.get(sessionId) ?? 0) + 1);
+    }
+
     /** Drops cached values only; in-flight pulls keep applying their result. */
     public clear(): void {
         this.values.clear();
@@ -69,7 +81,11 @@ export class SessionCatalogCache<T> {
         const generation = this.generations.get(sessionId) ?? 0;
         const request = options.pull()
             .then((value) => {
-                if (this.generations.get(sessionId) !== generation) return;
+                // Keep the comparison normalized on both sides.  Keys that
+                // have never been invalidated are absent from `generations`,
+                // so comparing the raw `undefined` to the normalized initial
+                // generation would discard every first pull forever.
+                if ((this.generations.get(sessionId) ?? 0) !== generation) return;
                 if (value === undefined) {
                     options.absent?.();
                     return;
@@ -80,7 +96,7 @@ export class SessionCatalogCache<T> {
             .finally(() => {
                 this.requests.delete(sessionId);
                 if (this.refreshPending.delete(sessionId)) {
-                    void this.pull(sessionId, options);
+                    return this.pull(sessionId, options);
                 }
             });
         this.requests.set(sessionId, request);
