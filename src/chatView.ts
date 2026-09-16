@@ -34,6 +34,7 @@ import { manageProviders as runProviderManagement } from "./providerManagement";
 import {
     applyCodeBlock,
     copyCodeBlock,
+    copyText,
     insertCodeBlock,
     openCodeBlock,
 } from "./codeBlockActions";
@@ -288,6 +289,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly observedRunning = new Map<string, boolean>();
     private readonly completedWhileHidden = new Set<string>();
     private readonly selectedModels = new Map<string, SelectedModelSnapshot>();
+    /**
+     * Keeps the latest visible text for message actions that race a stream
+     * transition (for example, a partial assistant row becoming committed
+     * between the click and the host handling the action).
+     */
+    private readonly copyableMessageTexts = new Map<string, string>();
     private readonly modelCatalogs = new SessionCatalogCache<DshSessionModelsResult>();
     private readonly modelSelectionProjectionSeqs = new Map<string, number>();
     private readonly skillCatalogs = new SessionCatalogCache<DshSkillEntry[]>();
@@ -1248,6 +1255,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
                 case "openFileLocation":
                     await this.openFileLocation(message);
+                    break;
+                case "copyMessage":
+                    await this.copyMessage(message.messageId);
                     break;
                 case "copyCode":
                     await this.copyCodeBlock(message.renderId, message.codeBlockId);
@@ -2977,6 +2987,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
             this.focusMode,
         );
+        this.rememberCopyableMessages(this.sessionId, projectedMessages);
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -3214,6 +3225,53 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             };
         });
         return this.markdownRenders.render(hydrated, scope);
+    }
+
+    private rememberCopyableMessages(
+        sessionId: string | undefined,
+        messages: readonly ChatMessage[],
+    ): void {
+        const scope = sessionId ?? "none";
+        for (const message of messages) {
+            const text = this.copyableMessageText(message);
+            if (text === undefined) continue;
+            this.copyableMessageTexts.set(`${scope}:${message.id}`, text);
+        }
+        // The cache is only a race guard, not a second conversation store.
+        // Keep it bounded for long-running sessions and discard the oldest
+        // entries together with their retained text.
+        while (this.copyableMessageTexts.size > 2_000) {
+            const oldest = this.copyableMessageTexts.keys().next().value as string | undefined;
+            if (oldest === undefined) break;
+            this.copyableMessageTexts.delete(oldest);
+        }
+    }
+
+    private copyableMessageText(message: ChatMessage): string | undefined {
+        if (message.role !== "user" && message.role !== "assistant") return undefined;
+        const text = message.role === "user" && message.skillInvocation
+            ? [`/${message.skillInvocation}`, message.text].filter(Boolean).join(" ")
+            : message.text;
+        return text.length > 0 ? text : undefined;
+    }
+
+    private copyMessage(messageId: string): Promise<void> {
+        const scope = this.sessionId ?? "none";
+        const remembered = this.copyableMessageTexts.get(`${scope}:${messageId}`);
+        if (remembered !== undefined) return copyText(remembered);
+
+        const session = this.sessionId
+            ? this.runtime.getSessionStore().get(this.sessionId)
+            : undefined;
+        const message = projectChatMessages(
+            session,
+            this.optimisticPrompts,
+            this.sessionSkillNames(),
+        ).find((candidate) => candidate.id === messageId);
+        const text = message === undefined ? undefined : this.copyableMessageText(message);
+        if (text === undefined) throw new Error(t("This message is no longer available."));
+        this.copyableMessageTexts.set(`${scope}:${messageId}`, text);
+        return copyText(text);
     }
 
     private async loadImage(attachmentId: string): Promise<void> {

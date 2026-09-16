@@ -83,6 +83,15 @@ export function MoreIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function CopyIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1.2" />
+            <path d="M10.5 5.5V3.7c0-1-.7-1.7-1.7-1.7H3.7C2.7 2 2 2.7 2 3.7v5.1c0 1 .7 1.7 1.7 1.7h1.8" />
+        </svg>
+    );
+}
+
 export function LikeIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)}>

@@ -54,6 +54,7 @@ export type ChatViewAction =
     | { type: "openBrowser" }
     | { type: "openExternalLink"; url: string }
     | { type: "openFileLocation"; path: string; line: number; column?: number }
+    | { type: "copyMessage"; messageId: string }
     | { type: "copyCode"; renderId: string; codeBlockId: string }
     | { type: "insertCode"; renderId: string; codeBlockId: string }
     | { type: "openCode"; renderId: string; codeBlockId: string; language?: string }
@@ -393,6 +394,11 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 line: value.line,
                 ...(value.column === undefined ? {} : { column: value.column }),
             };
+        case "copyMessage":
+            return hasOnly(value, ["type", "messageId"]) &&
+                nonEmptyString(value.messageId) && value.messageId.length <= 512
+                ? { type: "copyMessage", messageId: value.messageId }
+                : undefined;
         case "copyCode":
         case "insertCode":
         case "openCode":

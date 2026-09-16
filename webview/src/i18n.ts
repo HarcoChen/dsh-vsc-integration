@@ -239,6 +239,8 @@ const ZH_CN: Readonly<Record<string, string>> = {
     " · streaming": " · 流式生成",
     "Locate in Trace": "在 Trace 中定位",
     "Message actions": "消息操作",
+    "Copy message": "复制消息",
+    "Copied": "已复制",
     "Fork from here": "从这里 Fork",
     "Restore code to here": "将代码恢复到这里",
     "Fork + restore code": "Fork 并恢复代码",

@@ -13,6 +13,11 @@ import { containsPath, samePath } from "./paths";
 
 /** Writes the block to the system clipboard. */
 export async function copyCodeBlock(text: string): Promise<void> {
+    await copyText(text);
+}
+
+/** Writes text to the system clipboard. */
+export async function copyText(text: string): Promise<void> {
     await vscode.env.clipboard.writeText(text);
 }
 

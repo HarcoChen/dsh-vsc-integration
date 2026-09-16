@@ -4,7 +4,7 @@ import { postAction } from "../bridge";
 import { t } from "../i18n";
 import { ROLE_LABELS } from "../state";
 import { MessageContent } from "./MessageContent";
-import { MoreIcon } from "./icons";
+import { CheckIcon, CopyIcon, MoreIcon } from "./icons";
 
 export { MessageContent } from "./MessageContent";
 
@@ -20,7 +20,53 @@ type CheckpointAction =
     | "restoreCodeToMessage"
     | "forkAndRestoreCodeToMessage";
 
-function MessageCheckpointMenu({ seq }: { seq: number }): React.JSX.Element {
+function canCopyMessage(message: ChatMessage): boolean {
+    return (
+        (message.role === "user" || message.role === "assistant") &&
+        (message.text.trim().length > 0 || Boolean(message.skillInvocation))
+    );
+}
+
+function MessageCopyButton({ message }: { message: ChatMessage }): React.JSX.Element | null {
+    const [copied, setCopied] = useState(false);
+    const resetTimerRef = useRef<number>();
+
+    useEffect(() => () => {
+        if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+    }, []);
+
+    if (!canCopyMessage(message)) return null;
+
+    const copy = (): void => {
+        postAction({ type: "copyMessage", messageId: message.id });
+        setCopied(true);
+        if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = window.setTimeout(() => setCopied(false), 1_500);
+    };
+
+    return (
+        <button
+            type="button"
+            className="dsh-message-action-trigger dsh-icon-button"
+            aria-label={copied ? t("Copied") : t("Copy message")}
+            title={copied ? t("Copied") : t("Copy message")}
+            onClick={(event) => {
+                event.stopPropagation();
+                copy();
+            }}
+        >
+            {copied ? <CheckIcon /> : <CopyIcon />}
+        </button>
+    );
+}
+
+function MessageActions({
+    message,
+    checkpointSeq,
+}: {
+    message: ChatMessage;
+    checkpointSeq?: number;
+}): React.JSX.Element | null {
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -43,38 +89,46 @@ function MessageCheckpointMenu({ seq }: { seq: number }): React.JSX.Element {
     }, [open]);
 
     const run = (type: CheckpointAction): void => {
-        postAction({ type, seq });
+        if (checkpointSeq === undefined) return;
+        postAction({ type, seq: checkpointSeq });
         setOpen(false);
     };
 
+    if (checkpointSeq === undefined && !canCopyMessage(message)) return null;
+
     return (
         <div className={`dsh-message-actions${open ? " open" : ""}`} ref={menuRef}>
-            <button
-                type="button"
-                className="dsh-message-action-trigger dsh-icon-button"
-                aria-label={t("Message actions")}
-                aria-expanded={open}
-                title={t("Message actions")}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    setOpen((current) => !current);
-                }}
-            >
-                <MoreIcon />
-            </button>
-            {open ? (
-                <div className="dsh-message-action-menu">
-                    <button type="button" onClick={(event) => { event.stopPropagation(); run("forkFromMessage"); }}>
-                        {t("Fork from here")}
+            <MessageCopyButton message={message} />
+            {checkpointSeq === undefined ? null : (
+                <>
+                    <button
+                        type="button"
+                        className="dsh-message-action-trigger dsh-icon-button"
+                        aria-label={t("Message actions")}
+                        aria-expanded={open}
+                        title={t("Message actions")}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setOpen((current) => !current);
+                        }}
+                    >
+                        <MoreIcon />
                     </button>
-                    <button type="button" onClick={(event) => { event.stopPropagation(); run("restoreCodeToMessage"); }}>
-                        {t("Restore code to here")}
-                    </button>
-                    <button type="button" onClick={(event) => { event.stopPropagation(); run("forkAndRestoreCodeToMessage"); }}>
-                        {t("Fork + restore code")}
-                    </button>
-                </div>
-            ) : null}
+                    {open ? (
+                        <div className="dsh-message-action-menu">
+                            <button type="button" onClick={(event) => { event.stopPropagation(); run("forkFromMessage"); }}>
+                                {t("Fork from here")}
+                            </button>
+                            <button type="button" onClick={(event) => { event.stopPropagation(); run("restoreCodeToMessage"); }}>
+                                {t("Restore code to here")}
+                            </button>
+                            <button type="button" onClick={(event) => { event.stopPropagation(); run("forkAndRestoreCodeToMessage"); }}>
+                                {t("Fork + restore code")}
+                            </button>
+                        </div>
+                    ) : null}
+                </>
+            )}
         </div>
     );
 }
@@ -130,7 +184,7 @@ export const MessageItem = React.memo(function MessageItem({
                         trace
                     </button>
                 ) : null}
-                {checkpointSeq === undefined ? null : <MessageCheckpointMenu seq={checkpointSeq} />}
+                <MessageActions message={message} checkpointSeq={checkpointSeq} />
             </div>
             <MessageContent
                 message={message}

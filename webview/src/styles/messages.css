@@ -60,6 +60,8 @@
 .dsh-message-actions {
     position: relative;
     display: inline-flex;
+    align-items: center;
+    gap: var(--dsh-space-1);
     flex: none;
     margin-left: auto;
     opacity: 0;
