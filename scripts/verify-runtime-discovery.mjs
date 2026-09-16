@@ -178,6 +178,7 @@ setInterval(() => {}, 1000);
     // Exclude external Runtime discovery/RPC only; launcher selection, subprocess
     // version probes, actual spawn, argv and lock lifecycle remain production code.
     runtime.findExistingRuntime = async () => undefined;
+    runtime.probeLoopbackPort = async () => "free";
     runtime.harnessState.start = () => {};
     const waitForReady = runtime.waitForReady.bind(runtime);
     let readinessCalls = 0;
@@ -252,7 +253,7 @@ setInterval(() => {}, 1000);
             const expected = scenario === "prefix" ? "prefix" : (packageArgs || ["explicit-npx", "npx-fallback"].includes(scenario)) ? "npx"
                 : (["local", "legacy-args", "upgrade-prerelease", "upgrade-accept", "upgrade-race"].includes(scenario) || compatibleVersions[scenario]) ? "local" : "pnpm";
             assert.equal(launched.name, expected, "default discovery must prefer a compatible local CLI and otherwise pin the fallback");
-            const appArgs = scenario === "legacy-args" ? ["web", "--no-open", "--port", "49151"] : ["web", "--no-open", "--port", "0"];
+            const appArgs = scenario === "legacy-args" ? ["web", "--no-open", "--port", "49151"] : ["web", "--no-open", "--port", "3080"];
             assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", `@deepseek-ai/dsh@${targetVersion}`, ...appArgs]
                 : expected === "npx" ? [...(packageArgs ? packageArgs.map(arg => arg.replace("@next", `@${targetVersion}`)) : ["--yes", `@deepseek-ai/dsh@${targetVersion}`]), ...appArgs] : appArgs);
             if (packageArgs) assert.deepEqual(JSON.parse(await readFile(probeMarker, "utf8")), [...packageArgs, "--version"]);

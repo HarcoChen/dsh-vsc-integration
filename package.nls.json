@@ -59,7 +59,7 @@
     "config.enableCompaction.description": "Enable the official /compact command when the extension starts its own DSH web server.",
     "config.serverUrl.description": "Optional HTTP(S) URL for an already running, trusted dsh web 0.1.5-rc.1 runtime. When set, the extension attaches to it instead of spawning dsh.command. Loopback HTTP is allowed; remote runtimes must use HTTPS. Provide its launch token either in the URL or through dsh.serverToken.",
     "config.serverToken.description": "Optional dsh web launch token for dsh.serverUrl. Use this when the Runtime address and token are configured separately; the token is exchanged for an authenticated session and is not sent as an Authorization header.",
-    "config.serverPort.description": "Port passed to dsh web when dsh.serverUrl is empty and dsh.commandArgs has no port. Zero asks dsh to choose a free port.",
+    "config.serverPort.description": "Port passed to dsh web when dsh.serverUrl is empty and dsh.commandArgs has no port. Zero prefers the default port 3080 and falls back to an OS-assigned port when it is occupied.",
     "config.autoStart.description": "Start or attach to dsh web automatically when the extension activates. If false, start it from the status label or with DSH: Start dsh Web Runtime.",
     "config.recovery.enabled.description": "Automatically diagnose and recover local DSH startup failures in an isolated sandbox.",
     "config.recovery.autoPersistBundleIsolation.description": "Persist a high-confidence profile bundle isolation after sandbox verification.",

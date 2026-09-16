@@ -106,7 +106,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
         ["recovery.enabled", process.env.E2E_DISABLE_RECOVERY !== "1"],
         ["recovery.autoPersistBundleIsolation", true],
         ["command", shim],
-        ["commandArgs", ["web", "--no-open"]],
+        ["commandArgs", ["web", "--no-open", "--port", "0"]],
         ["autoStart", false],
         ["requestTimeoutMs", 5_000],
     ]);

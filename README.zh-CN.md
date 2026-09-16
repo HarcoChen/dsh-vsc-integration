@@ -128,7 +128,7 @@
 
 扩展通过 RC Remote RPC 连接 Runtime，使用 HTTP 调用和多路复用 WebSocket 获取实时会话更新。
 
-多个 VS Code 窗口优先复用同一个本地 Harness Runtime。扩展启动的 Runtime 通过进程锁公布其随机 loopback 端口，后续窗口直接连接，避免多写冲突。
+多个 VS Code 窗口优先复用同一个本地 Harness Runtime。默认端口 `3080` 空闲时，扩展会在该端口启动 Runtime；若被其他服务占用，则回退到操作系统分配的 loopback 端口。扩展通过进程锁公布所属 Runtime 的实际端点，后续窗口直接连接，避免多写冲突。
 
 共享锁仍叫 `dsh-runtime.lock`，位于系统临时目录。内容记录 `runtimeVersion`、所有者 `pid` / `ownerId` / `createdAt`、启动进程 `runtimePid` / `runtimeProcess`、本实例的 POSIX `runtimeProcessGroup` 和连接地址。版本来自固定 npm 包规格、托管版本或本地启动器的 `--version`，不会把未知启动器标记成本扩展的默认版本。自动复用接受所有不低于最低版本的版本，保留实际探测值；无版本或版本过旧的存活实例进入下述迁移流程，没有版本锁记录的自动端口发现仍被拒绝。手动指定 `dsh.serverUrl` 仍由使用者保证 Runtime 版本。
 

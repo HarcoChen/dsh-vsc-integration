@@ -131,7 +131,7 @@ As of the adaptation check, the CNB standalone Runtime mirror returns 404 for `0
 
 The extension connects to the Runtime through RC Remote RPC, using HTTP calls and a multiplexed WebSocket for live session updates.
 
-Multiple VS Code windows preferentially reuse the same local Harness Runtime. The Runtime launched by the extension publishes a random loopback port through a process lock; later windows connect directly, avoiding competing writes.
+Multiple VS Code windows preferentially reuse the same local Harness Runtime. When port `3080` is free, the extension starts its Runtime there; if another service occupies it, startup falls back to an OS-assigned loopback port. The owned endpoint is published through the process lock so later windows can connect directly without competing writes.
 
 The shared file remains `dsh-runtime.lock` in the OS temporary directory. Its contents include `runtimeVersion`, owner `pid` / `ownerId` / `createdAt`, launcher `runtimePid` / `runtimeProcess`, the owned POSIX `runtimeProcessGroup`, and connection addresses. The version comes from an exact npm package spec, the managed version, or the local launcher's `--version`, never an assumed default for an unknown binary. Automatic reuse accepts versions at or above the minimum and retains the actual detected version. Unversioned or too-old live instances enter the migration flow below; automatic port discovery without a versioned lock is rejected. Explicit `dsh.serverUrl` connections remain the operator's responsibility for version compatibility.
 

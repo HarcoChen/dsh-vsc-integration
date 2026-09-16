@@ -3,6 +3,7 @@ import { RuntimeDescendantOwnershipUnknownError, spawnOwnedRuntime, terminateOwn
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, open, readFile, unlink, writeFile, type FileHandle } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, extname, isAbsolute, join, posix } from "node:path";
 import { promisify } from "node:util";
@@ -128,9 +129,13 @@ const DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS = 30_000;
 const DEFAULT_NPM_REGISTRY = "https://registry.npmmirror.com";
 const OFFICIAL_NPM_REGISTRY = "https://registry.npmjs.org";
 const NPM_REGISTRY_QUERY_TIMEOUT_MS = 5_000;
+const DEFAULT_RUNTIME_PORT = 3_080;
+const LOOPBACK_PORT_PROBE_TIMEOUT_MS = 750;
+const DSH_AUTHENTICATION_CHALLENGE = "dsh web authentication required; reopen the URL printed by dsh web.\n";
 /** Bounded recovery delays for a Runtime launched by this extension. */
 const RUNTIME_RECOVERY_DELAYS_MS = [1_000, 5_000, 15_000] as const;
 type PackageManager = "npx" | "pnpm";
+type LoopbackPortState = "free" | "occupied" | "unknown";
 /**
  * The start lock every dsh editor integration shares, so one Runtime serves the
  * machine instead of one per editor. The name is deliberately editor-neutral:
@@ -147,6 +152,32 @@ const LEGACY_RUNTIME_LOCK_FILE = "dsh-vscode-runtime.lock";
 
 function delay(milliseconds: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** Distinguish an explicitly refused local port from a live or ambiguous listener. */
+function probeLoopbackPort(port: number, signal?: AbortSignal): Promise<LoopbackPortState> {
+    signal?.throwIfAborted();
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const socket = createConnection({ host: "127.0.0.1", port });
+        const finish = (state?: LoopbackPortState, error?: unknown): void => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener("abort", abort);
+            socket.setTimeout(0);
+            socket.destroy();
+            if (error !== undefined) reject(error);
+            else resolve(state ?? "unknown");
+        };
+        const abort = (): void => finish(undefined, signal?.reason ?? new Error("DSH Runtime startup was cancelled"));
+        socket.setTimeout(LOOPBACK_PORT_PROBE_TIMEOUT_MS, () => finish("unknown"));
+        socket.once("connect", () => finish("occupied"));
+        socket.once("error", error => finish(
+            (error as NodeJS.ErrnoException).code === "ECONNREFUSED" ? "free" : "unknown",
+        ));
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
+    });
 }
 
 /**
@@ -318,6 +349,26 @@ function portFromArgs(args: string[]): number | undefined {
 
     const value = Number(args[index + 1]);
     return Number.isInteger(value) && value > 0 && value <= 65_535 ? value : undefined;
+}
+
+/** Replace only the Web app's port, never an npx/pnpm package-selection `-p`. */
+function withRuntimePort(args: string[], port: number): string[] {
+    const result = [...args];
+    const invocation = dshPackageInvocation(result);
+    const start = invocation?.probeArgs.length ?? 0;
+    for (let index = start; index < result.length; index += 1) {
+        const argument = result[index];
+        if (argument.startsWith("--port=")) {
+            result[index] = `--port=${port}`;
+            return result;
+        }
+        if (argument === "--port" || argument === "-p") {
+            if (index + 1 < result.length) result[index + 1] = String(port);
+            else result.push(String(port));
+            return result;
+        }
+    }
+    return [...result, "--port", String(port)];
 }
 
 /** Returns whether a launcher needs a shell on the current platform. */
@@ -850,6 +901,14 @@ class RuntimeLaunchFailure extends Error {
         this.name = "RuntimeLaunchFailure";
         this.cause = cause;
     }
+}
+
+function isAddressInUseFailure(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const output = error instanceof RuntimeLaunchFailure ? error.outputTail : "";
+    return /\bEADDRINUSE\b|address already in use|only one usage of each socket address/iu.test(
+        `${message}\n${output}`,
+    );
 }
 
 function managedPhaseMessage(phase: RuntimeInstallPhase, version: string): string {
@@ -2539,7 +2598,7 @@ export class DshRuntime implements vscode.Disposable {
         // previous extension instance before creating another writer process.
         // Harness's web profile defaults to port 3080; an explicit setting wins.
         const configuredPort = this.configuration().get<number>("serverPort", 0);
-        const existingEndpoint = await this.findExistingRuntime(configuredPort);
+        const existingEndpoint = await this.findExistingRuntime(configuredPort, signal);
         checkStarting();
         if (existingEndpoint) {
             this.setRuntimeEndpoint(existingEndpoint);
@@ -2659,7 +2718,7 @@ export class DshRuntime implements vscode.Disposable {
         if (!(await this.acquireRuntimeLock(launchVersion!, signal))) {
             const deadline = Date.now() + startupTimeout;
             while (Date.now() < deadline) {
-                const endpoint = await this.findExistingRuntime(configuredPort);
+                const endpoint = await this.findExistingRuntime(configuredPort, signal);
                 checkStarting();
                 if (endpoint) {
                     this.setRuntimeEndpoint(endpoint);
@@ -2675,6 +2734,7 @@ export class DshRuntime implements vscode.Disposable {
             throw new Error(message);
         }
         checkStarting();
+        let automaticLaunchPort: number | undefined;
         if (enableCompaction && isWebProfileArgs(args)) {
             this.compactionPatchPath = join(this.recoveryLedger.directory, "compaction.patch.yml");
             try {
@@ -2696,10 +2756,37 @@ export class DshRuntime implements vscode.Disposable {
         const packageInvocation = isPackageManagerSource(launcher.source) ? dshPackageInvocation(args) : undefined;
         const appArgs = packageInvocation ? args.slice(packageInvocation.probeArgs.length) : args;
         if (!appArgs.some((argument) => argument === "--port" || argument === "-p" || argument.startsWith("--port="))) {
-            // Port 0 asks Harness/the OS for a free port. This preserves the
-            // normal 3080 default for discovery while still working when it is
-            // occupied by another service or Runtime.
-            args.push("--port", String(configuredPort > 0 ? configuredPort : 0));
+            if (configuredPort > 0) {
+                args.push("--port", String(configuredPort));
+            } else {
+                // Recheck after taking the shared lock: discovery and launcher
+                // probing leave enough time for an unrelated process to claim
+                // the default port. Ambiguous probes fail closed to --port 0.
+                const state = await this.probeLoopbackPort(DEFAULT_RUNTIME_PORT, signal);
+                checkStarting();
+                if (state === "occupied") {
+                    const defaultUrl = `http://127.0.0.1:${DEFAULT_RUNTIME_PORT}`;
+                    this.setRuntimeEndpoint({ baseUrl: defaultUrl }, false);
+                    const occupiedByDsh = await this.isHarnessHealthy(defaultUrl) ||
+                        await this.isDshAuthenticationChallenge(defaultUrl, signal);
+                    checkStarting();
+                    this.baseUrl = undefined;
+                    this.launchUrl = undefined;
+                    this.clearRuntimeAuthentication();
+                    if (occupiedByDsh) {
+                        // An untracked DSH cannot be authenticated or versioned,
+                        // and this extension did not spawn it. Release our empty
+                        // lock rather than claiming or duplicating that Runtime.
+                        await this.releaseRuntimeLock();
+                        this.requireRuntimeVersion(undefined);
+                    }
+                }
+                automaticLaunchPort = state === "free" ? DEFAULT_RUNTIME_PORT : 0;
+                args.push("--port", String(automaticLaunchPort));
+                this.output.appendLine(state === "free"
+                    ? `[dsh] default port ${DEFAULT_RUNTIME_PORT} is free; using it for the Runtime`
+                    : `[dsh] default port ${DEFAULT_RUNTIME_PORT} is ${state}; using an OS-assigned port`);
+            }
         }
         try {
             args = await this.recoveryFixes.filterLaunchArgs(args);
@@ -2948,11 +3035,30 @@ export class DshRuntime implements vscode.Disposable {
             }
         };
 
+        const launchAttemptWithPortFallback = async (attemptArgs: string[]): Promise<string> => {
+            const effectiveArgs = automaticLaunchPort === undefined
+                ? attemptArgs
+                : withRuntimePort(attemptArgs, automaticLaunchPort);
+            try {
+                return await launchAttempt(effectiveArgs);
+            } catch (error) {
+                if (automaticLaunchPort !== DEFAULT_RUNTIME_PORT || !isAddressInUseFailure(error)) throw error;
+                // The port was free during the probe but another process won
+                // the bind race. Preserve lock ownership and retry once with
+                // Harness/OS-assigned port selection.
+                automaticLaunchPort = 0;
+                this.output.appendLine(
+                    `[dsh] default port ${DEFAULT_RUNTIME_PORT} became occupied; retrying on an OS-assigned port`,
+                );
+                return launchAttempt(withRuntimePort(attemptArgs, 0));
+            }
+        };
+
         const launchWithFallback = async (
             progress?: vscode.Progress<{ message?: string; increment?: number }>,
         ): Promise<string> => {
             try {
-                return await launchAttempt(args);
+                return await launchAttemptWithPortFallback(args);
             } catch (error) {
                 checkStarting();
                 const registry = npmRegistry;
@@ -2971,7 +3077,7 @@ export class DshRuntime implements vscode.Disposable {
                     }),
                 });
                 try {
-                    return await launchAttempt(mirrorArgs);
+                    return await launchAttemptWithPortFallback(mirrorArgs);
                 } catch (retryError) {
                     const firstMessage = error instanceof Error ? error.message : String(error);
                     const retryMessage = retryError instanceof Error ? retryError.message : String(retryError);
@@ -3159,7 +3265,11 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    private async findExistingRuntime(configuredPort: number): Promise<RuntimeEndpoint | undefined> {
+    private probeLoopbackPort(port: number, signal?: AbortSignal): Promise<LoopbackPortState> {
+        return probeLoopbackPort(port, signal);
+    }
+
+    private async findExistingRuntime(configuredPort: number, signal?: AbortSignal): Promise<RuntimeEndpoint | undefined> {
         // A package-manager descendant can outlive stop() briefly. Keep ownership
         // until it exits, then let this same editor release its retained lock.
         if (this.runtimeLock && !this.child && await runtimeHasExited(this.runtimeLock.record)) {
@@ -3188,14 +3298,17 @@ export class DshRuntime implements vscode.Disposable {
                     if (!await this.offerRuntimeMigration(migration)) {
                         throw new RemoteProtocolError(t("The orphan DSH Runtime is not responding. Restart was cancelled; its shared lock was retained."));
                     }
-                    return this.findExistingRuntime(configuredPort);
+                    return this.findExistingRuntime(configuredPort, signal);
                 }
             }
         }
-        const ports = (configuredPort > 0 ? [configuredPort, 3080] : [3080]).filter(
+        const ports = (configuredPort > 0 ? [configuredPort, DEFAULT_RUNTIME_PORT] : [DEFAULT_RUNTIME_PORT]).filter(
             (port, index, all): port is number => Number.isInteger(port) && port > 0 && all.indexOf(port) === index,
         );
         for (const port of ports) {
+            const state = await this.probeLoopbackPort(port, signal);
+            signal?.throwIfAborted();
+            if (state === "free") continue;
             const url = `http://127.0.0.1:${port}`;
             // A different port is a different origin. Restore the advertised
             // endpoint only for its own port; never reuse its Cookie elsewhere.
@@ -3207,6 +3320,13 @@ export class DshRuntime implements vscode.Disposable {
                 // Automatic discovery must not bypass the shared lock's version check.
                 if (advertisedEndpoint?.baseUrl !== url) this.requireRuntimeVersion(undefined);
                 return endpoint;
+            }
+            if (advertisedEndpoint?.baseUrl !== url && await this.isDshAuthenticationChallenge(url, signal)) {
+                // This is a modern DSH Web server, but without its launch token
+                // and versioned shared lock we cannot safely adopt or claim it.
+                // Preserve the existing instance instead of starting a second
+                // writer on a random port.
+                this.requireRuntimeVersion(undefined);
             }
             this.clearRuntimeAuthentication();
         }
@@ -3309,6 +3429,30 @@ export class DshRuntime implements vscode.Disposable {
             return false;
         } finally {
             clearTimeout(timeout);
+        }
+    }
+
+    /** Recognize an authenticated DSH Web listener without pretending we can adopt it. */
+    private async isDshAuthenticationChallenge(url: string, signal?: AbortSignal): Promise<boolean> {
+        const controller = new AbortController();
+        const relayAbort = (): void => controller.abort(signal?.reason);
+        signal?.addEventListener("abort", relayAbort, { once: true });
+        if (signal?.aborted) relayAbort();
+        const timeout = setTimeout(() => controller.abort(), 1_500);
+        try {
+            const response = await fetch(`${url}/`, {
+                headers: { accept: "text/plain" },
+                signal: controller.signal,
+            });
+            if (response.status !== 401 || response.headers.get("cache-control") !== "no-store" ||
+                !response.headers.get("content-type")?.toLowerCase().startsWith("text/plain")) return false;
+            return await response.text() === DSH_AUTHENTICATION_CHALLENGE;
+        } catch {
+            signal?.throwIfAborted();
+            return false;
+        } finally {
+            clearTimeout(timeout);
+            signal?.removeEventListener("abort", relayAbort);
         }
     }
 
