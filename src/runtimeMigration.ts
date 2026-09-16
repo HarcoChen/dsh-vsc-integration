@@ -145,7 +145,11 @@ export async function reclaimUnaddressedLegacyLock(
     signal?: AbortSignal,
 ): Promise<void> {
     signal?.throwIfAborted();
-    await mutateRuntimeLock(sharedLockPath, async () => {
+    // The old lock has its own compatibility filename. Serialize the final
+    // read/identity check/unlink beside that file; using only the new lock's
+    // mutex would let two updated editors reclaim the legacy file concurrently.
+    const mutationPath = snapshot.path === sharedLockPath ? sharedLockPath : snapshot.path;
+    await mutateRuntimeLock(mutationPath, async () => {
         signal?.throwIfAborted();
         const current = await readRuntimeLock(snapshot.path);
         if (!current || !sameRuntimeLockFile(snapshot.stat, current.stat) || current.contents !== snapshot.contents) {

@@ -59,7 +59,7 @@
     "config.enableCompaction.description": "扩展自行启动 DSH Web server 时启用官方 /compact command。",
     "config.serverUrl.description": "已运行且受信任的 dsh web 0.1.5-rc.1 Runtime 的可选 HTTP(S) URL。设置后扩展会连接该地址，而不是启动 dsh.command。回环地址允许使用 HTTP；远程 Runtime 必须使用 HTTPS。请在 URL 中填写启动 Token，或单独设置 dsh.serverToken。",
     "config.serverToken.description": "dsh.serverUrl 对应的可选 dsh web 启动 Token。当 Runtime 地址与 Token 分开配置时填写；扩展会用它换取认证会话，不会将它作为 Authorization 请求头发送。",
-    "config.serverPort.description": "当 dsh.serverUrl 为空且 dsh.commandArgs 未指定端口时传给 dsh web 的端口。设为 0 时优先使用默认端口 3080；端口被占用时回退到操作系统分配的端口。",
+    "config.serverPort.description": "当 dsh.serverUrl 为空且 dsh.commandArgs 未指定端口时传给 dsh web 的端口。设为 0 时先复用共享锁中健康且版本兼容的 Runtime；没有可复用实例时探测 3080，空闲则使用该端口，被非 DSH 服务占用或探测不明确则改用操作系统分配的端口；能识别出未登记的 DSH 监听器时不会重复启动。",
     "config.autoStart.description": "扩展激活时自动启动或连接 dsh web。关闭后可点击状态标签，或执行“DSH：启动 dsh Web Runtime”。",
     "config.recovery.enabled.description": "在隔离沙箱中自动诊断并恢复本地 DSH 启动失败。",
     "config.recovery.autoPersistBundleIsolation.description": "沙箱验证达到高置信度后，持久化 profile bundle 隔离。",
