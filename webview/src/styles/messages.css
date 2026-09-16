@@ -60,6 +60,8 @@
 .dsh-message-actions {
     position: relative;
     display: inline-flex;
+    align-items: center;
+    gap: var(--dsh-space-1);
     flex: none;
     margin-left: auto;
     opacity: 0;
@@ -116,8 +118,29 @@
     }
 }
 
+.dsh-message-footer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--dsh-space-1);
+    min-height: 22px;
+    margin-top: var(--dsh-space-1);
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.dsh-message:hover .dsh-message-footer-actions,
+.dsh-message:focus-within .dsh-message-footer-actions {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .dsh-message-footer-actions {
+        opacity: 1;
+    }
+}
+
 .dsh-message-trace {
-    margin-left: auto;
     padding: 0 var(--dsh-space-1);
     border: 0;
     color: var(--vscode-descriptionForeground);

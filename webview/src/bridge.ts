@@ -48,7 +48,8 @@ export function getVsCodeApi(): VsCodeApi {
  * Post a webview action to the host.
  *
  * Do NOT attach a `protocol` field: parseChatViewAction validates openExternalLink,
- * copyCode and retryPrompt with hasOnly(...), so any extra key gets the message rejected.
+ * copyMessage, copyCode and retryPrompt with hasOnly(...), so any extra key gets
+ * the message rejected.
  */
 export function postAction(action: ChatViewAction): void {
     getVsCodeApi().postMessage(action);

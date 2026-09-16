@@ -4,7 +4,7 @@ import { postAction } from "../bridge";
 import { t } from "../i18n";
 import { ROLE_LABELS } from "../state";
 import { MessageContent } from "./MessageContent";
-import { MoreIcon } from "./icons";
+import { CheckIcon, CopyIcon, MoreIcon } from "./icons";
 
 export { MessageContent } from "./MessageContent";
 
@@ -20,7 +20,51 @@ type CheckpointAction =
     | "restoreCodeToMessage"
     | "forkAndRestoreCodeToMessage";
 
-function MessageCheckpointMenu({ seq }: { seq: number }): React.JSX.Element {
+function canCopyMessage(message: ChatMessage): boolean {
+    return (
+        (message.role === "user" || message.role === "assistant") &&
+        (message.text.trim().length > 0 || Boolean(message.skillInvocation))
+    );
+}
+
+function MessageCopyButton({ message }: { message: ChatMessage }): React.JSX.Element | null {
+    const [copied, setCopied] = useState(false);
+    const resetTimerRef = useRef<number>();
+
+    useEffect(() => () => {
+        if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+    }, []);
+
+    if (!canCopyMessage(message)) return null;
+
+    const copy = (): void => {
+        postAction({ type: "copyMessage", messageId: message.id });
+        setCopied(true);
+        if (resetTimerRef.current !== undefined) window.clearTimeout(resetTimerRef.current);
+        resetTimerRef.current = window.setTimeout(() => setCopied(false), 1_500);
+    };
+
+    return (
+        <button
+            type="button"
+            className="dsh-message-action-trigger dsh-icon-button"
+            aria-label={copied ? t("Copied") : t("Copy message")}
+            title={copied ? t("Copied") : t("Copy message")}
+            onClick={(event) => {
+                event.stopPropagation();
+                copy();
+            }}
+        >
+            {copied ? <CheckIcon /> : <CopyIcon />}
+        </button>
+    );
+}
+
+function MessageActions({
+    checkpointSeq,
+}: {
+    checkpointSeq?: number;
+}): React.JSX.Element | null {
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -43,9 +87,12 @@ function MessageCheckpointMenu({ seq }: { seq: number }): React.JSX.Element {
     }, [open]);
 
     const run = (type: CheckpointAction): void => {
-        postAction({ type, seq });
+        if (checkpointSeq === undefined) return;
+        postAction({ type, seq: checkpointSeq });
         setOpen(false);
     };
+
+    if (checkpointSeq === undefined) return null;
 
     return (
         <div className={`dsh-message-actions${open ? " open" : ""}`} ref={menuRef}>
@@ -75,6 +122,31 @@ function MessageCheckpointMenu({ seq }: { seq: number }): React.JSX.Element {
                     </button>
                 </div>
             ) : null}
+        </div>
+    );
+}
+
+function MessageFooterActions({
+    message,
+    traceSeq,
+}: {
+    message: ChatMessage;
+    traceSeq?: number;
+}): React.JSX.Element | null {
+    if (traceSeq === undefined && !canCopyMessage(message)) return null;
+    return (
+        <div className="dsh-message-footer-actions">
+            {traceSeq === undefined ? null : (
+                <button
+                    type="button"
+                    className="dsh-message-trace"
+                    data-trace-seq={traceSeq}
+                    title={t("Locate in Trace")}
+                >
+                    trace
+                </button>
+            )}
+            <MessageCopyButton message={message} />
         </div>
     );
 }
@@ -120,23 +192,14 @@ export const MessageItem = React.memo(function MessageItem({
             <div className="dsh-message-label">
                 {ROLE_LABELS[message.role]}
                 {stateLabel}
-                {hasTrace ? (
-                    <button
-                        type="button"
-                        className="dsh-message-trace"
-                        data-trace-seq={message.seq}
-                        title={t("Locate in Trace")}
-                    >
-                        trace
-                    </button>
-                ) : null}
-                {checkpointSeq === undefined ? null : <MessageCheckpointMenu seq={checkpointSeq} />}
+                <MessageActions checkpointSeq={checkpointSeq} />
             </div>
             <MessageContent
                 message={message}
                 agentStatusLabel={agentStatusLabel}
                 autoOpenReasoning={autoOpenReasoning}
             />
+            <MessageFooterActions message={message} traceSeq={hasTrace ? message.seq : undefined} />
             {message.state === "failed" ? (
                 <button
                     type="button"
