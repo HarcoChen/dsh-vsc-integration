@@ -621,6 +621,15 @@ function isLikelyNpmDownloadFailure(error: unknown, outputTail = ""): boolean {
     );
 }
 
+/** A package-manager download failure proves that no Web Runtime was started. */
+function isPackageManagerDownloadFailure(error: unknown, outputTail = ""): boolean {
+    if (isDshWriterLockFailure(error)) return false;
+    const message = error instanceof Error ? error.message : String(error);
+    return /\b(?:ERR_PNPM_[A-Z_]+|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ENOTFOUND)\b|(?:npm\s+ERR!|fetch failed|network (?:error|request|timeout)|socket hang up|bad gateway)/iu.test(
+        `${message}\n${outputTail}`,
+    );
+}
+
 /** Detect a package-manager shim that points at a missing Corepack script. */
 function isCorepackPackageManagerShimFailure(error: unknown, outputTail = ""): boolean {
     if (isDshWriterLockFailure(error)) return false;
@@ -1235,7 +1244,7 @@ export class DshRuntime implements vscode.Disposable {
     private runtimeLockWrite: Promise<void> = Promise.resolve();
     /** Never serialized: proof from this instance's successful owned-tree cleanup. */
     private terminatedRuntimeLock: { ownerId: string; runtimePid: number } | undefined;
-    /** Never serialized: a known package-manager bootstrap failure before any Runtime URL was published. */
+    /** Never serialized: a known package-manager failure before any Runtime URL was published. */
     private failedLaunchLock: { ownerId: string; runtimePid: number } | undefined;
     private migrationPromptKey: string | undefined;
     private compactionPatchPath: string | undefined;
@@ -2758,8 +2767,25 @@ export class DshRuntime implements vscode.Disposable {
         this.requireRuntimeVersion(launchVersion);
         this.harnessState.setRuntimeVersion(launchVersion!);
 
-        if (!(await this.acquireRuntimeLock(launchVersion!, signal))) {
-            const deadline = Date.now() + startupTimeout;
+        // A package-manager launch can spend its entire timeout downloading
+        // the Runtime before it publishes an endpoint. A second editor must
+        // wait for that same budget instead of giving up after the shorter
+        // HTTP readiness timeout. It also retries the lock after every probe:
+        // when the first owner fails and releases its lock, this editor can
+        // take over rather than reporting a false "another Runtime" error.
+        const configuredNpxTimeout = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
+        const npxTimeoutMs = Number.isFinite(configuredNpxTimeout) && configuredNpxTimeout > 0
+            ? configuredNpxTimeout
+            : DEFAULT_NPX_TIMEOUT_MS;
+        let ownsRuntimeLock = await this.acquireRuntimeLock(launchVersion!, signal);
+        if (!ownsRuntimeLock) {
+            const lockWaitTimeout = isPackageManagerSource(launcher.source)
+                ? Math.max(startupTimeout, npxTimeoutMs)
+                : startupTimeout;
+            const deadline = Date.now() + lockWaitTimeout;
+            this.output.appendLine(
+                `[dsh] another Runtime owns the startup lock; waiting up to ${lockWaitTimeout} ms for its endpoint or release`,
+            );
             while (Date.now() < deadline) {
                 const endpoint = await this.findExistingRuntime(configuredPort, signal);
                 checkStarting();
@@ -2770,11 +2796,15 @@ export class DshRuntime implements vscode.Disposable {
                     this.harnessState.start();
                     return endpoint.baseUrl;
                 }
+                ownsRuntimeLock = await this.acquireRuntimeLock(launchVersion!, signal);
+                if (ownsRuntimeLock) break;
                 await delay(250);
             }
-            const message = t("Another dsh runtime is starting, but it did not become available.");
-            this.setStatus({ state: "error", message });
-            throw new Error(message);
+            if (!ownsRuntimeLock) {
+                const message = t("Another dsh runtime is starting, but it did not become available.");
+                this.setStatus({ state: "error", message });
+                throw new Error(message);
+            }
         }
         checkStarting();
         let automaticLaunchPort: number | undefined;
@@ -2868,10 +2898,6 @@ export class DshRuntime implements vscode.Disposable {
             this.output.appendLine(`[dsh:recovery] unable to capture launch composition: ${String(error)}`);
         }
 
-        const configuredNpxTimeout = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
-        const npxTimeoutMs = Number.isFinite(configuredNpxTimeout) && configuredNpxTimeout > 0
-            ? configuredNpxTimeout
-            : DEFAULT_NPX_TIMEOUT_MS;
         const packageManagerFetchTimeoutMs = Math.min(npxTimeoutMs, DEFAULT_PACKAGE_MANAGER_FETCH_TIMEOUT_MS);
         const configuredNpmRegistry = normalizeNpmRegistry(
             configuration.get<string>("npmRegistry", DEFAULT_NPM_REGISTRY),
@@ -3730,10 +3756,10 @@ export class DshRuntime implements vscode.Disposable {
 
     /**
      * Windows cannot prove that descendants of an already-exited shell wrapper
-     * are gone. A package-manager bootstrap error is stronger evidence: pnpm
-     * never reached the DSH package, so treating this instance's empty lock as
-     * live would block the npx/registry retry and produce the misleading
-     * "another Runtime is starting" message.
+     * are gone. A package-manager bootstrap or download error is stronger
+     * evidence: the launcher never reached a DSH Web endpoint, so treating this
+     * instance's empty lock as live would block the npx/registry retry and
+     * produce the misleading "another Runtime is starting" message.
      */
     private markFailedLaunchLock(
         child: ChildProcess,
@@ -3745,7 +3771,7 @@ export class DshRuntime implements vscode.Disposable {
         outputTail: string,
     ): void {
         if (process.platform !== "win32" || !isPackageManagerSource(source) || !exited || ready || endpointObserved ||
-            !isPackageManagerBootstrapFailure(error, outputTail) ||
+            (!isPackageManagerBootstrapFailure(error, outputTail) && !isPackageManagerDownloadFailure(error, outputTail)) ||
             (child.exitCode === null && child.signalCode === null)) return;
         const lock = this.runtimeLock;
         if (!lock || child.pid === undefined || lock.record.ownerId === undefined ||
