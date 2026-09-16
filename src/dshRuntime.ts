@@ -18,7 +18,10 @@ import type {
     DshUpdateTeamTaskRequest,
     DshTeamTaskMutationResult,
 } from "./agentTeamTypes";
-import { inspectLegacyRuntime, RuntimeMigrationRequiredError, stopLegacyRuntime } from "./runtimeMigration";
+import {
+    inspectLegacyRuntime, isReclaimableUnaddressedLegacyLock, reclaimUnaddressedLegacyLock,
+    RuntimeMigrationRequiredError, stopLegacyRuntime,
+} from "./runtimeMigration";
 import {
     canReclaimRuntimeLock, exactRuntimeVersion, mutateRuntimeLock, readRuntimeLock, removeRuntimeLock,
     runtimeHasExited, sameRuntimeLockFile, type RuntimeLockRecord,
@@ -3326,6 +3329,22 @@ export class DshRuntime implements vscode.Disposable {
         if (this.disposed || this.startAbort?.signal.aborted) return false;
         if (!candidate) {
             const retry = t("Retry after stopping the old Runtime");
+            if (isReclaimableUnaddressedLegacyLock(snapshot)) {
+                const reclaim = t("Reclaim stale lock and restart");
+                const answer = await vscode.window.showWarningMessage(
+                    t("The old DSH lock has no Runtime address or process metadata, and its owner PID {pid} is no longer running. If you have verified that no dsh Runtime is running, reclaim this lock and restart? An untracked Runtime could otherwise cause a second process to start. Lock: {path}", {
+                        pid: snapshot.record!.pid, path: snapshot.path,
+                    }),
+                    { modal: true }, retry, reclaim,
+                );
+                if (this.disposed || this.startAbort?.signal.aborted) return false;
+                if (answer === reclaim) {
+                    await reclaimUnaddressedLegacyLock(snapshot, join(tmpdir(), RUNTIME_LOCK_FILE), this.startAbort?.signal);
+                    this.output.appendLine(`[dsh] reclaimed confirmed unaddressed legacy Runtime lock: ${snapshot.path}`);
+                    return true;
+                }
+                return answer === retry;
+            }
             const answer = await vscode.window.showWarningMessage(
                 t("An older or unversioned DSH Runtime is holding the shared lock. Close the editor that owns it or stop that Runtime, then retry. Once its owner and port are gone, the old lock is reclaimed automatically. Lock: {path}", { path: snapshot.path }),
                 retry,
