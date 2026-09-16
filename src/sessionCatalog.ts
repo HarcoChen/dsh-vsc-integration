@@ -10,6 +10,7 @@ import {
     DshWorkspaceView,
 } from "./types";
 import { isRecord } from "./guards";
+import { samePath } from "./paths";
 
 export interface SessionCatalogItem extends DshSessionSummary {
     title?: string;
@@ -600,7 +601,8 @@ export class HarnessCatalogStore {
 
     /** Returns non-blank sessions registered for the canonical workspace path. */
     public sessionsForWorkspace(path: string): readonly SessionCatalogItem[] {
-        const workspace = [...this.workspaces.values()].find((entry) => entry.value.path === path)?.value;
+        const workspace = [...this.workspaces.values()]
+            .find((entry) => samePath(entry.value.path, path))?.value;
         if (!workspace) return [];
         const byId = new Map(
             [...this.sessions.values()].map((entry) => [entry.value.sessionId, entry.value] as const),

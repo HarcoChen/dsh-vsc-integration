@@ -69,7 +69,11 @@ export class SessionCatalogCache<T> {
         const generation = this.generations.get(sessionId) ?? 0;
         const request = options.pull()
             .then((value) => {
-                if (this.generations.get(sessionId) !== generation) return;
+                // Keep the comparison normalized on both sides.  Keys that
+                // have never been invalidated are absent from `generations`,
+                // so comparing the raw `undefined` to the normalized initial
+                // generation would discard every first pull forever.
+                if ((this.generations.get(sessionId) ?? 0) !== generation) return;
                 if (value === undefined) {
                     options.absent?.();
                     return;

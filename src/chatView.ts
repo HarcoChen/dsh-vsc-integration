@@ -1836,7 +1836,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
         const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
         const candidates = [
-            ...(persisted?.cwd === workspaceRoot ? [persisted.sessionId] : []),
+            ...(persisted?.cwd && samePath(persisted.cwd, workspaceRoot) ? [persisted.sessionId] : []),
             ...this.runtime
                 .getSessionCatalog()
                 .sessionsForWorkspace(workspaceRoot)
@@ -1844,6 +1844,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ].filter((sessionId, index, all) => all.indexOf(sessionId) === index);
         const sessionId = candidates[0];
         if (!sessionId) {
+            this.output.appendLine(
+                `[dsh] no persisted or registered session matches workspace ${workspaceRoot}`,
+            );
             return;
         }
 
@@ -1867,7 +1870,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshCommandCatalog(sessionId);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
-            if (latest?.sessionId === sessionId && latest.cwd === workspaceRoot) {
+            if (latest?.sessionId === sessionId && latest?.cwd && samePath(latest.cwd, workspaceRoot)) {
                 await this.extensionContext.workspaceState.update("session", undefined);
             }
             this.output.appendLine(
