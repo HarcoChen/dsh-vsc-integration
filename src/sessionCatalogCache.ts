@@ -96,7 +96,7 @@ export class SessionCatalogCache<T> {
             .finally(() => {
                 this.requests.delete(sessionId);
                 if (this.refreshPending.delete(sessionId)) {
-                    void this.pull(sessionId, options);
+                    return this.pull(sessionId, options);
                 }
             });
         this.requests.set(sessionId, request);
