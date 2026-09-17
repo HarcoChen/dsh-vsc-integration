@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.9.6] - 2026-09-17
+
 ### 变更
 
 - 移除 Runtime 启动锁，改用只读的 Runtime 广告做多窗口发现。
@@ -19,7 +21,6 @@
 - Windows 上 pnpm/npx 包装进程退出而 Runtime 仍在运行时，直接尝试别的
 - 启动器意外退出后，只要端点仍然应答就保留其广告
 - 识别包管理器存储目录结构损坏（能解析出 DSH 但解析不到它的依赖，如 `ERR_MODULE_NOT_FOUND`）。这类失败重试 registry 没有意义，改为直接换用 npx 重试
-
 
 ## [0.9.5] - 2026-09-17
 
@@ -274,6 +275,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.9.6]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.2...v0.9.3
