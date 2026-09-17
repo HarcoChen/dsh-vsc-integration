@@ -2,7 +2,7 @@
 // Integration: real CLI executables, PATH/npm-prefix discovery, startup arguments,
 // versioned advertisements and owned-child shutdown; no downloads, model calls or user data.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, mkdir, readdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -12,6 +12,26 @@ import { fileURLToPath } from "node:url";
 const script = fileURLToPath(import.meta.url);
 const root = resolve(dirname(script), "..");
 const pause = ms => new Promise(done => setTimeout(done, ms));
+/**
+ * spawnOwnedRuntime gives each Runtime its own process group, so a worker that
+ * dies before dispose() leaves a reparented fixture running forever. Every
+ * fixture is launched from this run's unique temp directory, so that path
+ * identifies strays exactly: nothing outside this run can match it.
+ */
+async function reapStrays(directory) {
+    const strays = await new Promise(done => execFile("pgrep", ["-f", directory], (error, stdout) => done(
+        (error && !stdout ? "" : stdout).split("\n")
+            .map(line => Number(line.trim()))
+            .filter(pid => Number.isInteger(pid) && pid > 1 && pid !== process.pid),
+    )));
+    if (!strays.length) return;
+    for (const pid of strays) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+    await new Promise(done => setTimeout(done, 250));
+    const survivors = strays.filter(pid => { try { process.kill(pid, 0); return true; } catch { return false; } });
+    for (const pid of survivors) { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } }
+    console.warn(`[verify] reaped ${strays.length} stray fixture process(es) left under ${directory}`);
+}
+
 if (!process.argv.includes("--worker")) {
     if (process.platform === "win32") throw new Error("This executable-fixture smoke requires POSIX; run Windows validation separately.");
     const selected = process.argv.slice(2);
@@ -24,7 +44,8 @@ if (!process.argv.includes("--worker")) {
             });
             const code = await new Promise((done, reject) => { child.once("error", reject); child.once("exit", done); });
             assert.equal(code, 0, `scenario ${scenario} failed`);
-        } finally { await rm(directory, { recursive: true, force: true }); }
+        } finally { await reapStrays(directory);
+            await rm(directory, { recursive: true, force: true }); }
     }
 } else {
     const directory = process.env.DSH_DISCOVERY_VERIFY_DIRECTORY;

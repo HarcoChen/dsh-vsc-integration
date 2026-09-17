@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Real process/listener smoke in a fresh temp directory; never uses the user's DSH_HOME or advertisements.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -12,6 +12,26 @@ import { connect, createServer } from "node:net";
 
 const script = fileURLToPath(import.meta.url);
 const sleep = milliseconds => new Promise(done => setTimeout(done, milliseconds));
+/**
+ * spawnOwnedRuntime gives each Runtime its own process group, so a worker that
+ * dies before dispose() leaves a reparented fixture running forever. Every
+ * fixture is launched from this run's unique temp directory, so that path
+ * identifies strays exactly: nothing outside this run can match it.
+ */
+async function reapStrays(directory) {
+    const strays = await new Promise(done => execFile("pgrep", ["-f", directory], (error, stdout) => done(
+        (error && !stdout ? "" : stdout).split("\n")
+            .map(line => Number(line.trim()))
+            .filter(pid => Number.isInteger(pid) && pid > 1 && pid !== process.pid),
+    )));
+    if (!strays.length) return;
+    for (const pid of strays) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+    await new Promise(done => setTimeout(done, 250));
+    const survivors = strays.filter(pid => { try { process.kill(pid, 0); return true; } catch { return false; } });
+    for (const pid of survivors) { try { process.kill(pid, "SIGKILL"); } catch { /* already gone */ } }
+    console.warn(`[verify] reaped ${strays.length} stray fixture process(es) left under ${directory}`);
+}
+
 if (!process.argv.includes("--worker")) {
     const directory = await mkdtemp(join(tmpdir(), "dsh-shutdown-verify-"));
     try {
@@ -23,7 +43,8 @@ if (!process.argv.includes("--worker")) {
             child.once("error", reject);
             child.once("exit", code => done(code ?? 1));
         });
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    } finally { await reapStrays(directory);
+        await rm(directory, { recursive: true, force: true }); }
 } else {
     assert.ok(process.env.DSH_SHUTDOWN_VERIFY_DIRECTORY);
     assert.equal(resolve(tmpdir()), resolve(process.env.DSH_SHUTDOWN_VERIFY_DIRECTORY));
