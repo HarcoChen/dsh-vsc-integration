@@ -2,12 +2,13 @@
 // Filesystem/process integration smoke. Never reads or mutates the user's shared lock.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm, utimes } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 
 const script = fileURLToPath(import.meta.url);
 if (!process.argv.includes("--worker")) {
@@ -95,9 +96,9 @@ if (!process.argv.includes("--worker")) {
             await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimeVersion: "0.1.2-rc.1" }));
             await assert.rejects(() => runtime().readRuntimeEndpoint(), /0\.1\.2-rc\.1/u);
             await writeFile(path, JSON.stringify({ pid: deadPid, url }));
-            await assert.rejects(() => runtime().readRuntimeEndpoint(), /version|版本/u);
+            assert.equal((await runtime().readRuntimeEndpoint()).baseUrl, url);
             assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
-            console.log("PASS live/orphan service preserved; mismatched and unversioned locks rejected");
+            console.log("PASS live/orphan service preserved; known old versions rejected; unknown versions offered for protocol probing");
         } finally {
             await new Promise(done => server.close(done));
             // The on-disk record is now an unversioned replacement, so close the old handle without deleting it.
@@ -111,11 +112,23 @@ if (!process.argv.includes("--worker")) {
         await migrated.releaseRuntimeLock();
         await absent(path);
         console.log("PASS unversioned legacy lock migrates after its owner and listener exit");
-        // Failure before URL publication cannot prove that a wrapper's descendant exited.
+        // A dead owner and wrapper no longer leave an indefinite startup veto.
         await writeFile(path, JSON.stringify({ pid: deadPid, runtimePid: deadPid,
             runtimeVersion: "0.1.5-rc.1", runtimeProcess: "wrapper" }));
-        assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
-        await rm(path);
+        const failedWrapper = runtime();
+        assert.equal(await failedWrapper.acquireRuntimeLock("0.1.5-rc.1"), true);
+        await failedWrapper.releaseRuntimeLock();
+        await writeFile(legacyPath, JSON.stringify({ pid: deadPid }));
+        const bareLegacy = runtime();
+        assert.equal(await bareLegacy.acquireRuntimeLock("0.1.5-rc.1"), true);
+        await absent(legacyPath);
+        await bareLegacy.releaseRuntimeLock();
+        await writeFile(path, JSON.stringify({ pid: process.pid, runtimePid: deadPid,
+            runtimeProcess: "direct", runtimeVersion: "0.1.5-rc.1", url }));
+        const livingEditor = runtime();
+        assert.equal(await livingEditor.acquireRuntimeLock("0.1.5-rc.1"), true);
+        await livingEditor.releaseRuntimeLock();
+        console.log("PASS dead wrapper, bare legacy lock, and dead Runtime with a living editor recover automatically");
         await writeFile(path, JSON.stringify({ ...record, pid: deadPid, runtimePid: deadPid }));
         const replacement = runtime();
         assert.equal(await replacement.acquireRuntimeLock("0.1.5-rc.1"), true);
@@ -125,13 +138,16 @@ if (!process.argv.includes("--worker")) {
 
         await writeFile(path, "{incomplete");
         assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
-        await assert.rejects(() => runtime().readRuntimeEndpoint(), /lock|锁/u);
+        assert.equal(await runtime().readRuntimeEndpoint(), undefined);
         assert.equal(await readFile(path, "utf8"), "{incomplete");
-        await rm(path);
+        const old = new Date(Date.now() - 10_000);
+        await utimes(path, old, old);
+        assert.equal(await runtime().readRuntimeEndpoint(), undefined);
+        await absent(path);
         await writeFile(legacyPath, JSON.stringify({ pid: process.pid }));
         assert.equal(await runtime().acquireRuntimeLock("0.1.5-rc.1"), false);
         await rm(legacyPath);
-        console.log("PASS malformed/legacy locks are not silently removed");
+        console.log("PASS partial writes receive a grace period; stale corrupt files recover; living startup owner remains protected");
 
         const superseded = runtime();
         assert.equal(await superseded.acquireRuntimeLock("0.1.5-rc.1"), true);
@@ -194,13 +210,63 @@ if (!process.argv.includes("--worker")) {
         await absent(`${path}.mutation`);
         console.log("PASS legacy dead-owner mutation guard is reclaimed automatically");
 
-        for (const occupied of [JSON.stringify({ pid: process.pid }), "{incomplete"]) {
+        for (const occupied of [JSON.stringify({ pid: process.pid })]) {
             await writeFile(`${path}.mutation`, occupied);
             await assert.rejects(() => runtime().acquireRuntimeLock("0.1.5-rc.1"), /mutation/u);
             assert.equal(await readFile(`${path}.mutation`, "utf8"), occupied);
             await rm(`${path}.mutation`);
         }
-        console.log("PASS live-owner and unreadable legacy mutation guards remain protected");
+        await writeFile(`${path}.mutation`, "{incomplete");
+        await mutateRuntimeLock(path, async () => {});
+        await absent(`${path}.mutation`);
+        console.log("PASS live-owner mutation guard remains protected; corrupt guard recovers after its grace period");
+
+        // Real HTTP, production authentication/probing, isolated lock directory.
+        let rejectRpc = false;
+        let requireAuth = false;
+        const external = createHttpServer(async (request, response) => {
+            if (requireAuth && request.headers.cookie !== "dsh=verified") {
+                if (request.url === "/?token=smoke-only") {
+                    response.writeHead(303, { "set-cookie": "dsh=verified; HttpOnly", location: "/" });
+                    response.end();
+                } else {
+                    response.writeHead(401, { "content-type": "text/plain", "cache-control": "no-store" });
+                    response.end("dsh web authentication required; reopen the URL printed by dsh web.\n");
+                }
+                return;
+            }
+            let body = "";
+            for await (const chunk of request) body += chunk;
+            if (request.url !== "/api/session/list") { response.writeHead(404); response.end(); return; }
+            const rpc = JSON.parse(body);
+            response.setHeader("content-type", "application/json");
+            response.end(JSON.stringify({ type: "server-response", rpcId: rpc.rpcId, result: rejectRpc
+                ? { ok: false, error: { code: "gateway/not-found", message: "Not ready", details: {} } }
+                : { ok: true, value: { items: [] } } }));
+        });
+        await new Promise(done => external.listen(0, "127.0.0.1", done));
+        const externalUrl = `http://127.0.0.1:${external.address().port}`;
+        try {
+            const peer = runtime();
+            assert.equal((await peer.findExistingRuntime(external.address().port)).baseUrl, externalUrl);
+            assert.equal(peer.runtimeLock, undefined);
+            await absent(path);
+            rejectRpc = true;
+            peer.setRuntimeEndpoint({ baseUrl: externalUrl });
+            assert.equal(await peer.isHarnessHealthy(externalUrl, false, true), false);
+            rejectRpc = false;
+            requireAuth = true;
+            const unauthenticated = runtime();
+            await assert.rejects(() => unauthenticated.findExistingRuntime(external.address().port), /requires authentication/u);
+            await writeFile(path, JSON.stringify({ pid: process.pid, url: externalUrl,
+                launchUrl: `${externalUrl}/?token=smoke-only` }));
+            assert.equal((await peer.findExistingRuntime(0)).baseUrl, externalUrl);
+            assert.equal(peer.authCookie, "dsh=verified");
+            await peer.releaseRuntimeLock();
+            assert.ok(await readFile(path), "external lock is not owned or removed on disconnect");
+            await rm(path);
+            console.log("PASS external and unversioned authenticated Runtime reuse; RPC errors are not accepted as discovery success");
+        } finally { external.closeAllConnections(); await new Promise(done => external.close(done)); }
 
         // Inject staging deletion failure after the real hard-link publication.
         const fs = require("node:fs/promises");

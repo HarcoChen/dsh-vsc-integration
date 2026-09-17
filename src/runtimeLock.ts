@@ -31,6 +31,14 @@ export interface RuntimeLockSnapshot {
     record?: RuntimeLockRecord;
 }
 
+/** Allow an older editor's in-place write to finish, then discard broken metadata. */
+export const CORRUPT_LOCK_GRACE_MS = 2_000;
+
+function abandonedCorruptLock(snapshot: RuntimeLockSnapshot): boolean {
+    return snapshot.stat.isFile() && !snapshot.record &&
+        Date.now() - snapshot.stat.mtimeMs >= CORRUPT_LOCK_GRACE_MS;
+}
+
 export function validPid(value: unknown): value is number {
     return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
@@ -67,7 +75,7 @@ export async function readRuntimeLock(path: string): Promise<RuntimeLockSnapshot
                     (raw.url === undefined || typeof raw.url === "string") &&
                     (raw.launchUrl === undefined || typeof raw.launchUrl === "string")) record = raw as unknown as RuntimeLockRecord;
             }
-        } catch { /* A partial write or corrupt lock is occupied, not stale. */ }
+        } catch { /* Fresh partial writes get a short grace period before recovery. */ }
         return { path, stat, contents, record };
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -111,7 +119,18 @@ export async function runtimeHasExited(record: RuntimeLockRecord): Promise<boole
 
 export async function canReclaimRuntimeLock(snapshot: RuntimeLockSnapshot): Promise<boolean> {
     const record = snapshot.record;
-    return record !== undefined && processHasExited(record.pid) && await runtimeHasExited(record);
+    if (!record) return abandonedCorruptLock(snapshot);
+    const ownerExited = processHasExited(record.pid);
+    // The editor may stay open after its Runtime dies. Its PID is not a lease
+    // on a dead Runtime; require child evidence when the editor is still alive.
+    if ((ownerExited || record.runtimePid !== undefined) && await runtimeHasExited(record)) return true;
+    // A crash before URL publication used to leave an unrecoverable lock,
+    // especially with Windows package-manager wrappers. Reclaim the metadata
+    // once all recorded processes are gone; normal discovery probes listeners
+    // before any replacement is started. Never terminate a process here.
+    if (!ownerExited || record.url || record.launchUrl) return false;
+    if (record.runtimeProcessGroup !== undefined) return processGroupHasExited(record.runtimeProcessGroup);
+    return record.runtimePid === undefined || processHasExited(record.runtimePid);
 }
 
 export function sameRuntimeLockFile(left: Stats, right: Stats): boolean {
@@ -151,7 +170,7 @@ async function acquireMutationGate(path: string, deadline: number): Promise<Serv
  * A dead guard owner cannot resume; only gate holders may reclaim its file.
  */
 export async function mutateRuntimeLock<T>(path: string, action: () => Promise<T>): Promise<T> {
-    const gate = await acquireMutationGate(path, Date.now() + 2_000);
+    const gate = await acquireMutationGate(path, Date.now() + 5_000);
     try {
         return await mutateRuntimeLockWithGate(path, action);
     } finally {
@@ -161,7 +180,7 @@ export async function mutateRuntimeLock<T>(path: string, action: () => Promise<T
 
 async function mutateRuntimeLockWithGate<T>(path: string, action: () => Promise<T>): Promise<T> {
     const guardPath = `${path}.mutation`;
-    const deadline = Date.now() + 2_000;
+    const deadline = Date.now() + 3_000;
     const contents = JSON.stringify({ pid: process.pid, createdAt: Date.now(), ownerId: randomUUID() });
     let guard;
     while (!guard) {
@@ -170,7 +189,8 @@ async function mutateRuntimeLockWithGate<T>(path: string, action: () => Promise<
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
             const abandoned = await readRuntimeLock(guardPath);
             if (!abandoned) continue;
-            if (abandoned.record && processHasExited(abandoned.record.pid) && await removeRuntimeLock(abandoned)) continue;
+            if (((abandoned.record && processHasExited(abandoned.record.pid)) || abandonedCorruptLock(abandoned)) &&
+                await removeRuntimeLock(abandoned)) continue;
             if (Date.now() >= deadline) {
                 throw new Error(t("DSH Runtime lock mutation is busy or abandoned: {path}. Retry; if it persists, verify its owner has exited before manual cleanup.", { path: guardPath }));
             }

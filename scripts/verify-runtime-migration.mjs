@@ -43,6 +43,8 @@ if (!process.argv.includes("--worker")) {
     const runtime = () => Object.assign(Object.create(DshRuntime.prototype), {
         harnessState: { setRuntimeVersion() {} },
         runtimeLockWrite: Promise.resolve(), output: { appendLine() {} }, isHarnessHealthy: async () => false,
+        // Discovery after orphan cleanup must not probe the user's real 3080.
+        probeLoopbackPort: async () => "free",
     });
     const stubborn = process.argv.includes("--stubborn");
     const versioned = process.argv.includes("--versioned");
@@ -60,7 +62,7 @@ if (!process.argv.includes("--worker")) {
         const snapshot = await readRuntimeLock(lockPath);
         const identity = await inspectLegacyRuntime(snapshot);
         assert.equal(identity.pid, child.pid);
-        await assert.rejects(() => runtime().findExistingRuntime(0), versioned ? /not responding/u : /unversioned/u);
+        await assert.rejects(() => runtime().findExistingRuntime(0), /not responding/u);
         assert.equal(prompts.at(-1)[1].modal, true);
         assert.equal(child.exitCode, null);
         assert.ok(await readRuntimeLock(lockPath));

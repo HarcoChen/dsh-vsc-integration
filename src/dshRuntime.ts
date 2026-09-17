@@ -20,8 +20,7 @@ import type {
     DshTeamTaskMutationResult,
 } from "./agentTeamTypes";
 import {
-    inspectLegacyRuntime, isReclaimableUnaddressedLegacyLock, reclaimUnaddressedLegacyLock,
-    RuntimeMigrationRequiredError, stopLegacyRuntime,
+    inspectLegacyRuntime, RuntimeMigrationRequiredError, stopLegacyRuntime,
 } from "./runtimeMigration";
 import {
     canReclaimRuntimeLock, exactRuntimeVersion, mutateRuntimeLock, readRuntimeLock, removeRuntimeLock,
@@ -2840,18 +2839,25 @@ export class DshRuntime implements vscode.Disposable {
                 if (state === "occupied") {
                     const defaultUrl = `http://127.0.0.1:${DEFAULT_RUNTIME_PORT}`;
                     this.setRuntimeEndpoint({ baseUrl: defaultUrl }, false);
-                    const occupiedByDsh = await this.isHarnessHealthy(defaultUrl) ||
-                        await this.isDshAuthenticationChallenge(defaultUrl, signal);
+                    const healthy = await this.isHarnessHealthy(defaultUrl, false, true);
+                    checkStarting();
+                    if (healthy) {
+                        await this.releaseRuntimeLock();
+                        checkStarting();
+                        this.startedByExtension = false;
+                        this.harnessState.setRuntimeVersion("unknown");
+                        this.setStatus({ state: "running", url: defaultUrl });
+                        this.harnessState.start();
+                        return defaultUrl;
+                    }
+                    const occupiedByDsh = await this.isDshAuthenticationChallenge(defaultUrl, signal);
                     checkStarting();
                     this.baseUrl = undefined;
                     this.launchUrl = undefined;
                     this.clearRuntimeAuthentication();
                     if (occupiedByDsh) {
-                        // An untracked DSH cannot be authenticated or versioned,
-                        // and this extension did not spawn it. Release our empty
-                        // lock rather than claiming or duplicating that Runtime.
                         await this.releaseRuntimeLock();
-                        this.requireRuntimeVersion(undefined);
+                        throw new RemoteProtocolError(t("An existing DSH Runtime requires authentication. Set dsh.serverUrl to its full launch URL (including token), then reconnect."));
                     }
                 }
                 automaticLaunchPort = state === "free" ? DEFAULT_RUNTIME_PORT : 0;
@@ -3429,7 +3435,7 @@ export class DshRuntime implements vscode.Disposable {
         }
         if (advertisedEndpoint) {
             this.setRuntimeEndpoint(advertisedEndpoint);
-            if (await this.isHarnessHealthy(advertisedEndpoint.baseUrl)) {
+            if (await this.isHarnessHealthy(advertisedEndpoint.baseUrl, false, true)) {
                 return advertisedEndpoint;
             }
             this.clearRuntimeAuthentication();
@@ -3461,17 +3467,15 @@ export class DshRuntime implements vscode.Disposable {
                 ? advertisedEndpoint
                 : { baseUrl: url };
             this.setRuntimeEndpoint(endpoint);
-            if (await this.isHarnessHealthy(url)) {
-                // Automatic discovery must not bypass the shared lock's version check.
-                if (advertisedEndpoint?.baseUrl !== url) this.requireRuntimeVersion(undefined);
+            if (await this.isHarnessHealthy(url, false, true)) {
+                // Third-party launchers do not publish our lock. A working RC
+                // endpoint can be reused without claiming process ownership or
+                // inventing a version for it.
+                if (advertisedEndpoint?.baseUrl !== url) this.harnessState.setRuntimeVersion("unknown");
                 return endpoint;
             }
             if (advertisedEndpoint?.baseUrl !== url && await this.isDshAuthenticationChallenge(url, signal)) {
-                // This is a modern DSH Web server, but without its launch token
-                // and versioned shared lock we cannot safely adopt or claim it.
-                // Preserve the existing instance instead of starting a second
-                // writer on a random port.
-                this.requireRuntimeVersion(undefined);
+                throw new RemoteProtocolError(t("An existing DSH Runtime requires authentication. Set dsh.serverUrl to its full launch URL (including token), then reconnect."));
             }
             this.clearRuntimeAuthentication();
         }
@@ -3486,7 +3490,7 @@ export class DshRuntime implements vscode.Disposable {
         return undefined;
     }
 
-    private async isHarnessHealthy(url: string, failFast = false): Promise<boolean> {
+    private async isHarnessHealthy(url: string, failFast = false, requireSessionList = false): Promise<boolean> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 1_500);
         const rpcId = `dsh-remote-probe-${process.pid}-${randomUUID()}`;
@@ -3563,7 +3567,10 @@ export class DshRuntime implements vscode.Disposable {
                 }
                 return false;
             }
-            return true;
+            // Discovery must demonstrate a usable operation, not merely an RPC
+            // error envelope from an incompatible or incompletely started host.
+            return !requireSessionList || (envelope.result.ok &&
+                isRecord(envelope.result.value) && Array.isArray(envelope.result.value.items));
         } catch (error) {
             if (!failFast) return false;
             if (error instanceof RemoteHttpError || error instanceof RemoteProtocolError) throw error;
@@ -3618,22 +3625,6 @@ export class DshRuntime implements vscode.Disposable {
         if (this.disposed || this.startAbort?.signal.aborted) return false;
         if (!candidate) {
             const retry = t("Retry after stopping the old Runtime");
-            if (isReclaimableUnaddressedLegacyLock(snapshot)) {
-                const reclaim = t("Reclaim stale lock and restart");
-                const answer = await vscode.window.showWarningMessage(
-                    t("The old DSH lock has no Runtime address or process metadata, and its owner PID {pid} is no longer running. If you have verified that no dsh Runtime is running, reclaim this lock and restart? An untracked Runtime could otherwise cause a second process to start. Lock: {path}", {
-                        pid: snapshot.record!.pid, path: snapshot.path,
-                    }),
-                    { modal: true }, retry, reclaim,
-                );
-                if (this.disposed || this.startAbort?.signal.aborted) return false;
-                if (answer === reclaim) {
-                    await reclaimUnaddressedLegacyLock(snapshot, join(tmpdir(), RUNTIME_LOCK_FILE), this.startAbort?.signal);
-                    this.output.appendLine(`[dsh] reclaimed confirmed unaddressed legacy Runtime lock: ${snapshot.path}`);
-                    return true;
-                }
-                return answer === retry;
-            }
             const answer = await vscode.window.showWarningMessage(
                 t("An older or unversioned DSH Runtime is holding the shared lock. Close the editor that owns it or stop that Runtime, then retry. Once its owner and port are gone, the old lock is reclaimed automatically. Lock: {path}", { path: snapshot.path }),
                 retry,
@@ -3666,7 +3657,7 @@ export class DshRuntime implements vscode.Disposable {
             const existing = await readRuntimeLock(join(tmpdir(), name));
             if (!existing) continue;
             if (!await canReclaimRuntimeLock(existing) || !await removeRuntimeLock(existing)) return false;
-            this.output.appendLine(`[dsh] removed stale Runtime lock: ${name} (recorded processes exited; no live listener)`);
+            this.output.appendLine(`[dsh] automatically reclaimed stale or incomplete Runtime lock: ${name}`);
         }
         signal?.throwIfAborted();
         const path = join(tmpdir(), RUNTIME_LOCK_FILE);
@@ -3690,8 +3681,13 @@ export class DshRuntime implements vscode.Disposable {
             return true;
         } catch (error) {
             this.runtimeLock = undefined;
-            await handle.close();
-            // Leave a partial lock occupied: deleting it without a readable identity is unsafe.
+            // A failed initial write has not spawned a Runtime. Remove only
+            // the inode we just created, even if its contents are incomplete.
+            try {
+                const stat = await handle.stat();
+                const current = await readRuntimeLock(path);
+                if (current && sameRuntimeLockFile(stat, current.stat)) await removeRuntimeLock(current);
+            } finally { await handle.close(); }
             throw error;
         }
     }
@@ -3707,17 +3703,23 @@ export class DshRuntime implements vscode.Disposable {
         for (const name of [RUNTIME_LOCK_FILE, LEGACY_RUNTIME_LOCK_FILE]) {
             const snapshot = await readRuntimeLock(join(tmpdir(), name));
             if (!snapshot) continue;
-            if (await canReclaimRuntimeLock(snapshot)) continue;
+            if (await canReclaimRuntimeLock(snapshot)) {
+                if (await removeRuntimeLock(snapshot)) {
+                    this.output.appendLine(`[dsh] automatically reclaimed stale or incomplete Runtime lock: ${name}`);
+                }
+                continue;
+            }
             const record = snapshot.record;
             if (!record) {
-                throw new RemoteProtocolError(t("The shared DSH Runtime lock is unreadable or incomplete. Retry after startup finishes; if it persists, inspect the lock and its processes before removing it: {path}", { path: snapshot.path }));
+                if (snapshot.stat.isFile()) continue; // Retry after the partial-write grace period.
+                throw new RemoteProtocolError(t("The shared DSH Runtime lock is not a regular file: {path}", { path: snapshot.path }));
             }
-            if (!isSupportedRuntimeVersion(record.runtimeVersion)) {
+            if (record.runtimeVersion !== undefined && !isSupportedRuntimeVersion(record.runtimeVersion)) {
                 throw new RuntimeMigrationRequiredError(snapshot, RUNTIME_MINIMUM_VERSION);
             }
             if (!endpoint) {
                 endpoint = lockRecordEndpoint(record);
-                this.harnessState.setRuntimeVersion(record.runtimeVersion);
+                this.harnessState.setRuntimeVersion(record.runtimeVersion ?? "unknown");
             }
         }
         return endpoint;
