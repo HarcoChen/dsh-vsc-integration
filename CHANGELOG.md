@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.9.5] - 2026-09-17
+
 ### 修复
 
 - 多窗口同时通过 pnpm/npx 启动时，等待时间与包管理器下载超时保持一致；首个启动失败释放锁后，等待中的窗口会重新取得锁并继续启动。
@@ -260,6 +262,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.9.5]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.1...v0.9.2
