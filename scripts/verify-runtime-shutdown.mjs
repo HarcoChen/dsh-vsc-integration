@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Real process/listener smoke in a fresh temp directory; never uses the user's DSH_HOME or locks.
+// Real process/listener smoke in a fresh temp directory; never uses the user's DSH_HOME or advertisements.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -36,7 +37,11 @@ if (!process.argv.includes("--worker")) {
         return originalLoad.call(this, id, ...args);
     };
     const { DshRuntime } = require(join(resolve(dirname(script), ".."), "dist/dshRuntime"));
+    const { runtimeAdvertisementDirectory } = require(join(resolve(dirname(script), ".."), "dist/runtimeAdvertisement"));
     Module._load = originalLoad;
+    // Each editor owns exactly one advertisement file; release must leave none behind.
+    const advertisements = async () => (await readdir(runtimeAdvertisementDirectory()).catch(() => []))
+        .filter(name => name.endsWith(".json"));
     let spawnRuntime = spawn;
     try { spawnRuntime = require("../dist/runtimeProcess").spawnOwnedRuntime; }
     catch (error) { if (error.code !== "MODULE_NOT_FOUND") throw error; }
@@ -93,13 +98,14 @@ exec /bin/ps "$@"
             child.once("error", reject);
         });
         assert.equal(await listening(server.port), true);
-        assert.equal(await owner.acquireRuntimeLock("0.1.5-rc.1"), true);
+        owner.ownedRuntime = { record: {
+            pid: process.pid, createdAt: Date.now(), ownerId: randomUUID(), runtimeVersion: "0.1.5-rc.1",
+        } };
         owner.child = child;
         owner.startedByExtension = true;
-        owner.runtimeLock.record.runtimePid = child.pid;
-        owner.runtimeLock.record.runtimeProcess = "wrapper";
-        if (process.platform !== "win32") owner.runtimeLock.record.runtimeProcessGroup = child.pid;
-        await owner.publishRuntimeLockUrl(mode === "before-url" ? undefined : { baseUrl: `http://127.0.0.1:${server.port}` });
+        owner.ownedRuntime.record.runtimePid = child.pid;
+        owner.ownedRuntime.record.runtimeProcess = "wrapper";
+        await owner.publishAdvertisement(mode === "before-url" ? undefined : { baseUrl: `http://127.0.0.1:${server.port}` });
         if (mode === "stalled-stream") owner.harnessState.stop = () => new Promise(() => {});
         if (mode === "ps-retry") process.env.PATH = probeBin;
         const start = Date.now();
@@ -109,8 +115,8 @@ exec /bin/ps "$@"
         assert.ok(Date.now() - start < 5000, "shutdown must finish within the host's bounded exit window");
         if (mode === "ps-retry") assert.ok(Date.now() - start < 2500, "probe retry must leave time for process-tree shutdown");
         assert.equal(await listening(server.port), false, "the wrapper's child listener must stop before dispose resolves");
-        await assert.rejects(() => readFile(join(tmpdir(), "dsh-runtime.lock")), { code: "ENOENT" });
-        console.log(`PASS ${mode}: bounded concurrent shutdown removes the child listener and then releases the lock`);
+        assert.deepEqual(await advertisements(), [], "release must remove this editor's advertisement");
+        console.log(`PASS ${mode}: bounded concurrent shutdown removes the child listener and then releases the advertisement`);
         if (mode !== "stalled-stream") await assert.rejects(() => owner.start(tmpdir()), /disposed/u);
     } finally {
         if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
@@ -136,7 +142,6 @@ if (process.argv.includes('--version')) {
         const runtime = new DshRuntime(output, join(tmpdir(), "storage"));
         // Exclude machine-wide port discovery: this smoke must never contact a user's Runtime.
         runtime.findExistingRuntime = async () => undefined;
-        runtime.probeLoopbackPort = async () => "free";
         const starting = runtime.start(tmpdir());
         const rejected = assert.rejects(starting, /cancelled/u);
         const deadline = Date.now() + 5000;
@@ -147,11 +152,11 @@ if (process.argv.includes('--version')) {
         await runtime.stop();
         await rejected;
         await assert.rejects(() => readFile(launchMarker), { code: "ENOENT" });
-        await assert.rejects(() => readFile(join(tmpdir(), "dsh-runtime.lock")), { code: "ENOENT" });
+        assert.deepEqual(await advertisements(), [], "a cancelled start must not leave an advertisement");
         assert.equal(runtime.getStatus().state, "stopped");
-        console.log("PASS stop during asynchronous launcher preparation prevents a late Runtime spawn or lock claim");
+        console.log("PASS stop during asynchronous launcher preparation prevents a late Runtime spawn or advertisement");
 
-        // Real child exit and lock/recovery pipeline, with the unavailable
+        // Real child exit and advertisement/recovery pipeline, with the unavailable
         // Windows termination boundary represented by its precise error type.
         const { RuntimeDescendantOwnershipUnknownError } = require("../dist/runtimeProcess");
         for (const failure of ["unknown-descendants", "unknown-live-listener", "taskkill-failed", "taskkill-timeout"]) {
@@ -165,7 +170,6 @@ else { require('node:fs').writeFileSync(${JSON.stringify(exitMarker)}, 'started'
             settings.set("command", exitLauncher);
             const runtime = new DshRuntime(output, join(tmpdir(), "storage"));
             runtime.findExistingRuntime = async () => undefined;
-            runtime.probeLoopbackPort = async () => "free";
             runtime.harnessState.start = () => {};
             runtime.waitForReady = async () => {
                 const deadline = Date.now() + 3000;
@@ -177,11 +181,11 @@ else { require('node:fs').writeFileSync(${JSON.stringify(exitMarker)}, 'started'
             const terminate = runtime.terminate.bind(runtime);
             try {
                 await runtime.start(tmpdir());
-                runtime.runtimeLock.record.runtimeProcess = "wrapper";
+                runtime.ownedRuntime.record.runtimeProcess = "wrapper";
                 if (failure === "unknown-live-listener") {
                     survivingListener = createServer(socket => socket.end());
                     await new Promise(done => survivingListener.listen(0, "127.0.0.1", done));
-                    await runtime.publishRuntimeLockUrl({ baseUrl: `http://127.0.0.1:${survivingListener.address().port}` });
+                    await runtime.publishAdvertisement({ baseUrl: `http://127.0.0.1:${survivingListener.address().port}` });
                 }
                 runtime.terminate = async () => {
                     if (failure.startsWith("unknown-")) {
@@ -200,8 +204,9 @@ else { require('node:fs').writeFileSync(${JSON.stringify(exitMarker)}, 'started'
                     "only the explicit unknown-descendant error may enter guarded recovery");
                 if (!failure.startsWith("unknown-")) assert.equal(runtime.getStatus().state, "error");
                 if (survivingListener) {
-                    assert.ok(runtime.runtimeLock, "guarded recovery must retain a lock with a live listener");
-                    assert.ok(await readFile(join(tmpdir(), "dsh-runtime.lock")));
+                    assert.equal(runtime.ownedRuntime, undefined, "an exited launcher must not keep claiming ownership");
+                    assert.equal((await advertisements()).length, 1,
+                        "a published endpoint must stay discoverable so recovery can adopt the survivor");
                 }
                 console.log(`PASS ${failure}: real child exit keeps the correct recovery/error path`);
             } finally {

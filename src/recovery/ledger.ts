@@ -2,7 +2,7 @@ import { isRecord } from "../guards";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { mutateRuntimeLock, processHasExited, readRuntimeLock, removeRuntimeLock } from "../runtimeLock";
+import { mutateFileLease, processHasExited, readFileLease, removeFileLease } from "../fileLease";
 import type {
     CandidateFix,
     CompositionDescriptor,
@@ -80,13 +80,13 @@ export class RecoveryLedgerStore {
 
     public async acquireLease(): Promise<void> {
         await mkdir(this.directory, { recursive: true });
-        await mutateRuntimeLock(this.leasePath, async () => {
-            const current = await readRuntimeLock(this.leasePath);
+        await mutateFileLease(this.leasePath, async () => {
+            const current = await readFileLease(this.leasePath);
             // This window may already own the lease (a recovery session can retain it
             // while a restore is requested); re-acquiring must not look like contention.
             if (current?.record?.ownerId !== undefined && current.record.ownerId === this.leaseOwner) return;
             if (current) {
-                if (!current.record || !processHasExited(current.record.pid) || !await removeRuntimeLock(current)) {
+                if (!current.record || !processHasExited(current.record.pid) || !await removeFileLease(current)) {
                     throw new Error("Another recovery or restore owns the recovery lease; retry after it finishes.");
                 }
             }
@@ -99,15 +99,15 @@ export class RecoveryLedgerStore {
     public async releaseLease(): Promise<void> {
         const ownerId = this.leaseOwner;
         if (!ownerId) return;
-        await mutateRuntimeLock(this.leasePath, async () => {
-            const current = await readRuntimeLock(this.leasePath);
-            if (current?.record?.ownerId === ownerId) await removeRuntimeLock(current);
+        await mutateFileLease(this.leasePath, async () => {
+            const current = await readFileLease(this.leasePath);
+            if (current?.record?.ownerId === ownerId) await removeFileLease(current);
         });
         this.leaseOwner = undefined;
     }
 
     public async assertLease(): Promise<void> {
-        if (!this.leaseOwner || (await readRuntimeLock(this.leasePath))?.record?.ownerId !== this.leaseOwner) {
+        if (!this.leaseOwner || (await readFileLease(this.leasePath))?.record?.ownerId !== this.leaseOwner) {
             throw new Error("Recovery lease ownership changed");
         }
     }
@@ -337,7 +337,7 @@ export class RecoveryLedgerStore {
 
     private async withMutation<T>(action: () => Promise<T>): Promise<T> {
         await mkdir(this.directory, { recursive: true });
-        return mutateRuntimeLock(this.path, action);
+        return mutateFileLease(this.path, action);
     }
 }
 

@@ -123,7 +123,13 @@ export class HealthOracle {
             while (true) {
                 controller.signal.throwIfAborted();
                 if (exited) {
-                    const packageManagerError = wrapper && /(?:ERR_PNPM_|npm\s+(?:ERR!|error)\b)/iu.test(evidence.outputTail);
+                    // A store that resolves DSH but not its dependencies fails
+                    // identically for every bundle set, so searching them is waste.
+                    const packageManagerError = wrapper && (
+                        /(?:ERR_PNPM_|npm\s+(?:ERR!|error)\b)/iu.test(evidence.outputTail) ||
+                        (/\bERR_MODULE_NOT_FOUND\b|Cannot find (?:package|module)\b/u.test(evidence.outputTail) &&
+                            /(?:[A-Za-z]:)?[\\/][^\r\n'"]*?(?:pnpm[\\/]store[\\/]v\d+|pnpm-store|pnpm-cache[\\/]dlx|[\\/]_npx)/iu
+                                .test(evidence.outputTail)));
                     evidence.failureClass = launchError || packageManagerError ? "launcher" : "boot-exit";
                     throw launchError ?? new Error("Recovery Runtime exited before becoming healthy");
                 }

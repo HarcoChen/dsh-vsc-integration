@@ -115,7 +115,7 @@ At this audit, npm `latest` still points to RC.1; RC.2 is published under `next`
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
 
-Default app arguments are `web --no-open`; pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved, and auto mode strips their package prefix when selecting a local CLI. Shared Runtime discovery and lock migration still run before choosing a new launcher, so fallback cannot bypass an occupied lock.
+Default app arguments are `web --no-open`; pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved, and auto mode strips their package prefix when selecting a local CLI. Shared Runtime discovery still runs before choosing a new launcher, so fallback reuses a healthy Runtime instead of starting a second one.
 
 As of the adaptation check, the CNB standalone Runtime mirror returns 404 for `0.1.5-rc.2`. Use a compatible local CLI, the pinned pnpm/npx fallback, or an existing instance until that mirror is published; a standalone download is not currently verified. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without downloads or model requests.
 
@@ -131,20 +131,22 @@ As of the adaptation check, the CNB standalone Runtime mirror returns 404 for `0
 
 The extension connects to the Runtime through RC Remote RPC, using HTTP calls and a multiplexed WebSocket for live session updates.
 
-Multiple VS Code windows first try the shared Runtime endpoint, then port `3080`. Known outdated versions require an upgrade. Missing version metadata or an extension-specific lock no longer prevents reuse: authentication and a successful `session/list` call establish a usable connection. External services remain externally owned and are not stopped on disconnect. If authentication credentials are missing, set `dsh.serverUrl` to the full launch URL, including its token.
+Multiple VS Code windows discover each other through Runtime advertisements, then fall back to port `3080` and any configured `dsh.serverPort`. Every candidate is health-checked before use: authentication and a successful `session/list` call establish a usable connection, and advertised versions below the minimum are excluded. External services remain externally owned and are not stopped on disconnect. If authentication credentials are missing, set `dsh.serverUrl` to the full launch URL, including its token.
 
-When no reusable service exists, startup prefers free port `3080` and falls back to an OS-assigned loopback port for unrelated listeners or inconclusive probes. A usable DSH discovered immediately before launch is reused. Owned endpoints, credentials, versions, and process identities are published in `dsh-runtime.lock` in the OS temporary directory.
+Advertisements are discovery metadata only. No advertisement grants or denies permission to start, so a missing, stale, or unreadable one can never block startup — the worst case is one failed health probe followed by this window launching its own Runtime.
 
-Lock cleanup rules:
+Each window publishes exactly one file, `<ownerId>.json`, under `dsh-runtime-advertisements-<user>` in the OS temporary directory, carrying its endpoint, launch URL, version, PIDs, and composition hash. A window writes only its own file and never reclaims another's; legacy `dsh-runtime.lock` files are still read as hints, never written or removed. Readers take the sixteen most recent entries, so an abandoned file cannot crowd out live ones.
 
-- Corrupt or partially written regular lock files receive a two-second write grace period, then are automatically removed under mutual exclusion after rechecking file identity and contents. Manual deletion is no longer the recovery path for broken metadata.
-- An unaddressed lock is reclaimed once its editor and any recorded launcher/process group have exited. This includes legacy wrappers. Locks with an advertised address still require a closed listener. Normal endpoint discovery follows cleanup to reuse any discoverable surviving service.
-- A recorded Runtime that has exited with its listener closed permits reclamation even while its editor remains alive. A valid startup lock with only a living editor PID remains exclusive.
-- Lock cleanup never terminates processes. Live services are reused where possible; stopping a verified outdated or unresponsive orphan still requires confirmation. Corrupt and unaddressed legacy locks may lack process evidence, so their automatic cleanup does not prove that every unrecorded descendant has exited.
-- Normal shutdown stops owned process trees before releasing locks. POSIX uses separate process groups; Windows uses scoped `taskkill /T` while the root identity is known. Release checks owner, file identity, and contents to preserve another window's replacement.
-- A kernel gate and `dsh-runtime.lock.mutation` file serialize creation, publication, and removal. Dead-owner guards are reclaimed automatically; corrupt guards recover after the same two-second grace period. Valid live guards retain exclusion.
+Advertisement lifecycle:
 
-After `npm run compile`, run `node scripts/verify-runtime-discovery.mjs`, `node scripts/verify-runtime-lock.mjs`, `node scripts/verify-runtime-migration.mjs`, and `node scripts/verify-runtime-shutdown.mjs` to check launcher/port selection, locks, upgrade confirmation, and shutdown using isolated temporary directories, child processes, and loopback listeners.
+- Only a ready endpoint is published. A launch that fails before producing a URL leaves nothing behind.
+- Startup briefly coordinates through a loopback mutex — at most 250 ms waiting and 500 ms held — and rechecks for a shared Runtime before spawning. Losing that race never blocks a launch; it just means this window starts its own Runtime.
+- Explicit stop, dispose, and failed launches withdraw the advertisement.
+- An unexpected launcher exit drops ownership but keeps the advertisement while its endpoint still answers, because package-manager wrappers routinely exit while the Runtime they started keeps serving. Only an explicitly refused loopback connection withdraws it; a timeout or an ambiguous host keeps the record.
+- Startup is pinned to `--host 127.0.0.1` and, without `dsh.serverPort`, to an OS-assigned port. A pinned port that loses a bind race retries once on an OS-assigned port.
+- Shutdown stops owned process trees before withdrawing the advertisement. POSIX uses separate process groups; Windows uses scoped `taskkill /T` while the root identity is known.
+
+After `npm run compile`, run `node scripts/verify-runtime-discovery.mjs` and `node scripts/verify-runtime-shutdown.mjs` to check launcher/port selection, advertisements, upgrade confirmation, and shutdown using isolated temporary directories, child processes, and loopback listeners.
 
 ```mermaid
 graph TD

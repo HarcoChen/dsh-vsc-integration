@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Integration: real CLI executables, PATH/npm-prefix discovery, startup arguments,
-// versioned locks and owned-child shutdown; no downloads, model calls or user data.
+// versioned advertisements and owned-child shutdown; no downloads, model calls or user data.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,7 +15,7 @@ const pause = ms => new Promise(done => setTimeout(done, ms));
 if (!process.argv.includes("--worker")) {
     if (process.platform === "win32") throw new Error("This executable-fixture smoke requires POSIX; run Windows validation separately.");
     const selected = process.argv.slice(2);
-    for (const scenario of selected.length ? selected : ["npx-package-equals", "npx-package-separate", "npx-p-equals", "npx-p-separate", "writer-lock", "runtime-error", "download-fallback", "config-local", "config-pnpm", "config-managed", "local", "prefix", "old", "unknown", "missing", "newer", "npx-fallback", "timeout", "cancel", "explicit-old", "explicit-missing", "explicit-pnpm", "explicit-npx", "legacy-args", "legacy-version", "port-occupied", "port-unknown", "port-race", "compatible-rc2", "newer-numeric", "newer-stable", "newer-major", "compatible-build", "target-newer", "upgrade-prerelease", "upgrade-accept", "upgrade-decline", "upgrade-close", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel", "upgrade-stop", "upgrade-prompt-stop", "upgrade-diagnose", "upgrade-race"]) {
+    for (const scenario of selected.length ? selected : ["npx-package-equals", "npx-package-separate", "npx-p-equals", "npx-p-separate", "writer-lock", "runtime-error", "download-fallback", "cache-layout", "cache-layout-both", "config-local", "config-pnpm", "config-managed", "local", "prefix", "old", "unknown", "missing", "newer", "npx-fallback", "timeout", "cancel", "explicit-old", "explicit-missing", "explicit-pnpm", "explicit-npx", "legacy-args", "legacy-version", "port-race", "compatible-rc2", "newer-numeric", "newer-stable", "newer-major", "compatible-build", "target-newer", "upgrade-prerelease", "upgrade-accept", "upgrade-decline", "upgrade-close", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel", "upgrade-stop", "upgrade-prompt-stop", "upgrade-diagnose", "upgrade-race"]) {
         const directory = await mkdtemp(join(tmpdir(), "dsh-discovery-verify-"));
         try {
             const child = spawn(process.execPath, [script, "--worker", scenario], {
@@ -87,6 +87,11 @@ if (${JSON.stringify(scenario)} === 'runtime-error') {
     console.error('Error: invalid profile configuration');
     process.exit(1);
 }
+if (${JSON.stringify(scenario)} === 'cache-layout-both' || (${JSON.stringify(scenario)} === 'cache-layout' && ${JSON.stringify(name)} === 'pnpm')) {
+    console.error("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'js-yaml' imported from /store/pnpm/store/v11/links/@deepseek-ai/dsh-app-boot/lib/index.js");
+    console.error("  code: 'ERR_MODULE_NOT_FOUND'");
+    process.exit(1);
+}
 if (${JSON.stringify(scenario)} === 'download-fallback' && !process.env.npm_config_registry && !process.env.NPM_CONFIG_REGISTRY) {
     console.error('ERR_PNPM_FETCH_502 GET https://registry.npmjs.org/@deepseek-ai/dsh: Bad Gateway');
     process.exit(1);
@@ -126,7 +131,9 @@ setInterval(() => {}, 1000);
     if (scenario === "target-newer") { settings.set("command", "pnpm"); settings.set("runtimeVersion", targetVersion); }
     if (scenario === "explicit-old") settings.set("command", join(bin, "dsh"));
     if (scenario === "explicit-missing") settings.set("command", join(bin, "absent-dsh"));
-    if (["explicit-pnpm", "writer-lock", "runtime-error", "download-fallback", "port-occupied", "port-unknown", "port-race"].includes(scenario)) settings.set("command", "pnpm");
+    if (["explicit-pnpm", "writer-lock", "runtime-error", "download-fallback", "cache-layout", "cache-layout-both", "port-race"].includes(scenario)) settings.set("command", "pnpm");
+    // Only a pinned port can lose a bind race; an OS-assigned port cannot.
+    if (scenario === "port-race") settings.set("serverPort", 3080);
     if (scenario === "runtime-error") settings.set("recovery.enabled", false);
     if (scenario === "explicit-npx") settings.set("command", "npx");
     if (scenario === "legacy-args") settings.set("commandArgs", ["dlx", "@deepseek-ai/dsh", "web", "--no-open", "--port", "49151"]);
@@ -173,23 +180,23 @@ setInterval(() => {}, 1000);
         return originalLoad.call(this, id, ...args);
     };
     const { DshRuntime } = require(join(root, "dist/dshRuntime"));
+    const { runtimeAdvertisementDirectory } = require(join(root, "dist/runtimeAdvertisement"));
     Module._load = originalLoad;
+    const advertisementDirectory = runtimeAdvertisementDirectory();
+    const advertisements = async () => (await readdir(advertisementDirectory).catch(() => []))
+        .filter(name => name.endsWith(".json"));
     const runtime = new DshRuntime({ appendLine() {}, append() {} }, join(directory, "storage"));
     // Exclude external Runtime discovery/RPC only; launcher selection, subprocess
-    // version probes, actual spawn, argv and lock lifecycle remain production code.
+    // version probes, actual spawn, argv and advertisement lifecycle remain production code.
     runtime.findExistingRuntime = async () => undefined;
-    runtime.probeLoopbackPort = async () => scenario === "port-occupied" ? "occupied" : scenario === "port-unknown" ? "unknown" : "free";
-    if (["port-occupied", "port-unknown"].includes(scenario)) {
-        runtime.isHarnessHealthy = async () => false;
-        runtime.isDshAuthenticationChallenge = async () => false;
-    }
     runtime.harnessState.start = () => {};
     const waitForReady = runtime.waitForReady.bind(runtime);
     let readinessCalls = 0;
     runtime.waitForReady = async (...args) => {
         readinessCalls += 1;
         if (["writer-lock", "runtime-error"].includes(scenario) ||
-            (scenario === "download-fallback" && readinessCalls === 1)) return waitForReady(...args);
+            scenario === "cache-layout-both" ||
+            (["download-fallback", "cache-layout"].includes(scenario) && readinessCalls === 1)) return waitForReady(...args);
         if (scenario === "port-race" && readinessCalls === 1) {
             const deadline = Date.now() + 3000;
             while (Date.now() < deadline) {
@@ -202,7 +209,8 @@ setInterval(() => {}, 1000);
             while (Date.now() < deadline) {
                 try {
                     const launches = (await readFile(attempts, "utf8")).trim().split("\n").map(line => JSON.parse(line));
-                    if (launches.length >= 2 && launches.at(-1).at(-1) === "0") return "http://127.0.0.1:1";
+                    const retried = launches.at(-1);
+                    if (launches.length >= 2 && retried[retried.indexOf("--port") + 1] === "0") return "http://127.0.0.1:1";
                 } catch { /* Fixture has not written its retry record yet. */ }
                 await pause(20);
             }
@@ -212,7 +220,7 @@ setInterval(() => {}, 1000);
         while (Date.now() < deadline) {
             try {
                 const launched = JSON.parse(await readFile(marker, "utf8"));
-                if (scenario !== "download-fallback" || launched.registry) {
+                if (scenario === "cache-layout" ? launched.name === "npx" : (scenario !== "download-fallback" || launched.registry)) {
                     return "http://127.0.0.1:1";
                 }
             } catch { /* Fixture has not written its launch record yet. */ }
@@ -221,7 +229,18 @@ setInterval(() => {}, 1000);
         throw new Error("CLI never launched");
     };
     try {
-        if (["writer-lock", "runtime-error", "download-fallback"].includes(scenario)) {
+        if (scenario === "cache-layout-both") {
+            // Every launcher hit the same broken store, so the failure must name
+            // it and point at the only two things that can actually help.
+            await assert.rejects(() => runtime.start(directory), error => {
+                assert.match(error.message, /pnpm store at [^\s]*pnpm[\\/]store[\\/]v11/u);
+                assert.match(error.message, /Clear that store and retry, or set dsh\.command/u);
+                return true;
+            });
+            const launches = (await readFile(attempts, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+            assert.equal(launches.length, 2, "pnpm and its npx retry each launch exactly once; no bundle search follows");
+            assert.equal(runtime.getRecoveryStatus(), undefined, "an unusable store must not start bundle isolation");
+        } else if (["writer-lock", "runtime-error", "download-fallback"].includes(scenario)) {
             if (scenario === "download-fallback") await runtime.start(directory);
             else await assert.rejects(() => runtime.start(directory),
                 scenario === "writer-lock" ? /atomic-write: timed out waiting/u : /invalid profile configuration/u);
@@ -253,7 +272,7 @@ setInterval(() => {}, 1000);
             await assert.rejects(() => runtime.diagnoseEnvironment(directory), /dsh\.runtimeVersion/u);
             await assert.rejects(() => readFile(probeMarker), { code: "ENOENT" });
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
-            await assert.rejects(() => readFile(join(directory, "dsh-runtime.lock")), { code: "ENOENT" });
+            assert.deepEqual(await advertisements(), [], "a rejected configuration must not advertise a Runtime");
         } else if (scenario === "cancel") {
             const starting = assert.rejects(() => runtime.start(directory), /cancelled/u);
             const deadline = Date.now() + 3000;
@@ -268,27 +287,38 @@ setInterval(() => {}, 1000);
         } else if (["explicit-missing", "legacy-version"].includes(scenario)) {
             await assert.rejects(() => runtime.start(directory), scenario === "explicit-missing" ? /absent-dsh/u : /0\.1\.2-rc\.1/u);
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
-            await assert.rejects(() => readFile(join(directory, "dsh-runtime.lock")), { code: "ENOENT" });
+            assert.deepEqual(await advertisements(), [], "a failed launch must not advertise a Runtime");
         } else {
             await runtime.start(directory);
             const launched = JSON.parse(await readFile(marker, "utf8"));
-            const expected = scenario === "prefix" ? "prefix" : (packageArgs || ["explicit-npx", "npx-fallback"].includes(scenario)) ? "npx"
+            const expected = scenario === "prefix" ? "prefix" : (packageArgs || ["explicit-npx", "npx-fallback", "cache-layout"].includes(scenario)) ? "npx"
                 : (["local", "legacy-args", "upgrade-prerelease", "upgrade-accept", "upgrade-race"].includes(scenario) || compatibleVersions[scenario]) ? "local" : "pnpm";
             assert.equal(launched.name, expected, "default discovery must prefer a compatible local CLI and otherwise pin the fallback");
-            const appPort = ["port-occupied", "port-unknown", "port-race"].includes(scenario) ? "0" : "3080";
-            const appArgs = scenario === "legacy-args" ? ["web", "--no-open", "--port", "49151"] : ["web", "--no-open", "--port", appPort];
+            // Without dsh.serverPort the Runtime takes an OS-assigned port; port-race ends on its retry.
+            const appPort = "0";
+            // Launches are pinned to loopback unless the saved arguments already choose a host.
+            const appArgs = scenario === "legacy-args"
+                ? ["web", "--no-open", "--port", "49151", "--host", "127.0.0.1"]
+                : ["web", "--no-open", "--port", appPort, "--host", "127.0.0.1"];
             assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", `@deepseek-ai/dsh@${targetVersion}`, ...appArgs]
                 : expected === "npx" ? [...(packageArgs ? packageArgs.map(arg => arg.replace("@next", `@${targetVersion}`)) : ["--yes", `@deepseek-ai/dsh@${targetVersion}`]), ...appArgs] : appArgs);
+            if (scenario === "cache-layout") {
+                const launches = (await readFile(attempts, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+                assert.equal(launches.length, 2, "an unusable store must be abandoned after exactly one retry");
+                assert.equal(launches.at(-1)[0], "--yes", "the retry must run the published package through npx");
+            }
             if (scenario === "port-race") {
                 const launches = (await readFile(attempts, "utf8")).trim().split("\n").map(line => JSON.parse(line));
                 assert.equal(launches.length, 2, "a bind race must retry exactly once");
-                assert.deepEqual(launches.map(args => args.slice(-2)), [["--port", "3080"], ["--port", "0"]]);
+                assert.deepEqual(launches.map(args => args[args.indexOf("--port") + 1]), ["3080", "0"]);
             }
             if (packageArgs) assert.deepEqual(JSON.parse(await readFile(probeMarker, "utf8")), [...packageArgs, "--version"]);
-            const lock = JSON.parse(await readFile(join(directory, "dsh-runtime.lock"), "utf8"));
-            assert.equal(lock.runtimeVersion, compatibleVersions[scenario] ?? (scenario === "upgrade-race" ? "0.1.5-rc.2" : targetVersion));
-            assert.equal(lock.runtimePid, runtime.child.pid);
-            assert.equal(runtime.harnessState.runtimeVersion, lock.runtimeVersion, "host metadata must use the detected version");
+            const published = await advertisements();
+            assert.equal(published.length, 1, "a ready Runtime must publish exactly one advertisement");
+            const advertisement = JSON.parse(await readFile(join(advertisementDirectory, published[0]), "utf8"));
+            assert.equal(advertisement.runtimeVersion, compatibleVersions[scenario] ?? (scenario === "upgrade-race" ? "0.1.5-rc.2" : targetVersion));
+            assert.equal(advertisement.runtimePid, runtime.child.pid);
+            assert.equal(runtime.harnessState.runtimeVersion, advertisement.runtimeVersion, "host metadata must use the detected version");
         }
         if (upgrading && !["upgrade-diagnose", "upgrade-prompt-stop", "upgrade-stop"].includes(scenario)) {
             const attempted = ["upgrade-prerelease", "upgrade-accept", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel"].includes(scenario);
@@ -299,7 +329,7 @@ setInterval(() => {}, 1000);
             } else await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
         }
         if (scenario === "local" || compatibleVersions[scenario] || scenario === "target-newer") assert.equal(prompts.length, 0);
-        console.log(`PASS ${scenario}: launcher selection, actual argv and versioned lock`);
+        console.log(`PASS ${scenario}: launcher selection, actual argv and versioned advertisement`);
     } finally { await runtime.dispose(); }
-    await assert.rejects(() => readFile(join(directory, "dsh-runtime.lock")), { code: "ENOENT" });
+    assert.deepEqual(await advertisements(), [], "dispose must withdraw this editor's advertisement");
 }
