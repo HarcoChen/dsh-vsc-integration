@@ -45,6 +45,7 @@ export async function manageWorkspaces(host: WorkspaceActionsHost): Promise<void
         const currentRegistered = workspaceRoot
             ? catalog.workspaces.some((workspace) => samePath(workspace.path, workspaceRoot))
             : true;
+        const archived = new Set(catalog.archivedSessionIds);
         type WorkspaceChoice = vscode.QuickPickItem &
             ({ choiceType: "workspace"; workspace: DshWorkspaceView } | { choiceType: "register" });
         const choices: WorkspaceChoice[] = [
@@ -58,7 +59,9 @@ export async function manageWorkspaces(host: WorkspaceActionsHost): Promise<void
                 choiceType: "workspace",
                 workspace,
                 label: `$(folder) ${workspace.title}`,
-                description: t("{count} sessions", { count: workspace.sessionIds.length }),
+                description: t("{count} sessions", {
+                    count: workspace.sessionIds.filter((sessionId) => !archived.has(sessionId)).length,
+                }),
                 detail: workspace.path,
             })),
         ];
@@ -81,7 +84,11 @@ export async function manageWorkspaces(host: WorkspaceActionsHost): Promise<void
             continue;
         }
 
-        const action = await chooseWorkspaceAction(selected.workspace, catalog.workspaces);
+        const action = await chooseWorkspaceAction(
+            selected.workspace,
+            catalog.workspaces,
+            archived,
+        );
         if (!action) continue;
         if (action === "rename") {
             await renameWorkspace(host, selected.workspace);
@@ -99,6 +106,7 @@ export async function manageWorkspaces(host: WorkspaceActionsHost): Promise<void
 async function chooseWorkspaceAction(
     workspace: DshWorkspaceView,
     workspaces: readonly DshWorkspaceView[],
+    archived: ReadonlySet<string>,
 ): Promise<WorkspaceAction | undefined> {
     const index = workspaces.findIndex((candidate) => candidate.workspaceId === workspace.workspaceId);
     const actions: Array<vscode.QuickPickItem & { action: WorkspaceAction }> = [{
@@ -118,7 +126,8 @@ async function chooseWorkspaceAction(
             { action: "bottom", label: `$(fold-down) ${t("Move Workspace to bottom")}` },
         );
     }
-    if (workspace.sessionIds.length > 1) {
+    const visibleSessionCount = workspace.sessionIds.filter((sessionId) => !archived.has(sessionId)).length;
+    if (visibleSessionCount > 1) {
         actions.push({
             action: "sessions",
             label: `$(list-ordered) ${t("Reorder sessions")}`,
@@ -185,13 +194,15 @@ async function reorderWorkspaceSession(
     const catalog = host.runtime.getSessionCatalog().snapshot();
     const sessions = new Map(catalog.sessions.map((session) => [session.sessionId, session]));
     const archived = new Set(catalog.archivedSessionIds);
+    const sessionIds = workspace.sessionIds.filter((sessionId) => !archived.has(sessionId));
+    if (sessionIds.length < 2) return;
     const selected = await vscode.window.showQuickPick(
-        workspace.sessionIds.map((sessionId, index) => {
+        sessionIds.map((sessionId, index) => {
             const session = sessions.get(sessionId);
             return {
-                label: `${archived.has(sessionId) ? "$(archive)" : "$(comment-discussion)"} ${session?.title || sessionId}`,
+                label: `$(comment-discussion) ${session?.title || sessionId}`,
                 description: t("Position {position}", { position: index + 1 }),
-                detail: archived.has(sessionId) ? t("Archived Session") : session?.cwd,
+                detail: session?.cwd,
                 sessionId,
             };
         }),
@@ -204,7 +215,7 @@ async function reorderWorkspaceSession(
     );
     if (!selected) return;
 
-    const index = workspace.sessionIds.indexOf(selected.sessionId);
+    const index = sessionIds.indexOf(selected.sessionId);
     const actions: Array<vscode.QuickPickItem & { direction: "top" | "up" | "down" | "bottom" }> = [];
     if (index > 0) {
         actions.push(
@@ -212,7 +223,7 @@ async function reorderWorkspaceSession(
             { direction: "up", label: `$(arrow-up) ${t("Move Session up")}` },
         );
     }
-    if (index >= 0 && index < workspace.sessionIds.length - 1) {
+    if (index >= 0 && index < sessionIds.length - 1) {
         actions.push(
             { direction: "down", label: `$(arrow-down) ${t("Move Session down")}` },
             { direction: "bottom", label: `$(fold-down) ${t("Move Session to bottom")}` },
@@ -227,11 +238,11 @@ async function reorderWorkspaceSession(
 
     let beforeSessionId: string | undefined;
     if (move.direction === "top") {
-        beforeSessionId = workspace.sessionIds[0];
+        beforeSessionId = sessionIds[0];
     } else if (move.direction === "up") {
-        beforeSessionId = workspace.sessionIds[index - 1];
+        beforeSessionId = sessionIds[index - 1];
     } else if (move.direction === "down") {
-        beforeSessionId = workspace.sessionIds[index + 2];
+        beforeSessionId = sessionIds[index + 2];
     }
     await host.runtime.moveWorkspaceSession(
         workspace.workspaceId,
