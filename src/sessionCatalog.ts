@@ -219,7 +219,12 @@ export class HarnessCatalogStore {
             });
         }
         this.workspaceOrder = result.items.map((item) => item.workspaceId);
-        this.archived = { ids: new Set(result.archivedSessionIds), revision };
+        // Archive membership is append-only. A live archive mutation can race
+        // this generation's workspace baseline, so never let the late
+        // baseline make an already archived Session visible again.
+        const archived = new Set(this.archived.ids);
+        for (const sessionId of result.archivedSessionIds) archived.add(sessionId);
+        this.archived = { ids: archived, revision };
         this.publish();
     }
 
@@ -386,7 +391,8 @@ export class HarnessCatalogStore {
                 break;
             case "host/archived-sessions-changed":
                 if (!stringArray(frame.archivedSessionIds)) return;
-                this.archived = { ids: new Set(frame.archivedSessionIds), revision };
+                for (const sessionId of frame.archivedSessionIds) this.archived.ids.add(sessionId);
+                this.archived = { ids: this.archived.ids, revision };
                 break;
             default:
                 return;
@@ -567,7 +573,11 @@ export class HarnessCatalogStore {
     }
 
     public replaceArchived(ids: readonly string[]): void {
-        this.archived = { ids: new Set(ids), revision: ++this.revision };
+        // The Host archive registry has no unarchive operation. Merge live
+        // snapshots so an RPC response or stream frame that arrives after a
+        // newer archive mutation cannot resurrect that Session in the UI.
+        for (const sessionId of ids) this.archived.ids.add(sessionId);
+        this.archived = { ids: this.archived.ids, revision: ++this.revision };
         this.publish();
     }
 
@@ -599,7 +609,7 @@ export class HarnessCatalogStore {
         this.publish();
     }
 
-    /** Returns non-blank sessions registered for the canonical workspace path. */
+    /** Returns visible, non-blank sessions registered for the canonical workspace path. */
     public sessionsForWorkspace(path: string): readonly SessionCatalogItem[] {
         const workspace = [...this.workspaces.values()]
             .find((entry) => samePath(entry.value.path, path))?.value;
@@ -609,7 +619,11 @@ export class HarnessCatalogStore {
         );
         return workspace.sessionIds
             .map((sessionId) => byId.get(sessionId))
-            .filter((session): session is SessionCatalogItem => session !== undefined && !session.blank);
+            .filter((session): session is SessionCatalogItem =>
+                session !== undefined &&
+                !session.blank &&
+                !this.archived.ids.has(session.sessionId),
+            );
     }
 
     public snapshot(): HarnessCatalogSnapshot {

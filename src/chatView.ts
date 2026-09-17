@@ -40,7 +40,7 @@ import {
 } from "./codeBlockActions";
 import { MarkdownRenderCache } from "./markdownRenderCache";
 import { samePath } from "./paths";
-import { presentSessionRows } from "./sessionCatalog";
+import { presentSessionRows, type HarnessCatalogSnapshot } from "./sessionCatalog";
 import { SessionCatalogCache } from "./sessionCatalogCache";
 import { listPromptTemplates, readPromptTemplate } from "./promptTemplates";
 import { MessageFeedbackController } from "./messageFeedbackController";
@@ -373,7 +373,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.schedulePostState();
             }
         });
-        const unsubscribeCatalog = runtime.getSessionCatalog().onDidChange(() => {
+        const unsubscribeCatalog = runtime.getSessionCatalog().onDidChange((catalog) => {
+            this.clearArchivedCurrentSession(catalog);
             this.observeSessionTransitions();
             this.schedulePostState();
             this.subagents.scheduleSubagentRefresh();
@@ -1508,16 +1509,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }).filter((candidate): candidate is DshReferenceCandidate => candidate !== undefined);
             const fileCandidates = remoteFileCandidates ?? orderedLocalFiles;
 
-            const remoteById = new Map(searchItems.map((item) => [item.sessionId, item]));
+            const catalogSnapshot = this.runtime.getSessionCatalog().snapshot();
+            const archived = new Set(catalogSnapshot.archivedSessionIds);
+            // The Host search endpoints are content/index views, not the
+            // archive authority. Apply the catalog policy before exposing
+            // their results through the Composer reference picker.
+            const visibleSearchItems = searchItems.filter((item) => !archived.has(item.sessionId));
+            const remoteById = new Map(visibleSearchItems.map((item) => [item.sessionId, item]));
             const sessionById = new Map<string, { sessionId: string; title?: string; cwd?: string; blank?: boolean }>();
-            for (const session of this.runtime.getSessionCatalog().snapshot().sessions) {
+            for (const session of catalogSnapshot.sessions) {
                 sessionById.set(session.sessionId, session);
             }
-            for (const item of searchItems) {
+            for (const item of visibleSearchItems) {
                 if (!sessionById.has(item.sessionId)) sessionById.set(item.sessionId, { sessionId: item.sessionId });
             }
             const localSessionCandidates = [...sessionById.values()]
-                .filter((session) => session.blank !== true && session.sessionId !== this.sessionId)
+                .filter((session) =>
+                    session.blank !== true &&
+                    session.sessionId !== this.sessionId &&
+                    !archived.has(session.sessionId),
+                )
                 .filter((session) => {
                     if (!normalizedQuery) return true;
                     const remote = remoteById.get(session.sessionId);
@@ -1543,7 +1554,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     };
                 });
             const remoteSessionCandidates = remoteSessions
-                ?.filter((candidate) => candidate.sessionId !== this.sessionId)
+                ?.filter((candidate) =>
+                    candidate.sessionId !== this.sessionId &&
+                    !archived.has(candidate.sessionId),
+                )
                 .map((candidate): DshReferenceCandidate => {
                     const description = [
                         candidate.sameWorkspace ? undefined : "other workspace",
@@ -1758,6 +1772,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         if (this.sessionId) {
+            const catalog = this.runtime.getSessionCatalog().snapshot();
+            if (catalog.archivedSessionIds.includes(this.sessionId)) {
+                this.clearArchivedCurrentSession(catalog);
+            }
+        }
+
+        if (this.sessionId) {
             const current = this.runtime.getSessionCatalog().snapshot().sessions
                 .find((session) => session.sessionId === this.sessionId);
             if (current?.blank === true) {
@@ -1845,8 +1866,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async restorePersistedSessionInternal(workspaceRoot: string): Promise<void> {
         const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
         const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
+        const catalog = this.runtime.getSessionCatalog().snapshot();
+        const archived = new Set(catalog.archivedSessionIds);
+        const persistedMatches = persisted?.cwd !== undefined && samePath(persisted.cwd, workspaceRoot);
+        if (persistedMatches && persisted && archived.has(persisted.sessionId)) {
+            await this.extensionContext.workspaceState.update("session", undefined);
+        }
         const candidates = [
-            ...(persisted?.cwd && samePath(persisted.cwd, workspaceRoot) ? [persisted.sessionId] : []),
+            ...(persisted?.cwd &&
+                samePath(persisted.cwd, workspaceRoot) &&
+                !archived.has(persisted.sessionId)
+                ? [persisted.sessionId]
+                : []),
             ...this.runtime
                 .getSessionCatalog()
                 .sessionsForWorkspace(workspaceRoot)
@@ -1863,6 +1894,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         try {
             await this.runtime.history(sessionId, 1);
             if (this.sessionId) {
+                return;
+            }
+            // Archive updates are delivered independently of the history
+            // request. Recheck after the await so a session archived while it
+            // was loading cannot become the active conversation.
+            const latestCatalog = this.runtime.getSessionCatalog().snapshot();
+            if (latestCatalog.archivedSessionIds.includes(sessionId)) {
+                const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
+                if (latest?.sessionId === sessionId && latest.cwd && samePath(latest.cwd, workspaceRoot)) {
+                    await this.extensionContext.workspaceState.update("session", undefined);
+                }
                 return;
             }
             this.sessionId = sessionId;
@@ -1928,16 +1970,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (query === undefined) return;
         const result = await this.runtime.searchSessions(query.trim());
         const catalog = this.runtime.getSessionCatalog().snapshot();
+        const archived = new Set(catalog.archivedSessionIds);
         const choice = await vscode.window.showQuickPick(
-            result.items.map((item) => {
-                const session = catalog.sessions.find((candidate) => candidate.sessionId === item.sessionId);
-                return {
-                    label: session?.title || item.sessionId,
-                    description: item.sessionId,
-                    detail: item.snippet,
-                    sessionId: item.sessionId,
-                };
-            }),
+            result.items
+                .filter((item) => !archived.has(item.sessionId))
+                .map((item) => {
+                    const session = catalog.sessions.find((candidate) => candidate.sessionId === item.sessionId);
+                    return {
+                        label: session?.title || item.sessionId,
+                        description: item.sessionId,
+                        detail: item.snippet,
+                        sessionId: item.sessionId,
+                    };
+                }),
             {
                 placeHolder: result.hasMore ? t("Select a session (results truncated)") : t("Select a session"),
                 matchOnDescription: true,
@@ -2312,6 +2357,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private async switchSession(sessionId: string): Promise<void> {
         const catalog = this.runtime.getSessionCatalog().snapshot();
+        if (catalog.archivedSessionIds.includes(sessionId)) {
+            this.clearArchivedCurrentSession(catalog);
+            return;
+        }
         const session = catalog.sessions.find((item) => item.sessionId === sessionId);
         if (this.sessionId !== sessionId) this.subagents.discardSubagentPreview();
         this.sessionId = sessionId;
@@ -3167,8 +3216,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
+    /** Clear a selected Session as soon as the Host marks it archived. */
+    private clearArchivedCurrentSession(catalog: HarnessCatalogSnapshot): void {
+        const sessionId = this.sessionId;
+        if (!sessionId || !catalog.archivedSessionIds.includes(sessionId)) return;
+        this.sessionId = undefined;
+        this.sessionCwd = undefined;
+        this.cancelRequested = false;
+        this.fileReferenceCandidates = [];
+        for (let index = this.optimisticPrompts.length - 1; index >= 0; index -= 1) {
+            if (this.optimisticPrompts[index]?.sessionId === sessionId) {
+                this.optimisticPrompts.splice(index, 1);
+            }
+        }
+        this.subagents.discardSubagentPreview();
+        if (this.agentStatusChoice?.sessionId === sessionId) this.agentStatusChoice = undefined;
+        void this.extensionContext.workspaceState.update("session", undefined);
+        this.schedulePostState();
+    }
+
     private observeSessionTransitions(): void {
-        const sessions = this.runtime.getSessionCatalog().snapshot().sessions;
+        const catalog = this.runtime.getSessionCatalog().snapshot();
+        const archived = new Set(catalog.archivedSessionIds);
+        const sessions = catalog.sessions.filter((session) => !archived.has(session.sessionId));
+        for (const sessionId of archived) {
+            this.observedRunning.delete(sessionId);
+            this.completedWhileHidden.delete(sessionId);
+        }
         for (const session of sessions) {
             const running = session.running === true;
             const previous = this.observedRunning.get(session.sessionId);
@@ -3186,12 +3260,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private updateViewBadge(sessions = this.runtime.getSessionCatalog().snapshot().sessions): void {
         if (!this.view) return;
+        const archived = new Set(this.runtime.getSessionCatalog().snapshot().archivedSessionIds);
+        for (const sessionId of archived) this.completedWhileHidden.delete(sessionId);
         if (this.view.visible) {
             this.completedWhileHidden.clear();
             this.view.badge = undefined;
             return;
         }
-        this.view.badge = hiddenViewBadge(sessions, this.completedWhileHidden);
+        this.view.badge = hiddenViewBadge(
+            sessions.filter((session) => !archived.has(session.sessionId)),
+            this.completedWhileHidden,
+        );
     }
 
     private renderMessages(
