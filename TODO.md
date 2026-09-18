@@ -229,6 +229,59 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 残留；两个易错参数名都已做对 —— `session/list` 用字面 `_request`（`session-controller/src/index.ts:223`），
 19 个事件名与 `remote-events.ts:16-35` 逐一对齐，两个 waterfall 经 `$events/result` 应答。
 
+### 竞品差距（2026-09-18 对照 `Lixxx1/dsh-vscode`，DSH Sidebar v0.0.5）
+
+按整仓源码逐文件核对，非按 README 判断。基线：该扩展消费约 24 / 87 个 `@Remote`
+（无 `goals`、`subagents`、`workspace` CRUD、`directoryPicker`、`messageFeedback`、
+`fileReferences`、`sessionReferenceResolver`、`llm` 三方法、`dynamicCordisRunner`），
+无托管 Runtime 下载（README 第一步即 `npm install -g @deepseek-ai/dsh`）、
+`package.json` 无 `l10n` 字段、仅上 Marketplace、贡献面 14 命令 / 6 设置。
+因此在协议覆盖、Runtime 供给、分发与本地化、Trace 与大纲呈现上我方领先，
+以下 4 项是**差距的全集**，且**没有一项需要新增 RPC**：
+
+- [ ] **工具写入的脏文件守卫（先做，安全类且对方当卖点）**。竞品用
+      `src/tool-write-guard.ts` + `src/dirty-file-guard.ts`：从事件流按工具名
+      （`write|edit|str_replace_editor|apply_patch`）识别写意图，解析目标路径，
+      与未保存编辑器比对后拦截。我方当前只在**自己的**代码块应用路径查
+      `isDirty`（`src/codeBlockActions.ts:99,128`），Runtime 侧工具写入无守卫。
+      接入点唯一：`src/chatView.ts:2495` `answerApproval` 在
+      `respondRemoteEvent` 之前判定；目标路径复用审批卡片既有的
+      `presentApprovalCall(session, interaction.callId)` 与
+      `src/toolDiffStore.ts:133-141`（`applyProposedHunks` 处已同时持有 `path` 与拟写内容），
+      不必新起一套路径推断。语义要求：命中时**不得静默放行也不得静默拒绝**，
+      要把「哪个文件有未保存改动」呈现出来并保留用户显式继续的出口。
+      竞品按工具名后缀猜是启发式，我方已有 `callDiffState`/`storedDiffView` 的
+      结构化依据，不要降级成名字匹配。
+- [ ] **编辑器 Tab 聊天入口**（把下方 P2「编辑器 Tab 聊天入口评估」转正）。
+      竞品有 `deepseekHarness.openInEditor`，与右侧栏并存。P2 原条目约束维持：
+      先验证 Session deep-link 与状态复用，**不维护第二套聊天状态**——
+      现有 `ChatViewProvider` 的 `postState` 是唯一快照来源，编辑器槽位只能做同一
+      provider 的第二视图，不能另起 store。
+- [ ] **自主调试（把下方 P2「调试器控制安全 spike」升级为 P1 并定方案）**。
+      竞品确实做出来了：本地起 StreamableHTTP **MCP server**
+      （`src/debug-mcp-server.ts`，Bearer token + `timingSafeEqual` + 256 KB 请求上限），
+      暴露 `start`（按 `.vscode/launch.json` 拉起）/ `breakpoint` / `control`（单步）/
+      `context`（栈帧与局部变量）4 个工具（`src/debug-tools.ts`），再写一个
+      `debug-<uuid>.cordis.yml` **patch 注入托管启动**
+      （`src/debug-runtime-contribution.ts:56-58`，token 走 `DSH_VSCODE_DEBUG_TOKEN`），
+      并按版本门控（`src/debug-runtime-patch.ts:12-24`）。设置默认关闭。
+      **关键收益：这条通道绕开了「MCP 无公开 `@Remote`」的死结**（MCP 是 DSH 的公开
+      扩展点，走启动期 composition 而非 RPC），所以上方「明确不做」里的 MCP 条目
+      不构成阻塞理由。我方待解差异：托管启动链路比竞品多一层
+      （`src/runtimeProcess.ts`、`src/managedRuntime/`、锁文件与升级流），
+      patch 注入点需先确认可不与 `web --no-open` 默认参数和 auto 模式的
+      package-manager 前缀剥离冲突；patch 生命周期要与统一停止流程对齐，
+      不能留孤儿 `cordis.yml`。
+- [ ] **插件中心（把下方 P2「Plugin Center 安全 spike」转正）**。竞品用
+      `src/plugin-manager.ts`：`spawn` 官方 `dsh` CLI + 直接读 DSH_HOME profile
+      （`plugin-profile.ts` 的 `readInstalledPlugins`/`resolveDshHome`）+
+      社区 registry（`COMMUNITY_REGISTRY_URL`，5 MB 上限）+ `settings/mutate` 配参数 +
+      变更后 `restartAfterRuntimeChange`。**这条不违反「不在公开 RPC 缺失时伪造插件管理
+      语义」**：契约面是官方 CLI 与 profile 文件，不是 RPC，与我方 P2 原设想一致。
+      要求按原条目执行：来源/兼容性/权限告知、显式确认、重启与回滚；
+      只在 Host 侧调用，不在 Webview 执行第三方代码。我方已有只读
+      `pluginInventory/list` 面板可作为起点。
+
 ## P1：上游暂无契约（`0.1.5-rc.2` 复核维持搁置）
 
 `packages/hooks`、`packages/session-query`、`packages/session/session-title` 三处在
@@ -303,8 +356,11 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 ## P2：产品呈现
 
 - [ ] **原生 Chat Session provider 评估**：以 proposed API 做隔离 spike，与现有 `@dsh` Chat Participant/Webview 保持单一 Session 来源。
+  **（2026-09-18 升级 P1，见「竞品差距」）**
 - [ ] **编辑器 Tab 聊天入口评估**：参考其他 DSH 扩展的多入口形态，先验证 Session deep-link 和状态复用，避免维护第二套聊天状态。
+  **（2026-09-18 升级 P1，见「竞品差距」）**
 - [ ] **Plugin Center 安全 spike**：只在 Host 侧调用官方 `dsh plugin`，加入来源/兼容性/权限告知、显式确认、重启和回滚；不在 Webview 执行第三方代码。
+  **（2026-09-18 升级 P1，见「竞品差距」）**
 - [ ] **调试器控制安全 spike**：在现有暂停态上下文之上评估启动、断点、单步和变量读取；每个动作需白名单、确认、取消和超时。
 - [ ] **Session 导入/导出评估**：等待 DSH 导出格式稳定后再做显式文件选择，不复制第二套 Session 数据库。
 - [ ] **Inline completion / Ghost text 评估**：需要独立的模型路由、节流、取消、隐私和计费语义，暂不由 RC1 直接解锁。
@@ -319,7 +375,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 
 上游或 VS Code 稳定 API 均无对应契约，避免从工具名或私有日志反推：
 
-- ~~**MCP 工具来源**：展示 MCP server、工具来源、连接状态和错误。~~ 本轮复核 `deepseek-harness/packages/mcp` 无 `@Remote`、无 `mcp.*` unary 路由，仍无 server 列表或连接状态契约。
+- ~~**MCP 工具来源**：展示 MCP server、工具来源、连接状态和错误。~~ 本轮复核 `deepseek-harness/packages/mcp` 无 `@Remote`、无 `mcp.*` unary 路由，仍无 server 列表或连接状态契约。注意本条只禁「展示 MCP 状态」，不禁止把 MCP 作为 DSH 公开扩展点向外挂载（见上方「竞品差距 → 自主调试」）。
 - ~~**Terminal / PTY context**：终端选区 `@` 引用、PTY 输出摘要和 persistent bash 状态。~~ 本轮复核无 `terminal.*` / `shell.*` unary 路由；VS Code 稳定 API 也不提供终端选区或既有 scrollback 读取。
 - **workspace symbol `@` 候选**：公开协议未提供 workspace symbols 查询。
 - **VS Code multi-root Session**：DSH Workspace 可以有多个独立 Workspace，Session 也可分散在这些 Workspace 中；但公开 Session/DirectoryPicker 契约没有一个 Session 绑定多个根目录的表示。不要为此自建多根协议或误报“已支持”。
