@@ -1,6 +1,7 @@
 # TODO
 
-更新时间：2026-09-06。
+更新时间：2026-09-18（按 `dsh-v0.1.5-rc.2` 重做 RPC 全量 endpoint 差集，修正两处过期结论）。
+下方「本轮进展」各节是历史记录，保留当时的版本判断。
 
 ## 本轮进展（2026-09-06）
 
@@ -74,23 +75,31 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 **需要人工验证**：Trace 面板无测试覆盖，迁移后的行为我无法目视确认，
 验证清单写在「重构 → 结构」该条目里。
 
-## 契约基线（当前快照：2026-09-06，目标 `dsh-v0.1.2-rc.1`）
+## 契约基线（当前快照：2026-09-18，契约目标 `dsh-v0.1.5-rc.2`）
 
-当前默认 pin 是 `0.1.2-rc.1`（目标 commit：
-`a66e4702047846cdaa10c66c9d3df3951f5ea70d`）。RC Remote 的 endpoint 和
+默认下载 pin 是 `0.1.5-rc.1`（`package.json` 的 `dsh.runtimeVersion` 默认值），
+`src/remote/contracts.ts` 的契约 pin 是 tag `dsh-v0.1.5-rc.2`、commit
+`fb2c4b9e698e30edb738bca4cf0618587db7d203`（本地 `deepseek-harness/` HEAD
+`c291e7961a` 即该版本同步进 master 的位置）。RC Remote 的 endpoint 和
 projection 集合由当前 Loader composition 决定，不再用旧版固定总数判断兼容性。
+`dsh-v0.1.5-rc.2` 全量为 87 个 `@Remote` endpoint / 20 个 namespace（唯一注册机制是
+`packages/typert/protocol/src/index.ts` 的 `@Remote` 装饰器，树内没有生成的 endpoint
+清单），`src/remote/` 消费其中 68 个；未消费的 19 个逐条列在下方的
+「`0.1.5-rc.2` 未消费 endpoint」一节。
 
 - **RC Remote unary**：统一走 `POST /api/<namespace>/<method>`，请求为
   `payload: {args: ...}`，由 `src/remote/unaryClient.ts` 严格校验 envelope、
   endpoint、rpcId、响应和 namespaced error。`DshRuntime` 当前消费 session、
   workspace、subagents、goals、agentPresets、pluginInventory、dynamicCordisRunner、skills、commands、settings、
   credentials、llm、directoryPicker、fileReferences、
-  sessionReferenceResolver 与 messageFeedback 等已挂载能力；生产代码不再
+  sessionReferenceResolver 与 messageFeedback 等已挂载能力；`agentTeams/view|createTask|updateTask`
+  已在 `src/dshRuntime.ts` 留有 wrapper 但零调用方，属未激活的内部准备（见下方附注）。生产代码不再
   依赖旧点号 endpoint map。
 - **RC Remote streams**：`/api/remote.mux` 由 `RemoteMuxClient` 承载 `$events`、
   `workspace/follow`、`session/control` 和按需 `session/follow`；
   `RemoteStateCoordinator` 以 generation baseline、cursor 和高 seq projection
   合并重连状态。旧的双 WebSocket、`server-request`、`/api/respond` 已移除。
+  `0.1.5-rc.2` 的第 4 个流 `workspaceFiles/changes` 未消费。
 - **Session projection**：projection cell 以任意字符串 key + seq 进入
   `GenericProjectionStore`，未消费的 key 仍会到达并缓存。当前 UI 消费
   `goal`、`todos`、`tokenUsage`、`contextPressure`、`contextBreakdown`、
@@ -118,11 +127,14 @@ projection 集合由当前 Loader composition 决定，不再用旧版固定总�
 - [ ] **扩展 `@` 引用类型**：当前已有文件、目录、`@selection`、`@terminal`，以及 Runtime 侧 `fileReferences/list`、`sessionReferenceResolver/candidates` 候选；仍需 diagnostics、实际捕获范围展示，并补齐远程工作区实机验证。
 - [ ] **项目规则（Prompt 模板已交付，见下）**：提供本地规则 Markdown 的只读发现和显式选择，作为可见上下文附件；没有公开 Memory 协议时不自动注入或生成隐式记忆。
 
-### 新 RPC（0.1.2-rc.1）解锁的功能候选（2026-09-06 对照 `dsh-v0.1.2-rc.1` 源码复核）
+### 新 RPC 解锁的功能候选（2026-09-06 按 `dsh-v0.1.2-rc.1` 首次复核；2026-09-18 按 `dsh-v0.1.5-rc.2` 全量 endpoint 差集复评）
 
-适配完成后（上一节），RC Remote 的消费面盘点：18 个下行事件已消费 16 个
-（catalog 6 个 + approval/question waterfall 2 个 + chatView 失效刷新 4 个 +
-dynamic 插件刷新 4 个，未消费的 2 个 `cordis/inspect-*` 见下）；已注册 session
+适配完成后（上一节），RC Remote 的消费面盘点（2026-09-18 按 `dsh-v0.1.5-rc.2` 复核）：
+19 个下行事件（`packages/api/remotes/src/remote-events.ts` 的
+`API_REMOTE_FORWARDED_EVENTS`，17 个 emit + 2 个 waterfall）已全部进入
+`src/remote/events.ts` 的 allowlist，其中 17 个已消费（catalog 6 个 + approval/question
+waterfall 2 个 + chatView 失效刷新 4 个 + dynamic 插件刷新 4 个 +
+`goal/activation-changed`，未消费的 2 个 `cordis/inspect-*` 见下）；已注册 session
 projection 已消费 14 个 key（goal、todos、tokenUsage、contextPressure、
 contextBreakdown、title、sessionStats、permissions、imageLimits、plan、
 subagentTiming、modelSelection、turnOutline、schedule）；且
@@ -142,17 +154,85 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
       `fileReferences/list` 已接入 Composer，缺失时回退本地候选。Runtime 侧文件浏览/打开的协议解法基本就位，
       但 picker 尚未接入远程工作区专用 UI；剩验证 Remote SSH/WSL/Dev Container 下 Extension Host
       与 Runtime 同侧性的实机评估。
+- [ ] **`workspaceFiles/*` 消费（7 个 endpoint，含 `changes` 流）**：`0.1.5-rc.1` 起上游已在
+      `packages/api/remotes/src/client/index.ts` 挂载 `workspaceFilesRemote`，扩展零调用
+      （`deepseek-harness/packages/api/workspace-files/src/index.ts:231-364`）。本地工作区由
+      VS Code 原生 FS 覆盖，因此这是**远程工作区专用**能力：文本分页读、字节窗口读、
+      `readRelated`、`stat`、`list` 与 `changes` 变更流，也是「Files API 图片复用」的落点。
+      接入前先解上方「远程工作区支持评估」的同侧性判定；注意 7 个方法的首参在 wire 上名为
+      `workspaceFileScopeId`（`src/index.ts:202` 的 lookup 显式改写，全库唯一），不要按 `scope` 抄。
+- [ ] **`sessionFeedback/record`（整会话反馈入口）**：上游 `dsh-v0.1.3-alpha.2` 起公开，
+      `0.1.5-rc.1` 已挂载（`packages/feedback/command-feedback/src/index.ts:101`），是 Web 反馈
+      对话框与 `/feedback` 命令背后的分类 + 备注上报，与 `messageFeedback`（逐条消息评分）不是同一
+      契约。扩展当前只有 `messageFeedback`，会话级反馈无 IDE 入口。上游不写 Session 日志、不触发模型
+      工作，接入不触碰 prompt；与「消息反馈 UI/评测闭环」项共用评价口径决策。
+- [ ] **`settings/canOpenAgentPresetDirectory` 能力探测**：`src/dshRuntime.ts` 直接调
+      `settings/openAgentPresetDirectory`，未先探测。上游该目录打开受 optional `agentPresets`
+      服务与 `Config.nativeOpen` 双重门控（`settings-controller/src/index.ts:232-240`、`:89`），
+      无能力时抛 `agent-preset/not-found`。现状是报错而非隐藏菜单项，与 `session/canOpenWorkspacePath`
+      先探测再回落的既有做法不一致；改用探测可对齐。
+- [ ] **`cordis/inspect-query` / `-resolved` 呈现**：`src/remote/events.ts:29-30` 已在 allowlist
+      内（帧不会触发协议错误），但除该文件外零消费者，配套的
+      `dynamicCordisRunner/resolveInspectQuery`、`syncInspectManifest` 亦未接入，即 `cordis_inspect`
+      工具在 IDE 侧无呈现。属动态插件面板的剩余一半，需先定 IDE 是否承担 Web UI 的 inspect 面板角色。
 
 附注（证据与边界）：
 
-- `fileUploads` remote（`@deepseek-ai/dsh-client-file-upload`）是 `0.1.3-alpha.1` 新增，
-  rc.1 挂载清单里没有 —— 跟随 alpha 前必须按 `RPC_ADAPTATION_PLAN.md` §14 做 tag 增量审计。
+- **【2026-09-18 修正】** 原记「`fileUploads` remote 是 `0.1.3-alpha.1` 新增，rc.1 挂载清单里没有」。
+  该判断只对 `0.1.2-rc.1` 成立，对 `0.1.5-rc.1` 是错的：`git show
+  dsh-v0.1.5-rc.1:packages/api/remotes/src/client/index.ts` 的挂载清单同时包含
+  `fileUploadsRemote`、`workspaceFilesRemote` 与 `sessionFeedbackRemote`。
+  `fileUploads/upload` 至今零调用，但**不构成图片上传的功能缺口**：扩展走
+  `/api/session/uploadFileBinary`（`src/dshRuntime.ts:1934`），那正是同一上游服务自己的权威
+  裸字节路由（`packages/client/file-upload/src/protocol.ts:2`），`fileUploads/upload` 只是
+  JSON 编码的备用入口。跟随 alpha 前按 `RPC_ADAPTATION_PLAN.md` §14 做 tag 增量审计的门禁维持不变。
 - hooks、session-query、session-title、mcp 在 rc.1 的 `@Remote` 计数仍为 0，
   「上游暂无契约」三项维持搁置；`session/search` 本身已是公开 remote（本次 smoke 验证过），
   但部署可禁用索引（返回 `gateway/internal: session search is disabled`），调用方需保留该降级。
-- `agentTeam` projection（`packages/experimental/agent-team`）属 experimental，未列入候选。
+  `packages/mcp`、`schedule`、`jobs`、`webhook`、`workflow`、`hooks`、`lsp`、`e2b`、`sandbox`、
+  `identity`、`skill`、`acp`、`todo`、`plan`、`storage` 在 `0.1.5-rc.2` 的 `@Remote` 计数仍为 0：
+  `jobs` 以 `SessionJob` 类型挂在 `session/*` 返回值上，`skill` 只以 `skills/list`
+  （由 api-session-controller 持有）出现，均无独立 namespace。
+- **【2026-09-18 修正】** `agentTeams/*` 不只是「属 experimental，未列入候选」：上游
+  `agentTeams` **不在** `api-remotes` 的挂载清单里，唯一挂载点是
+  `packages/experimental/client-ui-agent-team/src/client/mount.ts:88`，只在
+  `agent-team-profile` / `agent-team-web-profile` 补丁下可达。默认托管 Runtime 上调用会直接端点失败，
+  而版本本身并不蕴含该服务已安装（`RPC_0.1.5_ADAPTATION.md` 已记）。`src/dshRuntime.ts:2219-2237`
+  的三个 wrapper 因此零调用、无 UI、无命令，是纯粹的准备代码；激活前需先确认目标 profile 挂载，
+  否则考虑收缩为该判定之后再接线。
 
-## P1：上游暂无契约（rc.1 复核维持搁置）
+### `0.1.5-rc.2` 未消费 endpoint（19 / 87，2026-09-18 差集）
+
+按 `@Remote` 装饰器逐条对出，非按文档推断。判定分三类。
+
+**真缺口（上游已挂载，扩展零调用）**：
+
+| endpoint | 上游位置 | 备注 |
+| --- | --- | --- |
+| `workspaceFiles/read\|readBytes\|readAll\|readRelated\|stat\|list` | `packages/api/workspace-files/src/index.ts:231-336` | 远程工作区文件预览 |
+| `workspaceFiles/changes`（流） | 同上 `:364` | 4 个 Remote 流中唯一未消费 |
+| `sessionFeedback/record` | `packages/feedback/command-feedback/src/index.ts:101` | 会话级反馈入口 |
+| `settings/canOpenAgentPresetDirectory` | `packages/api/settings-controller/src/index.ts:130` | 探测未用，见上方候选项 |
+| `fileUploads/upload` | `packages/client/file-upload/src/index.ts:105` | 已由裸字节路由等价覆盖，仅 JSON 入口缺失 |
+
+**有意不做（有决策依据，不记为欠账）**：
+
+| endpoint | 依据 |
+| --- | --- |
+| `settings/replace` | 本文件「明确不做」一节：整文档覆盖是退步，设置卡片走 revision 保护的 `settings.mutate` |
+| `dynamicCordisRunner/getClientCode\|runHostHalf\|settleUserRun\|invoke\|reportRenderFailure\|reportClientGuardFailure` | 上方「动态插件面板」项：扩展不在 Extension Host 执行不可信 Client half，浏览器侧运行归 Harness Web UI |
+| `dynamicCordisRunner/syncInspectManifest\|resolveInspectQuery` | 与上方 `cordis/inspect-*` 呈现项同源，待角色判定 |
+
+**已接线、零调用方**：`agentTeams/view|createTask|updateTask`（见上一条附注）。
+
+差集另含两条反向结论：扩展调用的 endpoint 名全部能在 `0.1.5-rc.2` 找到对应声明，无幻影或已删方法
+残留；两个易错参数名都已做对 —— `session/list` 用字面 `_request`（`session-controller/src/index.ts:223`），
+19 个事件名与 `remote-events.ts:16-35` 逐一对齐，两个 waterfall 经 `$events/result` 应答。
+
+## P1：上游暂无契约（`0.1.5-rc.2` 复核维持搁置）
+
+`packages/hooks`、`packages/session-query`、`packages/session/session-title` 三处在
+`c291e7961a`（`0.1.5-rc.2` 同步进 master 的位置）的 `@Remote` 计数仍为 0，无新增公开契约。
 
 - [ ] **Hook 可观测性**：`deepseek-harness/packages/hooks` 下 `@Remote` 计数为 0（`0.1.1-rc.2`、`0.1.2-rc.1` 两轮复核一致），无公开查询契约。
 - [ ] **Session 内容查询**：`deepseek-harness/packages/session-query` 下 `@Remote` 计数为 0；`session.search` 已消费（rc.1 起为公开 remote，但部署可禁用索引），服务端全文检索管理面无公开入口。
