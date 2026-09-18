@@ -70,11 +70,22 @@ export interface DebugContextCapture {
     truncated: boolean;
 }
 
+/** Why the tracker reported a lifecycle change for one session. */
+export type DebugLifecycleKind = "stopped" | "running" | "terminated";
+
+export interface DebugLifecycleEvent {
+    sessionId: string;
+    kind: DebugLifecycleKind;
+    stopInfo?: DebugStopInfo;
+}
+
 /** Tracks the last DAP stopped event so a snapshot can explain why execution paused. */
 export class DebugContextTracker implements vscode.Disposable {
     private readonly stopped = new Map<string, DebugStopInfo>();
     private readonly trackerRegistration: vscode.Disposable;
     private readonly terminationSubscription: vscode.Disposable;
+    private readonly lifecycle = new vscode.EventEmitter<DebugLifecycleEvent>();
+    private disposed = false;
 
     public constructor() {
         this.trackerRegistration = vscode.debug.registerDebugAdapterTrackerFactory("*", {
@@ -84,7 +95,13 @@ export class DebugContextTracker implements vscode.Disposable {
         });
         this.terminationSubscription = vscode.debug.onDidTerminateDebugSession((session) => {
             this.stopped.delete(session.id);
+            this.emit({ sessionId: session.id, kind: "terminated" });
         });
+    }
+
+    /** Fires for every DAP stopped/continued/terminated observation, including sessions the user started. */
+    public get onDidLifecycleChange(): vscode.Event<DebugLifecycleEvent> {
+        return this.lifecycle.event;
     }
 
     public get(sessionId: string): DebugStopInfo | undefined {
@@ -93,8 +110,11 @@ export class DebugContextTracker implements vscode.Disposable {
     }
 
     public dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
         this.trackerRegistration.dispose();
         this.terminationSubscription.dispose();
+        this.lifecycle.dispose();
         this.stopped.clear();
     }
 
@@ -111,39 +131,68 @@ export class DebugContextTracker implements vscode.Disposable {
             const allThreadsStopped = typeof body?.allThreadsStopped === "boolean"
                 ? body.allThreadsStopped
                 : undefined;
-            this.stopped.set(sessionId, {
+            const info: DebugStopInfo = {
                 ...(reason ? { reason } : {}),
                 ...(description ? { description } : {}),
                 ...(text ? { text } : {}),
                 ...(threadId === undefined ? {} : { threadId }),
                 ...(allThreadsStopped === undefined ? {} : { allThreadsStopped }),
-            });
+            };
+            this.stopped.set(sessionId, info);
+            this.emit({ sessionId, kind: "stopped", stopInfo: { ...info } });
             return;
         }
         if (event === "continued" || event === "terminated" || event === "exited") {
-            this.stopped.delete(sessionId);
+            const wasStopped = this.stopped.delete(sessionId);
+            if (event === "continued") {
+                this.emit({ sessionId, kind: "running" });
+            } else if (wasStopped || event === "terminated") {
+                this.emit({ sessionId, kind: "terminated" });
+            }
         }
+    }
+
+    private emit(event: DebugLifecycleEvent): void {
+        if (this.disposed) return;
+        this.lifecycle.fire(event);
     }
 }
 
 export interface CaptureDebugContextOptions {
     tracker?: DebugContextTracker;
     maxBytes?: number;
+    /**
+     * Snapshot this session instead of the one the editor has focused. Callers
+     * without a UI focus (an MCP tool call) must name one.
+     */
+    session?: vscode.DebugSession;
+    /** Thread to inspect; defaults to the focused item, then the stopped thread, then the first thread. */
+    threadId?: number;
+    /** Stack frame to read variables from; defaults to the focused frame, then the top frame. */
+    frameId?: number;
 }
 
-/** Captures a bounded, read-only snapshot of the focused VS Code debug state. */
+/** Captures a bounded, read-only snapshot of VS Code debug state. */
 export async function captureDebugContext(
     options: CaptureDebugContextOptions = {},
 ): Promise<DebugContextCapture> {
-    const active = vscode.debug.activeStackItem;
-    if (!active) {
+    const active = options.session ? undefined : vscode.debug.activeStackItem;
+    const session = options.session ?? active?.session;
+    if (!session) {
         throw new Error(t("There is no focused debug thread or stack frame."));
     }
 
-    const session = active.session;
-    const threadId = active.threadId;
-    const focusedFrameId = stackFrameId(active);
     const stopInfo = options.tracker?.get(session.id);
+    const focusedThread = stackThreadId(active);
+    const resolvedThreadId = options.threadId
+        ?? focusedThread
+        ?? stopInfo?.threadId
+        ?? await firstThreadId(session);
+    if (resolvedThreadId === undefined) {
+        throw new Error(t("The debug session reported no threads."));
+    }
+    const threadId = resolvedThreadId;
+    const focusedFrameId = options.frameId ?? stackFrameId(active);
     const warnings: string[] = [];
 
     let stackFrames: StackFrameSnapshot[] = [];
@@ -256,14 +305,35 @@ function isStackFrame(item: vscode.DebugThread | vscode.DebugStackFrame): item i
     return "frameId" in item && typeof item.frameId === "number";
 }
 
-function stackFrameId(item: vscode.DebugThread | vscode.DebugStackFrame): number | undefined {
-    return isStackFrame(item) ? item.frameId : undefined;
+function stackFrameId(item: vscode.DebugThread | vscode.DebugStackFrame | undefined): number | undefined {
+    return item && isStackFrame(item) ? item.frameId : undefined;
 }
 
-async function debugRequest(
+function stackThreadId(item: vscode.DebugThread | vscode.DebugStackFrame | undefined): number | undefined {
+    return item?.threadId;
+}
+
+/** The thread a session reports first, used when no UI focus or stop event names one. */
+async function firstThreadId(session: vscode.DebugSession): Promise<number | undefined> {
+    try {
+        const response = await debugRequest(session, "threads", {});
+        const record = responseRecord(response);
+        const threads = Array.isArray(record?.threads) ? record.threads : [];
+        for (const entry of threads) {
+            const id = safeInteger(asRecord(entry)?.id);
+            if (id !== undefined) return id;
+        }
+    } catch {
+        // Reported as "no threads" by the caller; the adapter may still answer stackTrace.
+    }
+    return undefined;
+}
+
+export async function debugRequest(
     session: vscode.DebugSession,
     command: string,
     args: Record<string, unknown>,
+    timeoutMs = DEBUG_REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -271,7 +341,7 @@ async function debugRequest(
         const timeout = new Promise<never>((_, reject) => {
             timer = setTimeout(
                 () => reject(new Error(`debug adapter request ${command} timed out`)),
-                DEBUG_REQUEST_TIMEOUT_MS,
+                timeoutMs,
             );
         });
         return await Promise.race([pending, timeout]);

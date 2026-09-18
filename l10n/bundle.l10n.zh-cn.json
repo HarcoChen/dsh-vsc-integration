@@ -145,6 +145,7 @@
     "Attach the current stack, locals, source, and diagnostics once": "一次性附加当前调用栈、局部变量、源码和诊断信息",
     "Explain why execution stopped here and suggest the next debugging checks.": "解释程序为什么停在这里，并给出下一步调试检查建议。",
     "There is no focused debug thread or stack frame.": "当前没有聚焦的调试线程或堆栈帧。",
+    "The debug session reported no threads.": "调试会话未报告任何线程。",
     "Capture Debug Context": "捕获调试上下文",
     "Recent terminal command": "最近的终端命令",
     "Disable selection": "关闭选区上下文",
