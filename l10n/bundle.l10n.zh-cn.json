@@ -526,5 +526,6 @@
     "DSH lease recovery is busy: {path}. Retry shortly.": "DSH 租约恢复正忙：{path}。请稍后重试。",
     "DSH lease mutation is busy or abandoned: {path}. Retry; if it persists, verify its owner has exited before manual cleanup.": "DSH 租约写入正忙或已被遗弃：{path}。请重试；若持续存在，请先确认其持有进程已退出，再手动清理。",
     "The {manager} store at {path} resolved DSH but not its dependencies, so downloading it again cannot repair the layout. Clear that store and retry, or set dsh.command to a different package manager.\n\n{message}": "{manager} 在 {path} 的存储能解析出 DSH，却解析不到它的依赖；重新下载无法修复这种目录结构。请清空该存储后重试，或把 dsh.command 改为其他包管理器。\n\n{message}",
-    "The {manager} store resolved DSH but not its dependencies, so downloading it again cannot repair the layout. Clear it and retry, or set dsh.command to a different package manager.\n\n{message}": "{manager} 的存储能解析出 DSH，却解析不到它的依赖；重新下载无法修复这种目录结构。请清空该存储后重试，或把 dsh.command 改为其他包管理器。\n\n{message}"
+    "The {manager} store resolved DSH but not its dependencies, so downloading it again cannot repair the layout. Clear it and retry, or set dsh.command to a different package manager.\n\n{message}": "{manager} 的存储能解析出 DSH，却解析不到它的依赖；重新下载无法修复这种目录结构。请清空该存储后重试，或把 dsh.command 改为其他包管理器。\n\n{message}",
+    "Cannot approve: {files} has unsaved editor changes. Save or revert them first, then approve again.": "无法批准：{files} 在编辑器中有未保存的改动。请先保存或还原这些改动，再重新批准。"
 }

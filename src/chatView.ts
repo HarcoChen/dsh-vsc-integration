@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
 import { captureAppShot as captureNativeAppShot } from "./appShot";
@@ -2497,7 +2497,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     ): Promise<void> {
         const sessionId = this.sessionId;
         if (!sessionId) return;
-        const interaction = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
+        const store = this.runtime.getSessionStore();
+        const pending = store
+            .get(sessionId)
+            ?.interactions.find((item) => item.key === action.key);
+        if (!pending || pending.kind !== "approval" || pending.status !== "pending") return;
+        if (action.outcome === "allowed-once") {
+            const dirty = this.dirtyApprovalPaths(store.get(sessionId), pending.callId);
+            if (dirty.length) {
+                throw new Error(t(
+                    "Cannot approve: {files} has unsaved editor changes. Save or revert them first, then approve again.",
+                    { files: dirty.map((path) => `“${path}”`).join(", ") },
+                ));
+            }
+        }
+        const interaction = store.claimInteraction(sessionId, action.key);
         if (!interaction || interaction.kind !== "approval") return;
         try {
             await this.runtime.respondRemoteEvent(interaction.rpcId, {
@@ -2511,6 +2525,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 .failInteraction(sessionId, action.key, errorMessage(error));
             this.reportError(error);
         }
+    }
+
+    /**
+     * Approval targets the tool would overwrite while an editor buffer holds
+     * unsaved changes for the same file.
+     *
+     * The Runtime writes straight to disk, so releasing such an approval loses
+     * work that was never written; the caller refuses the release instead and
+     * leaves the card pending, which is what lets the user approve once more
+     * after saving or reverting. Paths come from the same structured diff card
+     * the approval shows, so a tool the Runtime presents some other way is not
+     * guessed at.
+     */
+    private dirtyApprovalPaths(
+        snapshot: SessionStateSnapshot | undefined,
+        callId: string | undefined,
+    ): string[] {
+        const diffPaths = presentApprovalCall(snapshot, callId)?.diffPaths ?? [];
+        if (!diffPaths.length) return [];
+        const unsaved = vscode.workspace.textDocuments
+            .filter((document) => document.isDirty && document.uri.scheme === "file")
+            .map((document) => document.uri.fsPath);
+        if (!unsaved.length) return [];
+        const root = this.sessionCwd ?? this.workspaceRoot();
+        return diffPaths.filter((path) => {
+            const absolute = isAbsolute(path) ? path : resolve(root ?? "", path);
+            return unsaved.some((buffer) => samePath(buffer, absolute));
+        });
     }
 
     private async answerQuestion(

@@ -78,6 +78,8 @@ After a `write`/`edit` tool call, open the target file to see VS Code's native s
 
 The approval card shows the actual command line, working directory, and target files that will be written. For supported file-writing tools, open a native diff of the proposed change before approving it.
 
+A write whose target file still has unsaved editor changes is not released: approval is refused, the card names the files and stays pending, and you can save or revert them and approve again.
+
 ### Slash commands enumerated live from the Runtime
 
 The slash menu dynamically fetches commands registered by the Runtime for the current session (`/plan`, `/compact`, `/goal`, etc.) and merges them with the extension's own IDE commands.
