@@ -239,7 +239,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 因此在协议覆盖、Runtime 供给、分发与本地化、Trace 与大纲呈现上我方领先，
 以下 4 项是**差距的全集**，且**没有一项需要新增 RPC**：
 
-- [ ] **工具写入的脏文件守卫（先做，安全类且对方当卖点）**。竞品用
+- [x] **工具写入的脏文件守卫（先做，安全类且对方当卖点）**。竞品用
       `src/tool-write-guard.ts` + `src/dirty-file-guard.ts`：从事件流按工具名
       （`write|edit|str_replace_editor|apply_patch`）识别写意图，解析目标路径，
       与未保存编辑器比对后拦截。我方当前只在**自己的**代码块应用路径查
@@ -252,11 +252,28 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
       要把「哪个文件有未保存改动」呈现出来并保留用户显式继续的出口。
       竞品按工具名后缀猜是启发式，我方已有 `callDiffState`/`storedDiffView` 的
       结构化依据，不要降级成名字匹配。
-- [ ] **编辑器 Tab 聊天入口**（把下方 P2「编辑器 Tab 聊天入口评估」转正）。
+      实现：`ChatViewProvider.answerApproval` 在 `claimInteraction` **之前**用
+      `presentApprovalCall(...).diffPaths` 与 `vscode.workspace.textDocuments` 的
+      `isDirty` 求交（路径按 `sessionCwd ?? workspaceRoot()` 解析，与
+      `src/toolDiffStore.ts` 同一口径），命中即抛错并列出文件名，卡片因此留在
+      `pending` 可重试；未命中才 claim → `respondRemoteEvent`。未做按工具名推断的
+      回落，终端审批不在守卫内（README/CHANGELOG 已注明该边界）。**未在真实 VS Code
+      窗口跑过**，仅过 `npm run check` 与既有 50 项测试。
+- [x] **编辑器 Tab 聊天入口**（把下方 P2「编辑器 Tab 聊天入口评估」转正）。
       竞品有 `deepseekHarness.openInEditor`，与右侧栏并存。P2 原条目约束维持：
       先验证 Session deep-link 与状态复用，**不维护第二套聊天状态**——
       现有 `ChatViewProvider` 的 `postState` 是唯一快照来源，编辑器槽位只能做同一
       provider 的第二视图，不能另起 store。
+      实现：先抽出 `src/chatViewSurface.ts`（一个 surface = 一个 webview + 它自己的
+      `ready` + `reveal`/`setBadge`/`resolveResource`），`ChatViewProvider` 改为持有
+      `surfaces: Set` 与 `activeSurface`；`postState` 一次算状态、逐个 surface 投递，
+      入站消息仍全部汇入同一 `handleMessage`，**没有第二份会话状态**。
+      `asWebviewUri` 与 webview 一一对应，因此 shared state 里只放 `resources/` 下的
+      文件名，投递前由 `withSurfaceResources` 按 surface 改写 effort 滑块 URI。
+      入口为 `dsh.openInEditor`（命令面板 + 侧栏 `view/title` 图标）→
+      `createWebviewPanel("dsh.chatViewEditor", …, retainContextWhenHidden: true)`，
+      只复用一个标签页。未注册 `WebviewPanelSerializer`，故窗口重载后该标签页不恢复。
+      **未在真实 VS Code 窗口跑过**。
 - [ ] **自主调试（把下方 P2「调试器控制安全 spike」升级为 P1 并定方案）**。
       竞品确实做出来了：本地起 StreamableHTTP **MCP server**
       （`src/debug-mcp-server.ts`，Bearer token + `timingSafeEqual` + 256 KB 请求上限），
@@ -327,8 +344,8 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 
 ### 结构
 
-- [ ] **`src/chatView.ts` God Object 继续拆**（3582 → 3103 行，已抽出 6 块；目录缓存与 Subagent 迁出后 3535 行）。
-      已完成：Provider 管理 → `providerManagement.ts`（224 行，以 `ProviderManagementDeps` 注入依赖而非反向依赖 ChatViewProvider）；代码块动作 → `codeBlockActions.ts`（111 行，接缝按 `text` 而非 `renderId` 划，因为可复制文本的缓存与 markdown 渲染共享）；markdown 渲染与代码 payload → `markdownRenderCache.ts`（类，按 `GoalMutationGate` 先例）；设置值转换 → `chatViewPresentation.settingsMutationOps`；会话切换器行组装 → `sessionCatalog.presentSessionRows`（接缝划在 `catalog` 上，两处派生一起搬）；`mutateGoal` 内重复五次的 ref 确认收成一处；三套目录缓存的并发骨架（value map + 请求去重 + 失效代际 + 重拉排队）→ `sessionCatalogCache.ts`（89 行，`pull` 承载 then/catch/finally 编排，apply/absent/fail 由调用方注入；skill 组原先缺 generations/refreshPending 字段，因无 invalidate 调用点，收拢后代际护栏零值恒真，行为不变）。
+- [ ] **`src/chatView.ts` God Object 继续拆**（3582 → 3103 行，已抽出 6 块；目录缓存与 Subagent 迁出后 3535 行；脏文件守卫 + 编辑器 Tab 入口后 3606 行）。
+      已完成：Provider 管理 → `providerManagement.ts`（224 行，以 `ProviderManagementDeps` 注入依赖而非反向依赖 ChatViewProvider）；代码块动作 → `codeBlockActions.ts`（111 行，接缝按 `text` 而非 `renderId` 划，因为可复制文本的缓存与 markdown 渲染共享）；markdown 渲染与代码 payload → `markdownRenderCache.ts`（类，按 `GoalMutationGate` 先例）；设置值转换 → `chatViewPresentation.settingsMutationOps`；会话切换器行组装 → `sessionCatalog.presentSessionRows`（接缝划在 `catalog` 上，两处派生一起搬）；`mutateGoal` 内重复五次的 ref 确认收成一处；三套目录缓存的并发骨架（value map + 请求去重 + 失效代际 + 重拉排队）→ `sessionCatalogCache.ts`（89 行，`pull` 承载 then/catch/finally 编排，apply/absent/fail 由调用方注入；skill 组原先缺 generations/refreshPending 字段，因无 invalidate 调用点，收拢后代际护栏零值恒真，行为不变）；**webview surface → `chatViewSurface.ts`（124 行）** —— 一个 surface = 一个 webview + 它自己的 `ready` + `reveal`/`setBadge`/`resolveResource`，provider 改持 `surfaces: Set` 与 `activeSurface`，`postState` 一次算状态、逐 surface 投递，入站消息仍汇入同一 `handleMessage`。这是「须连状态一起搬」的首个实例：搬走 `view`/`webviewReady`/`viewMessageDisposable` 三字段及其 22 个读写点；`pendingComposerUpdate`/`pendingComposerImages` 有意留在 provider，因为「视图未起时排队的草稿不丢」是既有语义，单槽 + 有 booted surface 才消费即可保持。副产一条硬约束：**`asWebviewUri` 与 webview 一一对应**，shared state 只能带 `resources/` 下的文件名，投递前由 `withSurfaceResources` 逐 surface 改写（此前 `reasoningEffortImage`/`defaultEffortKnobImage` 直接读 `this.view`，两个 webview 会互相拿到错的 URI Authority）。
       **抽取标准（本轮验证有效，后续照用）**：候选必须不持有状态、不调 `postState`。按此标准复核的结果 —— Workspace 组的 `pendingNewSessionWorkspace*` 有 16 个读写点散在 `sendPrompt`/`postState`/`newSession`；Preset 组的 `agentPresetCatalog` 7 个点里只有 2 个在块内，`agentPresetDocuments` 更在构造函数里注册为 `TextDocumentContentProvider`；Subagent 组自己拥有 5 个字段，本质是 store+controller。这三组直接抽出只是把耦合从文件内搬到文件间，**须连状态一起搬**才有意义，属更大的设计改动。
       剩余易做项：`chooseWorkspaceAction`(42 行) 与 `chooseAgentPresetAction`(46 行) 完全不碰 `this`，但它们是上述两个域的「动作菜单」那一半，宜与各自域一同搬迁，不要先按机制凑进一个桶。
 - [ ] **`src/sessionFeatures.ts:414-421` 反向依赖**。顶层 feature 模块内 `new HarnessSessionStore()` + `rebaseline()` + `projectChatMessages()`，使其同时依赖下面两层，也让 `test/sessionFeatures.test.js` 顺带钉住了 `projectChatMessages` 的输出形状。该模块另含五个互不相关的 feature（plan review、goal、subagent、history、jobs），10 个钉住导出全在此处 —— 拆分需同步改测试，先评估收益。
@@ -356,12 +373,12 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 ## P2：产品呈现
 
 - [ ] **原生 Chat Session provider 评估**：以 proposed API 做隔离 spike，与现有 `@dsh` Chat Participant/Webview 保持单一 Session 来源。
-  **（2026-09-18 升级 P1，见「竞品差距」）**
-- [ ] **编辑器 Tab 聊天入口评估**：参考其他 DSH 扩展的多入口形态，先验证 Session deep-link 和状态复用，避免维护第二套聊天状态。
-  **（2026-09-18 升级 P1，见「竞品差距」）**
+- [x] **编辑器 Tab 聊天入口评估**：参考其他 DSH 扩展的多入口形态，先验证 Session deep-link 和状态复用，避免维护第二套聊天状态。
+  **（2026-09-18 升级 P1 并已实现，见「竞品差距」）**
 - [ ] **Plugin Center 安全 spike**：只在 Host 侧调用官方 `dsh plugin`，加入来源/兼容性/权限告知、显式确认、重启和回滚；不在 Webview 执行第三方代码。
   **（2026-09-18 升级 P1，见「竞品差距」）**
 - [ ] **调试器控制安全 spike**：在现有暂停态上下文之上评估启动、断点、单步和变量读取；每个动作需白名单、确认、取消和超时。
+  **（2026-09-18 升级 P1，见「竞品差距」）**
 - [ ] **Session 导入/导出评估**：等待 DSH 导出格式稳定后再做显式文件选择，不复制第二套 Session 数据库。
 - [ ] **Inline completion / Ghost text 评估**：需要独立的模型路由、节流、取消、隐私和计费语义，暂不由 RC1 直接解锁。
 - [ ] **本地检查点设计**：先定义未跟踪文件、未保存编辑、并发修改、清理和存储上限，再评估 shadow snapshot；现有原生 diff 不等于完整回滚。

@@ -120,6 +120,7 @@
     "Diagnose environment": "诊断环境",
     "Current mode": "当前模式",
     "Current model": "当前模型",
+    "DSH Chat": "DSH 聊天",
     "DSH Trace (cannot restore)": "DSH Trace（无法恢复）",
     "DSH: Failed to configure API Key: {message}": "DSH：配置 API Key 失败：{message}",
     "DSH: Failed to open Trace: {message}": "DSH：打开 Trace 失败：{message}",

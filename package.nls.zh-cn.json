@@ -6,6 +6,7 @@
     "view.chat.name": "聊天",
     "view.conversationNavigation.name": "对话大纲",
     "command.open.title": "打开聊天",
+    "command.openInEditor.title": "在编辑器标签页中打开聊天",
     "command.openTrace.title": "打开会话 Trace",
     "command.newSession.title": "新建会话",
     "command.switchSession.title": "切换会话",

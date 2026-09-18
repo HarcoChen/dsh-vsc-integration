@@ -97,6 +97,8 @@ The slash menu dynamically fetches commands registered by the Runtime for the cu
 
 The sidebar provides a native conversation-outline TreeView. Trace, token usage, Todo lists, and subagents are gathered in the Activity panel. The UI supports VS Code's dark and light themes.
 
+`DSH: Open Chat in Editor Tab` mirrors the same conversation in an editor tab, so the chat can sit next to the file you are editing. Both surfaces show one session and one stream — switching between them does not restart or fork anything.
+
 ![Trace and Activity panel](public/assets/Trace.png)
 
 ### Credentials and balance

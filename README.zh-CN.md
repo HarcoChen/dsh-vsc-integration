@@ -94,6 +94,8 @@
 
 侧栏提供原生对话大纲树视图；Trace、Token 用量、Todo 清单与子代理统一归集在活动面板。UI 适配 VS Code 深浅主题。
 
+运行 `DSH: 在编辑器标签页中打开聊天`（`DSH: Open Chat in Editor Tab`）可以把同一份对话镜像到编辑器标签页，让聊天紧挨着正在改的文件。两个界面共用一个会话与一条流，切换不会重开或分叉。
+
 ![Trace 和活动面板](public/assets/Trace.png)
 
 ### 凭据与余额

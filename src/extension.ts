@@ -97,6 +97,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         registerChatParticipant(chatView, context.extensionUri),
         vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
         vscode.commands.registerCommand("dsh.open", () => chatView.reveal()),
+        vscode.commands.registerCommand("dsh.openInEditor", () => chatView.openInEditor()),
         vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
             try {
                 const supplied = value === undefined ? undefined : parseTraceLocation(value);

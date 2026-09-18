@@ -6,6 +6,7 @@
     "view.chat.name": "Chat",
     "view.conversationNavigation.name": "Conversation Outline",
     "command.open.title": "Open Chat",
+    "command.openInEditor.title": "Open Chat in Editor Tab",
     "command.openTrace.title": "Open Session Trace",
     "command.newSession.title": "New Session",
     "command.switchSession.title": "Switch Session",
