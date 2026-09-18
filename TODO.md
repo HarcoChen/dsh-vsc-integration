@@ -274,7 +274,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
       `createWebviewPanel("dsh.chatViewEditor", …, retainContextWhenHidden: true)`，
       只复用一个标签页。未注册 `WebviewPanelSerializer`，故窗口重载后该标签页不恢复。
       **未在真实 VS Code 窗口跑过**。
-- [ ] **自主调试（把下方 P2「调试器控制安全 spike」升级为 P1 并定方案）**。
+- [x] **自主调试（把下方 P2「调试器控制安全 spike」升级为 P1 并定方案）**。
       竞品确实做出来了：本地起 StreamableHTTP **MCP server**
       （`src/debug-mcp-server.ts`，Bearer token + `timingSafeEqual` + 256 KB 请求上限），
       暴露 `start`（按 `.vscode/launch.json` 拉起）/ `breakpoint` / `control`（单步）/
@@ -289,6 +289,43 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
       patch 注入点需先确认可不与 `web --no-open` 默认参数和 auto 模式的
       package-manager 前缀剥离冲突；patch 生命周期要与统一停止流程对齐，
       不能留孤儿 `cordis.yml`。
+      实现分两层：
+      - Host 侧：`src/debugMcpServer.ts`（手写无状态 JSON 的 StreamableHTTP 端点，
+        避免为 MCP SDK 引入约 90 个包——本扩展运行时依赖仍只有 `ws`）、
+        `src/debugToolHandlers.ts`（`debug_start`/`debug_breakpoint`/`debug_control`/
+        `debug_context`）、`src/debugContext.ts` 扩出生命周期事件
+        （`onDidLifecycleChange`）与按 `session/thread/frame` 定位的快照采集，
+        原 `contextStore` 调用点行为不变。
+      - 启动侧：`src/debugLaunch.ts` 的 `DebugLaunchOverlay` 在**本窗口自启**且
+        `isWebProfileArgs(args)` 时创建，patch 走 `insertWebLauncherPatch`（与
+        compaction 同一函数：`--patch` 插在 web app 参数之前、已有 `--patch` 对之后，
+        两片可叠加。auto 模式改写包名前缀发生在同一 `launchAttempt` 的更早处，
+        因此不与之争序；`web --no-open` 是 app 参数，launcher flag 不会落在它后面）；
+        token 不落盘，经
+        `DSH_IDE_DEBUG_TOKEN` 由 patch 里的 `!!js` 在 Runtime 进程内插值。
+        文件名为 `debug-<pid>-<ownerId>.patch.yml`，写入 `recoveryLedger.directory`；
+        `--patch` 覆盖层是**补丁列表**（`applyEntryPatches`：带 `id` 的裸条目是按 id 覆盖
+        已有行，目标缺失只 warn 后跳过），所以插件行必须包在 `- insert:` 里，
+        `!!js` 表达式也要用引号包住反引号模板（YAML 普通标量不能以反引号开头），
+        否则解析直接抛错、Runtime 起不来。
+        释放路径覆盖统一停止（`stopResources`）、启动失败、以及 `launchAttempt`
+        里 peer 最后时刻应答三种情形；另按 pid 存活清扫崩溃残留的孤儿文件。
+        因为 per-launch 文件名进入 `buildComposition` 的 hash，别的窗口不会 adopt
+        带调试端点的 Runtime。设置 `dsh.autonomousDebugging` 默认 `false`，
+        运行中变更时提示重启。
+      已验证：`npm run check`、既有 50 项测试、以及仓库外三个探针——用真实
+      `@modelcontextprotocol/sdk` 客户端打通 initialize/tools list/call 并跑完
+      401/405/404/403(Host 伪造)/400(batch)/413/202/无状态重连/幂等 stop；
+      用假 `vscode` 模块驱动四个工具，覆盖 redaction、寄存器 scope 过滤、
+      `wait` 事件、断点 `verified` 状态与 launch 配置校验的错误文案；
+      第三个探针用 harness 同款的 `JSON_SCHEMA + !!js` 方言解析生成的 patch，
+      校验 `insert` 结构、模板求值出 `Bearer <token>`、token 不在文件里、
+      死 pid 孤儿被清扫而活 pid 与 `compaction.patch.yml` 不动、dispose 幂等删文件。
+      **未验证：没有在真实 VS Code 窗口里让 `dsh-mcp-client` 加载该 patch 并让
+      Agent 真的调用一次工具**——`serverName` 正则/`!!js` 方言/`insert` 语义均按
+      `deepseek-harness` 源码（`vendor/include`、`packages/boot/app-boot`、
+      `packages/mcp/mcp-client`）与本地 SDK 客户端推断，首次真机联调要盯
+      `[dsh:debug]` 输出与 `failOnStartupError` 是否把错误吞掉。
 - [ ] **插件中心（把下方 P2「Plugin Center 安全 spike」转正）**。竞品用
       `src/plugin-manager.ts`：`spawn` 官方 `dsh` CLI + 直接读 DSH_HOME profile
       （`plugin-profile.ts` 的 `readInstalledPlugins`/`resolveDshHome`）+
@@ -377,8 +414,8 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
   **（2026-09-18 升级 P1 并已实现，见「竞品差距」）**
 - [ ] **Plugin Center 安全 spike**：只在 Host 侧调用官方 `dsh plugin`，加入来源/兼容性/权限告知、显式确认、重启和回滚；不在 Webview 执行第三方代码。
   **（2026-09-18 升级 P1，见「竞品差距」）**
-- [ ] **调试器控制安全 spike**：在现有暂停态上下文之上评估启动、断点、单步和变量读取；每个动作需白名单、确认、取消和超时。
-  **（2026-09-18 升级 P1，见「竞品差距」）**
+- [x] **调试器控制安全 spike**：在现有暂停态上下文之上评估启动、断点、单步和变量读取；每个动作需白名单、确认、取消和超时。
+  **（2026-09-18 升级 P1 并已实现，见「竞品差距」）**
 - [ ] **Session 导入/导出评估**：等待 DSH 导出格式稳定后再做显式文件选择，不复制第二套 Session 数据库。
 - [ ] **Inline completion / Ghost text 评估**：需要独立的模型路由、节流、取消、隐私和计费语义，暂不由 RC1 直接解锁。
 - [ ] **本地检查点设计**：先定义未跟踪文件、未保存编辑、并发修改、清理和存储上限，再评估 shadow snapshot；现有原生 diff 不等于完整回滚。

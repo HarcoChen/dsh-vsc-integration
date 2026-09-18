@@ -25,6 +25,8 @@ import {
 import { compareRuntimeVersions } from "./runtimeVersion";
 
 import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock } from "./remote/sessionState";
+import type { DebugContextTracker } from "./debugContext";
+import { DebugLaunchOverlay } from "./debugLaunch";
 import { t } from "./localize";
 import { LocalRuntimeUpgradeCancelledError, offerLocalRuntimeUpgrade } from "./localRuntimeUpgrade";
 import { buildComposition, patchPathsFromArgs, profileNameFromArgs } from "./recovery/composition";
@@ -1218,6 +1220,7 @@ export class DshRuntime implements vscode.Disposable {
     private sharedCompositionHash: string | undefined;
     private advertisementWrite: Promise<void> = Promise.resolve();
     private compactionPatchPath: string | undefined;
+    private debugOverlay: DebugLaunchOverlay | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
     private hostDescription: HarnessHostDescription | undefined;
@@ -1235,6 +1238,8 @@ export class DshRuntime implements vscode.Disposable {
     public constructor(
         private readonly output: vscode.OutputChannel,
         private readonly storagePath: string,
+        /** Shared with the context store so one DAP view backs both snapshots and tools. */
+        private readonly debugContextTracker?: DebugContextTracker,
     ) {
         this.recoveryLedger = new RecoveryLedgerStore(storagePath);
         this.recoveryDiagnostics = new RecoveryDiagnostics(storagePath);
@@ -1630,6 +1635,7 @@ export class DshRuntime implements vscode.Disposable {
         const results = await Promise.allSettled([
             withinShutdownDeadline(this.harnessState.stop(), "Remote state shutdown"),
             child && this.startedByExtension ? this.terminate(child) : Promise.resolve(),
+            this.releaseDebugOverlay(),
         ]);
         if (results[1]?.status === "fulfilled") {
             if (this.child === child) this.child = undefined;
@@ -1647,6 +1653,18 @@ export class DshRuntime implements vscode.Disposable {
         }
         this.startedByExtension = false;
         this.setStatus({ state: "stopped" });
+    }
+
+    /** Closes the debug MCP endpoint and removes the patch file this launch wrote. */
+    private async releaseDebugOverlay(): Promise<void> {
+        const overlay = this.debugOverlay;
+        this.debugOverlay = undefined;
+        if (!overlay) return;
+        try {
+            await overlay.dispose();
+        } catch (error) {
+            this.output.appendLine(`[dsh:debug] overlay cleanup failed: ${String(error)}`);
+        }
     }
 
     public createWorkspace(path: string): Promise<DshWorkspaceCreateResult> {
@@ -2620,9 +2638,15 @@ export class DshRuntime implements vscode.Disposable {
         // previous extension instance before creating another writer process.
         // Harness's web profile defaults to port 3080; an explicit setting wins.
         const configuredPort = this.configuration().get<number>("serverPort", 0);
+        const autonomousDebugging = configuration.get<boolean>("autonomousDebugging", false);
         const existingEndpoint = await this.findExistingRuntime(configuredPort, signal);
         checkStarting();
         if (existingEndpoint) {
+            if (autonomousDebugging) {
+                this.output.appendLine(
+                    "[dsh:debug] autonomous debugging only mounts on a Runtime this window started; the adopted Runtime has no debug tools.",
+                );
+            }
             this.setRuntimeEndpoint(existingEndpoint);
             this.startedByExtension = false;
             this.setStatus({ state: "running", url: existingEndpoint.baseUrl });
@@ -2766,6 +2790,27 @@ export class DshRuntime implements vscode.Disposable {
             insertWebLauncherPatch(args, this.compactionPatchPath);
             this.output.appendLine(`[dsh] compaction command enabled with patch: ${this.compactionPatchPath}`);
         }
+        if (autonomousDebugging && isWebProfileArgs(args)) {
+            const ownerId = this.ownedRuntime?.record.ownerId;
+            if (!ownerId || !this.debugContextTracker) {
+                this.output.appendLine("[dsh:debug] autonomous debugging needs this launch's owner id and debug tracker; skipped.");
+            } else {
+                try {
+                    this.debugOverlay = await DebugLaunchOverlay.create({
+                        directory: this.recoveryLedger.directory,
+                        ownerId,
+                        tracker: this.debugContextTracker,
+                        maxContextBytes: configuration.get<number>("maxContextBytes", 120_000),
+                        log: (message) => this.output.appendLine(`[dsh:debug] ${message}`),
+                    });
+                } catch (error) {
+                    await this.releaseDebugOverlay();
+                    await this.releaseOwnedRuntime();
+                    throw error;
+                }
+                insertWebLauncherPatch(args, this.debugOverlay.patchPath);
+            }
+        }
         args = ensureNoOpen(args);
 
         const packageInvocation = isPackageManagerSource(launcher.source) ? dshPackageInvocation(args) : undefined;
@@ -2786,11 +2831,9 @@ export class DshRuntime implements vscode.Disposable {
         }
         try {
             const patchPaths = patchPathsFromArgs(args);
-            const compactionPatchPath = this.compactionPatchPath;
-            const extensionOverlays = compactionPatchPath &&
-                patchPaths.some((path) => samePath(path, compactionPatchPath))
-                ? [compactionPatchPath]
-                : [];
+            const extensionOverlays = [this.compactionPatchPath, this.debugOverlay?.patchPath]
+                .filter((overlay): overlay is string =>
+                    overlay !== undefined && patchPaths.some((path) => samePath(path, overlay)));
             this.lastRecoveryComposition = await buildComposition({
                 command,
                 resolvedPath: await findExecutable(command),
@@ -2866,6 +2909,12 @@ export class DshRuntime implements vscode.Disposable {
                 if (shared) {
                     releaseStartup?.();
                     await this.releaseOwnedRuntime();
+                    if (this.debugOverlay) {
+                        await this.releaseDebugOverlay();
+                        this.output.appendLine(
+                            "[dsh:debug] a peer Runtime answered last moment; its launch carries no debug tools, so this window's endpoint was closed.",
+                        );
+                    }
                     this.setRuntimeEndpoint(shared);
                     this.startedByExtension = false;
                     return shared.baseUrl;
@@ -2884,6 +2933,10 @@ export class DshRuntime implements vscode.Disposable {
 
             this.output.appendLine(`[dsh] starting: ${launchCommand} ${attemptArgs.join(" ")}`);
             const launchEnv: NodeJS.ProcessEnv = { ...process.env };
+            if (this.debugOverlay) {
+                // The patch file interpolates this token at boot; it never sits on disk.
+                Object.assign(launchEnv, this.debugOverlay.environment);
+            }
             if (isPackageManagerSource(launchSource)) {
                 if (registryOverride !== undefined) {
                     // npm and pnpm both honor the npm_config_registry key. Set
@@ -3170,6 +3223,7 @@ export class DshRuntime implements vscode.Disposable {
                 )
                 : await launchWithFallback();
         } catch (error) {
+            await this.releaseDebugOverlay();
             await this.releaseOwnedRuntime();
             checkStarting();
             let message = error instanceof Error ? error.message : String(error);

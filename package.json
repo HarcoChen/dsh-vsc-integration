@@ -542,6 +542,11 @@
                     "default": true,
                     "description": "%config.enableCompaction.description%"
                 },
+                "dsh.autonomousDebugging": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.autonomousDebugging.description%"
+                },
                 "dsh.serverUrl": {
                     "type": "string",
                     "default": "",

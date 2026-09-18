@@ -101,6 +101,18 @@ The sidebar provides a native conversation-outline TreeView. Trace, token usage,
 
 ![Trace and Activity panel](public/assets/Trace.png)
 
+### Autonomous debugging (off by default)
+
+With `dsh.autonomousDebugging` enabled, the extension exposes a loopback MCP endpoint inside
+this window and the agent can drive the VS Code debugger: `debug_start` launches a launch
+configuration that already exists in the workspace, `debug_breakpoint` adds, removes and lists
+breakpoints, `debug_control` continues, steps and waits for the next pause, and `debug_context`
+reads the paused stack, variables and source. Variables whose names look like secrets are
+replaced with `[redacted by dsh-ide]` before they leave the window. The endpoint binds
+`127.0.0.1` only, checks the `Host` header and a per-launch token, and never lets the model
+invent a launch configuration. It applies to a Runtime this window starts; switching the setting
+needs a Runtime restart, which the extension offers when you change it.
+
 ### Credentials and balance
 
 The bottom bar shows your current balance, including peak and off-peak pricing. Low balances are highlighted clearly.
@@ -173,6 +185,8 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.runtimeVersion` | `0.1.5-rc.1` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1 (CNB downloads require a published mirror). |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
+| `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
+| `dsh.autonomousDebugging` | `false` | Let the agent drive this window's debugger through a loopback MCP endpoint. Applies to a Runtime this window starts; needs a Runtime restart. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |
 | `dsh.persistSession` | `true` | Reuse the previous Session ID for the current workspace when possible. |
 | `dsh.agentStatusLabels` | *fat-whale messages* | Random text shown during each streaming turn; customizable. |

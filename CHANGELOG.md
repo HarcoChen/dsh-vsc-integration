@@ -11,6 +11,12 @@
 
 ### 新增
 
+- `dsh.autonomousDebugging`（默认关闭）让 Agent 通过本机回环 MCP 端点操作本窗口的调试器：
+  `debug_start` 启动工作区里已有的 launch 配置、`debug_breakpoint` 增删查断点、
+  `debug_control` 单步与暂停、`debug_context` 读取暂停时的调用栈、变量与源码。
+  变量名疑似密钥时快照会替换为 `[redacted by dsh-ide]`；端点只监听 127.0.0.1，
+  校验 Host 头与启动令牌，且只使用本窗口自启的 Runtime——连接 `dsh.serverUrl` 时不注入。
+  打开或关闭后需重启 Runtime 才会生效，扩展会在设置变更时提示重启。
 - `DSH: Open Chat in Editor Tab` 把当前会话镜像到编辑器标签页，与侧栏共用同一份会话状态；
   编辑器快捷任务、审批与流式输出在两个界面同时可见。只复用一个标签页，避免两份草稿分叉。
 - 审批放行前会检查目标文件在编辑器里是否有未保存改动：命中时拒绝放行并列出文件，

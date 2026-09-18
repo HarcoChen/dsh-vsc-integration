@@ -98,6 +98,10 @@
 
 ![Trace 和活动面板](public/assets/Trace.png)
 
+### 自主调试（默认关闭）
+
+开启 `dsh.autonomousDebugging` 后，扩展会在本窗口内起一个只监听回环地址的 MCP 端点，Agent 由此操作 VS Code 调试器：`debug_start` 启动工作区里已有的 launch 配置，`debug_breakpoint` 增加、删除、列出断点，`debug_control` 继续、单步并等待下一次暂停，`debug_context` 读取暂停时的调用栈、变量与源码。名字疑似密钥的变量在离开窗口前会替换为 `[redacted by dsh-ide]`。端点仅绑定 `127.0.0.1`，校验 `Host` 头与每次启动单独的令牌，也不允许模型自造 launch 配置。该能力只对本窗口自行启动的 Runtime 生效；切换设置后需重启 Runtime，扩展会在设置变更时提示。
+
 ### 凭据与余额
 
 底部快速查看当前余额，支持峰谷定价显示，支持低余额采用醒目颜色警示。
@@ -170,6 +174,8 @@ graph TD
 | `dsh.runtimeVersion` | `0.1.5-rc.1` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 RC.1 的合法 SemVer；CNB 下载需镜像已发布。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
+| `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
+| `dsh.autonomousDebugging` | `false` | 允许 Agent 通过本机回环 MCP 端点操作本窗口的调试器；只对本窗口自行启动的 Runtime 生效，切换后需重启 Runtime。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
 | `dsh.persistSession` | `true` | 尽可能复用当前工作区上次的 Session ID。 |
 | `dsh.agentStatusLabels` | *内置“大肥鱼”状态文案* | 每轮流式输出随机展示的文本提示，支持自定义。 |

@@ -35,7 +35,8 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             return typeof value === "function" ? value.bind(target) : value;
         },
     });
-    const runtime = new DshRuntime(output, context.globalStorageUri.fsPath);
+    const debugContextTracker = new DebugContextTracker();
+    const runtime = new DshRuntime(output, context.globalStorageUri.fsPath, debugContextTracker);
     let shutdown: Promise<void> | undefined;
     const stopRuntime = (): Promise<void> => shutdown ??= runtime.dispose().finally(() => {
         outputDisposed = true;
@@ -44,7 +45,6 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     shutdownRuntime = stopRuntime;
     const balanceService = new DeepSeekBalanceService(context, output);
     const terminalContext = new TerminalContextStore();
-    const debugContextTracker = new DebugContextTracker();
     const contextStore = new ContextStore(debugContextTracker);
     const agentStatusPresentations = new AgentStatusPresentationRegistry();
     const conversationNavigationRegistry = new ConversationNavigationRegistry();
@@ -243,6 +243,23 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         }),
     );
     balanceService.start();
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (!event.affectsConfiguration("dsh.autonomousDebugging")) return;
+            if (runtime.getStatus().state !== "running") return;
+            const restart = t("Restart DSH Runtime");
+            void vscode.window
+                .showInformationMessage(
+                    t("Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?"),
+                    restart,
+                )
+                .then((answer) => {
+                    if (answer !== restart) return;
+                    void vscode.commands.executeCommand("dsh.restart");
+                });
+        }),
+    );
 
     const configuration = vscode.workspace.getConfiguration("dsh");
     const autoStart = configuration.get<boolean>("autoStart", true);
