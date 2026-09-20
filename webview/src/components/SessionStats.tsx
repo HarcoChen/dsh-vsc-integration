@@ -35,14 +35,13 @@ export function SessionStats({ stats }: { stats: SessionStatsState["sessionStats
     return (
         <div className="dsh-stats" aria-label={t("Session statistics")}>
             <div className="dsh-stats-top">
-                {groups.slice(0, 2).map((group, index) => (
+                {groups.map((group, index) => (
                     <React.Fragment key={group}>
                         {index > 0 ? <span className="dsh-stats-separator" aria-hidden="true">|</span> : null}
                         <span>{group}</span>
                     </React.Fragment>
                 ))}
             </div>
-            {groups[2] ? <div className="dsh-stats-bottom">{groups[2]}</div> : null}
         </div>
     );
 }
