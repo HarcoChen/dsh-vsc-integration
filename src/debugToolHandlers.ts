@@ -194,6 +194,7 @@ class DebugToolHostImpl implements DebugToolHost {
         }
         const name = text(configuration.name) ?? requested ?? "launch configuration";
 
+        const previousLastStartedId = this.lastStartedId;
         let started: boolean;
         try {
             started = await vscode.debug.startDebugging(folder, name, {
@@ -206,7 +207,7 @@ class DebugToolHostImpl implements DebugToolHost {
             return failure(`VS Code declined the launch of "${name}" — the configuration may be invalid or another session is exclusive.`);
         }
 
-        const session = await this.settleStartedSession();
+        const session = await this.settleStartedSession(previousLastStartedId);
         this.options.log?.(`debug_start launched ${name}`);
         return success([
             `Started debug session "${name}"${session ? ` (id ${session.id}, type ${session.type})` : ""}.`,
@@ -237,13 +238,16 @@ class DebugToolHostImpl implements DebugToolHost {
         const condition = text(args.condition);
         const hitCondition = text(args.hitCondition);
         const logMessage = text(args.logMessage);
-        const existing = matches.find((breakpoint) => breakpointMatchesOptions(breakpoint, condition, hitCondition, logMessage));
+        const enabled = args.enabled !== false;
+        const existing = matches.find((breakpoint) => breakpointMatchesOptions(
+            breakpoint, condition, hitCondition, logMessage, enabled,
+        ));
         if (existing) {
             return success(`A breakpoint at ${displayUri(uri)}:${line} already covers this request.`);
         }
         vscode.debug.addBreakpoints([new vscode.SourceBreakpoint(
             new vscode.Location(uri, new vscode.Position(line - 1, 0)),
-            args.enabled !== false,
+            enabled,
             condition,
             hitCondition,
             logMessage,
@@ -466,8 +470,10 @@ class DebugToolHostImpl implements DebugToolHost {
      * `onDidStartDebugSession` before `startDebugging` resolves; the wait covers
      * an adapter that reports it later.
      */
-    private settleStartedSession(): Promise<vscode.DebugSession | undefined> {
-        if (this.lastStartedId) return Promise.resolve(this.sessions.get(this.lastStartedId));
+    private settleStartedSession(previousLastStartedId: string | undefined): Promise<vscode.DebugSession | undefined> {
+        if (this.lastStartedId !== previousLastStartedId && this.lastStartedId) {
+            return Promise.resolve(this.sessions.get(this.lastStartedId));
+        }
         return new Promise((resolve) => {
             let settled = false;
             const waiter = (session: vscode.DebugSession) => {
@@ -510,10 +516,16 @@ function breakpointMatchesOptions(
     condition: string | undefined,
     hitCondition: string | undefined,
     logMessage: string | undefined,
+    enabled: boolean,
 ): boolean {
-    return (condition === undefined || breakpoint.condition === condition)
-        && (hitCondition === undefined || breakpoint.hitCondition === hitCondition)
-        && (logMessage === undefined || breakpoint.logMessage === logMessage);
+    return normalizeBreakpointOption(breakpoint.condition) === condition
+        && normalizeBreakpointOption(breakpoint.hitCondition) === hitCondition
+        && normalizeBreakpointOption(breakpoint.logMessage) === logMessage
+        && breakpoint.enabled === enabled;
+}
+
+function normalizeBreakpointOption(value: string | undefined): string | undefined {
+    return value === "" ? undefined : value;
 }
 
 function stopReason(info: { reason?: string; description?: string; text?: string; threadId?: number }): string {

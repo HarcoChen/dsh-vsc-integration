@@ -2642,6 +2642,7 @@ export class DshRuntime implements vscode.Disposable {
         const existingEndpoint = await this.findExistingRuntime(configuredPort, signal);
         checkStarting();
         if (existingEndpoint) {
+            await this.releaseDebugOverlay();
             if (autonomousDebugging) {
                 this.output.appendLine(
                     "[dsh:debug] autonomous debugging only mounts on a Runtime this window started; the adopted Runtime has no debug tools.",
@@ -2796,6 +2797,7 @@ export class DshRuntime implements vscode.Disposable {
                 this.output.appendLine("[dsh:debug] autonomous debugging needs this launch's owner id and debug tracker; skipped.");
             } else {
                 try {
+                    await this.releaseDebugOverlay();
                     this.debugOverlay = await DebugLaunchOverlay.create({
                         directory: this.recoveryLedger.directory,
                         ownerId,
