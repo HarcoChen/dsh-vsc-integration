@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
 import { captureAppShot as captureNativeAppShot } from "./appShot";
@@ -21,6 +21,7 @@ import {
     parseChatViewAction,
     validateQuestionAnswers,
 } from "./chatViewProtocol";
+import { ChatViewSurface } from "./chatViewSurface";
 import { ContextStore } from "./contextStore";
 import { AGENT_PRESET_DOCUMENT_SCHEME, manageAgentPresets } from "./agentPresetActions";
 import { ChangeReviewStore } from "./changeReviewStore";
@@ -221,6 +222,9 @@ const REASONING_EFFORT_KNOB_IMAGE = "chibi-runner-strip.png";
  */
 const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
 
+/** Opens the DSH view container; `WebviewView.show()` alone cannot expand a collapsed sidebar part. */
+const SIDEBAR_CONTAINER_COMMAND = "workbench.view.extension.dsh";
+
 function positiveTurn(value: unknown): number | undefined {
     return typeof value === "number" && Number.isSafeInteger(value) && value > 0
         ? value
@@ -256,9 +260,11 @@ function checkpointMessageTurn(snapshot: SessionStateSnapshot, seq: number): num
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
     public static readonly viewType = "dsh.chatView";
+    public static readonly editorViewType = "dsh.chatViewEditor";
 
-    private view: vscode.WebviewView | undefined;
-    private viewMessageDisposable: vscode.Disposable | undefined;
+    private readonly surfaces = new Set<ChatViewSurface>();
+    private activeSurface: ChatViewSurface | undefined;
+    private editorSurface: ChatViewSurface | undefined;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly optimisticPrompts: OptimisticPrompt[] = [];
     private readonly markdownRenders = new MarkdownRenderCache();
@@ -283,7 +289,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private fileReferenceQueryAbort: AbortController | undefined;
     private pendingComposerUpdate: { type: "insertText" | "setText"; text: string } | undefined;
     private readonly pendingComposerImages: DshImageUpload[] = [];
-    private webviewReady = false;
     private restoringPersistedSession: Promise<void> | undefined;
     private stateUpdateTimer: ReturnType<typeof setTimeout> | undefined;
     private readonly observedRunning = new Map<string, boolean>();
@@ -491,31 +496,89 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         _context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ): void {
-        this.view = webviewView;
-        this.webviewReady = false;
         this.seedObservedRunning();
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this.extensionUri],
-        };
-        webviewView.webview.html = this.getHtml(webviewView.webview);
-        this.viewMessageDisposable?.dispose();
-        this.viewMessageDisposable = webviewView.webview.onDidReceiveMessage((message: unknown) =>
-            this.handleMessage(message),
-        );
-        this.disposables.push(
-            webviewView.onDidChangeVisibility(() => {
-                if (webviewView.visible) this.completedWhileHidden.clear();
-                this.updateViewBadge();
-            }),
-            webviewView.onDidDispose(() => {
-                if (this.view === webviewView) {
-                    this.view = undefined;
-                    this.webviewReady = false;
-                }
-            }),
-        );
+        this.openSurface(webviewView, SIDEBAR_CONTAINER_COMMAND);
         this.postState();
+    }
+
+    /**
+     * Shows the same chat in an editor tab.
+     *
+     * The panel mirrors the Session the sidebar already holds — one controller
+     * and one state, so opening a tab moves nothing, and a turn keeps streaming
+     * into whichever surface is open. One tab is reused rather than allowing
+     * two, because the composer draft lives in the webview and two tabs would
+     * silently fork it.
+     */
+    public openInEditor(): void {
+        const existing = this.editorSurface;
+        if (existing) {
+            this.activeSurface = existing;
+            existing.reveal();
+            this.postState();
+            return;
+        }
+        const panel = vscode.window.createWebviewPanel(
+            ChatViewProvider.editorViewType,
+            t("DSH Chat"),
+            vscode.ViewColumn.Active,
+            // The draft and the scroll position are the reason to open a tab,
+            // so hiding it for an editor switch must not tear them down.
+            { enableScripts: true, retainContextWhenHidden: true },
+        );
+        this.editorSurface = this.openSurface(panel);
+        this.postState();
+    }
+
+    private openSurface(
+        view: vscode.WebviewView | vscode.WebviewPanel,
+        revealCommand?: string,
+    ): ChatViewSurface {
+        const surface = ChatViewSurface.open({
+            view,
+            extensionUri: this.extensionUri,
+            ...(revealCommand === undefined ? {} : { revealCommand }),
+            html: (webview) => this.getHtml(webview),
+            onMessage: (message, sender) => {
+                void this.handleMessage(message, sender);
+            },
+            onVisibilityChange: () => {
+                if (this.anySurfaceVisible()) this.completedWhileHidden.clear();
+                this.updateViewBadge();
+            },
+            onDisposed: (disposed) => {
+                if (this.editorSurface === disposed) this.editorSurface = undefined;
+                this.retireSurface(disposed);
+            },
+        });
+        this.addSurface(surface);
+        return surface;
+    }
+
+    /**
+     * Adopts a freshly opened surface. The newest one becomes `activeSurface`,
+     * so a command fired from the editor reaches the view the user opened last,
+     * and an editor tab taken while the sidebar is idle is not answered by
+     * dragging the sidebar forward.
+     */
+    private addSurface(surface: ChatViewSurface): void {
+        this.surfaces.add(surface);
+        this.activeSurface = surface;
+    }
+
+    private retireSurface(surface: ChatViewSurface): void {
+        this.surfaces.delete(surface);
+        if (this.activeSurface === surface) {
+            this.activeSurface = Array.from(this.surfaces)[0];
+        }
+        this.updateViewBadge();
+    }
+
+    private anySurfaceVisible(): boolean {
+        for (const surface of this.surfaces) {
+            if (surface.visible) return true;
+        }
+        return false;
     }
 
     public insertEditorReference(): void {
@@ -1023,8 +1086,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public reveal(): void {
-        void vscode.commands.executeCommand("workbench.view.extension.dsh");
-        this.view?.show?.(false);
+        const target = this.activeSurface ?? Array.from(this.surfaces)[0];
+        if (target) {
+            target.reveal();
+        } else {
+            // No view exists yet, so force the sidebar open; the draft the
+            // caller queued flushes once the resolved webview reports ready.
+            void vscode.commands.executeCommand(SIDEBAR_CONTAINER_COMMAND);
+        }
         this.postState();
     }
 
@@ -1035,7 +1104,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async revealConversationMilestone(seq: number): Promise<void> {
         if (!Number.isSafeInteger(seq) || seq < 0) return;
         this.reveal();
-        if (!this.view || !this.webviewReady) return;
+        const target = this.activeSurface;
+        if (!target?.ready) return;
         const sessionId = this.sessionId;
         let targetSeq = this.conversationRevealTarget(seq);
         if (targetSeq === undefined && sessionId) {
@@ -1048,8 +1118,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (this.sessionId !== sessionId) return;
             targetSeq = this.conversationRevealTarget(seq);
         }
-        if (!this.view || !this.webviewReady) return;
-        void this.view.webview.postMessage({ type: "revealMessage", seq: targetSeq ?? seq });
+        if (!target.ready) return;
+        target.post({ type: "revealMessage", seq: targetSeq ?? seq });
     }
 
     private conversationRevealTarget(seq: number): number | undefined {
@@ -1113,7 +1183,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public dispose(): void {
-        this.viewMessageDisposable?.dispose();
+        for (const surface of Array.from(this.surfaces)) surface.dispose();
         if (this.stateUpdateTimer) clearTimeout(this.stateUpdateTimer);
         this.subagents.dispose();
         this.goalActivation.dispose();
@@ -1125,16 +1195,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
-    private async handleMessage(value: unknown): Promise<void> {
+    private async handleMessage(value: unknown, surface: ChatViewSurface): Promise<void> {
         const message = parseChatViewAction(value);
         if (!message) {
             this.output.appendLine("[dsh:webview] ignored malformed message");
             return;
         }
+        // Whatever just talked to us is the view the user is working in.
+        this.activeSurface = surface;
         try {
             switch (message.type) {
                 case "ready":
-                    this.webviewReady = true;
+                    surface.markReady();
                     this.postState();
                     this.flushPendingComposerUpdate();
                     this.flushPendingComposerImages();
@@ -2497,7 +2569,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     ): Promise<void> {
         const sessionId = this.sessionId;
         if (!sessionId) return;
-        const interaction = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
+        const store = this.runtime.getSessionStore();
+        const pending = store
+            .get(sessionId)
+            ?.interactions.find((item) => item.key === action.key);
+        if (!pending || pending.kind !== "approval" || pending.status !== "pending") return;
+        if (action.outcome === "allowed-once") {
+            const dirty = this.dirtyApprovalPaths(store.get(sessionId), pending.callId);
+            if (dirty.length) {
+                throw new Error(t(
+                    "Cannot approve: {files} has unsaved editor changes. Save or revert them first, then approve again.",
+                    { files: dirty.map((path) => `“${path}”`).join(", ") },
+                ));
+            }
+        }
+        const interaction = store.claimInteraction(sessionId, action.key);
         if (!interaction || interaction.kind !== "approval") return;
         try {
             await this.runtime.respondRemoteEvent(interaction.rpcId, {
@@ -2511,6 +2597,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 .failInteraction(sessionId, action.key, errorMessage(error));
             this.reportError(error);
         }
+    }
+
+    /**
+     * Approval targets the tool would overwrite while an editor buffer holds
+     * unsaved changes for the same file.
+     *
+     * The Runtime writes straight to disk, so releasing such an approval loses
+     * work that was never written; the caller refuses the release instead and
+     * leaves the card pending, which is what lets the user approve once more
+     * after saving or reverting. Paths come from the same structured diff card
+     * the approval shows, so a tool the Runtime presents some other way is not
+     * guessed at.
+     */
+    private dirtyApprovalPaths(
+        snapshot: SessionStateSnapshot | undefined,
+        callId: string | undefined,
+    ): string[] {
+        const diffPaths = presentApprovalCall(snapshot, callId)?.diffPaths ?? [];
+        if (!diffPaths.length) return [];
+        const unsaved = vscode.workspace.textDocuments
+            .filter((document) => document.isDirty && document.uri.scheme === "file")
+            .map((document) => document.uri.fsPath);
+        if (!unsaved.length) return [];
+        const root = this.sessionCwd ?? this.workspaceRoot();
+        return diffPaths.filter((path) => {
+            const absolute = isAbsolute(path) ? path : resolve(root ?? "", path);
+            return unsaved.some((buffer) => samePath(buffer, absolute));
+        });
     }
 
     private async answerQuestion(
@@ -2902,11 +3016,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (options.length === 0) return undefined;
         return {
             ...(selection.reasoningEffort === undefined ? {} : { current: selection.reasoningEffort }),
-            options: options.map((option) => {
-                if (!this.reasoningEffortKnobEnabled()) return option;
-                const image = this.reasoningEffortImage(option.id) ?? this.defaultEffortKnobImage();
-                return image ? { ...option, image } : option;
-            }),
+            options,
         };
     }
 
@@ -2944,26 +3054,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return label;
     }
 
-    /** Resolves the webview-safe image URI for an effort id, if one is configured. */
-    private reasoningEffortImage(effortId: string): string | undefined {
-        const file = REASONING_EFFORT_IMAGES[effortId];
-        if (!file || !this.view) return undefined;
-        return this.view.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, "resources", file),
-        ).toString();
-    }
-
     /** Whether the sprite-based reasoning effort knob is enabled via settings. */
     private reasoningEffortKnobEnabled(): boolean {
         return vscode.workspace.getConfiguration("dsh").get<boolean>("enableEffortKnob", true);
     }
 
-    /** Resolves the default knob sprite URI, if configured. */
-    private defaultEffortKnobImage(): string | undefined {
-        if (!this.view) return undefined;
-        return this.view.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, "resources", REASONING_EFFORT_KNOB_IMAGE),
-        ).toString();
+    /**
+     * The knob sprite a surface should show for one effort, as a path under
+     * `resources/`. Kept as a file name rather than a URI because
+     * {@link ChatViewSurface.resolveResource} is per-webview.
+     */
+    private effortKnobResource(effortId: string): string | undefined {
+        if (!this.reasoningEffortKnobEnabled()) return undefined;
+        return REASONING_EFFORT_IMAGES[effortId] ?? REASONING_EFFORT_KNOB_IMAGE;
     }
 
     private insertComposerText(text: string): void {
@@ -2978,24 +3081,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.flushPendingComposerUpdate();
     }
 
+    /**
+     * Hands the queued draft to every booted surface and keeps it only while no
+     * surface accepted it, so a draft queued before the first view exists still
+     * lands when that view reports ready.
+     */
     private flushPendingComposerUpdate(): void {
-        if (!this.view || !this.webviewReady || !this.pendingComposerUpdate) {
-            return;
-        }
         const update = this.pendingComposerUpdate;
+        if (!update) return;
+        const booted = Array.from(this.surfaces).filter((surface) => surface.ready);
+        if (!booted.length) return;
         this.pendingComposerUpdate = undefined;
-        void this.view.webview.postMessage(update);
+        for (const surface of booted) surface.post(update);
     }
 
     private flushPendingComposerImages(): void {
-        if (!this.view || !this.webviewReady) return;
+        const booted = Array.from(this.surfaces).filter((surface) => surface.ready);
+        if (!booted.length) return;
         for (const image of this.pendingComposerImages.splice(0)) {
-            void this.view.webview.postMessage({ type: "addImageDraft", image });
+            for (const surface of booted) {
+                surface.post({ type: "addImageDraft", image });
+            }
         }
     }
 
     private postState(): void {
-        if (!this.view) {
+        if (this.surfaces.size === 0) {
             return;
         }
 
@@ -3202,12 +3313,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 : [],
             changeReviews: this.changeReviews.view(this.sessionId),
         };
-        void this.view.webview.postMessage({
-            type: "state",
-            protocol: CHAT_WEBVIEW_PROTOCOL_VERSION,
-            state,
-        });
+        for (const surface of this.surfaces) {
+            surface.post({
+                type: "state",
+                protocol: CHAT_WEBVIEW_PROTOCOL_VERSION,
+                state: this.withSurfaceResources(state, surface),
+            });
+        }
         this.updateViewBadge(catalog.sessions);
+    }
+
+    /**
+     * Resolves the parts of a shared snapshot that only make sense inside one
+     * webview. A resource URI is bound to the webview that issued it, so the
+     * state the whole chat mirrors carries the knob as a resource path and each
+     * surface rewrites it for its own origin before posting.
+     */
+    private withSurfaceResources(state: ChatViewState, surface: ChatViewSurface): ChatViewState {
+        const reasoningEffort = state.reasoningEffort;
+        if (!reasoningEffort) return state;
+        return {
+            ...state,
+            reasoningEffort: {
+                ...reasoningEffort,
+                options: reasoningEffort.options.map((option) => {
+                    const resource = this.effortKnobResource(option.id);
+                    return resource === undefined
+                        ? option
+                        : { ...option, image: surface.resolveResource("resources", resource) };
+                }),
+            },
+        };
     }
 
     private seedObservedRunning(): void {
@@ -3246,7 +3382,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         for (const session of sessions) {
             const running = session.running === true;
             const previous = this.observedRunning.get(session.sessionId);
-            if (previous === true && !running && this.view && !this.view.visible) {
+            if (previous === true && !running && this.surfaces.size > 0 && !this.anySurfaceVisible()) {
                 this.completedWhileHidden.add(session.sessionId);
             }
             this.observedRunning.set(session.sessionId, running);
@@ -3259,18 +3395,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private updateViewBadge(sessions = this.runtime.getSessionCatalog().snapshot().sessions): void {
-        if (!this.view) return;
+        if (this.surfaces.size === 0) return;
         const archived = new Set(this.runtime.getSessionCatalog().snapshot().archivedSessionIds);
         for (const sessionId of archived) this.completedWhileHidden.delete(sessionId);
-        if (this.view.visible) {
+        if (this.anySurfaceVisible()) {
             this.completedWhileHidden.clear();
-            this.view.badge = undefined;
+            for (const surface of this.surfaces) surface.setBadge(undefined);
             return;
         }
-        this.view.badge = hiddenViewBadge(
+        const badge = hiddenViewBadge(
             sessions.filter((session) => !archived.has(session.sessionId)),
             this.completedWhileHidden,
         );
+        for (const surface of this.surfaces) surface.setBadge(badge);
     }
 
     private renderMessages(

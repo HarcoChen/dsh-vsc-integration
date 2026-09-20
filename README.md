@@ -78,6 +78,8 @@ After a `write`/`edit` tool call, open the target file to see VS Code's native s
 
 The approval card shows the actual command line, working directory, and target files that will be written. For supported file-writing tools, open a native diff of the proposed change before approving it.
 
+A write whose target file still has unsaved editor changes is not released: approval is refused, the card names the files and stays pending, and you can save or revert them and approve again.
+
 ### Slash commands enumerated live from the Runtime
 
 The slash menu dynamically fetches commands registered by the Runtime for the current session (`/plan`, `/compact`, `/goal`, etc.) and merges them with the extension's own IDE commands.
@@ -95,7 +97,21 @@ The slash menu dynamically fetches commands registered by the Runtime for the cu
 
 The sidebar provides a native conversation-outline TreeView. Trace, token usage, Todo lists, and subagents are gathered in the Activity panel. The UI supports VS Code's dark and light themes.
 
+`DSH: Open Chat in Editor Tab` mirrors the same conversation in an editor tab, so the chat can sit next to the file you are editing. Both surfaces show one session and one stream — switching between them does not restart or fork anything.
+
 ![Trace and Activity panel](public/assets/Trace.png)
+
+### Autonomous debugging (off by default)
+
+With `dsh.autonomousDebugging` enabled, the extension exposes a loopback MCP endpoint inside
+this window and the agent can drive the VS Code debugger: `debug_start` launches a launch
+configuration that already exists in the workspace, `debug_breakpoint` adds, removes and lists
+breakpoints, `debug_control` continues, steps and waits for the next pause, and `debug_context`
+reads the paused stack, variables and source. Variables whose names look like secrets are
+replaced with `[redacted by dsh-ide]` before they leave the window. The endpoint binds
+`127.0.0.1` only, checks the `Host` header and a per-launch token, and never lets the model
+invent a launch configuration. It applies to a Runtime this window starts; switching the setting
+needs a Runtime restart, which the extension offers when you change it.
 
 ### Credentials and balance
 
@@ -169,6 +185,8 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.runtimeVersion` | `0.1.5-rc.1` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1 (CNB downloads require a published mirror). |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
+| `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
+| `dsh.autonomousDebugging` | `false` | Let the agent drive this window's debugger through a loopback MCP endpoint. Applies to a Runtime this window starts; needs a Runtime restart. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |
 | `dsh.persistSession` | `true` | Reuse the previous Session ID for the current workspace when possible. |
 | `dsh.agentStatusLabels` | *fat-whale messages* | Random text shown during each streaming turn; customizable. |

@@ -61,6 +61,7 @@
         "onStartupFinished",
         "onView:dsh.chatView",
         "onCommand:dsh.open",
+        "onCommand:dsh.openInEditor",
         "onCommand:dsh.openTrace",
         "onWebviewPanel:dsh.traceEditor",
         "onCommand:dsh.newSession",
@@ -145,6 +146,12 @@
                     "light": "resources/dsh.svg",
                     "dark": "resources/dsh-dark.svg"
                 }
+            },
+            {
+                "command": "dsh.openInEditor",
+                "title": "%command.openInEditor.title%",
+                "category": "DSH",
+                "icon": "$(comment-discussion)"
             },
             {
                 "command": "dsh.openTrace",
@@ -478,6 +485,11 @@
                     "group": "navigation@dsh1"
                 },
                 {
+                    "command": "dsh.openInEditor",
+                    "when": "view == dsh.chatView",
+                    "group": "navigation@dsh2"
+                },
+                {
                     "command": "dsh.openTrace",
                     "when": "view == dsh.chatView",
                     "group": "1_dsh@1"
@@ -529,6 +541,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "%config.enableCompaction.description%"
+                },
+                "dsh.autonomousDebugging": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.autonomousDebugging.description%"
                 },
                 "dsh.serverUrl": {
                     "type": "string",
