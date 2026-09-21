@@ -69,8 +69,8 @@ export interface MessageFeedbackControllerDeps {
 /**
  * Owns the messageFeedback cache and serialized CAS mutations. The Runtime
  * persists feedback in the Session log without adding it to model context.
- * The visible feedback UI remains reserved; existing Webview entry points
- * preserve notes and categories written by other clients.
+ * The Webview exposes the optional controls while preserving categories and
+ * notes written by other clients.
  */
 export class MessageFeedbackController {
     private readonly states = new Map<string, MessageFeedbackSessionState>();
@@ -151,6 +151,13 @@ export class MessageFeedbackController {
             });
         this.requests.set(sessionId, request);
         return request;
+    }
+
+    /** Refresh the sidecar list for the selected Session when it is available. */
+    public refresh(sessionId: string | undefined, force = false): Promise<void> {
+        return sessionId === undefined
+            ? Promise.resolve()
+            : this.refreshMessageFeedback(sessionId, force);
     }
 
     /** Wait for a usable sidecar state, with older Runtimes degrading quietly. */
@@ -371,8 +378,9 @@ export class MessageFeedbackController {
     public decorateMessageFeedback(
         messages: readonly ChatMessage[],
         snapshot: SessionStateSnapshot | undefined,
-        state: MessageFeedbackSessionState | undefined,
+        sessionId: string | undefined,
     ): ChatMessage[] {
+        const state = sessionId === undefined ? undefined : this.states.get(sessionId);
         return messages.map((message) => {
             if (message.role !== "assistant" || message.state !== "committed") return message;
             const messageId = assistantFeedbackMessageId(snapshot, message.seq);

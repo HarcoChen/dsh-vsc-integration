@@ -42,8 +42,8 @@ Subagent 编排随后也已迁出：树刷新/历史预览/跟进/中断与 6 �
 构造器订阅、handleMessage 五个 case、postState/loadImage 读取、dispose 处接线；
 迁出代码经机械替换归一后与原实现逐行等价（仅类内方法顺序不同）。messageFeedback
 的状态与 CAS 骨架（4 字段 + 接口 + 2 个模块级 helper + 12 个方法）同法迁入
-`src/messageFeedbackController.ts`（395 行，含保留未接线的 `messageFeedbackView`/
-`decorateMessageFeedback`）。chatView.ts 3975 → 3175 行；重构余项：
+`src/messageFeedbackController.ts`（395 行；后续已将 `messageFeedbackView`/
+`decorateMessageFeedback` 接回 Webview）。chatView.ts 3975 → 3175 行；重构余项：
 `handleMessage` switch 拆处理器表（结构收益为主，行数基本持平），以及
 settings/动态插件域（约 250 行）与 `updateFileReferenceCandidates`（约 200 行，
 vscode 依赖较重）两个可选迁出。
@@ -110,8 +110,8 @@ projection 集合由当前 Loader composition 决定，不再用旧版固定总�
   Session 元数据只携带单个可选 `cwd`；这不是 VS Code multi-root 的多路径绑定。
 - **Typert Gateway capability**：`commands/list|execute`、
   `fileReferences/list`、`sessionReferenceResolver/candidates` 已由 UI/Runtime
-  消费；文件与会话引用在 404/旧 Runtime 时回退本地候选。`messageFeedback` 仍
-  只有 RPC、响应校验和 CAS 骨架，前端入口待评测闭环；`pluginInventory/list`
+  消费；文件与会话引用在 404/旧 Runtime 时回退本地候选。`messageFeedback` 已接入
+  会话级缓存、CAS 变更和消息行点赞/点踩/备注入口，旧 Runtime 静默降级；`pluginInventory/list`
   已接入设置面板只读清单；动态插件 inventory/stop/remove/decline 已接入
   Activity Dock（源码不在 Extension Host 执行）。所有 RC1 调用均经 `src/remote/`，不要再按已删除的
   `src/harnessClient.ts`、`src/harnessProtocol.ts` 估算接入成本。
@@ -122,7 +122,7 @@ projection 集合由当前 Loader composition 决定，不再用旧版固定总�
 
 ## P1：功能（按性价比排序，均已核对公开契约）
 
-- [ ] **消息反馈 UI/评测闭环**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`）；状态与 CAS 骨架已整体迁至 `src/messageFeedbackController.ts`（ChatViewProvider 仅转发两个 webview case），消息入口和反馈状态呈现仍未接回 Webview——`messageFeedbackView`/`decorateMessageFeedback` 保留在控制器中待接线。待评测、统计或导出闭环明确后再开放；反馈不写入 Session 日志、模型上下文或 telemetry。
+- [x] **消息反馈 UI/评测闭环**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`）；当前已接入会话级刷新、CAS 变更、点赞/点踩、备注编辑、会话切换和旧 Runtime 降级。反馈不写入模型上下文或 telemetry；统计、导出和会话级 `sessionFeedback/record` 仍按下方候选项另行评估。
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与最终进入 prompt 的内容，支持移除大项。（基础用量与 `contextBreakdown` 占用归因已完成；不自动识别或分类秘密、个人信息等敏感内容，除非另有隐私策略和明确同意。）
 - [ ] **扩展 `@` 引用类型**：当前已有文件、目录、`@selection`、`@terminal`，以及 Runtime 侧 `fileReferences/list`、`sessionReferenceResolver/candidates` 候选；仍需 diagnostics、实际捕获范围展示，并补齐远程工作区实机验证。
 - [ ] **项目规则（Prompt 模板已交付，见下）**：提供本地规则 Markdown 的只读发现和显式选择，作为可见上下文附件；没有公开 Memory 协议时不自动注入或生成隐式记忆。

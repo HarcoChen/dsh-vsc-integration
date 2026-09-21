@@ -456,6 +456,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.refreshSkillCatalog(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
                         void this.subagents.refreshSubagentTree(this.sessionId);
+                        void this.messageFeedback.refresh(this.sessionId, true);
                     }
                 });
             }),
@@ -1912,6 +1913,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.refreshModelCatalog(this.sessionId);
         this.refreshSkillCatalog(this.sessionId);
         this.refreshCommandCatalog(this.sessionId);
+        void this.messageFeedback.refresh(this.sessionId);
         return this.sessionId;
     }
 
@@ -1992,6 +1994,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshModelCatalog(sessionId);
             this.refreshSkillCatalog(sessionId);
             this.refreshCommandCatalog(sessionId);
+            void this.messageFeedback.refresh(sessionId, true);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
             if (latest?.sessionId === sessionId && latest?.cwd && samePath(latest.cwd, workspaceRoot)) {
@@ -2449,6 +2452,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.refreshModelCatalog(sessionId);
         this.refreshSkillCatalog(sessionId);
         this.refreshCommandCatalog(sessionId);
+        void this.messageFeedback.refresh(sessionId);
         void this.subagents.refreshSubagentTree(sessionId);
         this.reveal();
     }
@@ -3147,7 +3151,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             projectChatMessages(session, this.optimisticPrompts, this.sessionSkillNames()),
             this.focusMode,
         );
-        this.rememberCopyableMessages(this.sessionId, projectedMessages);
+        const feedbackMessages = this.messageFeedback.decorateMessageFeedback(
+            projectedMessages,
+            session,
+            this.sessionId,
+        );
+        const messageFeedback = this.messageFeedback.messageFeedbackView(this.sessionId);
+        this.rememberCopyableMessages(this.sessionId, feedbackMessages);
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
             (interaction) =>
@@ -3160,7 +3170,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const subagentPreview = this.subagents.previewFor(this.sessionId);
         const state: ChatViewState = {
             messages: this.renderMessages(
-                projectedMessages,
+                feedbackMessages,
                 `session:${this.sessionId ?? "none"}`,
                 this.sessionId,
             ),
@@ -3238,6 +3248,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(schedule === undefined ? {} : { schedule }),
             ...(imageLimits === undefined ? {} : { imageLimits }),
             ...(plan === undefined ? {} : { plan }),
+            ...(messageFeedback === undefined ? {} : { messageFeedback }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {
