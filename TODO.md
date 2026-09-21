@@ -77,7 +77,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 
 ## 契约基线（当前快照：2026-09-18，契约目标 `dsh-v0.1.5-rc.2`）
 
-默认下载 pin 是 `0.1.5-rc.1`（`package.json` 的 `dsh.runtimeVersion` 默认值），
+默认下载 pin 是 `0.1.5-rc.2`（`package.json` 的 `dsh.runtimeVersion` 默认值），
 `src/remote/contracts.ts` 的契约 pin 是 tag `dsh-v0.1.5-rc.2`、commit
 `fb2c4b9e698e30edb738bca4cf0618587db7d203`（本地 `deepseek-harness/` HEAD
 `c291e7961a` 即该版本同步进 master 的位置）。RC Remote 的 endpoint 和

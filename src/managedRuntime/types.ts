@@ -64,7 +64,7 @@ export interface RuntimeDownloadProvider {
 }
 
 /** Pinned runtime version; never request "latest" from a remote manifest. */
-export const RUNTIME_DEFAULT_VERSION = "0.1.5-rc.1";
+export const RUNTIME_DEFAULT_VERSION = "0.1.5-rc.2";
 
 /** Minimum CLI/Remote version. Newer SemVer releases are accepted without changing the download default. */
 export const RUNTIME_MINIMUM_VERSION = "0.1.5-rc.1";

@@ -66,7 +66,7 @@
     "config.recovery.enabled.description": "Automatically diagnose and recover local DSH startup failures in an isolated sandbox.",
     "config.recovery.autoPersistBundleIsolation.description": "Persist a high-confidence profile bundle isolation after sandbox verification.",
     "config.installWhenMissing.description": "When dsh, pnpm, npm and npx are all unavailable, download a standalone DSH Runtime from the pinned release source and manage it locally. Other custom commands are never replaced.",
-    "config.runtimeVersion.description": "Target version for approved local CLI upgrades and plugin Runtime downloads. Defaults to 0.1.5-rc.1; any valid SemVer at or above the minimum 0.1.5-rc.1 is accepted. Already compatible local CLIs are reused. Unsupported values are rejected before discovery or downloads.",
+    "config.runtimeVersion.description": "Target version for approved local CLI upgrades and plugin Runtime downloads. Defaults to 0.1.5-rc.2; any valid SemVer at or above the minimum 0.1.5-rc.1 is accepted. Already compatible local CLIs are reused. Unsupported values are rejected before discovery or downloads.",
     "config.startupTimeoutMs.description": "Maximum time to wait for the dsh web HTTP health check after starting or attaching.",
     "config.requestTimeoutMs.description": "Maximum time for one Harness RPC, including reconnect history rebaselines. Live assistant output is delivered over WebSocket and is not polled.",
     "config.maxContextBytes.description": "Maximum UTF-8 bytes of the assembled <ide_context> block included in one prompt.",

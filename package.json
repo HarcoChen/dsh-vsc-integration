@@ -587,7 +587,7 @@
                 },
                 "dsh.runtimeVersion": {
                     "type": "string",
-                    "default": "0.1.5-rc.1",
+                    "default": "0.1.5-rc.2",
                     "pattern": "^[0-9A-Za-z.-]+$",
                     "description": "%config.runtimeVersion.description%"
                 },

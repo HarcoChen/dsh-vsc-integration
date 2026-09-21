@@ -66,7 +66,7 @@ if (!process.argv.includes("--worker")) {
         "npx-p-separate": ["-p", "@deepseek-ai/dsh@next", "dsh"],
     };
     const packageArgs = packageForms[scenario];
-    const targetVersion = packageArgs ? "0.1.5-rc.2" : scenario === "target-newer" ? "1.0.0" : "0.1.5-rc.1";
+    const targetVersion = packageArgs ? "0.1.5-rc.2" : scenario === "target-newer" ? "1.0.0" : "0.1.5-rc.2";
     const versionFile = join(directory, "installed-version");
     const upgradeMarker = join(directory, "upgrade.json");
     if (upgrading) await writeFile(versionFile, scenario === "upgrade-prerelease" ? "0.1.5-rc.0" : "0.1.2-rc.1");
@@ -93,7 +93,7 @@ if (args[0] === 'install') {
     fs.writeFileSync(${JSON.stringify(upgradeMarker)}, JSON.stringify(args));
     if (${JSON.stringify(scenario)} === 'upgrade-failed') process.exit(1);
     if (['upgrade-cancel', 'upgrade-stop'].includes(${JSON.stringify(scenario)})) { setInterval(() => {}, 1000); return; }
-    if (${JSON.stringify(scenario)} !== 'upgrade-mismatch') fs.writeFileSync(${JSON.stringify(versionFile)}, '0.1.5-rc.1');
+    if (${JSON.stringify(scenario)} !== 'upgrade-mismatch') fs.writeFileSync(${JSON.stringify(versionFile)}, '0.1.5-rc.2');
     process.exit(0);
 }
 fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({name:${JSON.stringify(name)}, args, registry: process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY}));
@@ -122,9 +122,9 @@ setInterval(() => {}, 1000);
 `, { mode: 0o700 });
     const localVersion = scenario === "old" || scenario === "explicit-old" || scenario === "prefix" ? "0.1.2-rc.1"
         : compatibleVersions[scenario] ?? (scenario === "unknown" ? "not a version"
-        : ["timeout", "cancel"].includes(scenario) ? "hang" : "0.1.5-rc.1");
+        : ["timeout", "cancel"].includes(scenario) ? "hang" : "0.1.5-rc.2");
     if (!["missing", "npx-fallback", "config-managed"].includes(scenario)) await executable(join(bin, "dsh"), "local", localVersion);
-    if (scenario === "prefix") await executable(join(prefix, "bin", "dsh"), "prefix", "0.1.5-rc.1");
+    if (scenario === "prefix") await executable(join(prefix, "bin", "dsh"), "prefix", "0.1.5-rc.2");
     if (scenario !== "config-managed") {
         if (upgrading) {
             const packageRoot = join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh");
@@ -284,7 +284,7 @@ setInterval(() => {}, 1000);
             if (scenario === "upgrade-prompt-stop") assert.ok(pendingChoice);
             else await readFile(upgradeMarker);
             await runtime.stop();
-            pendingChoice?.("Upgrade to 0.1.5-rc.1");
+            pendingChoice?.("Upgrade to 0.1.5-rc.2");
             await starting;
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
             if (scenario === "upgrade-prompt-stop") await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
@@ -346,7 +346,7 @@ setInterval(() => {}, 1000);
             assert.equal(prompts.length, ["upgrade-failed", "upgrade-mismatch", "upgrade-cancel"].includes(scenario) ? 2 : 1);
             if (attempted) {
                 assert.deepEqual(JSON.parse(await readFile(upgradeMarker, "utf8")), ["install", "--global", "--prefix", prefix,
-                    "@deepseek-ai/dsh@0.1.5-rc.1", "--registry", "https://registry.npmmirror.com"]);
+                    "@deepseek-ai/dsh@0.1.5-rc.2", "--registry", "https://registry.npmmirror.com"]);
             } else await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
         }
         if (scenario === "local" || compatibleVersions[scenario] || scenario === "target-newer") assert.equal(prompts.length, 0);
