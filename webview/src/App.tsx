@@ -7,6 +7,7 @@ import { ActivityDock } from "./components/dock/ActivityDock";
 import { Composer } from "./components/Composer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { StatusBanner } from "./components/StatusBanner";
+import { SessionFeedbackDialog } from "./components/SessionFeedbackDialog";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
@@ -24,12 +25,14 @@ export function App(): React.JSX.Element {
                 pendingRequestCount={state.interactions.filter((interaction) => interaction.status === "pending").length}
             />
             <StatusBanner status={state.status} sessionStatus={state.sessionStatus} />
+            <SessionFeedbackDialog feedback={state.sessionFeedback} />
             {!state.focusMode && state.settings ? <SettingsPanel settings={state.settings} /> : null}
             <MessageList
                 messages={state.messages}
                 submitting={state.submitting}
                 agentStatusLabel={state.agentStatusLabel}
                 autoOpenReasoning={state.autoOpenReasoning}
+                messageFeedback={state.messageFeedback}
             />
             {!state.focusMode ? <Interactions interactions={state.interactions} /> : null}
             {!state.focusMode ? (

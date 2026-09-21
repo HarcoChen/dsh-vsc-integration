@@ -96,6 +96,8 @@ import {
     DshMessageFeedbackListResult,
     DshMessageFeedbackPutRequest,
     DshMessageFeedbackPutResult,
+    DshSessionFeedbackRecordRequest,
+    DshSessionFeedbackRecordResult,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
     HarnessGoalEditChanges,
@@ -115,6 +117,7 @@ import {
     normalizeDynamicPluginStopResult,
 } from "./dynamicPlugins";
 import { normalizePluginInventory } from "./pluginInventory";
+import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
 
@@ -2149,6 +2152,27 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient.call("settings/openAgentPresetDirectory", { agentPreset });
     }
 
+    /** Report whether this Runtime can open the Harness-owned Agent Preset directory. */
+    public async canOpenAgentPresetDirectory(signal?: AbortSignal): Promise<boolean | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>(
+                "settings/canOpenAgentPresetDirectory",
+                {},
+                signal,
+            );
+            if (typeof value !== "boolean") {
+                throw new RemoteProtocolError(
+                    "Remote settings/canOpenAgentPresetDirectory returned an invalid value",
+                );
+            }
+            return value;
+        } catch (error) {
+            // The probe is optional on older/minimally composed Runtimes.
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     public async removeAgentPreset(agentPreset: string): Promise<void> {
         await this.apiClient.call("agentPresets/deletePreset", { id: agentPreset });
     }
@@ -2416,6 +2440,27 @@ export class DshRuntime implements vscode.Disposable {
         try {
             return await this.apiClient.call("messageFeedback/delete", { request }, signal);
         } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Records optional Session-level feedback as a log-only event. */
+    public async recordSessionFeedback(
+        request: DshSessionFeedbackRecordRequest,
+        signal?: AbortSignal,
+    ): Promise<DshSessionFeedbackRecordResult | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("sessionFeedback/record", { request }, signal);
+            const result = normalizeSessionFeedbackRecordResult(value);
+            if (!result) {
+                throw new RemoteProtocolError(
+                    "Remote sessionFeedback/record returned an invalid value",
+                );
+            }
+            return result;
+        } catch (error) {
+            // Session-level feedback is an optional Remote on older Runtimes.
             if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }

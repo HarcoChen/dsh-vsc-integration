@@ -1,6 +1,7 @@
 import {
     DshApprovalOutcome,
     DshFileDraft,
+    DshFeedbackCategory,
     DshImageUpload,
     DshMessageFeedbackRating,
     DshQuestionAnswerItem,
@@ -70,6 +71,9 @@ export type ChatViewAction =
     | { type: "forkAndRestoreCodeToMessage"; seq: number }
     | { type: "toggleMessageFeedback"; messageId: string; rating: DshMessageFeedbackRating }
     | { type: "saveMessageFeedbackNote"; messageId: string; note: string }
+    | { type: "openSessionFeedback" }
+    | { type: "dismissSessionFeedback" }
+    | { type: "recordSessionFeedback"; text: string; category?: DshFeedbackCategory }
     | { type: "switchSession"; sessionId: string }
     | { type: "newSession" }
     | { type: "newSessionInCurrentWorkspace" }
@@ -132,6 +136,14 @@ const MAX_FILE_BASE64_CHARACTERS = 2 * 1024 * 1024 * 1024;
 const MAX_FILE_DRAFTS = 20;
 const MAX_MESSAGE_FILE_BASE64_CHARACTERS = 8 * 1024 * 1024 * 1024;
 const MAX_FILE_NAME_CHARACTERS = 512;
+const FEEDBACK_CATEGORIES: ReadonlySet<string> = new Set<DshFeedbackCategory>([
+    "task-result", "instruction-following", "product-interaction", "service-stability",
+    "resource-cost", "security-privacy-permission", "other",
+]);
+
+function feedbackCategory(value: unknown): value is DshFeedbackCategory {
+    return typeof value === "string" && FEEDBACK_CATEGORIES.has(value);
+}
 
 function fileDrafts(value: unknown): DshFileDraft[] | undefined {
     if (value === undefined) return [];
@@ -371,6 +383,23 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 type: "saveMessageFeedbackNote",
                 messageId: value.messageId,
                 note: value.note,
+            };
+        case "openSessionFeedback":
+        case "dismissSessionFeedback":
+            return hasOnly(value, ["type"])
+                ? { type: value.type }
+                : undefined;
+        case "recordSessionFeedback":
+            if (
+                !hasOnly(value, ["type", "text", "category"]) ||
+                typeof value.text !== "string" ||
+                value.text.length > 32_768 ||
+                (value.category !== undefined && !feedbackCategory(value.category))
+            ) return undefined;
+            return {
+                type: "recordSessionFeedback",
+                text: value.text,
+                ...(value.category === undefined ? {} : { category: value.category }),
             };
         case "openExternalLink": {
             if (!hasOnly(value, ["type", "url"])) return undefined;
