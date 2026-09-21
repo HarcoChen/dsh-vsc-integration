@@ -13,6 +13,7 @@ import {
 import { ContextStore } from "./contextStore";
 import { DebugContextTracker } from "./debugContext";
 import { DshRuntime } from "./dshRuntime";
+import { JEV_API_KEY_SECRET } from "./jevIntegration";
 import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
 import { parseTraceLocation } from "./traceProtocol";
@@ -41,6 +42,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         context.globalStorageUri.fsPath,
         debugContextTracker,
         context.extensionUri.fsPath,
+        () => context.secrets.get(JEV_API_KEY_SECRET),
     );
     let shutdown: Promise<void> | undefined;
     const stopRuntime = (): Promise<void> => shutdown ??= runtime.dispose().finally(() => {
@@ -227,6 +229,26 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             chatView.configureApiKey().catch((error) => {
                 const message = error instanceof Error ? error.message : String(error);
                 void vscode.window.showErrorMessage(t("DSH: Failed to configure API Key: {message}", { message }));
+            }),
+        ),
+        vscode.commands.registerCommand("dsh.configureJevApiKey", () =>
+            runCommand(t("Configure Jev API Key"), async () => {
+                const key = await vscode.window.showInputBox({
+                    title: t("Configure Jev API Key"),
+                    prompt: t("The Jev API Key is encrypted in VS Code SecretStorage and passed only to Runtime processes started by this extension. It is never written to settings, patch files, or logs."),
+                    password: true,
+                    ignoreFocusOut: true,
+                    validateInput: (value) => value.trim() ? undefined : t("Enter a Jev API Key."),
+                });
+                if (key === undefined) return;
+                await context.secrets.store(JEV_API_KEY_SECRET, key.trim());
+                if (runtime.getStatus().state !== "running") return;
+                const restart = t("Restart DSH Runtime");
+                const answer = await vscode.window.showInformationMessage(
+                    t("The Jev API Key will be used on the next Runtime launch. Restart DSH now?"),
+                    restart,
+                );
+                if (answer === restart) await vscode.commands.executeCommand("dsh.restart");
             }),
         ),
         vscode.commands.registerCommand("dsh.manageProviders", () =>

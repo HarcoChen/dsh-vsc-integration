@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 /** The package name used by the shared Runtime integration. */
 export const JEV_INTEGRATION_PACKAGE = "dsh-jev-integration";
+/** SecretStorage key used by the extension-managed Jev credential. */
+export const JEV_API_KEY_SECRET = "dsh.jev.apiKey";
 
 export const DEFAULT_JEV_BASE_URL = "https://api.typesafe.ai/v1/systemone";
 export const DEFAULT_JEV_MODEL = "jev-latest";

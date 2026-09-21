@@ -123,7 +123,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
 
-**How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it directly into a Runtime started by this extension. No second IDE plugin is required, and an already-running or externally managed Runtime is never modified. The integration is disabled by default; enabling `dsh.jev.enabled` sends complete arguments for the configured guarded tools to the TypeSafe System One endpoint. Provide `TYPESAFE_API_KEY` (or the existing `$HOME/.dsh/.env` entry) and restart DSH after changing the Jev settings. This build exposes the package's minimal advisory hook and Runtime endpoints, not the full upstream `dsh-jev` bundle.
+**How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it directly into a Runtime started by this extension. No second IDE plugin is required, and an already-running or externally managed Runtime is never modified. The integration is disabled by default; enabling `dsh.jev.enabled` sends complete arguments for the configured guarded tools to the TypeSafe System One endpoint. Use **DSH: Configure Jev API Key** to save the key in VS Code SecretStorage; the extension passes it only to Runtime processes it starts. `TYPESAFE_API_KEY` and the existing `$HOME/.dsh/.env` entry remain supported as fallbacks. This build exposes the package's minimal advisory hook and Runtime endpoints, not the full upstream `dsh-jev` bundle.
 
 **Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. RC.2 is the default download and upgrade target. V3 history and opt-in Assistant streams remain required. Session migration preserves original logs, but older runtimes cannot read the upgraded V3 files.
 
@@ -188,7 +188,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
-| `dsh.jev.enabled` | `false` | Enable the built-in minimal Jev advisory layer; guarded tool arguments may be sent to TypeSafe. Requires a Runtime restart. |
+| `dsh.jev.enabled` | `false` | Enable the built-in minimal Jev advisory layer; guarded tool arguments may be sent to TypeSafe. Configure the key with `DSH: Configure Jev API Key`; requires a Runtime restart. |
 | `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | TypeSafe System One endpoint used by the built-in Jev layer. |
 | `dsh.jev.model` | `jev-latest` | Jev model name. |
 | `dsh.jev.timeoutMs` | `2000` | Overall Jev request timeout in milliseconds. |

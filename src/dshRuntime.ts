@@ -1282,6 +1282,8 @@ export class DshRuntime implements vscode.Disposable {
         private readonly debugContextTracker?: DebugContextTracker,
         /** Installed extension root containing the optional vendored Jev package. */
         private readonly extensionPath: string = join(__dirname, ".."),
+        /** Extension-managed Jev credential, kept out of settings and launch patches. */
+        private readonly jevApiKeyProvider?: () => Thenable<string | undefined>,
     ) {
         this.recoveryLedger = new RecoveryLedgerStore(storagePath);
         this.recoveryDiagnostics = new RecoveryDiagnostics(storagePath);
@@ -3042,6 +3044,16 @@ export class DshRuntime implements vscode.Disposable {
 
             this.output.appendLine(`[dsh] starting: ${launchCommand} ${attemptArgs.join(" ")}`);
             const launchEnv: NodeJS.ProcessEnv = { ...process.env };
+            if (configuredJevIntegration(configuration).enabled) {
+                try {
+                    const jevApiKey = (await this.jevApiKeyProvider?.())?.trim();
+                    if (jevApiKey) launchEnv.TYPESAFE_API_KEY = jevApiKey;
+                } catch (error) {
+                    // Credential lookup must not prevent the base Runtime from
+                    // starting; Jev will report the missing credential on demand.
+                    this.output.appendLine(`[dsh:jev] unable to load extension-managed API key: ${String(error)}`);
+                }
+            }
             if (this.debugOverlay) {
                 // The patch file interpolates this token at boot; it never sits on disk.
                 Object.assign(launchEnv, this.debugOverlay.environment);

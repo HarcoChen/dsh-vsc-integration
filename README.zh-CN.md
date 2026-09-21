@@ -112,7 +112,7 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。请提供 `TYPESAFE_API_KEY`（或沿用 `$HOME/.dsh/.env`），修改 Jev 设置后重启 DSH。本版本提供该包的最小 advisory hook 与 Runtime endpoints，不是完整 upstream `dsh-jev` bundle。
+**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。请使用 **DSH：配置 Jev API Key** 将 Key 加密保存到 VS Code SecretStorage，扩展只会把它传给自己启动的 Runtime；也继续支持 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 作为回退。修改 Jev 设置后重启 DSH。本版本提供该包的最小 advisory hook 与 Runtime endpoints，不是完整 upstream `dsh-jev` bundle。
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及升级目标为 RC.2，继续使用 V3 历史和显式订阅的 Assistant 流。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
 
@@ -177,7 +177,7 @@ graph TD
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
-| `dsh.jev.enabled` | `false` | 启用内置最小 Jev advisory 层；受保护工具参数可能发送到 TypeSafe，修改后需重启 Runtime。 |
+| `dsh.jev.enabled` | `false` | 启用内置最小 Jev advisory 层；受保护工具参数可能发送到 TypeSafe。请使用“DSH：配置 Jev API Key”配置 Key；修改后需重启 Runtime。 |
 | `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | 内置 Jev 层使用的 TypeSafe System One endpoint。 |
 | `dsh.jev.model` | `jev-latest` | Jev 模型名。 |
 | `dsh.jev.timeoutMs` | `2000` | Jev 请求总超时时间（毫秒）。 |
