@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.10.0] - 2026-09-21
+
 ### 新增
 
 - `dsh.autonomousDebugging`（默认关闭）让 Agent 通过本机回环 MCP 操作调试器
@@ -286,6 +288,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.10.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.3...v0.9.4
