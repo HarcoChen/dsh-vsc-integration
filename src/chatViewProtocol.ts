@@ -70,6 +70,13 @@ export type ChatViewAction =
     | { type: "restoreCodeToMessage"; seq: number }
     | { type: "forkAndRestoreCodeToMessage"; seq: number }
     | { type: "toggleMessageFeedback"; messageId: string; rating: DshMessageFeedbackRating }
+    | {
+          type: "submitMessageFeedback";
+          messageId: string;
+          rating: DshMessageFeedbackRating;
+          note?: string;
+          category?: DshFeedbackCategory;
+      }
     | { type: "saveMessageFeedbackNote"; messageId: string; note: string }
     | { type: "openSessionFeedback" }
     | { type: "dismissSessionFeedback" }
@@ -370,6 +377,23 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 type: "toggleMessageFeedback",
                 messageId: value.messageId,
                 rating: value.rating,
+            };
+        case "submitMessageFeedback":
+            if (
+                !hasOnly(value, ["type", "messageId", "rating", "note", "category"]) ||
+                !nonEmptyString(value.messageId) ||
+                value.messageId.length > 512 ||
+                (value.rating !== "positive" && value.rating !== "negative") ||
+                (value.note !== undefined &&
+                    (typeof value.note !== "string" || value.note.length > 32_768)) ||
+                (value.category !== undefined && !feedbackCategory(value.category))
+            ) return undefined;
+            return {
+                type: "submitMessageFeedback",
+                messageId: value.messageId,
+                rating: value.rating,
+                ...(value.note === undefined ? {} : { note: value.note }),
+                ...(value.category === undefined ? {} : { category: value.category }),
             };
         case "saveMessageFeedbackNote":
             if (

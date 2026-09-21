@@ -1,14 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import type {
     ChatMessage,
     ChatMessageFeedbackView,
+    DshFeedbackCategory,
     DshMessageFeedbackRating,
 } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
 import { ROLE_LABELS } from "../state";
 import { MessageContent } from "./MessageContent";
-import { CheckIcon, CopyIcon, DislikeIcon, LikeIcon, MoreIcon } from "./icons";
+import { CheckIcon, CloseIcon, CopyIcon, DislikeIcon, LikeIcon, MoreIcon } from "./icons";
 
 export { MessageContent } from "./MessageContent";
 
@@ -23,6 +24,26 @@ type CheckpointAction =
     | "forkFromMessage"
     | "restoreCodeToMessage"
     | "forkAndRestoreCodeToMessage";
+
+const MESSAGE_FEEDBACK_CATEGORIES: readonly DshFeedbackCategory[] = [
+    "task-result",
+    "instruction-following",
+    "product-interaction",
+    "service-stability",
+    "resource-cost",
+    "security-privacy-permission",
+    "other",
+];
+
+const MESSAGE_FEEDBACK_CATEGORY_LABELS: Readonly<Record<DshFeedbackCategory, string>> = {
+    "task-result": "Task result",
+    "instruction-following": "Instruction following",
+    "product-interaction": "Product interaction",
+    "service-stability": "Service stability",
+    "resource-cost": "Resource cost",
+    "security-privacy-permission": "Security, privacy, or permissions",
+    other: "Other",
+};
 
 function canCopyMessage(message: ChatMessage): boolean {
     return (
@@ -137,137 +158,212 @@ function MessageFeedbackActions({
     messageId: string;
     feedback: ChatMessageFeedbackView;
 }): React.JSX.Element {
-    const [noteOpen, setNoteOpen] = useState(false);
-    const [draft, setDraft] = useState("");
-    const feedbackRef = useRef<HTMLDivElement>(null);
+    const [dialog, setDialog] = useState<{
+        rating: DshMessageFeedbackRating;
+        category?: DshFeedbackCategory;
+        note: string;
+    }>();
+    const [submitting, setSubmitting] = useState(false);
+    const [pendingObserved, setPendingObserved] = useState(false);
+    const [toast, setToast] = useState(false);
+    const toastTimerRef = useRef<number>();
+    const dialogTitleId = useId();
     const hasRating = feedback.rating !== undefined;
     const pending = Boolean(feedback.pending);
-    const disabled = pending || feedback.status === "loading";
+    const disabled = pending || feedback.status === "loading" || submitting;
 
     useEffect(() => {
-        if (noteOpen) setDraft(feedback.note ?? "");
-    }, [feedback.note, noteOpen]);
-
-    useEffect(() => {
-        if (!noteOpen) return;
-        const onPointerDown = (event: MouseEvent): void => {
-            if (feedbackRef.current && !feedbackRef.current.contains(event.target as Node)) {
-                setNoteOpen(false);
-            }
+        return () => {
+            if (toastTimerRef.current !== undefined) window.clearTimeout(toastTimerRef.current);
         };
+    }, []);
+
+    useEffect(() => {
+        if (!dialog || !submitting) return;
+        if (pending) {
+            setPendingObserved(true);
+            return;
+        }
+        if (!pendingObserved) return;
+        if (feedback.error) {
+            setSubmitting(false);
+            setPendingObserved(false);
+            return;
+        }
+        if (feedback.rating !== dialog.rating) return;
+        setDialog(undefined);
+        setSubmitting(false);
+        setPendingObserved(false);
+        setToast(true);
+        if (toastTimerRef.current !== undefined) window.clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = window.setTimeout(() => setToast(false), 2_500);
+    }, [dialog, feedback.error, feedback.rating, pending, pendingObserved, submitting]);
+
+    useEffect(() => {
+        if (!dialog) return;
         const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === "Escape") setNoteOpen(false);
+            if (event.key === "Escape" && !submitting) setDialog(undefined);
         };
-        document.addEventListener("mousedown", onPointerDown);
         document.addEventListener("keydown", onKeyDown);
         return () => {
-            document.removeEventListener("mousedown", onPointerDown);
             document.removeEventListener("keydown", onKeyDown);
         };
-    }, [noteOpen]);
+    }, [dialog, submitting]);
 
     const toggle = (rating: DshMessageFeedbackRating): void => {
         if (disabled) return;
-        setNoteOpen(false);
-        postAction({ type: "toggleMessageFeedback", messageId, rating });
+        if (feedback.rating === rating) {
+            postAction({ type: "toggleMessageFeedback", messageId, rating });
+            return;
+        }
+        setDialog({ rating, note: "" });
+        setSubmitting(false);
+        setPendingObserved(false);
     };
 
-    const openNote = (): void => {
-        if (disabled || !hasRating) return;
-        setDraft(feedback.note ?? "");
-        setNoteOpen((open) => !open);
-    };
-
-    const saveNote = (): void => {
-        if (disabled) return;
-        postAction({ type: "saveMessageFeedbackNote", messageId, note: draft });
-        setNoteOpen(false);
+    const submit = (): void => {
+        if (!dialog || submitting) return;
+        setSubmitting(true);
+        setPendingObserved(false);
+        const note = dialog.note.trim();
+        postAction({
+            type: "submitMessageFeedback",
+            messageId,
+            rating: dialog.rating,
+            ...(note.length === 0 ? {} : { note }),
+            ...(dialog.category === undefined ? {} : { category: dialog.category }),
+        });
     };
 
     const selected = feedback.rating;
-    const hasVisibleFeedback = hasRating || Boolean(feedback.error) || noteOpen;
+    const hasVisibleFeedback = hasRating || Boolean(feedback.error) || dialog !== undefined || toast;
     return (
-        <div
-            className={`dsh-message-feedback${hasVisibleFeedback ? " has-feedback" : ""}${noteOpen ? " open" : ""}`}
-            ref={feedbackRef}
-        >
-            <button
-                type="button"
-                className={`dsh-message-feedback-button${selected === "positive" ? " active" : ""}`}
-                aria-label={t(selected === "positive" ? "Like (selected)" : "Like")}
-                aria-pressed={selected === "positive"}
-                title={t(selected === "positive" ? "Like (selected)" : "Like")}
-                disabled={disabled}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    toggle("positive");
-                }}
-            >
-                <LikeIcon />
-            </button>
-            <button
-                type="button"
-                className={`dsh-message-feedback-button${selected === "negative" ? " active" : ""}`}
-                aria-label={t(selected === "negative" ? "Dislike (selected)" : "Dislike")}
-                aria-pressed={selected === "negative"}
-                title={t(selected === "negative" ? "Dislike (selected)" : "Dislike")}
-                disabled={disabled}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    toggle("negative");
-                }}
-            >
-                <DislikeIcon />
-            </button>
-            {hasRating ? (
+        <>
+            <div className={`dsh-message-feedback${hasVisibleFeedback ? " has-feedback" : ""}${dialog ? " open" : ""}`}>
                 <button
                     type="button"
-                    className={`dsh-message-feedback-note${feedback.note ? " has-note" : ""}`}
+                    className={`dsh-message-feedback-button${selected === "positive" ? " active" : ""}`}
+                    aria-label={t(selected === "positive" ? "Like (selected)" : "Like")}
+                    aria-pressed={selected === "positive"}
                     aria-haspopup="dialog"
-                    aria-expanded={noteOpen}
-                    aria-label={t(feedback.note ? "Edit feedback note" : "Add feedback note")}
-                    title={t(feedback.note ? "Edit feedback note" : "Add feedback note")}
+                    title={t(selected === "positive" ? "Like (selected)" : "Like")}
                     disabled={disabled}
                     onClick={(event) => {
                         event.stopPropagation();
-                        openNote();
+                        toggle("positive");
                     }}
                 >
-                    {feedback.note ? feedback.note.slice(0, 40) : t("Add note")}
+                    <LikeIcon />
                 </button>
-            ) : null}
-            {noteOpen ? (
-                <div
-                    className="dsh-feedback-note-panel"
-                    role="dialog"
-                    aria-label={t("Feedback")}
-                    onClick={(event) => event.stopPropagation()}
+                <button
+                    type="button"
+                    className={`dsh-message-feedback-button${selected === "negative" ? " active" : ""}`}
+                    aria-label={t(selected === "negative" ? "Dislike (selected)" : "Dislike")}
+                    aria-pressed={selected === "negative"}
+                    aria-haspopup="dialog"
+                    title={t(selected === "negative" ? "Dislike (selected)" : "Dislike")}
+                    disabled={disabled}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        toggle("negative");
+                    }}
                 >
-                    <textarea
-                        className="dsh-feedback-note-input"
-                        value={draft}
-                        maxLength={32768}
-                        autoFocus
-                        aria-label={t("Feedback note")}
-                        placeholder={t("Optional feedback note")}
-                        onChange={(event) => setDraft(event.target.value)}
-                    />
-                    <div className="dsh-feedback-note-actions">
-                        <button type="button" className="dsh-button-secondary" onClick={() => setNoteOpen(false)}>
-                            {t("Cancel")}
-                        </button>
-                        <button type="button" className="dsh-button" disabled={disabled} onClick={saveNote}>
-                            {t("Save feedback note")}
-                        </button>
-                    </div>
+                    <DislikeIcon />
+                </button>
+                {!dialog && feedback.error ? (
+                    <span className="dsh-feedback-error" role="status">
+                        {feedback.error}
+                    </span>
+                ) : null}
+            </div>
+            {dialog ? (
+                <div
+                    className="dsh-session-feedback-backdrop"
+                    role="presentation"
+                    onMouseDown={(event) => {
+                        if (event.target === event.currentTarget && !submitting) setDialog(undefined);
+                    }}
+                >
+                    <section
+                        className="dsh-session-feedback-dialog"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby={dialogTitleId}
+                        onMouseDown={(event) => event.stopPropagation()}
+                    >
+                        <div className="dsh-session-feedback-head">
+                            <div>
+                                <h2 id={dialogTitleId}>{t("Submit feedback")}</h2>
+                                <p>{t("Your feedback helps us improve this response.")}</p>
+                            </div>
+                            <button
+                                type="button"
+                                className="dsh-icon-button"
+                                aria-label={t("Close")}
+                                title={t("Close")}
+                                disabled={submitting}
+                                onClick={() => setDialog(undefined)}
+                            >
+                                <CloseIcon />
+                            </button>
+                        </div>
+                        <fieldset className="dsh-session-feedback-categories" disabled={submitting}>
+                            <legend>{t("Feedback category")}</legend>
+                            {MESSAGE_FEEDBACK_CATEGORIES.map((category) => (
+                                <button
+                                    key={category}
+                                    type="button"
+                                    className={`dsh-session-feedback-category${dialog.category === category ? " active" : ""}`}
+                                    aria-pressed={dialog.category === category}
+                                    onClick={() => setDialog((current) => current && {
+                                        ...current,
+                                        ...(current.category === category ? { category: undefined } : { category }),
+                                    })}
+                                >
+                                    {t(MESSAGE_FEEDBACK_CATEGORY_LABELS[category])}
+                                </button>
+                            ))}
+                        </fieldset>
+                        <label className="dsh-session-feedback-label" htmlFor={dialogTitleId + "-detail"}>
+                            {t("Feedback details")}
+                        </label>
+                        <textarea
+                            id={dialogTitleId + "-detail"}
+                            className="dsh-session-feedback-textarea"
+                            value={dialog.note}
+                            maxLength={32_768}
+                            disabled={submitting}
+                            placeholder={t("Add details about this response.")}
+                            onChange={(event) => setDialog((current) => current && {
+                                ...current,
+                                note: event.target.value,
+                            })}
+                        />
+                        {feedback.error ? (
+                            <div className="dsh-session-feedback-error" role="alert">{feedback.error}</div>
+                        ) : null}
+                        <div className="dsh-session-feedback-actions">
+                            <button
+                                type="button"
+                                className="dsh-button dsh-button-secondary"
+                                disabled={submitting}
+                                onClick={() => setDialog(undefined)}
+                            >
+                                {t("Cancel")}
+                            </button>
+                            <button type="button" className="dsh-button" disabled={submitting} onClick={submit}>
+                                {submitting ? t("Submitting...") : t("Submit feedback")}
+                            </button>
+                        </div>
+                    </section>
                 </div>
             ) : null}
-            {feedback.error ? (
-                <span className="dsh-feedback-error" role="status">
-                    {feedback.error}
-                </span>
+            {toast ? (
+                <div className="dsh-session-feedback-toast" role="status" aria-live="polite">
+                    {t("Thanks for your feedback")}
+                </div>
             ) : null}
-        </div>
+        </>
     );
 }
 

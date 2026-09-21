@@ -1413,6 +1413,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "toggleMessageFeedback":
                     await this.messageFeedback.toggleMessageFeedback(message.messageId, message.rating);
                     break;
+                case "submitMessageFeedback":
+                    await this.messageFeedback.submitMessageFeedback(
+                        message.messageId,
+                        message.rating,
+                        message.note,
+                        message.category,
+                    );
+                    break;
                 case "saveMessageFeedbackNote":
                     await this.messageFeedback.saveMessageFeedbackNote(message.messageId, message.note);
                     break;

@@ -15,6 +15,7 @@ import type {
     DshMessageFeedbackPutRequest,
     DshMessageFeedbackRating,
     DshMessageFeedbackStateView,
+    DshFeedbackCategory,
 } from "./types";
 
 export interface MessageFeedbackSessionState {
@@ -331,6 +332,31 @@ export class MessageFeedbackController {
                 rating: requested,
                 ...(current?.category === undefined ? {} : { category: current.category }),
                 ...(current?.note === undefined ? {} : { note: current.note }),
+                ifVersion: current?.version ?? null,
+            });
+        });
+    }
+
+    /** Submit a new message rating with the shared feedback dialog's entry. */
+    public async submitMessageFeedback(
+        messageId: string,
+        requested: DshMessageFeedbackRating,
+        note?: string,
+        category?: DshFeedbackCategory,
+    ): Promise<void> {
+        const sessionId = this.deps.currentRootSession();
+        if (!sessionId || !hasAssistantFeedbackTarget(this.deps.runtime.getSessionStore().get(sessionId), messageId)) {
+            return;
+        }
+        return this.enqueueMessageFeedback(sessionId, messageId, async (state) => {
+            const current = state.items.get(messageId);
+            const trimmedNote = note?.trim();
+            await this.applyMessageFeedbackPut(state, {
+                sessionId,
+                messageId,
+                rating: requested,
+                ...(trimmedNote ? { note: trimmedNote } : {}),
+                ...(category === undefined ? {} : { category }),
                 ifVersion: current?.version ?? null,
             });
         });
