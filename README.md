@@ -123,6 +123,8 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
 
+**How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it directly into a Runtime started by this extension. No second IDE plugin is required, and an already-running or externally managed Runtime is never modified. The integration is disabled by default; enabling `dsh.jev.enabled` sends complete arguments for the configured guarded tools to the TypeSafe System One endpoint. Provide `TYPESAFE_API_KEY` (or the existing `$HOME/.dsh/.env` entry) and restart DSH after changing the Jev settings. This build exposes the package's minimal advisory hook and Runtime endpoints, not the full upstream `dsh-jev` bundle.
+
 **Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. RC.2 is the default download and upgrade target. V3 history and opt-in Assistant streams remain required. Session migration preserves original logs, but older runtimes cannot read the upgraded V3 files.
 
 The source audit covers upstream master `c291e7961a` and release tag `dsh-v0.1.5-rc.2` (`fb2c4b9e698e30edb738bca4cf0618587db7d203`). Message feedback preserves categories for both ratings, including edits and conflict responses. When a Runtime supplies master’s optional `modeSelectionEnabled` policy, disabling it hides the IDE mode choices, clears a staged mode, and restores blank sessions to the effective default before their first prompt; started sessions keep their composition. Skill completion tooltips show `SKILL.md` paths when supplied. Missing optional fields retain RC.2 behavior. Version acceptance follows the minimum-version rule, independently of this source audit.
@@ -186,6 +188,14 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
+| `dsh.jev.enabled` | `false` | Enable the built-in minimal Jev advisory layer; guarded tool arguments may be sent to TypeSafe. Requires a Runtime restart. |
+| `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | TypeSafe System One endpoint used by the built-in Jev layer. |
+| `dsh.jev.model` | `jev-latest` | Jev model name. |
+| `dsh.jev.timeoutMs` | `2000` | Overall Jev request timeout in milliseconds. |
+| `dsh.jev.advisoryTimeoutMs` | `3500` | Bounded Jev safety-advisory timeout in milliseconds. |
+| `dsh.jev.askThreshold` | `0.5` | Probability threshold for an `ask` decision. |
+| `dsh.jev.blockThreshold` | `0.85` | Probability threshold for a `deny` decision. |
+| `dsh.jev.guardedTools` | *standard shell/file tools* | Tool names whose complete arguments are sent to Jev when enabled. |
 | `dsh.autonomousDebugging` | `false` | Let the agent drive this window's debugger through a loopback MCP endpoint. Applies to a Runtime this window starts; needs a Runtime restart. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |
 | `dsh.persistSession` | `true` | Reuse the previous Session ID for the current workspace when possible. |
@@ -200,6 +210,7 @@ Search `dsh` in VS Code settings for the full list.
 **Build from source**:
 
 ```bash
+git submodule update --init --recursive
 npm install
 npm run check
 npm run package

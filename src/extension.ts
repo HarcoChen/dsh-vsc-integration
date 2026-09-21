@@ -36,7 +36,12 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         },
     });
     const debugContextTracker = new DebugContextTracker();
-    const runtime = new DshRuntime(output, context.globalStorageUri.fsPath, debugContextTracker);
+    const runtime = new DshRuntime(
+        output,
+        context.globalStorageUri.fsPath,
+        debugContextTracker,
+        context.extensionUri.fsPath,
+    );
     let shutdown: Promise<void> | undefined;
     const stopRuntime = (): Promise<void> => shutdown ??= runtime.dispose().finally(() => {
         outputDisposed = true;
@@ -246,12 +251,17 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
-            if (!event.affectsConfiguration("dsh.autonomousDebugging")) return;
+            const autonomousDebuggingChanged = event.affectsConfiguration("dsh.autonomousDebugging");
+            const jevChanged = event.affectsConfiguration("dsh.jev");
+            if (!autonomousDebuggingChanged && !jevChanged) return;
             if (runtime.getStatus().state !== "running") return;
             const restart = t("Restart DSH Runtime");
+            const message = jevChanged
+                ? t("Jev integration settings apply to the next Runtime launch. Guarded tool arguments may be sent to the configured TypeSafe endpoint. Restart DSH now?")
+                : t("Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?");
             void vscode.window
                 .showInformationMessage(
-                    t("Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?"),
+                    message,
                     restart,
                 )
                 .then((answer) => {

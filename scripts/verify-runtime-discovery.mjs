@@ -3,7 +3,7 @@
 // versioned advertisements and owned-child shutdown; no downloads, model calls or user data.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, mkdir, readdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -207,6 +207,11 @@ setInterval(() => {}, 1000);
     const advertisements = async () => (await readdir(advertisementDirectory).catch(() => []))
         .filter(name => name.endsWith(".json"));
     const runtime = new DshRuntime({ appendLine() {}, append() {} }, join(directory, "storage"));
+    const hasBundledJev = await access(join(root, "vendor", "dsh-jev-integration", "dist", "runtime", "src", "index.js"))
+        .then(() => true, () => false);
+    const jevPatchArgs = hasBundledJev
+        ? ["--patch", join(directory, "storage", "recovery", "jev-integration.patch.yml")]
+        : [];
     // Exclude external Runtime discovery/RPC only; launcher selection, subprocess
     // version probes, actual spawn, argv and advertisement lifecycle remain production code.
     runtime.findExistingRuntime = async () => undefined;
@@ -319,8 +324,8 @@ setInterval(() => {}, 1000);
             const appPort = "0";
             // Launches are pinned to loopback unless the saved arguments already choose a host.
             const appArgs = scenario === "legacy-args"
-                ? ["web", "--no-open", "--port", "49151", "--host", "127.0.0.1"]
-                : ["web", "--no-open", "--port", appPort, "--host", "127.0.0.1"];
+                ? ["web", ...jevPatchArgs, "--no-open", "--port", "49151", "--host", "127.0.0.1"]
+                : ["web", ...jevPatchArgs, "--no-open", "--port", appPort, "--host", "127.0.0.1"];
             assert.deepEqual(launched.args, expected === "pnpm" ? ["dlx", `@deepseek-ai/dsh@${targetVersion}`, ...appArgs]
                 : expected === "npx" ? [...(packageArgs ? packageArgs.map(arg => arg.replace("@next", `@${targetVersion}`)) : ["--yes", `@deepseek-ai/dsh@${targetVersion}`]), ...appArgs] : appArgs);
             if (scenario === "cache-layout") {

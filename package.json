@@ -542,6 +542,67 @@
                     "default": true,
                     "description": "%config.enableCompaction.description%"
                 },
+                "dsh.jev.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.enabled.description%"
+                },
+                "dsh.jev.baseUrl": {
+                    "type": "string",
+                    "default": "https://api.typesafe.ai/v1/systemone",
+                    "description": "%config.jev.baseUrl.description%"
+                },
+                "dsh.jev.model": {
+                    "type": "string",
+                    "default": "jev-latest",
+                    "description": "%config.jev.model.description%"
+                },
+                "dsh.jev.timeoutMs": {
+                    "type": "number",
+                    "default": 2000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.timeoutMs.description%"
+                },
+                "dsh.jev.advisoryTimeoutMs": {
+                    "type": "number",
+                    "default": 3500,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.advisoryTimeoutMs.description%"
+                },
+                "dsh.jev.askThreshold": {
+                    "type": "number",
+                    "default": 0.5,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.askThreshold.description%"
+                },
+                "dsh.jev.blockThreshold": {
+                    "type": "number",
+                    "default": 0.85,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.blockThreshold.description%"
+                },
+                "dsh.jev.guardedTools": {
+                    "type": "array",
+                    "default": [
+                        "bash",
+                        "pwsh",
+                        "terminal",
+                        "run_command",
+                        "execute_command",
+                        "run_code",
+                        "write_to_file",
+                        "replace_file_content"
+                    ],
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "description": "%config.jev.guardedTools.description%"
+                },
                 "dsh.autonomousDebugging": {
                     "type": "boolean",
                     "default": false,

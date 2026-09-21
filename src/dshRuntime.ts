@@ -120,6 +120,17 @@ import { normalizePluginInventory } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
+import {
+    DEFAULT_JEV_ADVISORY_TIMEOUT_MS,
+    DEFAULT_JEV_ASK_THRESHOLD,
+    DEFAULT_JEV_BASE_URL,
+    DEFAULT_JEV_BLOCK_THRESHOLD,
+    DEFAULT_JEV_GUARDED_TOOLS,
+    DEFAULT_JEV_MODEL,
+    DEFAULT_JEV_TIMEOUT_MS,
+    prepareJevIntegrationPatch,
+    type JevIntegrationConfig,
+} from "./jevIntegration";
 
 type RuntimeListener = (status: RuntimeStatus) => void;
 type HarnessConnectedListener = () => void;
@@ -707,6 +718,31 @@ function configuredRuntimeVersion(configuration: vscode.WorkspaceConfiguration):
     return version;
 }
 
+/** Read the host-owned Jev launch defaults without trusting malformed settings. */
+function configuredJevIntegration(configuration: vscode.WorkspaceConfiguration): JevIntegrationConfig {
+    const text = (key: string, fallback: string): string => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "string" ? value : fallback;
+    };
+    const number = (key: string, fallback: number): number => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "number" ? value : fallback;
+    };
+    const tools = configuration.get<unknown>("jev.guardedTools");
+    return {
+        enabled: configuration.get<unknown>("jev.enabled") === true,
+        baseUrl: text("jev.baseUrl", DEFAULT_JEV_BASE_URL),
+        model: text("jev.model", DEFAULT_JEV_MODEL),
+        timeoutMs: number("jev.timeoutMs", DEFAULT_JEV_TIMEOUT_MS),
+        advisoryTimeoutMs: number("jev.advisoryTimeoutMs", DEFAULT_JEV_ADVISORY_TIMEOUT_MS),
+        askThreshold: number("jev.askThreshold", DEFAULT_JEV_ASK_THRESHOLD),
+        blockThreshold: number("jev.blockThreshold", DEFAULT_JEV_BLOCK_THRESHOLD),
+        guardedTools: Array.isArray(tools)
+            ? tools.filter((tool): tool is string => typeof tool === "string")
+            : DEFAULT_JEV_GUARDED_TOOLS,
+    };
+}
+
 async function probeRuntimeVersion(command: string, options: { cwd?: string; signal?: AbortSignal; args?: string[]; timeout?: number }): Promise<string | undefined> {
     options.signal?.throwIfAborted();
     try {
@@ -1223,6 +1259,7 @@ export class DshRuntime implements vscode.Disposable {
     private sharedCompositionHash: string | undefined;
     private advertisementWrite: Promise<void> = Promise.resolve();
     private compactionPatchPath: string | undefined;
+    private jevIntegrationPatchPath: string | undefined;
     private debugOverlay: DebugLaunchOverlay | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
@@ -1243,6 +1280,8 @@ export class DshRuntime implements vscode.Disposable {
         private readonly storagePath: string,
         /** Shared with the context store so one DAP view backs both snapshots and tools. */
         private readonly debugContextTracker?: DebugContextTracker,
+        /** Installed extension root containing the optional vendored Jev package. */
+        private readonly extensionPath: string = join(__dirname, ".."),
     ) {
         this.recoveryLedger = new RecoveryLedgerStore(storagePath);
         this.recoveryDiagnostics = new RecoveryDiagnostics(storagePath);
@@ -2820,6 +2859,25 @@ export class DshRuntime implements vscode.Disposable {
         } };
         checkStarting();
         let automaticLaunchPort: number | undefined;
+        this.jevIntegrationPatchPath = undefined;
+        if (isWebProfileArgs(args)) {
+            try {
+                this.jevIntegrationPatchPath = await prepareJevIntegrationPatch({
+                    extensionPath: this.extensionPath,
+                    outputDirectory: this.recoveryLedger.directory,
+                    config: configuredJevIntegration(configuration),
+                    onDiagnostic: (message) => this.output.appendLine(message),
+                });
+            } catch (error) {
+                // Jev is an optional internal integration. A malformed or
+                // unavailable vendor checkout must not make the base Runtime
+                // unusable; the diagnostic gives the host a clear remedy.
+                this.output.appendLine(`[dsh:jev] unable to prepare built-in integration: ${String(error)}`);
+            }
+            if (this.jevIntegrationPatchPath !== undefined) {
+                insertWebLauncherPatch(args, this.jevIntegrationPatchPath);
+            }
+        }
         if (enableCompaction && isWebProfileArgs(args)) {
             this.compactionPatchPath = join(this.recoveryLedger.directory, "compaction.patch.yml");
             try {
@@ -2878,7 +2936,11 @@ export class DshRuntime implements vscode.Disposable {
         }
         try {
             const patchPaths = patchPathsFromArgs(args);
-            const extensionOverlays = [this.compactionPatchPath, this.debugOverlay?.patchPath]
+            const extensionOverlays = [
+                this.jevIntegrationPatchPath,
+                this.compactionPatchPath,
+                this.debugOverlay?.patchPath,
+            ]
                 .filter((overlay): overlay is string =>
                     overlay !== undefined && patchPaths.some((path) => samePath(path, overlay)));
             this.lastRecoveryComposition = await buildComposition({

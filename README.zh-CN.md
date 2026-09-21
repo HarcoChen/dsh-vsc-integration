@@ -112,6 +112,8 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
+**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。请提供 `TYPESAFE_API_KEY`（或沿用 `$HOME/.dsh/.env`），修改 Jev 设置后重启 DSH。本版本提供该包的最小 advisory hook 与 Runtime endpoints，不是完整 upstream `dsh-jev` bundle。
+
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及升级目标为 RC.2，继续使用 V3 历史和显式订阅的 Assistant 流。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
 
 源码审计覆盖上游 master `c291e7961a` 和发布标签 `dsh-v0.1.5-rc.2`（`fb2c4b9e698e30edb738bca4cf0618587db7d203`）。消息反馈保留正负评价的分类，包括编辑及版本冲突返回值。Runtime 提供 master 新增的可选 `modeSelectionEnabled` 策略时，关闭开关会隐藏 IDE 模式选项、清除暂存模式，并在空会话首次发送前恢复有效默认模式；已开始的会话保留原有组合。Skill 补全悬浮提示展示 Runtime 提供的 `SKILL.md` 路径；缺少可选字段时保留 RC.2 行为。版本是否可用按最低版本判断，不受此次源码审计版本限制。
@@ -175,6 +177,14 @@ graph TD
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
+| `dsh.jev.enabled` | `false` | 启用内置最小 Jev advisory 层；受保护工具参数可能发送到 TypeSafe，修改后需重启 Runtime。 |
+| `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | 内置 Jev 层使用的 TypeSafe System One endpoint。 |
+| `dsh.jev.model` | `jev-latest` | Jev 模型名。 |
+| `dsh.jev.timeoutMs` | `2000` | Jev 请求总超时时间（毫秒）。 |
+| `dsh.jev.advisoryTimeoutMs` | `3500` | Jev 安全建议检查的有界超时时间（毫秒）。 |
+| `dsh.jev.askThreshold` | `0.5` | 产生 `ask` 决策的概率阈值。 |
+| `dsh.jev.blockThreshold` | `0.85` | 产生 `deny` 决策的概率阈值。 |
+| `dsh.jev.guardedTools` | *标准 Shell/文件工具* | 启用后会将完整参数发送给 Jev 的工具名称列表。 |
 | `dsh.autonomousDebugging` | `false` | 允许 Agent 通过本机回环 MCP 端点操作本窗口的调试器；只对本窗口自行启动的 Runtime 生效，切换后需重启 Runtime。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
 | `dsh.persistSession` | `true` | 尽可能复用当前工作区上次的 Session ID。 |
@@ -189,6 +199,7 @@ graph TD
 **从源码构建**：
 
 ```bash
+git submodule update --init --recursive
 npm install
 npm run check
 npm run package
