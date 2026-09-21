@@ -147,14 +147,16 @@ async function chooseAgentPresetAction(
             detail: t("Use this Preset for future Sessions without an explicit mode"),
         });
     }
-    if (preset.trust === "user" && canOpenAgentPresetDirectory !== undefined) {
-        actions.push({
-            action: "open",
-            label: `$(folder-opened) ${t(canOpenAgentPresetDirectory ? "Open Preset files" : "Show Preset path")}`,
-            detail: t(canOpenAgentPresetDirectory
-                ? "Edit this user Preset in its Harness-owned directory"
-                : "The host has no native folder opener; copy the Harness-owned directory path"),
-        });
+    if (preset.trust === "user") {
+        if (canOpenAgentPresetDirectory !== undefined) {
+            actions.push({
+                action: "open",
+                label: `$(folder-opened) ${t(canOpenAgentPresetDirectory ? "Open Preset files" : "Show Preset path")}`,
+                detail: t(canOpenAgentPresetDirectory
+                    ? "Edit this user Preset in its Harness-owned directory"
+                    : "The host has no native folder opener; copy the Harness-owned directory path"),
+            });
+        }
         actions.push({
             action: "remove",
             label: `$(trash) ${t("Delete user Preset")}`,

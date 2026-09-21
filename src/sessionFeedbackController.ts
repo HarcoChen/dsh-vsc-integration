@@ -50,6 +50,7 @@ export class SessionFeedbackController {
         if (!sessionId) return;
         const state = this.states.get(sessionId);
         if (!state) return;
+        if (state.status === "submitting") return;
         this.clearResetTimer(sessionId);
         state.open = false;
         state.status = "idle";
