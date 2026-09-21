@@ -99,6 +99,7 @@ export const Header = React.memo(function Header({
         { key: "fork", label: t("Fork session"), action: { type: "forkSession" }, disabled: !hasSession },
         { key: "archive", label: t("Archive session"), action: { type: "archiveSession" }, disabled: !hasSession },
         { key: "trace", label: t("Open session trace"), action: { type: "openTrace" }, disabled: !hasSession },
+        { key: "feedback", label: t("Submit feedback"), action: { type: "openSessionFeedback" }, disabled: !hasSession },
         {
             key: "runtime",
             label: recoveryRunning ? t("Cancel automatic recovery") : runtimeRunning ? t("Stop runtime") : t("Start runtime"),

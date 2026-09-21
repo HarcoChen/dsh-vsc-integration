@@ -49,7 +49,7 @@ export async function manageAgentPresets(host: AgentPresetActionsHost): Promise<
     await host.runtime.start(host.workspaceRoot());
 
     while (true) {
-        const [catalog, settingsWritable] = await Promise.all([
+        const [catalog, settingsWritable, canOpenAgentPresetDirectory] = await Promise.all([
             host.runtime.agentPresets(),
             host.runtime.describeSettings()
                 .then((settings) => settings.writable)
@@ -58,6 +58,11 @@ export async function manageAgentPresets(host: AgentPresetActionsHost): Promise<
                     // only removes "Make default"; the rest stays usable.
                     host.output.appendLine(`[dsh:agent-preset] settings status unavailable: ${errorMessage(error)}`);
                     return false;
+                }),
+            host.runtime.canOpenAgentPresetDirectory()
+                .catch((error) => {
+                    host.output.appendLine(`[dsh:agent-preset] native opener status unavailable: ${errorMessage(error)}`);
+                    return undefined;
                 }),
         ]);
         host.onCatalog(catalog.presets, catalog.modeSelectionEnabled !== false);
@@ -91,12 +96,13 @@ export async function manageAgentPresets(host: AgentPresetActionsHost): Promise<
             selected.preset,
             catalog.authorable,
             settingsWritable && catalog.modeSelectionEnabled !== false,
+            canOpenAgentPresetDirectory,
         );
         if (!action) continue;
         if (action === "view") {
             await viewAgentPreset(host, selected.preset);
         } else if (action === "copy") {
-            await copyAgentPreset(host, selected.preset, catalog.presets);
+            await copyAgentPreset(host, selected.preset, catalog.presets, canOpenAgentPresetDirectory);
         } else if (action === "open") {
             await openAgentPresetLocation(host.runtime, selected.preset.id);
         } else if (action === "default") {
@@ -120,6 +126,7 @@ async function chooseAgentPresetAction(
     preset: DshAgentPresetEntry,
     authorable: boolean,
     settingsWritable: boolean,
+    canOpenAgentPresetDirectory: boolean | undefined,
 ): Promise<PresetAction | undefined> {
     const actions: Array<vscode.QuickPickItem & { action: PresetAction }> = [{
         action: "view",
@@ -140,11 +147,13 @@ async function chooseAgentPresetAction(
             detail: t("Use this Preset for future Sessions without an explicit mode"),
         });
     }
-    if (preset.trust === "user") {
+    if (preset.trust === "user" && canOpenAgentPresetDirectory !== undefined) {
         actions.push({
             action: "open",
-            label: `$(folder-opened) ${t("Open Preset files")}`,
-            detail: t("Edit this user Preset in its Harness-owned directory"),
+            label: `$(folder-opened) ${t(canOpenAgentPresetDirectory ? "Open Preset files" : "Show Preset path")}`,
+            detail: t(canOpenAgentPresetDirectory
+                ? "Edit this user Preset in its Harness-owned directory"
+                : "The host has no native folder opener; copy the Harness-owned directory path"),
         });
         actions.push({
             action: "remove",
@@ -189,6 +198,7 @@ async function copyAgentPreset(
     host: AgentPresetActionsHost,
     source: DshAgentPresetEntry,
     presets: readonly DshAgentPresetEntry[],
+    canOpenAgentPresetDirectory: boolean | undefined,
 ): Promise<void> {
     const id = await vscode.window.showInputBox({
         title: t("Copy Agent Preset {preset}", { preset: source.name || source.id }),
@@ -223,7 +233,9 @@ async function copyAgentPreset(
     void vscode.window.showInformationMessage(t("DSH: Agent Preset {preset} was created.", {
         preset: created,
     }));
-    await openAgentPresetLocation(host.runtime, created);
+    if (canOpenAgentPresetDirectory !== undefined) {
+        await openAgentPresetLocation(host.runtime, created);
+    }
 }
 
 /**

@@ -274,6 +274,32 @@ export interface DshMessageFeedbackStateView {
     error?: string;
 }
 
+/** Request body for the optional Session-level feedback Remote. */
+export interface DshSessionFeedbackRecordRequest {
+    sessionId: string;
+    text?: string;
+    category?: DshFeedbackCategory;
+}
+
+export interface DshSessionFeedbackError {
+    code: string;
+    sessionId?: string;
+}
+
+export type DshSessionFeedbackRecordResult =
+    | { ok: true; value: { recorded: true } }
+    | { ok: false; error: DshSessionFeedbackError };
+
+export type DshSessionFeedbackStatus = "idle" | "submitting" | "success" | "error" | "unavailable";
+
+/** Serializable state for the Session-level feedback dialog and acknowledgement. */
+export interface DshSessionFeedbackStateView {
+    open: boolean;
+    status: DshSessionFeedbackStatus;
+    sequence: number;
+    error?: string;
+}
+
 export interface ChatMessageFeedbackView {
     status: Exclude<DshMessageFeedbackStatus, "unavailable">;
     rating?: DshMessageFeedbackRating;
@@ -1232,6 +1258,7 @@ export interface ChatViewState {
     imageLimits?: DshImageLimitsView;
     plan?: DshPlanProjection;
     messageFeedback?: DshMessageFeedbackStateView;
+    sessionFeedback?: DshSessionFeedbackStateView;
     interactions: Array<{
         key: string;
         kind: "approval" | "question" | "plan-review";

@@ -45,6 +45,7 @@ import { presentSessionRows, type HarnessCatalogSnapshot } from "./sessionCatalo
 import { SessionCatalogCache } from "./sessionCatalogCache";
 import { listPromptTemplates, readPromptTemplate } from "./promptTemplates";
 import { MessageFeedbackController } from "./messageFeedbackController";
+import { SessionFeedbackController } from "./sessionFeedbackController";
 import { SubagentController } from "./subagentController";
 import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
 import { isRemoteError } from "./remote/errors";
@@ -305,6 +306,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogs = new SessionCatalogCache<DshSkillEntry[]>();
     private readonly commandCatalogs = new SessionCatalogCache<DshCommandDescriptor[]>();
     private readonly messageFeedback: MessageFeedbackController;
+    private readonly sessionFeedback: SessionFeedbackController;
     /**
      * Latched once the Runtime answers 404 for the command registry, so an
      * older Runtime is asked once per connection instead of on every state
@@ -351,6 +353,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             onChange: () => this.postState(),
         });
         this.messageFeedback = new MessageFeedbackController({
+            runtime,
+            currentRootSession: () => this.sessionId,
+            onChange: () => this.postState(),
+        });
+        this.sessionFeedback = new SessionFeedbackController({
             runtime,
             currentRootSession: () => this.sessionId,
             onChange: () => this.postState(),
@@ -719,6 +726,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.postState();
             },
         });
+    }
+
+    private async openSessionFeedback(): Promise<void> {
+        const workspaceRoot = this.workspaceRoot();
+        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
+        if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
+        const sessionId = await this.getOrCreateSession(workspaceRoot);
+        this.sessionFeedback.open(sessionId);
     }
 
     private async toggleSettingsPanel(): Promise<void> {
@@ -1187,6 +1202,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         for (const surface of Array.from(this.surfaces)) surface.dispose();
         if (this.stateUpdateTimer) clearTimeout(this.stateUpdateTimer);
         this.subagents.dispose();
+        this.sessionFeedback.dispose();
         this.goalActivation.dispose();
         this.fileReferenceQueryAbort?.abort();
         this.changeReviews.dispose();
@@ -1399,6 +1415,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "saveMessageFeedbackNote":
                     await this.messageFeedback.saveMessageFeedbackNote(message.messageId, message.note);
+                    break;
+                case "openSessionFeedback":
+                    await this.openSessionFeedback();
+                    break;
+                case "dismissSessionFeedback":
+                    this.sessionFeedback.dismiss(this.sessionId);
+                    break;
+                case "recordSessionFeedback":
+                    await this.sessionFeedback.record(this.sessionId, message.text, message.category);
                     break;
                 case "switchSession":
                     await this.switchSession(message.sessionId);
@@ -1693,6 +1718,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
 
             const session = await this.getOrCreateSession(workspaceRoot);
+            if (!hasAttachments && /^\/feedback$/u.test(text)) {
+                this.sessionFeedback.open(session);
+                return;
+            }
             if (!hasAttachments && /^\/ide(?:$|[\t\n\r ])/u.test(text)) {
                 await this.openIdeContextPicker();
                 return;
@@ -3157,6 +3186,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.sessionId,
         );
         const messageFeedback = this.messageFeedback.messageFeedbackView(this.sessionId);
+        const sessionFeedback = this.sessionFeedback.view(this.sessionId);
         this.rememberCopyableMessages(this.sessionId, feedbackMessages);
         if (this.sessionId) this.goalMutations.observe(this.sessionId, goalCell);
         const activeInteractions = session?.interactions.filter(
@@ -3249,6 +3279,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(imageLimits === undefined ? {} : { imageLimits }),
             ...(plan === undefined ? {} : { plan }),
             ...(messageFeedback === undefined ? {} : { messageFeedback }),
+            ...(sessionFeedback === undefined ? {} : { sessionFeedback }),
             interactions: activeInteractions.map((interaction) =>
                 interaction.kind === "approval"
                     ? {

@@ -122,7 +122,7 @@ projection 集合由当前 Loader composition 决定，不再用旧版固定总�
 
 ## P1：功能（按性价比排序，均已核对公开契约）
 
-- [x] **消息反馈 UI/评测闭环**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`）；当前已接入会话级刷新、CAS 变更、点赞/点踩、备注编辑、会话切换和旧 Runtime 降级。反馈不写入模型上下文或 telemetry；统计、导出和会话级 `sessionFeedback/record` 仍按下方候选项另行评估。
+- [x] **消息反馈 UI/评测闭环**。上游 `messageFeedback.list/put/delete` 已有公开 `@Remote`（`deepseek-harness/packages/feedback/message-feedback/src/index.ts:189,205,271`）；当前已接入会话级刷新、CAS 变更、点赞/点踩、备注编辑、会话切换和旧 Runtime 降级。反馈不写入模型上下文或 telemetry；会话级 `sessionFeedback/record` 入口已另行接入。
 - [ ] **上下文用量与超限反馈补全**：发送前展示附件大小、截断与最终进入 prompt 的内容，支持移除大项。（基础用量与 `contextBreakdown` 占用归因已完成；不自动识别或分类秘密、个人信息等敏感内容，除非另有隐私策略和明确同意。）
 - [ ] **扩展 `@` 引用类型**：当前已有文件、目录、`@selection`、`@terminal`，以及 Runtime 侧 `fileReferences/list`、`sessionReferenceResolver/candidates` 候选；仍需 diagnostics、实际捕获范围展示，并补齐远程工作区实机验证。
 - [ ] **项目规则（Prompt 模板已交付，见下）**：提供本地规则 Markdown 的只读发现和显式选择，作为可见上下文附件；没有公开 Memory 协议时不自动注入或生成隐式记忆。
@@ -161,16 +161,14 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
       `readRelated`、`stat`、`list` 与 `changes` 变更流，也是「Files API 图片复用」的落点。
       接入前先解上方「远程工作区支持评估」的同侧性判定；注意 7 个方法的首参在 wire 上名为
       `workspaceFileScopeId`（`src/index.ts:202` 的 lookup 显式改写，全库唯一），不要按 `scope` 抄。
-- [ ] **`sessionFeedback/record`（整会话反馈入口）**：上游 `dsh-v0.1.3-alpha.2` 起公开，
+- [x] **`sessionFeedback/record`（整会话反馈入口）**：上游 `dsh-v0.1.3-alpha.2` 起公开，
       `0.1.5-rc.1` 已挂载（`packages/feedback/command-feedback/src/index.ts:101`），是 Web 反馈
       对话框与 `/feedback` 命令背后的分类 + 备注上报，与 `messageFeedback`（逐条消息评分）不是同一
-      契约。扩展当前只有 `messageFeedback`，会话级反馈无 IDE 入口。上游不写 Session 日志、不触发模型
-      工作，接入不触碰 prompt；与「消息反馈 UI/评测闭环」项共用评价口径决策。
-- [ ] **`settings/canOpenAgentPresetDirectory` 能力探测**：`src/dshRuntime.ts` 直接调
-      `settings/openAgentPresetDirectory`，未先探测。上游该目录打开受 optional `agentPresets`
-      服务与 `Config.nativeOpen` 双重门控（`settings-controller/src/index.ts:232-240`、`:89`），
-      无能力时抛 `agent-preset/not-found`。现状是报错而非隐藏菜单项，与 `session/canOpenWorkspacePath`
-      先探测再回落的既有做法不一致；改用探测可对齐。
+      契约。扩展现已提供头部反馈入口和空 `/feedback` 对话框，支持分类、备注、成功提示与旧 Runtime
+      降级；上游只追加 log-only feedback event，不触发模型工作。
+- [x] **`settings/canOpenAgentPresetDirectory` 能力探测**：`src/dshRuntime.ts` 先探测
+      `settings/canOpenAgentPresetDirectory`，再决定是否显示用户 Preset 的打开/显示路径动作；无原生
+      打开器时沿用 `settings/openAgentPresetDirectory` 的路径回落，完全没有探针的旧 Runtime 隐藏该动作。
 - [ ] **`cordis/inspect-query` / `-resolved` 呈现**：`src/remote/events.ts:29-30` 已在 allowlist
       内（帧不会触发协议错误），但除该文件外零消费者，配套的
       `dynamicCordisRunner/resolveInspectQuery`、`syncInspectManifest` 亦未接入，即 `cordis_inspect`
@@ -211,8 +209,6 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 | --- | --- | --- |
 | `workspaceFiles/read\|readBytes\|readAll\|readRelated\|stat\|list` | `packages/api/workspace-files/src/index.ts:231-336` | 远程工作区文件预览 |
 | `workspaceFiles/changes`（流） | 同上 `:364` | 4 个 Remote 流中唯一未消费 |
-| `sessionFeedback/record` | `packages/feedback/command-feedback/src/index.ts:101` | 会话级反馈入口 |
-| `settings/canOpenAgentPresetDirectory` | `packages/api/settings-controller/src/index.ts:130` | 探测未用，见上方候选项 |
 | `fileUploads/upload` | `packages/client/file-upload/src/index.ts:105` | 已由裸字节路由等价覆盖，仅 JSON 入口缺失 |
 
 **有意不做（有决策依据，不记为欠账）**：
