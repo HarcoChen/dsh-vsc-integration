@@ -133,6 +133,7 @@ import {
     DEFAULT_JEV_MODEL,
     DEFAULT_JEV_RESULT_SHAPER,
     DEFAULT_JEV_SKILL_ROUTER,
+    DEFAULT_JEV_TOKEN_OPTIMIZATION,
     DEFAULT_JEV_TIMEOUT_MS,
     DEFAULT_JEV_TOOL_PRUNER,
     prepareJevIntegrationPatch,
@@ -780,6 +781,20 @@ function configuredJevIntegration(configuration: vscode.WorkspaceConfiguration):
             maxClusters: number("jev.resultShaper.maxClusters", DEFAULT_JEV_RESULT_SHAPER.maxClusters),
             sampleChars: number("jev.resultShaper.sampleChars", DEFAULT_JEV_RESULT_SHAPER.sampleChars),
             requestTimeoutMs: number("jev.resultShaper.requestTimeoutMs", DEFAULT_JEV_RESULT_SHAPER.requestTimeoutMs),
+        },
+        tokenOptimization: {
+            enabled: boolean("jev.tokenOptimization.enabled", DEFAULT_JEV_TOKEN_OPTIMIZATION.enabled),
+            deterministicFirst: boolean("jev.tokenOptimization.deterministicFirst", DEFAULT_JEV_TOKEN_OPTIMIZATION.deterministicFirst),
+            minInputTokens: number("jev.tokenOptimization.minInputTokens", DEFAULT_JEV_TOKEN_OPTIMIZATION.minInputTokens),
+            minEstimatedSavingsTokens: number(
+                "jev.tokenOptimization.minEstimatedSavingsTokens",
+                DEFAULT_JEV_TOKEN_OPTIMIZATION.minEstimatedSavingsTokens,
+            ),
+            semanticFallback: boolean("jev.tokenOptimization.semanticFallback", DEFAULT_JEV_TOKEN_OPTIMIZATION.semanticFallback),
+            maxDecisionLatencyMs: number(
+                "jev.tokenOptimization.maxDecisionLatencyMs",
+                DEFAULT_JEV_TOKEN_OPTIMIZATION.maxDecisionLatencyMs,
+            ),
         },
         doneGate: {
             enabled: boolean("jev.doneGate.enabled", DEFAULT_JEV_DONE_GATE.enabled),

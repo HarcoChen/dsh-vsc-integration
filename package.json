@@ -713,7 +713,7 @@
                 },
                 "dsh.jev.resultShaper.keepKinds": {
                     "type": "array",
-                    "default": ["warning", "failure"],
+                    "default": ["warning", "failure", "error", "summary"],
                     "items": { "type": "string", "minLength": 1 },
                     "description": "%config.jev.resultShaper.keepKinds.description%"
                 },
@@ -744,6 +744,42 @@
                     "minimum": 1,
                     "maximum": 120000,
                     "description": "%config.jev.resultShaper.requestTimeoutMs.description%"
+                },
+                "dsh.jev.tokenOptimization.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.tokenOptimization.enabled.description%"
+                },
+                "dsh.jev.tokenOptimization.deterministicFirst": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.jev.tokenOptimization.deterministicFirst.description%"
+                },
+                "dsh.jev.tokenOptimization.minInputTokens": {
+                    "type": "number",
+                    "default": 256,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.tokenOptimization.minInputTokens.description%"
+                },
+                "dsh.jev.tokenOptimization.minEstimatedSavingsTokens": {
+                    "type": "number",
+                    "default": 64,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.tokenOptimization.minEstimatedSavingsTokens.description%"
+                },
+                "dsh.jev.tokenOptimization.semanticFallback": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.tokenOptimization.semanticFallback.description%"
+                },
+                "dsh.jev.tokenOptimization.maxDecisionLatencyMs": {
+                    "type": "number",
+                    "default": 1500,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.tokenOptimization.maxDecisionLatencyMs.description%"
                 },
                 "dsh.jev.doneGate.enabled": {
                     "type": "boolean",

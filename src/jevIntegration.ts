@@ -42,11 +42,20 @@ export const DEFAULT_JEV_RESULT_SHAPER = {
     shapeTools: ["bash", "pwsh", "terminal", "run_command", "execute_command"] as const,
     thresholdChars: 8_000,
     maxPerTurn: 2,
-    keepKinds: ["warning", "failure"] as const,
+    keepKinds: ["warning", "failure", "error", "summary"] as const,
     minKindConfidence: 0.6,
     maxClusters: 24,
     sampleChars: 400,
     requestTimeoutMs: 4_000,
+} as const;
+
+export const DEFAULT_JEV_TOKEN_OPTIMIZATION = {
+    enabled: false,
+    deterministicFirst: true,
+    minInputTokens: 256,
+    minEstimatedSavingsTokens: 64,
+    semanticFallback: false,
+    maxDecisionLatencyMs: 1_500,
 } as const;
 
 export const DEFAULT_JEV_DONE_GATE = {
@@ -131,6 +140,15 @@ export interface JevResultShaperConfig {
     requestTimeoutMs: number;
 }
 
+export interface JevTokenOptimizationConfig {
+    enabled: boolean;
+    deterministicFirst: boolean;
+    minInputTokens: number;
+    minEstimatedSavingsTokens: number;
+    semanticFallback: boolean;
+    maxDecisionLatencyMs: number;
+}
+
 export interface JevDoneGateConfig {
     enabled: boolean;
     blockThreshold: number;
@@ -192,6 +210,7 @@ export interface JevIntegrationConfig {
     guardedTools: readonly string[];
     loopGuard: JevLoopGuardConfig;
     resultShaper: JevResultShaperConfig;
+    tokenOptimization: JevTokenOptimizationConfig;
     doneGate: JevDoneGateConfig;
     toolPruner: JevToolPrunerConfig;
     skillRouter: JevSkillRouterConfig;
@@ -250,6 +269,7 @@ function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown>
     const guardedTools = [...new Set(config.guardedTools.filter((tool) => tool.trim().length > 0))];
     const loopGuard = config.loopGuard;
     const resultShaper = config.resultShaper;
+    const tokenOptimization = config.tokenOptimization;
     const doneGate = config.doneGate;
     const toolPruner = config.toolPruner;
     const skillRouter = config.skillRouter;
@@ -287,6 +307,23 @@ function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown>
             maxClusters: boundedInteger(resultShaper.maxClusters, DEFAULT_JEV_RESULT_SHAPER.maxClusters),
             sampleChars: boundedInteger(resultShaper.sampleChars, DEFAULT_JEV_RESULT_SHAPER.sampleChars),
             requestTimeoutMs: boundedInteger(resultShaper.requestTimeoutMs, DEFAULT_JEV_RESULT_SHAPER.requestTimeoutMs),
+        },
+        tokenOptimization: {
+            enabled: tokenOptimization.enabled === true,
+            deterministicFirst: tokenOptimization.deterministicFirst !== false,
+            minInputTokens: boundedInteger(
+                tokenOptimization.minInputTokens,
+                DEFAULT_JEV_TOKEN_OPTIMIZATION.minInputTokens,
+            ),
+            minEstimatedSavingsTokens: boundedInteger(
+                tokenOptimization.minEstimatedSavingsTokens,
+                DEFAULT_JEV_TOKEN_OPTIMIZATION.minEstimatedSavingsTokens,
+            ),
+            semanticFallback: tokenOptimization.semanticFallback === true,
+            maxDecisionLatencyMs: boundedInteger(
+                tokenOptimization.maxDecisionLatencyMs,
+                DEFAULT_JEV_TOKEN_OPTIMIZATION.maxDecisionLatencyMs,
+            ),
         },
         doneGate: {
             enabled: doneGate.enabled === true,
