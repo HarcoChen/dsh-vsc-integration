@@ -785,6 +785,200 @@
                     "maximum": 120000,
                     "description": "%config.jev.doneGate.cooldownTurns.description%"
                 },
+                "dsh.jev.toolPruner.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.toolPruner.enabled.description%"
+                },
+                "dsh.jev.toolPruner.maxTools": {
+                    "type": "number",
+                    "default": 8,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.toolPruner.maxTools.description%"
+                },
+                "dsh.jev.toolPruner.minScoreThreshold": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "%config.jev.toolPruner.minScoreThreshold.description%"
+                },
+                "dsh.jev.toolPruner.minConfidence": {
+                    "type": "number",
+                    "default": 0.5,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.toolPruner.minConfidence.description%"
+                },
+                "dsh.jev.toolPruner.minIntentChars": {
+                    "type": "number",
+                    "default": 8,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.toolPruner.minIntentChars.description%"
+                },
+                "dsh.jev.toolPruner.minKeep": {
+                    "type": "number",
+                    "default": 3,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.toolPruner.minKeep.description%"
+                },
+                "dsh.jev.toolPruner.maxCandidates": {
+                    "type": "number",
+                    "default": 50,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.toolPruner.maxCandidates.description%"
+                },
+                "dsh.jev.toolPruner.requestTimeoutMs": {
+                    "type": "number",
+                    "default": 4000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.toolPruner.requestTimeoutMs.description%"
+                },
+                "dsh.jev.toolPruner.alwaysRetain": {
+                    "type": "array",
+                    "default": ["run_code", "skill", "jev_ask", "jev_rank", "jev_check", "read_file", "write_to_file", "write_file", "edit_file", "str_replace_editor", "bash", "terminal", "pwsh", "run_command", "execute_command", "grep", "glob", "find_by_name", "view_file", "replace_file_content"],
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "%config.jev.toolPruner.alwaysRetain.description%"
+                },
+                "dsh.jev.skillRouter.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.skillRouter.enabled.description%"
+                },
+                "dsh.jev.skillRouter.minCandidates": {
+                    "type": "number",
+                    "default": 8,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.skillRouter.minCandidates.description%"
+                },
+                "dsh.jev.skillRouter.minIntentChars": {
+                    "type": "number",
+                    "default": 12,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.skillRouter.minIntentChars.description%"
+                },
+                "dsh.jev.skillRouter.maxSkills": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 1,
+                    "maximum": 20,
+                    "description": "%config.jev.skillRouter.maxSkills.description%"
+                },
+                "dsh.jev.skillRouter.maxCandidates": {
+                    "type": "number",
+                    "default": 32,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.skillRouter.maxCandidates.description%"
+                },
+                "dsh.jev.skillRouter.minScore": {
+                    "type": "number",
+                    "default": 1.5,
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "%config.jev.skillRouter.minScore.description%"
+                },
+                "dsh.jev.skillRouter.minConfidence": {
+                    "type": "number",
+                    "default": 0.5,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.skillRouter.minConfidence.description%"
+                },
+                "dsh.jev.skillRouter.nameMatchBoost": {
+                    "type": "number",
+                    "default": 0.6,
+                    "minimum": 0,
+                    "maximum": 2,
+                    "description": "%config.jev.skillRouter.nameMatchBoost.description%"
+                },
+                "dsh.jev.skillRouter.maxAdviceChars": {
+                    "type": "number",
+                    "default": 1200,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.skillRouter.maxAdviceChars.description%"
+                },
+                "dsh.jev.skillRouter.requestTimeoutMs": {
+                    "type": "number",
+                    "default": 4000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.skillRouter.requestTimeoutMs.description%"
+                },
+                "dsh.jev.decisionTools.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.decisionTools.enabled.description%"
+                },
+                "dsh.jev.decisionTools.requestTimeoutMs": {
+                    "type": "number",
+                    "default": 3500,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.decisionTools.requestTimeoutMs.description%"
+                },
+                "dsh.jev.decisionTools.maxStateChars": {
+                    "type": "number",
+                    "default": 12000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.decisionTools.maxStateChars.description%"
+                },
+                "dsh.jev.decisionTools.maxQuestionChars": {
+                    "type": "number",
+                    "default": 1500,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.decisionTools.maxQuestionChars.description%"
+                },
+                "dsh.jev.decisionTools.maxQuestions": {
+                    "type": "number",
+                    "default": 16,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.decisionTools.maxQuestions.description%"
+                },
+                "dsh.jev.decisionTools.maxCandidates": {
+                    "type": "number",
+                    "default": 50,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.decisionTools.maxCandidates.description%"
+                },
+                "dsh.jev.decisionTools.maxCandidateChars": {
+                    "type": "number",
+                    "default": 600,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.decisionTools.maxCandidateChars.description%"
+                },
+                "dsh.jev.decisionTools.maxResultChars": {
+                    "type": "number",
+                    "default": 4000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.decisionTools.maxResultChars.description%"
+                },
+                "dsh.jev.deterministicSafetyGuard.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.jev.deterministicSafetyGuard.enabled.description%"
+                },
+                "dsh.jev.deterministicSafetyGuard.maxArgumentChars": {
+                    "type": "number",
+                    "default": 32000,
+                    "minimum": 1,
+                    "maximum": 1000000,
+                    "description": "%config.jev.deterministicSafetyGuard.maxArgumentChars.description%"
+                },
                 "dsh.autonomousDebugging": {
                     "type": "boolean",
                     "default": false,

@@ -58,6 +58,53 @@ export const DEFAULT_JEV_DONE_GATE = {
     cooldownTurns: 1,
 } as const;
 
+export const DEFAULT_JEV_TOOL_PRUNER = {
+    enabled: false,
+    maxTools: 8,
+    minScoreThreshold: 2,
+    minConfidence: 0.5,
+    minIntentChars: 8,
+    minKeep: 3,
+    maxCandidates: 50,
+    requestTimeoutMs: 4_000,
+    alwaysRetain: [
+        "run_code", "skill", "jev_ask", "jev_rank", "jev_check",
+        "read_file", "write_to_file", "write_file", "edit_file",
+        "str_replace_editor", "bash", "terminal", "pwsh", "run_command",
+        "execute_command", "grep", "glob", "find_by_name", "view_file",
+        "replace_file_content",
+    ] as const,
+} as const;
+
+export const DEFAULT_JEV_SKILL_ROUTER = {
+    enabled: false,
+    minCandidates: 8,
+    minIntentChars: 12,
+    maxSkills: 2,
+    maxCandidates: 32,
+    minScore: 1.5,
+    minConfidence: 0.5,
+    nameMatchBoost: 0.6,
+    maxAdviceChars: 1_200,
+    requestTimeoutMs: 4_000,
+} as const;
+
+export const DEFAULT_JEV_DECISION_TOOLS = {
+    enabled: false,
+    requestTimeoutMs: 3_500,
+    maxStateChars: 12_000,
+    maxQuestionChars: 1_500,
+    maxQuestions: 16,
+    maxCandidates: 50,
+    maxCandidateChars: 600,
+    maxResultChars: 4_000,
+} as const;
+
+export const DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD = {
+    enabled: true,
+    maxArgumentChars: 32_000,
+} as const;
+
 export interface JevLoopGuardConfig {
     enabled: boolean;
     triggerThreshold: number;
@@ -93,6 +140,47 @@ export interface JevDoneGateConfig {
     cooldownTurns: number;
 }
 
+export interface JevToolPrunerConfig {
+    enabled: boolean;
+    maxTools: number;
+    minScoreThreshold: number;
+    minConfidence: number;
+    minIntentChars: number;
+    minKeep: number;
+    maxCandidates: number;
+    requestTimeoutMs: number;
+    alwaysRetain: readonly string[];
+}
+
+export interface JevSkillRouterConfig {
+    enabled: boolean;
+    minCandidates: number;
+    minIntentChars: number;
+    maxSkills: number;
+    maxCandidates: number;
+    minScore: number;
+    minConfidence: number;
+    nameMatchBoost: number;
+    maxAdviceChars: number;
+    requestTimeoutMs: number;
+}
+
+export interface JevDecisionToolsConfig {
+    enabled: boolean;
+    requestTimeoutMs: number;
+    maxStateChars: number;
+    maxQuestionChars: number;
+    maxQuestions: number;
+    maxCandidates: number;
+    maxCandidateChars: number;
+    maxResultChars: number;
+}
+
+export interface JevDeterministicSafetyGuardConfig {
+    enabled: boolean;
+    maxArgumentChars: number;
+}
+
 export interface JevIntegrationConfig {
     enabled: boolean;
     baseUrl: string;
@@ -105,6 +193,10 @@ export interface JevIntegrationConfig {
     loopGuard: JevLoopGuardConfig;
     resultShaper: JevResultShaperConfig;
     doneGate: JevDoneGateConfig;
+    toolPruner: JevToolPrunerConfig;
+    skillRouter: JevSkillRouterConfig;
+    decisionTools: JevDecisionToolsConfig;
+    deterministicSafetyGuard: JevDeterministicSafetyGuardConfig;
 }
 
 interface PackageManifest {
@@ -159,6 +251,10 @@ function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown>
     const loopGuard = config.loopGuard;
     const resultShaper = config.resultShaper;
     const doneGate = config.doneGate;
+    const toolPruner = config.toolPruner;
+    const skillRouter = config.skillRouter;
+    const decisionTools = config.decisionTools;
+    const deterministicSafetyGuard = config.deterministicSafetyGuard;
     return {
         enabled: config.enabled === true,
         baseUrl,
@@ -199,6 +295,52 @@ function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown>
             requestTimeoutMs: boundedInteger(doneGate.requestTimeoutMs, DEFAULT_JEV_DONE_GATE.requestTimeoutMs),
             maxClaimChars: boundedInteger(doneGate.maxClaimChars, DEFAULT_JEV_DONE_GATE.maxClaimChars),
             cooldownTurns: boundedInteger(doneGate.cooldownTurns, DEFAULT_JEV_DONE_GATE.cooldownTurns),
+        },
+        toolPruner: {
+            enabled: toolPruner.enabled === true,
+            maxTools: boundedIntegerFrom(toolPruner.maxTools, DEFAULT_JEV_TOOL_PRUNER.maxTools, 120),
+            minScoreThreshold: Number.isFinite(toolPruner.minScoreThreshold)
+                && toolPruner.minScoreThreshold >= 0 && toolPruner.minScoreThreshold <= 2
+                ? toolPruner.minScoreThreshold : DEFAULT_JEV_TOOL_PRUNER.minScoreThreshold,
+            minConfidence: boundedThreshold(toolPruner.minConfidence, DEFAULT_JEV_TOOL_PRUNER.minConfidence),
+            minIntentChars: boundedInteger(toolPruner.minIntentChars, DEFAULT_JEV_TOOL_PRUNER.minIntentChars),
+            minKeep: boundedIntegerFrom(toolPruner.minKeep, DEFAULT_JEV_TOOL_PRUNER.minKeep, 120),
+            maxCandidates: boundedIntegerFrom(toolPruner.maxCandidates, DEFAULT_JEV_TOOL_PRUNER.maxCandidates, 120),
+            requestTimeoutMs: boundedInteger(toolPruner.requestTimeoutMs, DEFAULT_JEV_TOOL_PRUNER.requestTimeoutMs),
+            alwaysRetain: normalizedStringList(toolPruner.alwaysRetain, DEFAULT_JEV_TOOL_PRUNER.alwaysRetain),
+        },
+        skillRouter: {
+            enabled: skillRouter.enabled === true,
+            minCandidates: boundedIntegerFrom(skillRouter.minCandidates, DEFAULT_JEV_SKILL_ROUTER.minCandidates, 120),
+            minIntentChars: boundedInteger(skillRouter.minIntentChars, DEFAULT_JEV_SKILL_ROUTER.minIntentChars),
+            maxSkills: boundedIntegerFrom(skillRouter.maxSkills, DEFAULT_JEV_SKILL_ROUTER.maxSkills, 20),
+            maxCandidates: boundedIntegerFrom(skillRouter.maxCandidates, DEFAULT_JEV_SKILL_ROUTER.maxCandidates, 120),
+            minScore: Number.isFinite(skillRouter.minScore)
+                && skillRouter.minScore >= 0 && skillRouter.minScore <= 2
+                ? skillRouter.minScore : DEFAULT_JEV_SKILL_ROUTER.minScore,
+            minConfidence: boundedThreshold(skillRouter.minConfidence, DEFAULT_JEV_SKILL_ROUTER.minConfidence),
+            nameMatchBoost: Number.isFinite(skillRouter.nameMatchBoost)
+                && skillRouter.nameMatchBoost >= 0 && skillRouter.nameMatchBoost <= 2
+                ? skillRouter.nameMatchBoost : DEFAULT_JEV_SKILL_ROUTER.nameMatchBoost,
+            maxAdviceChars: boundedInteger(skillRouter.maxAdviceChars, DEFAULT_JEV_SKILL_ROUTER.maxAdviceChars),
+            requestTimeoutMs: boundedInteger(skillRouter.requestTimeoutMs, DEFAULT_JEV_SKILL_ROUTER.requestTimeoutMs),
+        },
+        decisionTools: {
+            enabled: decisionTools.enabled === true,
+            requestTimeoutMs: boundedInteger(decisionTools.requestTimeoutMs, DEFAULT_JEV_DECISION_TOOLS.requestTimeoutMs),
+            maxStateChars: boundedInteger(decisionTools.maxStateChars, DEFAULT_JEV_DECISION_TOOLS.maxStateChars),
+            maxQuestionChars: boundedInteger(decisionTools.maxQuestionChars, DEFAULT_JEV_DECISION_TOOLS.maxQuestionChars),
+            maxQuestions: boundedIntegerFrom(decisionTools.maxQuestions, DEFAULT_JEV_DECISION_TOOLS.maxQuestions, 120),
+            maxCandidates: boundedIntegerFrom(decisionTools.maxCandidates, DEFAULT_JEV_DECISION_TOOLS.maxCandidates, 120),
+            maxCandidateChars: boundedInteger(decisionTools.maxCandidateChars, DEFAULT_JEV_DECISION_TOOLS.maxCandidateChars),
+            maxResultChars: boundedInteger(decisionTools.maxResultChars, DEFAULT_JEV_DECISION_TOOLS.maxResultChars),
+        },
+        deterministicSafetyGuard: {
+            enabled: deterministicSafetyGuard.enabled !== false,
+            maxArgumentChars: Number.isInteger(deterministicSafetyGuard.maxArgumentChars)
+                && deterministicSafetyGuard.maxArgumentChars >= 1
+                && deterministicSafetyGuard.maxArgumentChars <= 1_000_000
+                ? deterministicSafetyGuard.maxArgumentChars : DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD.maxArgumentChars,
         },
     };
 }

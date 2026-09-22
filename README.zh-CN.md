@@ -112,7 +112,7 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。`dsh.jev.loopGuard.*`、`dsh.jev.resultShaper.*` 和 `dsh.jev.doneGate.*` 会原样传给挂载的插件；前两者分别用于避免循环和压缩重复输出，完成证据门主要用于质量保护。请使用 **DSH：配置 Jev API Key** 将 Key 加密保存到 VS Code SecretStorage，扩展只会把它传给自己启动的 Runtime；也继续支持 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 作为回退。修改 Jev 设置后重启 DSH。本版本提供该包的最小 advisory hook 与 Runtime 策略，不是完整 upstream `dsh-jev` bundle。
+**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。循环保护、结果整形、完成证据门、工具裁剪、skill 路由、决策工具和确定性安全设置都会原样传给挂载的插件。工具裁剪只修改模型可见 schema；skill 路由只追加有界 advice；决策工具默认关闭；确定性安全检查留在本地，不调用 Jev。请使用 **DSH：配置 Jev API Key** 将 Key 加密保存到 VS Code SecretStorage，扩展只会把它传给自己启动的 Runtime；也继续支持 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 作为回退。修改 Jev 设置后重启 DSH。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及升级目标为 RC.2，继续使用 V3 历史和显式订阅的 Assistant 流。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
 
@@ -191,6 +191,14 @@ graph TD
 | `dsh.jev.resultShaper.*` | *协议默认值* | 调整结果大小阈值、整形工具、保留分类、分组预算和请求超时。 |
 | `dsh.jev.doneGate.enabled` | `false` | 让 Jev 检查完成声明的证据；这是质量保护，可能增加验证轮次，并非节省 Token 的设置。 |
 | `dsh.jev.doneGate.*` | *协议默认值* | 调整完成阈值、证据数量、声明长度、冷却轮次和请求超时。 |
+| `dsh.jev.toolPruner.enabled` | `false` | 启用 Jev 对模型可见工具 schema 的 top-K 裁剪；不会改变权限或已注册工具。 |
+| `dsh.jev.toolPruner.*` | *协议默认值* | 调整目标工具上限、相关性/置信度门槛、候选预算、始终保留名称和请求超时；必要/保留工具可能使总数超过目标。 |
+| `dsh.jev.skillRouter.enabled` | `false` | 启用向下一轮模型 prompt 追加有界的 Jev 排序 skill advice。 |
+| `dsh.jev.skillRouter.*` | *协议默认值* | 调整 skill 候选/选择预算、分数/置信度门槛、advice 长度和请求超时。 |
+| `dsh.jev.decisionTools.enabled` | `false` | 向 Agent 暴露 `jev_ask`、`jev_rank` 和 `jev_check`；有界 state 会发送给 Jev。 |
+| `dsh.jev.decisionTools.*` | *协议默认值* | 调整 state、问题、候选、结果和超时上限。 |
+| `dsh.jev.deterministicSafetyGuard.enabled` | `true` | 当 DSH 提供 `tools.guard` 时保持本地同步检查，识别破坏性命令、权限提升和凭据泄漏。 |
+| `dsh.jev.deterministicSafetyGuard.maxArgumentChars` | `32000` | 本地安全规则检查的序列化参数文本上限。 |
 | `dsh.autonomousDebugging` | `false` | 允许 Agent 通过本机回环 MCP 端点操作本窗口的调试器；只对本窗口自行启动的 Runtime 生效，切换后需重启 Runtime。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
 | `dsh.persistSession` | `true` | 尽可能复用当前工作区上次的 Session ID。 |
