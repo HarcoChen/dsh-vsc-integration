@@ -279,7 +279,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             if (runtime.getStatus().state !== "running") return;
             const restart = t("Restart DSH Runtime");
             const message = jevChanged
-                ? t("Jev integration settings apply to the next Runtime launch. Guarded tool arguments may be sent to the configured TypeSafe endpoint. Restart DSH now?")
+                ? t("Jev integration settings apply to the next Runtime launch. Guarded tool arguments and explicitly enabled policy samples may be sent to the configured TypeSafe endpoint. Restart DSH now?")
                 : t("Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?");
             void vscode.window
                 .showInformationMessage(

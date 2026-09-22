@@ -615,6 +615,176 @@
                     },
                     "description": "%config.jev.guardedTools.description%"
                 },
+                "dsh.jev.loopGuard.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.loopGuard.enabled.description%"
+                },
+                "dsh.jev.loopGuard.triggerThreshold": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.loopGuard.triggerThreshold.description%"
+                },
+                "dsh.jev.loopGuard.noProgressThreshold": {
+                    "type": "number",
+                    "default": 0.3,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.loopGuard.noProgressThreshold.description%"
+                },
+                "dsh.jev.loopGuard.pLoopThreshold": {
+                    "type": "number",
+                    "default": 0.6,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.loopGuard.pLoopThreshold.description%"
+                },
+                "dsh.jev.loopGuard.minConfidence": {
+                    "type": "number",
+                    "default": 0.5,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.loopGuard.minConfidence.description%"
+                },
+                "dsh.jev.loopGuard.cooldownSteps": {
+                    "type": "number",
+                    "default": 3,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.loopGuard.cooldownSteps.description%"
+                },
+                "dsh.jev.loopGuard.maxHistory": {
+                    "type": "number",
+                    "default": 8,
+                    "minimum": 1,
+                    "maximum": 120,
+                    "description": "%config.jev.loopGuard.maxHistory.description%"
+                },
+                "dsh.jev.loopGuard.deferExactRepeats": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.jev.loopGuard.deferExactRepeats.description%"
+                },
+                "dsh.jev.loopGuard.requestTimeoutMs": {
+                    "type": "number",
+                    "default": 3500,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.loopGuard.requestTimeoutMs.description%"
+                },
+                "dsh.jev.loopGuard.include": {
+                    "type": "array",
+                    "default": [],
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "%config.jev.loopGuard.include.description%"
+                },
+                "dsh.jev.loopGuard.exclude": {
+                    "type": "array",
+                    "default": [],
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "%config.jev.loopGuard.exclude.description%"
+                },
+                "dsh.jev.resultShaper.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.resultShaper.enabled.description%"
+                },
+                "dsh.jev.resultShaper.shapeTools": {
+                    "type": "array",
+                    "default": ["bash", "pwsh", "terminal", "run_command", "execute_command"],
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "%config.jev.resultShaper.shapeTools.description%"
+                },
+                "dsh.jev.resultShaper.thresholdChars": {
+                    "type": "number",
+                    "default": 8000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.resultShaper.thresholdChars.description%"
+                },
+                "dsh.jev.resultShaper.maxPerTurn": {
+                    "type": "number",
+                    "default": 2,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.resultShaper.maxPerTurn.description%"
+                },
+                "dsh.jev.resultShaper.keepKinds": {
+                    "type": "array",
+                    "default": ["warning", "failure"],
+                    "items": { "type": "string", "minLength": 1 },
+                    "description": "%config.jev.resultShaper.keepKinds.description%"
+                },
+                "dsh.jev.resultShaper.minKindConfidence": {
+                    "type": "number",
+                    "default": 0.6,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.resultShaper.minKindConfidence.description%"
+                },
+                "dsh.jev.resultShaper.maxClusters": {
+                    "type": "number",
+                    "default": 24,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.resultShaper.maxClusters.description%"
+                },
+                "dsh.jev.resultShaper.sampleChars": {
+                    "type": "number",
+                    "default": 400,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.resultShaper.sampleChars.description%"
+                },
+                "dsh.jev.resultShaper.requestTimeoutMs": {
+                    "type": "number",
+                    "default": 4000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.resultShaper.requestTimeoutMs.description%"
+                },
+                "dsh.jev.doneGate.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.doneGate.enabled.description%"
+                },
+                "dsh.jev.doneGate.blockThreshold": {
+                    "type": "number",
+                    "default": 0.75,
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "%config.jev.doneGate.blockThreshold.description%"
+                },
+                "dsh.jev.doneGate.minEvidenceItems": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.doneGate.minEvidenceItems.description%"
+                },
+                "dsh.jev.doneGate.requestTimeoutMs": {
+                    "type": "number",
+                    "default": 3500,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.doneGate.requestTimeoutMs.description%"
+                },
+                "dsh.jev.doneGate.maxClaimChars": {
+                    "type": "number",
+                    "default": 4000,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.doneGate.maxClaimChars.description%"
+                },
+                "dsh.jev.doneGate.cooldownTurns": {
+                    "type": "number",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 120000,
+                    "description": "%config.jev.doneGate.cooldownTurns.description%"
+                },
                 "dsh.autonomousDebugging": {
                     "type": "boolean",
                     "default": false,

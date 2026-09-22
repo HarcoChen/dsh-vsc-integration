@@ -112,7 +112,7 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。请使用 **DSH：配置 Jev API Key** 将 Key 加密保存到 VS Code SecretStorage，扩展只会把它传给自己启动的 Runtime；也继续支持 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 作为回退。修改 Jev 设置后重启 DSH。本版本提供该包的最小 advisory hook 与 Runtime endpoints，不是完整 upstream `dsh-jev` bundle。
+**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。`dsh.jev.loopGuard.*`、`dsh.jev.resultShaper.*` 和 `dsh.jev.doneGate.*` 会原样传给挂载的插件；前两者分别用于避免循环和压缩重复输出，完成证据门主要用于质量保护。请使用 **DSH：配置 Jev API Key** 将 Key 加密保存到 VS Code SecretStorage，扩展只会把它传给自己启动的 Runtime；也继续支持 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 作为回退。修改 Jev 设置后重启 DSH。本版本提供该包的最小 advisory hook 与 Runtime 策略，不是完整 upstream `dsh-jev` bundle。
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及升级目标为 RC.2，继续使用 V3 历史和显式订阅的 Assistant 流。会话迁移保留原始日志，但旧 Runtime 无法读取迁移后的 V3 文件。
 
@@ -185,6 +185,12 @@ graph TD
 | `dsh.jev.askThreshold` | `0.5` | 产生 `ask` 决策的概率阈值。 |
 | `dsh.jev.blockThreshold` | `0.85` | 产生 `deny` 决策的概率阈值。 |
 | `dsh.jev.guardedTools` | *标准 Shell/文件工具* | 启用后会将完整参数发送给 Jev 的工具名称列表。 |
+| `dsh.jev.loopGuard.enabled` | `false` | 启用工具执行后的语义循环检测；最近的轨迹样本可能发送给 Jev。 |
+| `dsh.jev.loopGuard.*` | *协议默认值* | 调整循环阈值、冷却、历史窗口、工具过滤和请求超时；默认将完全重复调用交给 DSH 自带提醒。 |
+| `dsh.jev.resultShaper.enabled` | `false` | 在下一轮模型调用前删除大型工具结果中的已分类重复行；默认保留 warning 和 failure。 |
+| `dsh.jev.resultShaper.*` | *协议默认值* | 调整结果大小阈值、整形工具、保留分类、分组预算和请求超时。 |
+| `dsh.jev.doneGate.enabled` | `false` | 让 Jev 检查完成声明的证据；这是质量保护，可能增加验证轮次，并非节省 Token 的设置。 |
+| `dsh.jev.doneGate.*` | *协议默认值* | 调整完成阈值、证据数量、声明长度、冷却轮次和请求超时。 |
 | `dsh.autonomousDebugging` | `false` | 允许 Agent 通过本机回环 MCP 端点操作本窗口的调试器；只对本窗口自行启动的 Runtime 生效，切换后需重启 Runtime。 |
 | `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
 | `dsh.persistSession` | `true` | 尽可能复用当前工作区上次的 Session ID。 |

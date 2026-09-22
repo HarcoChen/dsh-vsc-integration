@@ -125,8 +125,11 @@ import {
     DEFAULT_JEV_ASK_THRESHOLD,
     DEFAULT_JEV_BASE_URL,
     DEFAULT_JEV_BLOCK_THRESHOLD,
+    DEFAULT_JEV_DONE_GATE,
     DEFAULT_JEV_GUARDED_TOOLS,
+    DEFAULT_JEV_LOOP_GUARD,
     DEFAULT_JEV_MODEL,
+    DEFAULT_JEV_RESULT_SHAPER,
     DEFAULT_JEV_TIMEOUT_MS,
     prepareJevIntegrationPatch,
     type JevIntegrationConfig,
@@ -728,6 +731,16 @@ function configuredJevIntegration(configuration: vscode.WorkspaceConfiguration):
         const value = configuration.get<unknown>(key);
         return typeof value === "number" ? value : fallback;
     };
+    const boolean = (key: string, fallback: boolean): boolean => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "boolean" ? value : fallback;
+    };
+    const strings = (key: string, fallback: readonly string[]): string[] => {
+        const value = configuration.get<unknown>(key);
+        return Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === "string")
+            : [...fallback];
+    };
     const tools = configuration.get<unknown>("jev.guardedTools");
     return {
         enabled: configuration.get<unknown>("jev.enabled") === true,
@@ -740,6 +753,38 @@ function configuredJevIntegration(configuration: vscode.WorkspaceConfiguration):
         guardedTools: Array.isArray(tools)
             ? tools.filter((tool): tool is string => typeof tool === "string")
             : DEFAULT_JEV_GUARDED_TOOLS,
+        loopGuard: {
+            enabled: boolean("jev.loopGuard.enabled", DEFAULT_JEV_LOOP_GUARD.enabled),
+            triggerThreshold: number("jev.loopGuard.triggerThreshold", DEFAULT_JEV_LOOP_GUARD.triggerThreshold),
+            noProgressThreshold: number("jev.loopGuard.noProgressThreshold", DEFAULT_JEV_LOOP_GUARD.noProgressThreshold),
+            pLoopThreshold: number("jev.loopGuard.pLoopThreshold", DEFAULT_JEV_LOOP_GUARD.pLoopThreshold),
+            minConfidence: number("jev.loopGuard.minConfidence", DEFAULT_JEV_LOOP_GUARD.minConfidence),
+            cooldownSteps: number("jev.loopGuard.cooldownSteps", DEFAULT_JEV_LOOP_GUARD.cooldownSteps),
+            maxHistory: number("jev.loopGuard.maxHistory", DEFAULT_JEV_LOOP_GUARD.maxHistory),
+            deferExactRepeats: boolean("jev.loopGuard.deferExactRepeats", DEFAULT_JEV_LOOP_GUARD.deferExactRepeats),
+            requestTimeoutMs: number("jev.loopGuard.requestTimeoutMs", DEFAULT_JEV_LOOP_GUARD.requestTimeoutMs),
+            include: strings("jev.loopGuard.include", DEFAULT_JEV_LOOP_GUARD.include),
+            exclude: strings("jev.loopGuard.exclude", DEFAULT_JEV_LOOP_GUARD.exclude),
+        },
+        resultShaper: {
+            enabled: boolean("jev.resultShaper.enabled", DEFAULT_JEV_RESULT_SHAPER.enabled),
+            shapeTools: strings("jev.resultShaper.shapeTools", DEFAULT_JEV_RESULT_SHAPER.shapeTools),
+            thresholdChars: number("jev.resultShaper.thresholdChars", DEFAULT_JEV_RESULT_SHAPER.thresholdChars),
+            maxPerTurn: number("jev.resultShaper.maxPerTurn", DEFAULT_JEV_RESULT_SHAPER.maxPerTurn),
+            keepKinds: strings("jev.resultShaper.keepKinds", DEFAULT_JEV_RESULT_SHAPER.keepKinds),
+            minKindConfidence: number("jev.resultShaper.minKindConfidence", DEFAULT_JEV_RESULT_SHAPER.minKindConfidence),
+            maxClusters: number("jev.resultShaper.maxClusters", DEFAULT_JEV_RESULT_SHAPER.maxClusters),
+            sampleChars: number("jev.resultShaper.sampleChars", DEFAULT_JEV_RESULT_SHAPER.sampleChars),
+            requestTimeoutMs: number("jev.resultShaper.requestTimeoutMs", DEFAULT_JEV_RESULT_SHAPER.requestTimeoutMs),
+        },
+        doneGate: {
+            enabled: boolean("jev.doneGate.enabled", DEFAULT_JEV_DONE_GATE.enabled),
+            blockThreshold: number("jev.doneGate.blockThreshold", DEFAULT_JEV_DONE_GATE.blockThreshold),
+            minEvidenceItems: number("jev.doneGate.minEvidenceItems", DEFAULT_JEV_DONE_GATE.minEvidenceItems),
+            requestTimeoutMs: number("jev.doneGate.requestTimeoutMs", DEFAULT_JEV_DONE_GATE.requestTimeoutMs),
+            maxClaimChars: number("jev.doneGate.maxClaimChars", DEFAULT_JEV_DONE_GATE.maxClaimChars),
+            cooldownTurns: number("jev.doneGate.cooldownTurns", DEFAULT_JEV_DONE_GATE.cooldownTurns),
+        },
     };
 }
 

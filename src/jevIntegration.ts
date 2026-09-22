@@ -23,6 +23,76 @@ export const DEFAULT_JEV_GUARDED_TOOLS = [
     "replace_file_content",
 ] as const;
 
+export const DEFAULT_JEV_LOOP_GUARD = {
+    enabled: false,
+    triggerThreshold: 2,
+    noProgressThreshold: 0.3,
+    pLoopThreshold: 0.6,
+    minConfidence: 0.5,
+    cooldownSteps: 3,
+    maxHistory: 8,
+    deferExactRepeats: true,
+    requestTimeoutMs: 3_500,
+    include: [] as const,
+    exclude: [] as const,
+} as const;
+
+export const DEFAULT_JEV_RESULT_SHAPER = {
+    enabled: false,
+    shapeTools: ["bash", "pwsh", "terminal", "run_command", "execute_command"] as const,
+    thresholdChars: 8_000,
+    maxPerTurn: 2,
+    keepKinds: ["warning", "failure"] as const,
+    minKindConfidence: 0.6,
+    maxClusters: 24,
+    sampleChars: 400,
+    requestTimeoutMs: 4_000,
+} as const;
+
+export const DEFAULT_JEV_DONE_GATE = {
+    enabled: false,
+    blockThreshold: 0.75,
+    minEvidenceItems: 1,
+    requestTimeoutMs: 3_500,
+    maxClaimChars: 4_000,
+    cooldownTurns: 1,
+} as const;
+
+export interface JevLoopGuardConfig {
+    enabled: boolean;
+    triggerThreshold: number;
+    noProgressThreshold: number;
+    pLoopThreshold: number;
+    minConfidence: number;
+    cooldownSteps: number;
+    maxHistory: number;
+    deferExactRepeats: boolean;
+    requestTimeoutMs: number;
+    include: readonly string[];
+    exclude: readonly string[];
+}
+
+export interface JevResultShaperConfig {
+    enabled: boolean;
+    shapeTools: readonly string[];
+    thresholdChars: number;
+    maxPerTurn: number;
+    keepKinds: readonly string[];
+    minKindConfidence: number;
+    maxClusters: number;
+    sampleChars: number;
+    requestTimeoutMs: number;
+}
+
+export interface JevDoneGateConfig {
+    enabled: boolean;
+    blockThreshold: number;
+    minEvidenceItems: number;
+    requestTimeoutMs: number;
+    maxClaimChars: number;
+    cooldownTurns: number;
+}
+
 export interface JevIntegrationConfig {
     enabled: boolean;
     baseUrl: string;
@@ -32,6 +102,9 @@ export interface JevIntegrationConfig {
     askThreshold: number;
     blockThreshold: number;
     guardedTools: readonly string[];
+    loopGuard: JevLoopGuardConfig;
+    resultShaper: JevResultShaperConfig;
+    doneGate: JevDoneGateConfig;
 }
 
 interface PackageManifest {
@@ -61,8 +134,17 @@ function boundedInteger(value: number, fallback: number): number {
     return Number.isInteger(value) && value >= 1 && value <= 120_000 ? value : fallback;
 }
 
+function boundedIntegerFrom(value: number, fallback: number, maximum: number): number {
+    return Number.isInteger(value) && value >= 1 && value <= maximum ? value : fallback;
+}
+
 function boundedThreshold(value: number, fallback: number): number {
     return Number.isFinite(value) && value >= 0 && value <= 1 ? value : fallback;
+}
+
+function normalizedStringList(value: readonly string[], fallback: readonly string[], allowEmpty = true): string[] {
+    const list = [...new Set(value.filter((item) => item.trim().length > 0).map((item) => item.trim()))];
+    return list.length > 0 || allowEmpty ? list : [...fallback];
 }
 
 function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown> {
@@ -74,6 +156,9 @@ function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown>
     const baseUrl = isValidHttpUrl(config.baseUrl) ? config.baseUrl : DEFAULT_JEV_BASE_URL;
     const model = config.model.trim() || DEFAULT_JEV_MODEL;
     const guardedTools = [...new Set(config.guardedTools.filter((tool) => tool.trim().length > 0))];
+    const loopGuard = config.loopGuard;
+    const resultShaper = config.resultShaper;
+    const doneGate = config.doneGate;
     return {
         enabled: config.enabled === true,
         baseUrl,
@@ -83,6 +168,38 @@ function normalizedConfig(config: JevIntegrationConfig): Record<string, unknown>
         askThreshold,
         blockThreshold,
         guardedTools: guardedTools.length > 0 ? guardedTools : [...DEFAULT_JEV_GUARDED_TOOLS],
+        loopGuard: {
+            enabled: loopGuard.enabled === true,
+            triggerThreshold: boundedIntegerFrom(loopGuard.triggerThreshold, DEFAULT_JEV_LOOP_GUARD.triggerThreshold, 120),
+            noProgressThreshold: boundedThreshold(loopGuard.noProgressThreshold, DEFAULT_JEV_LOOP_GUARD.noProgressThreshold),
+            pLoopThreshold: boundedThreshold(loopGuard.pLoopThreshold, DEFAULT_JEV_LOOP_GUARD.pLoopThreshold),
+            minConfidence: boundedThreshold(loopGuard.minConfidence, DEFAULT_JEV_LOOP_GUARD.minConfidence),
+            cooldownSteps: boundedIntegerFrom(loopGuard.cooldownSteps, DEFAULT_JEV_LOOP_GUARD.cooldownSteps, 120),
+            maxHistory: boundedIntegerFrom(loopGuard.maxHistory, DEFAULT_JEV_LOOP_GUARD.maxHistory, 120),
+            deferExactRepeats: loopGuard.deferExactRepeats === true,
+            requestTimeoutMs: boundedInteger(loopGuard.requestTimeoutMs, DEFAULT_JEV_LOOP_GUARD.requestTimeoutMs),
+            include: normalizedStringList(loopGuard.include, DEFAULT_JEV_LOOP_GUARD.include),
+            exclude: normalizedStringList(loopGuard.exclude, DEFAULT_JEV_LOOP_GUARD.exclude),
+        },
+        resultShaper: {
+            enabled: resultShaper.enabled === true,
+            shapeTools: normalizedStringList(resultShaper.shapeTools, DEFAULT_JEV_RESULT_SHAPER.shapeTools, false),
+            thresholdChars: boundedInteger(resultShaper.thresholdChars, DEFAULT_JEV_RESULT_SHAPER.thresholdChars),
+            maxPerTurn: boundedInteger(resultShaper.maxPerTurn, DEFAULT_JEV_RESULT_SHAPER.maxPerTurn),
+            keepKinds: normalizedStringList(resultShaper.keepKinds, DEFAULT_JEV_RESULT_SHAPER.keepKinds, false),
+            minKindConfidence: boundedThreshold(resultShaper.minKindConfidence, DEFAULT_JEV_RESULT_SHAPER.minKindConfidence),
+            maxClusters: boundedInteger(resultShaper.maxClusters, DEFAULT_JEV_RESULT_SHAPER.maxClusters),
+            sampleChars: boundedInteger(resultShaper.sampleChars, DEFAULT_JEV_RESULT_SHAPER.sampleChars),
+            requestTimeoutMs: boundedInteger(resultShaper.requestTimeoutMs, DEFAULT_JEV_RESULT_SHAPER.requestTimeoutMs),
+        },
+        doneGate: {
+            enabled: doneGate.enabled === true,
+            blockThreshold: boundedThreshold(doneGate.blockThreshold, DEFAULT_JEV_DONE_GATE.blockThreshold),
+            minEvidenceItems: boundedInteger(doneGate.minEvidenceItems, DEFAULT_JEV_DONE_GATE.minEvidenceItems),
+            requestTimeoutMs: boundedInteger(doneGate.requestTimeoutMs, DEFAULT_JEV_DONE_GATE.requestTimeoutMs),
+            maxClaimChars: boundedInteger(doneGate.maxClaimChars, DEFAULT_JEV_DONE_GATE.maxClaimChars),
+            cooldownTurns: boundedInteger(doneGate.cooldownTurns, DEFAULT_JEV_DONE_GATE.cooldownTurns),
+        },
     };
 }
 
