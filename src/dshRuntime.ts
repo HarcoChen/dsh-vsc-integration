@@ -120,6 +120,24 @@ import { normalizePluginInventory } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
+import {
+    DEFAULT_JEV_ADVISORY_TIMEOUT_MS,
+    DEFAULT_JEV_ASK_THRESHOLD,
+    DEFAULT_JEV_BASE_URL,
+    DEFAULT_JEV_BLOCK_THRESHOLD,
+    DEFAULT_JEV_DECISION_TOOLS,
+    DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD,
+    DEFAULT_JEV_DONE_GATE,
+    DEFAULT_JEV_GUARDED_TOOLS,
+    DEFAULT_JEV_LOOP_GUARD,
+    DEFAULT_JEV_MODEL,
+    DEFAULT_JEV_RESULT_SHAPER,
+    DEFAULT_JEV_SKILL_ROUTER,
+    DEFAULT_JEV_TIMEOUT_MS,
+    DEFAULT_JEV_TOOL_PRUNER,
+    prepareJevIntegrationPatch,
+    type JevIntegrationConfig,
+} from "./jevIntegration";
 
 type RuntimeListener = (status: RuntimeStatus) => void;
 type HarnessConnectedListener = () => void;
@@ -707,6 +725,110 @@ function configuredRuntimeVersion(configuration: vscode.WorkspaceConfiguration):
     return version;
 }
 
+/** Read the host-owned Jev launch defaults without trusting malformed settings. */
+function configuredJevIntegration(configuration: vscode.WorkspaceConfiguration): JevIntegrationConfig {
+    const text = (key: string, fallback: string): string => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "string" ? value : fallback;
+    };
+    const number = (key: string, fallback: number): number => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "number" ? value : fallback;
+    };
+    const boolean = (key: string, fallback: boolean): boolean => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "boolean" ? value : fallback;
+    };
+    const strings = (key: string, fallback: readonly string[]): string[] => {
+        const value = configuration.get<unknown>(key);
+        return Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === "string")
+            : [...fallback];
+    };
+    const tools = configuration.get<unknown>("jev.guardedTools");
+    return {
+        enabled: configuration.get<unknown>("jev.enabled") === true,
+        baseUrl: text("jev.baseUrl", DEFAULT_JEV_BASE_URL),
+        model: text("jev.model", DEFAULT_JEV_MODEL),
+        timeoutMs: number("jev.timeoutMs", DEFAULT_JEV_TIMEOUT_MS),
+        advisoryTimeoutMs: number("jev.advisoryTimeoutMs", DEFAULT_JEV_ADVISORY_TIMEOUT_MS),
+        askThreshold: number("jev.askThreshold", DEFAULT_JEV_ASK_THRESHOLD),
+        blockThreshold: number("jev.blockThreshold", DEFAULT_JEV_BLOCK_THRESHOLD),
+        guardedTools: Array.isArray(tools)
+            ? tools.filter((tool): tool is string => typeof tool === "string")
+            : DEFAULT_JEV_GUARDED_TOOLS,
+        loopGuard: {
+            enabled: boolean("jev.loopGuard.enabled", DEFAULT_JEV_LOOP_GUARD.enabled),
+            triggerThreshold: number("jev.loopGuard.triggerThreshold", DEFAULT_JEV_LOOP_GUARD.triggerThreshold),
+            noProgressThreshold: number("jev.loopGuard.noProgressThreshold", DEFAULT_JEV_LOOP_GUARD.noProgressThreshold),
+            pLoopThreshold: number("jev.loopGuard.pLoopThreshold", DEFAULT_JEV_LOOP_GUARD.pLoopThreshold),
+            minConfidence: number("jev.loopGuard.minConfidence", DEFAULT_JEV_LOOP_GUARD.minConfidence),
+            cooldownSteps: number("jev.loopGuard.cooldownSteps", DEFAULT_JEV_LOOP_GUARD.cooldownSteps),
+            maxHistory: number("jev.loopGuard.maxHistory", DEFAULT_JEV_LOOP_GUARD.maxHistory),
+            deferExactRepeats: boolean("jev.loopGuard.deferExactRepeats", DEFAULT_JEV_LOOP_GUARD.deferExactRepeats),
+            requestTimeoutMs: number("jev.loopGuard.requestTimeoutMs", DEFAULT_JEV_LOOP_GUARD.requestTimeoutMs),
+            include: strings("jev.loopGuard.include", DEFAULT_JEV_LOOP_GUARD.include),
+            exclude: strings("jev.loopGuard.exclude", DEFAULT_JEV_LOOP_GUARD.exclude),
+        },
+        resultShaper: {
+            enabled: boolean("jev.resultShaper.enabled", DEFAULT_JEV_RESULT_SHAPER.enabled),
+            shapeTools: strings("jev.resultShaper.shapeTools", DEFAULT_JEV_RESULT_SHAPER.shapeTools),
+            thresholdChars: number("jev.resultShaper.thresholdChars", DEFAULT_JEV_RESULT_SHAPER.thresholdChars),
+            maxPerTurn: number("jev.resultShaper.maxPerTurn", DEFAULT_JEV_RESULT_SHAPER.maxPerTurn),
+            keepKinds: strings("jev.resultShaper.keepKinds", DEFAULT_JEV_RESULT_SHAPER.keepKinds),
+            minKindConfidence: number("jev.resultShaper.minKindConfidence", DEFAULT_JEV_RESULT_SHAPER.minKindConfidence),
+            maxClusters: number("jev.resultShaper.maxClusters", DEFAULT_JEV_RESULT_SHAPER.maxClusters),
+            sampleChars: number("jev.resultShaper.sampleChars", DEFAULT_JEV_RESULT_SHAPER.sampleChars),
+            requestTimeoutMs: number("jev.resultShaper.requestTimeoutMs", DEFAULT_JEV_RESULT_SHAPER.requestTimeoutMs),
+        },
+        doneGate: {
+            enabled: boolean("jev.doneGate.enabled", DEFAULT_JEV_DONE_GATE.enabled),
+            blockThreshold: number("jev.doneGate.blockThreshold", DEFAULT_JEV_DONE_GATE.blockThreshold),
+            minEvidenceItems: number("jev.doneGate.minEvidenceItems", DEFAULT_JEV_DONE_GATE.minEvidenceItems),
+            requestTimeoutMs: number("jev.doneGate.requestTimeoutMs", DEFAULT_JEV_DONE_GATE.requestTimeoutMs),
+            maxClaimChars: number("jev.doneGate.maxClaimChars", DEFAULT_JEV_DONE_GATE.maxClaimChars),
+            cooldownTurns: number("jev.doneGate.cooldownTurns", DEFAULT_JEV_DONE_GATE.cooldownTurns),
+        },
+        toolPruner: {
+            enabled: boolean("jev.toolPruner.enabled", DEFAULT_JEV_TOOL_PRUNER.enabled),
+            maxTools: number("jev.toolPruner.maxTools", DEFAULT_JEV_TOOL_PRUNER.maxTools),
+            minScoreThreshold: number("jev.toolPruner.minScoreThreshold", DEFAULT_JEV_TOOL_PRUNER.minScoreThreshold),
+            minConfidence: number("jev.toolPruner.minConfidence", DEFAULT_JEV_TOOL_PRUNER.minConfidence),
+            minIntentChars: number("jev.toolPruner.minIntentChars", DEFAULT_JEV_TOOL_PRUNER.minIntentChars),
+            minKeep: number("jev.toolPruner.minKeep", DEFAULT_JEV_TOOL_PRUNER.minKeep),
+            maxCandidates: number("jev.toolPruner.maxCandidates", DEFAULT_JEV_TOOL_PRUNER.maxCandidates),
+            requestTimeoutMs: number("jev.toolPruner.requestTimeoutMs", DEFAULT_JEV_TOOL_PRUNER.requestTimeoutMs),
+            alwaysRetain: strings("jev.toolPruner.alwaysRetain", DEFAULT_JEV_TOOL_PRUNER.alwaysRetain),
+        },
+        skillRouter: {
+            enabled: boolean("jev.skillRouter.enabled", DEFAULT_JEV_SKILL_ROUTER.enabled),
+            minCandidates: number("jev.skillRouter.minCandidates", DEFAULT_JEV_SKILL_ROUTER.minCandidates),
+            minIntentChars: number("jev.skillRouter.minIntentChars", DEFAULT_JEV_SKILL_ROUTER.minIntentChars),
+            maxSkills: number("jev.skillRouter.maxSkills", DEFAULT_JEV_SKILL_ROUTER.maxSkills),
+            maxCandidates: number("jev.skillRouter.maxCandidates", DEFAULT_JEV_SKILL_ROUTER.maxCandidates),
+            minScore: number("jev.skillRouter.minScore", DEFAULT_JEV_SKILL_ROUTER.minScore),
+            minConfidence: number("jev.skillRouter.minConfidence", DEFAULT_JEV_SKILL_ROUTER.minConfidence),
+            nameMatchBoost: number("jev.skillRouter.nameMatchBoost", DEFAULT_JEV_SKILL_ROUTER.nameMatchBoost),
+            maxAdviceChars: number("jev.skillRouter.maxAdviceChars", DEFAULT_JEV_SKILL_ROUTER.maxAdviceChars),
+            requestTimeoutMs: number("jev.skillRouter.requestTimeoutMs", DEFAULT_JEV_SKILL_ROUTER.requestTimeoutMs),
+        },
+        decisionTools: {
+            enabled: boolean("jev.decisionTools.enabled", DEFAULT_JEV_DECISION_TOOLS.enabled),
+            requestTimeoutMs: number("jev.decisionTools.requestTimeoutMs", DEFAULT_JEV_DECISION_TOOLS.requestTimeoutMs),
+            maxStateChars: number("jev.decisionTools.maxStateChars", DEFAULT_JEV_DECISION_TOOLS.maxStateChars),
+            maxQuestionChars: number("jev.decisionTools.maxQuestionChars", DEFAULT_JEV_DECISION_TOOLS.maxQuestionChars),
+            maxQuestions: number("jev.decisionTools.maxQuestions", DEFAULT_JEV_DECISION_TOOLS.maxQuestions),
+            maxCandidates: number("jev.decisionTools.maxCandidates", DEFAULT_JEV_DECISION_TOOLS.maxCandidates),
+            maxCandidateChars: number("jev.decisionTools.maxCandidateChars", DEFAULT_JEV_DECISION_TOOLS.maxCandidateChars),
+            maxResultChars: number("jev.decisionTools.maxResultChars", DEFAULT_JEV_DECISION_TOOLS.maxResultChars),
+        },
+        deterministicSafetyGuard: {
+            enabled: boolean("jev.deterministicSafetyGuard.enabled", DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD.enabled),
+            maxArgumentChars: number("jev.deterministicSafetyGuard.maxArgumentChars", DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD.maxArgumentChars),
+        },
+    };
+}
+
 async function probeRuntimeVersion(command: string, options: { cwd?: string; signal?: AbortSignal; args?: string[]; timeout?: number }): Promise<string | undefined> {
     options.signal?.throwIfAborted();
     try {
@@ -1223,6 +1345,7 @@ export class DshRuntime implements vscode.Disposable {
     private sharedCompositionHash: string | undefined;
     private advertisementWrite: Promise<void> = Promise.resolve();
     private compactionPatchPath: string | undefined;
+    private jevIntegrationPatchPath: string | undefined;
     private debugOverlay: DebugLaunchOverlay | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
@@ -1243,6 +1366,10 @@ export class DshRuntime implements vscode.Disposable {
         private readonly storagePath: string,
         /** Shared with the context store so one DAP view backs both snapshots and tools. */
         private readonly debugContextTracker?: DebugContextTracker,
+        /** Installed extension root containing the optional vendored Jev package. */
+        private readonly extensionPath: string = join(__dirname, ".."),
+        /** Extension-managed Jev credential, kept out of settings and launch patches. */
+        private readonly jevApiKeyProvider?: () => Thenable<string | undefined>,
     ) {
         this.recoveryLedger = new RecoveryLedgerStore(storagePath);
         this.recoveryDiagnostics = new RecoveryDiagnostics(storagePath);
@@ -2820,6 +2947,25 @@ export class DshRuntime implements vscode.Disposable {
         } };
         checkStarting();
         let automaticLaunchPort: number | undefined;
+        this.jevIntegrationPatchPath = undefined;
+        if (isWebProfileArgs(args)) {
+            try {
+                this.jevIntegrationPatchPath = await prepareJevIntegrationPatch({
+                    extensionPath: this.extensionPath,
+                    outputDirectory: this.recoveryLedger.directory,
+                    config: configuredJevIntegration(configuration),
+                    onDiagnostic: (message) => this.output.appendLine(message),
+                });
+            } catch (error) {
+                // Jev is an optional internal integration. A malformed or
+                // unavailable vendor checkout must not make the base Runtime
+                // unusable; the diagnostic gives the host a clear remedy.
+                this.output.appendLine(`[dsh:jev] unable to prepare built-in integration: ${String(error)}`);
+            }
+            if (this.jevIntegrationPatchPath !== undefined) {
+                insertWebLauncherPatch(args, this.jevIntegrationPatchPath);
+            }
+        }
         if (enableCompaction && isWebProfileArgs(args)) {
             this.compactionPatchPath = join(this.recoveryLedger.directory, "compaction.patch.yml");
             try {
@@ -2878,7 +3024,11 @@ export class DshRuntime implements vscode.Disposable {
         }
         try {
             const patchPaths = patchPathsFromArgs(args);
-            const extensionOverlays = [this.compactionPatchPath, this.debugOverlay?.patchPath]
+            const extensionOverlays = [
+                this.jevIntegrationPatchPath,
+                this.compactionPatchPath,
+                this.debugOverlay?.patchPath,
+            ]
                 .filter((overlay): overlay is string =>
                     overlay !== undefined && patchPaths.some((path) => samePath(path, overlay)));
             this.lastRecoveryComposition = await buildComposition({
@@ -2980,6 +3130,16 @@ export class DshRuntime implements vscode.Disposable {
 
             this.output.appendLine(`[dsh] starting: ${launchCommand} ${attemptArgs.join(" ")}`);
             const launchEnv: NodeJS.ProcessEnv = { ...process.env };
+            if (configuredJevIntegration(configuration).enabled) {
+                try {
+                    const jevApiKey = (await this.jevApiKeyProvider?.())?.trim();
+                    if (jevApiKey) launchEnv.TYPESAFE_API_KEY = jevApiKey;
+                } catch (error) {
+                    // Credential lookup must not prevent the base Runtime from
+                    // starting; Jev will report the missing credential on demand.
+                    this.output.appendLine(`[dsh:jev] unable to load extension-managed API key: ${String(error)}`);
+                }
+            }
             if (this.debugOverlay) {
                 // The patch file interpolates this token at boot; it never sits on disk.
                 Object.assign(launchEnv, this.debugOverlay.environment);

@@ -12,6 +12,7 @@
 ### 变更
 
 - 消息级赞/踩统一改为弹窗提交，支持反馈分类和描述；点击当前评价仍可直接撤回。
+- 内测构建内置最小 `dsh-jev-integration` Runtime 集成，默认关闭，可通过 `dsh.jev.*` 配置启用；新增 `DSH: Configure Jev API Key`，使用 VS Code SecretStorage 向本扩展启动的 Runtime 传入 Jev Key。
 
 ## [0.10.0] - 2026-09-21
 

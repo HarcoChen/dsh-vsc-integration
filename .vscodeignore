@@ -17,6 +17,17 @@ test/**
 *.map
 *.vsix
 .github/**
+.gitmodules
+vendor/dsh-jev-integration/runtime/**
+vendor/dsh-jev-integration/protocol/**
+vendor/dsh-jev-integration/examples/**
+vendor/dsh-jev-integration/scripts/**
+vendor/dsh-jev-integration/README*
+vendor/dsh-jev-integration/pnpm-lock.yaml
+vendor/dsh-jev-integration/tsconfig.json
+vendor/dsh-jev-integration/.gitignore
+vendor/dsh-jev-integration/dist/**/*.map
+vendor/dsh-jev-integration/dist/**/*.d.ts
 scripts/**
 RPC_*.md
 tsconfig.json
