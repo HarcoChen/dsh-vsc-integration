@@ -125,17 +125,15 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it directly into a Runtime started by this extension. No second IDE plugin is required, and an already-running or externally managed Runtime is never modified. The integration is disabled by default; enabling `dsh.jev.enabled` sends complete arguments for the configured guarded tools to the TypeSafe System One endpoint. The nested loop-guard, result-shaper, evidence-gate, tool-pruner, skill-router, decision-tool, and deterministic-safety settings are passed unchanged to the mounted plugin. Tool pruning changes only model-visible schemas; skill routing adds bounded advice; decision tools are opt-in, while deterministic safety checks stay local and do not call Jev. Use **DSH: Configure Jev API Key** to save the key in VS Code SecretStorage; the extension passes it only to Runtime processes it starts. `TYPESAFE_API_KEY` and the existing `$HOME/.dsh/.env` entry remain supported as fallbacks. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
-**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. RC.2 is the default download and upgrade target. V3 history and opt-in Assistant streams remain required. Session migration preserves original logs, but older runtimes cannot read the upgraded V3 files.
+**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.1.7-rc.1`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
-The source audit covers upstream master `c291e7961a` and release tag `dsh-v0.1.5-rc.2` (`fb2c4b9e698e30edb738bca4cf0618587db7d203`). Message feedback preserves categories for both ratings, including edits and conflict responses. When a Runtime supplies master’s optional `modeSelectionEnabled` policy, disabling it hides the IDE mode choices, clears a staged mode, and restores blank sessions to the effective default before their first prompt; started sessions keep their composition. Skill completion tooltips show `SKILL.md` paths when supplied. Missing optional fields retain RC.2 behavior. Version acceptance follows the minimum-version rule, independently of this source audit.
-
-At this audit, npm `latest` and `next` point to RC.2. The extension keeps `0.1.5-rc.2` as its default; a compatible local installation is reused without downgrading.
+The Remote source audit targets upstream tag `dsh-v0.1.7-rc.1` (`46a7f68b0922371ce7144b668b90e377d8e799f4`); see [the RPC adaptation report](./RPC_0.1.7_ADAPTATION.md). The carrier handles multipart binary unary responses and client-to-host stream frames. The UI asks before stopping active work to archive a session, and Agent Preset management follows the current read-only roster contract. The audit also records new Jobs, plugin, permission-preset, and terminal surfaces that are not yet exposed in the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
 
 Default app arguments are `web --no-open`; pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved, and auto mode strips their package prefix when selecting a local CLI. Shared Runtime discovery still runs before choosing a new launcher, so fallback reuses a healthy Runtime instead of starting a second one.
 
-As of the adaptation check, the CNB standalone Runtime mirror returns 404 for `0.1.5-rc.2`. Use a compatible local CLI, the pinned pnpm/npx fallback, or an existing instance until that mirror is published; a standalone download is not currently verified. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without downloads or model requests.
+If a standalone Runtime asset is unavailable from the configured download source, use a compatible local CLI, the pinned pnpm/npx fallback, or an existing instance. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without downloads or model requests.
 
 **Does DSH support multi-root workspaces?** DSH supports multiple independent Workspaces, but each Session has one working directory (`cwd`). A VS Code multi-root workspace is therefore represented by the first workspace folder for Runtime startup; use separate DSH Workspaces or Sessions when roots need different working directories.
 
@@ -184,7 +182,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverToken` | `""` | Launch token for `dsh.serverUrl`; use it when the address and token are configured separately. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.1.5-rc.2` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1 (CNB downloads require a published mirror). |
+| `dsh.runtimeVersion` | `0.1.7-rc.1` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
@@ -274,7 +272,9 @@ npm run package    # Compile + vsce package
 npm run release    # Test + version bump + CHANGELOG archive + tag
 ```
 
-To check the Remote integration against an installed `0.1.5-rc.2` launcher:
+The checked-in Remote smoke runner uses historical `0.1.5-rc.2` V3 fixtures. It does not verify the `0.1.7-rc.1` multipart, uplink, or archive changes; see the [current RPC adaptation report](./RPC_0.1.7_ADAPTATION.md) for that audit boundary.
+
+To run the historical Remote integration smoke against a compatible installed launcher:
 
 ```bash
 npm run compile

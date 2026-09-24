@@ -64,7 +64,6 @@ import {
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
-    DshAgentPresetOpenResult,
     DshAgentPresetReadResult,
     DshAgentPresetSelectResult,
     DshDynamicPluginRemoveResult,
@@ -1970,9 +1969,9 @@ export class DshRuntime implements vscode.Disposable {
         return result;
     }
 
-    public async archiveSession(sessionId: string): Promise<void> {
+    public async archiveSession(sessionId: string, stopActivity = false): Promise<void> {
         const result = await this.apiClient.call<{ archivedSessionIds: string[] }>("workspace/archiveSession", {
-            request: { sessionId },
+            request: { sessionId, ...(stopActivity ? { stopActivity: true } : {}) },
         });
         this.harnessState.catalog.replaceArchived(result.archivedSessionIds);
     }
@@ -2164,8 +2163,6 @@ export class DshRuntime implements vscode.Disposable {
         const result = await this.apiClient.call<Partial<DshAgentPresetListResult>>("agentPresets/list", {});
         return {
             presets: result.presets ?? [],
-            authorable: result.authorable === true,
-            hasDocument: result.hasDocument ?? result.authorable === true,
             modeSelectionEnabled: result.modeSelectionEnabled !== false,
         };
     }
@@ -2266,48 +2263,15 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient.call("agentPresets/read", { agentPreset });
     }
 
-    public async copyAgentPreset(from: string, agentPreset: string, name?: string): Promise<string> {
-        await this.apiClient.call("agentPresets/copy", {
-            from,
-            id: agentPreset,
-            ...(name === undefined ? {} : { name }),
-        });
-        return agentPreset;
-    }
-
-    public openAgentPresetDocument(agentPreset: string): Promise<DshAgentPresetOpenResult> {
-        return this.apiClient.call("settings/openAgentPresetDirectory", { agentPreset });
-    }
-
-    /** Report whether this Runtime can open the Harness-owned Agent Preset directory. */
-    public async canOpenAgentPresetDirectory(signal?: AbortSignal): Promise<boolean | undefined> {
-        try {
-            const value = await this.apiClient.call<unknown>(
-                "settings/canOpenAgentPresetDirectory",
-                {},
-                signal,
-            );
-            if (typeof value !== "boolean") {
-                throw new RemoteProtocolError(
-                    "Remote settings/canOpenAgentPresetDirectory returned an invalid value",
-                );
-            }
-            return value;
-        } catch (error) {
-            // The probe is optional on older/minimally composed Runtimes.
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
-            throw error;
-        }
-    }
-
-    public async removeAgentPreset(agentPreset: string): Promise<void> {
-        await this.apiClient.call("agentPresets/deletePreset", { id: agentPreset });
-    }
-
-    public async setDefaultAgentPreset(agentPreset: string): Promise<void> {
+    public async setDefaultAgentPreset(
+        agentPreset: string,
+        namespace: "agent-preset-registry" | "agent-presets" = "agent-preset-registry",
+    ): Promise<void> {
         await this.apiClient.call("settings/update", {
-            ns: "agent-presets",
-            patch: { default: agentPreset },
+            ns: namespace,
+            patch: namespace === "agent-presets"
+                ? { default: agentPreset }
+                : { selectedDefault: agentPreset },
         });
     }
 

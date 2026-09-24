@@ -29,6 +29,10 @@ const FORWARDED_EMIT_EVENTS = new Set([
     "cordis/inspect-query",
     "cordis/inspect-query-resolved",
     "llm/adapters-updated",
+    "permission-presets/catalog-changed",
+    "plugin-manager/changed",
+    "plugin-manager/install-log",
+    "plugin-manager/install-state",
     "settings/document-updated",
 ]);
 

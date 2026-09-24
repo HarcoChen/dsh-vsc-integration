@@ -1,8 +1,8 @@
 /**
  * Wire contracts for the RC Remote API.
  *
- * Target contract: `deepseek-harness` tag `dsh-v0.1.5-rc.2`, commit
- * `fb2c4b9e698e30edb738bca4cf0618587db7d203`. Keep this pin next to the
+ * Target contract: `deepseek-harness` tag `dsh-v0.1.7-rc.1`, commit
+ * `46a7f68b0922371ce7144b668b90e377d8e799f4`. Keep this pin next to the
  * carrier vocabulary: upgrading the managed Runtime requires an endpoint and
  * descriptor audit before changing it.
  */
@@ -42,7 +42,9 @@ export type RemoteStreamClientMessage =
           endpoint: string;
           payload: { args: Record<string, unknown> };
       }
-    | { type: "cancel"; streamId: string };
+    | { type: "cancel"; streamId: string }
+    | { type: "item"; streamId: string; value?: unknown }
+    | { type: "end"; streamId: string };
 
 export type RemoteStreamServerMessage =
     | { type: "item"; streamId: string; value?: unknown }
@@ -109,6 +111,23 @@ export function parseRemoteStreamClientMessage(text: string): RemoteStreamClient
         isNonEmptyString(value.streamId)
     ) {
         return { type: "cancel", streamId: value.streamId };
+    }
+    if (
+        value.type === "item" &&
+        (exactKeys(value, ["type", "streamId"]) || exactKeys(value, ["type", "streamId", "value"])) &&
+        isNonEmptyString(value.streamId) &&
+        (!Object.hasOwn(value, "value") || isRemoteJsonValue(value.value))
+    ) {
+        return Object.hasOwn(value, "value")
+            ? { type: "item", streamId: value.streamId, value: value.value }
+            : { type: "item", streamId: value.streamId };
+    }
+    if (
+        value.type === "end" &&
+        exactKeys(value, ["type", "streamId"]) &&
+        isNonEmptyString(value.streamId)
+    ) {
+        return { type: "end", streamId: value.streamId };
     }
     if (
         value.type === "open" &&

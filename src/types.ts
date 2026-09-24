@@ -513,7 +513,6 @@ export interface ReasoningEffortView {
 
 export interface DshAgentPresetEntry {
     id: string;
-    trust: "system" | "user";
     isDefault: boolean;
     name?: string;
     description?: string;
@@ -522,8 +521,6 @@ export interface DshAgentPresetEntry {
 
 export interface DshAgentPresetListResult {
     presets: DshAgentPresetEntry[];
-    authorable: boolean;
-    hasDocument: boolean;
     /** Older releases omit this policy and allow mode selection. */
     modeSelectionEnabled?: boolean;
 }
@@ -534,7 +531,6 @@ export interface DshAgentPresetSelectResult {
 
 export interface DshAgentPresetReadResult {
     agentPreset: string;
-    trust: "system" | "user";
     content: string;
     name?: string;
     description?: string;
@@ -682,10 +678,6 @@ export type DshDynamicPluginRemoveResult =
 export interface DshDynamicPluginResolveResult {
     accepted: boolean;
 }
-
-export type DshAgentPresetOpenResult =
-    | { opened: true }
-    | { opened: false; path: string };
 
 export interface DshSessionRenameResult {
     title: string;

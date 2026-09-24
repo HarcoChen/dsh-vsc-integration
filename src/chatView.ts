@@ -719,12 +719,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             onSnapshotDocument: (uri, content) => {
                 this.agentPresetDocuments.set(uri, content);
             },
-            onPresetRemoved: (presetId) => {
-                if (this.pendingNewSessionPreset !== presetId) return;
-                this.pendingNewSessionPreset = undefined;
-                this.pendingNewSessionSkills = undefined;
-                this.postState();
-            },
         });
     }
 
@@ -2450,7 +2444,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         );
         if (confirmation !== archiveAction) return;
         const archived = this.sessionId;
-        await this.runtime.archiveSession(archived);
+        try {
+            await this.runtime.archiveSession(archived);
+        } catch (error) {
+            if (!isRemoteError(error) || error.code !== "workspace/session-active") throw error;
+            const stopAndArchive = t("Stop and Archive");
+            const stopConfirmation = await vscode.window.showWarningMessage(
+                t("This session has active work. Stop it and archive the session?"),
+                { modal: true, detail: t("Stopping the session will end its running work.") },
+                stopAndArchive,
+            );
+            if (stopConfirmation !== stopAndArchive) return;
+            await this.runtime.archiveSession(archived, true);
+        }
         const next = this.runtime
             .getSessionCatalog()
             .snapshot()

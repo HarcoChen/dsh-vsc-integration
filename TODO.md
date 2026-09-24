@@ -1,7 +1,27 @@
 # TODO
 
-更新时间：2026-09-18（按 `dsh-v0.1.5-rc.2` 重做 RPC 全量 endpoint 差集，修正两处过期结论）。
+更新时间：2026-09-24（适配 `dsh-v0.1.7-rc.1`；增量契约审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
+
+## 本轮进展（2026-09-24，`dsh-v0.1.7-rc.1`）
+
+当前默认 Runtime 与 Remote wire-contract pin 已更新至 `0.1.7-rc.1`，上游 tag 为
+`46a7f68b0922371ce7144b668b90e377d8e799f4`。该 tag 源码树有 125 个 `@Remote`
+声明；实际可用 endpoints 仍取决于 Runtime composition，不能把源码总数当成每个实例的挂载总数。
+
+- [x] Remote unary 可解析 Connection multipart 返回值，将 `bytes` 附件路径上的 `null` 占位还原为 `Uint8Array`。
+- [x] Remote mux 支持向 Host 发送 `item` 和 `end` 上行帧；当前没有 IDE 功能消费者，留作 carrier 能力。
+- [x] `$events` 转发 allowlist 加入 `permission-presets/catalog-changed`、`plugin-manager/changed`、`plugin-manager/install-log`、`plugin-manager/install-state`。
+- [x] Agent Preset 对齐新版 roster/document：移除已删除的 copy/delete/directory-opener 调用；默认值按 settings 描述适配新旧 namespace/字段。
+- [x] 归档活动会话时识别 `workspace/session-active`，经第二次确认后才以 `stopActivity: true` 重试。
+- [ ] **归档会话导航**：接入 `workspace/pinSession`、`unpinSession`、`unarchiveSession` 与 `pinnedSessionIds`，让 IDE 能固定、恢复会话；现阶段仍可在官方 Web UI 管理。
+- [ ] **远程 Workspace 文件**：评估 `workspaceFiles/read|readBytes|stat|list|changes`（5 个 endpoint）。字节响应 carrier 已支持 multipart；仍需远程目录同侧性判断和 UI 消费设计。
+- [ ] **Jobs/终端及扩展管理能力**：评估新版 `jobs`、`terminal`、`pluginManager`、`permissionPresets` 等 namespace。它们的可用性按 composition 判定；当前仅记录为候选，未接入 UI。
+- [ ] **新版事件消费**：allowlist 已接受新增事件，尚无对应 IDE 面板或刷新行为；确定角色后再接入消费者。
+
+上游把 session log 的存储格式推进到 V4；IDE 继续通过公开的 `session/page`、`session/follow`
+读取记录，不解码 Runtime 内部的磁盘格式。仓库中的 `verify-remote-runtime.mjs` 仍使用
+`0.1.5-rc.2` V3 fixture，不能作为本次 wire 变更的冒烟依据；报告中记录了此验证边界。
 
 ## 本轮进展（2026-09-06）
 
@@ -75,7 +95,7 @@ i18n 重复 key），否则都会作为运行时坏包发出——这是它最�
 **需要人工验证**：Trace 面板无测试覆盖，迁移后的行为我无法目视确认，
 验证清单写在「重构 → 结构」该条目里。
 
-## 契约基线（当前快照：2026-09-18，契约目标 `dsh-v0.1.5-rc.2`）
+## 历史契约基线（快照：2026-09-18，契约目标 `dsh-v0.1.5-rc.2`）
 
 默认下载 pin 是 `0.1.5-rc.2`（`package.json` 的 `dsh.runtimeVersion` 默认值），
 `src/remote/contracts.ts` 的契约 pin 是 tag `dsh-v0.1.5-rc.2`、commit
@@ -127,7 +147,7 @@ projection 集合由当前 Loader composition 决定，不再用旧版固定总�
 - [ ] **扩展 `@` 引用类型**：当前已有文件、目录、`@selection`、`@terminal`，以及 Runtime 侧 `fileReferences/list`、`sessionReferenceResolver/candidates` 候选；仍需 diagnostics、实际捕获范围展示，并补齐远程工作区实机验证。
 - [ ] **项目规则（Prompt 模板已交付，见下）**：提供本地规则 Markdown 的只读发现和显式选择，作为可见上下文附件；没有公开 Memory 协议时不自动注入或生成隐式记忆。
 
-### 新 RPC 解锁的功能候选（2026-09-06 按 `dsh-v0.1.2-rc.1` 首次复核；2026-09-18 按 `dsh-v0.1.5-rc.2` 全量 endpoint 差集复评）
+### 历史 RPC 功能候选（2026-09-06 按 `dsh-v0.1.2-rc.1` 首次复核；2026-09-18 按 `dsh-v0.1.5-rc.2` 全量 endpoint 差集复评）
 
 适配完成后（上一节），RC Remote 的消费面盘点（2026-09-18 按 `dsh-v0.1.5-rc.2` 复核）：
 19 个下行事件（`packages/api/remotes/src/remote-events.ts` 的
@@ -199,7 +219,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
   的三个 wrapper 因此零调用、无 UI、无命令，是纯粹的准备代码；激活前需先确认目标 profile 挂载，
   否则考虑收缩为该判定之后再接线。
 
-### `0.1.5-rc.2` 未消费 endpoint（19 / 87，2026-09-18 差集）
+### `0.1.5-rc.2` 未消费 endpoint（19 / 87，2026-09-18 历史差集）
 
 按 `@Remote` 装饰器逐条对出，非按文档推断。判定分三类。
 
@@ -332,7 +352,9 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
       只在 Host 侧调用，不在 Webview 执行第三方代码。我方已有只读
       `pluginInventory/list` 面板可作为起点。
 
-## P1：上游暂无契约（`0.1.5-rc.2` 复核维持搁置）
+## 历史待重审：上游暂无契约（截至 `0.1.5-rc.2`）
+
+以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；`0.1.7-rc.1` 新增接口请先以 [当前适配报告](./RPC_0.1.7_ADAPTATION.md) 为准，再逐项更新候选状态。
 
 `packages/hooks`、`packages/session-query`、`packages/session/session-title` 三处在
 `c291e7961a`（`0.1.5-rc.2` 同步进 master 的位置）的 `@Remote` 计数仍为 0，无新增公开契约。
