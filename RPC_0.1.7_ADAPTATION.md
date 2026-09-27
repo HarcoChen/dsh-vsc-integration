@@ -1,39 +1,57 @@
-# DSH `0.1.7-rc.1` Remote RPC 适配审计
+# DSH `0.1.7-rc.2` Remote RPC 适配审计
 
-目标：`dsh-v0.1.7-rc.1@46a7f68b0922371ce7144b668b90e377d8e799f4`。
-比较基线：`dsh-v0.1.5-rc.2@fb2c4b9e698e30edb738bca4cf0618587db7d203`。
-上游源码位于 `deepseek-harness/`；本报告以 tag 源码为准。源码树可检索到 125 个
-`@Remote` 声明，实际可调用 endpoint 取决于 Runtime 的 profile/composition。
+目标：`dsh-v0.1.7-rc.2@477b4f420553e8a52c2fbccc464d7561b239c443`。
+比较基线：已适配的 `dsh-v0.1.7-rc.1@46a7f68b0922371ce7144b668b90e377d8e799f4`；
+更早的 carrier 迁移基线是 `dsh-v0.1.5-rc.2@fb2c4b9e698e30edb738bca4cf0618587db7d203`。
+审计以 `deepseek-harness/` 中的 tag 源码为准，没有切换嵌套 checkout。
 
-## 已适配的 wire 变化
+## 结论
 
-| 上游变化 | dsh-ide 处理 |
-| --- | --- |
-| unary RPC 成功结果含字节时，Connection 返回 `multipart/form-data`；`metadata` 内有原响应 envelope 与 `attachments[{path, codec: "bytes", part}]`，独立 `bytes-N` 字段承载二进制 | `RemoteUnaryClient` 按表单还原 byte path 上的 `null` 占位为 `Uint8Array`；检查 rpcId、codec、part、路径、重复字段和多余字段。纯 JSON 与错误响应仍沿用原 envelope parser。 |
-| Remote stream 除 `open/cancel` 外支持 Client 上行 `item` 和半关闭 `end` | `RemoteStreamMuxClient.open(..., uplink?)` 逐项校验 JSON-safe 值并发送上行帧；关闭、异常或取消时结束迭代器。Gateway 默认每流最多缓冲 262,144 字节。 |
-| Host 转发事件新增 4 个 emit：permission preset catalog、plugin manager changed/install log/install state | 加入 `src/remote/events.ts` allowlist，继续走既有连接事件路由。IDE 尚无这些事件的专用呈现消费者。 |
-| 归档活动中的 Session 可返回 `workspace/session-active` 和 activity 详情；`stopActivity: true` 可请求停止其活动并归档 | `DshRuntime.archiveSession` 仅在显式第二次确认后发送 `stopActivity: true`；普通归档请求不停止工作。 |
+RC.2 没有继续改变 RC.1 引入的 Remote carrier：Connection multipart 二进制响应、Client
+到 Host 的流上行帧和 Gateway 对应实现未变化。现有 carrier 适配继续有效。
 
-## Endpoint 与 DTO 差异
+RC.2 有业务 RPC 合约破坏性变更：5 个既有方法的参数签名改变；`agentPresets/list`
+删除响应字段；`session/modelCatalog.routableProviders` 的含义收窄。新功能 RPC 和事件是
+增量能力，不构成旧调用的 wire 不兼容。
 
-- **Agent Preset**：由 `dsh-agent-preset-registry` 提供 `agentPresets/list|read|select`。List 返回 `presets` 与 `modeSelectionEnabled`；行和 read DTO 不再提供 `trust`、`authorable`、`hasDocument`。上游不再公开 `agentPresets/copy`、`agentPresets/deletePreset`、`settings/canOpenAgentPresetDirectory`、`settings/openAgentPresetDirectory`。IDE 保留只读 composition 查看和 default 选择；default 写入仍调用 `settings/update`，新 namespace/字段是 `agent-preset-registry` / `selectedDefault`。设置描述也会识别仍受支持的旧 Runtime `agent-presets` / `default` 字段。
-- **Workspace files**：当前是 `read`、`readBytes`、`stat`、`list`、`changes` 五个 Remote 方法；`readAll`、`readRelated` 已移除，`changes` 现在需要 path。当前 IDE 无消费者，留在远程 Workspace 文件能力候选。
-- **Workspace archive**：另有 `initializeDefault`、`unarchiveSession`、`pinSession`、`unpinSession`；Workspace snapshot 含 `pinnedSessionIds`，follow 可给出 `type: "pinned"`。IDE 目前只归档，固定/恢复导航列入 TODO。
-- **Session DTO**：新增 `agentAvailable`、projection hint kind `cached|sequenced`、page/follow 的 `turnWindow` 等元数据。现有列表和历史读取路径按公开 Remote DTO 工作，没有添加对可选字段的必需依赖。
-- **Session log**：上游磁盘记录进入 V4。IDE 通过 `session/page`、`session/follow` 消费 Runtime 暴露的记录，不直接解析 Session 文件或迁移格式。
-- **新增 namespace**：默认 Remote assembly 纳入 `jobs`、`terminal`、`pluginManager`、`pluginRegistryProbe`、`permissionPresets`、`officeToPdf`、`account` 等能力；是否存在仍由实例 composition 决定。本扩展暂未接入这些新增表面。
+## RC.1 → RC.2 破坏性与语义变化
 
-## 相关实现位置
+| Remote surface | RC.2 变化 | dsh-ide 影响 |
+| --- | --- | --- |
+| `account/getProfile`、`getBalance`、`signOut` | 新增必填 `AccountClientMetadata` 参数 | 本地暂无调用方；今后接入账号 UI 时必须传调用端元数据。 |
+| `account/startSignIn` | 第一个参数由 `locale: string` 改为 `client: AccountClientMetadata` | 本地暂无调用方；旧参数序列不能复用。 |
+| `workspace/initializeDefault` | 从 `(request, signal)` 改成 `(signal)`；移除客户端传目录名和标题的 DTO | 本地暂无调用方；首用工作区由 Host 固定命名。 |
+| `agentPresets/list` | roster 移除 `modeSelectionEnabled` | 本地接收类型仍把该字段设为可选；RC.2 缺省时保留 IDE 自己的选择器。是否要跟随上游统一的工作模式设置仍需产品决策。 |
+| `session/modelCatalog` | `routableProviders` 现在只含至少有一个可用模型的 provider | wire 字段不变；现有 `routable` 派生读取该数组，语义与 RC.2 一致。空模型目录的 provider 会显示为不可路由。 |
+| `session/selectModel` | 参数与返回结构不变；现在先校验模型可用性，并不等待默认模型持久化完成 | wire 兼容；调用方不能把 RPC 返回当作默认设置已落盘的确认。 |
 
-- 协议与 multipart：`src/remote/contracts.ts`、`src/remote/unaryClient.ts`
-- mux 上行与连接 facade：`src/remote/muxClient.ts`、`src/remote/connection.ts`
-- forwarded event allowlist：`src/remote/events.ts`
-- archive 和 preset facade/UI：`src/dshRuntime.ts`、`src/chatView.ts`、`src/agentPresetActions.ts`、`src/types.ts`
-- 当前功能候选及 smoke 限制：`TODO.md` 的 2026-09-24 本轮进展
+RPC 方法签名差异集中在 Account 与 Workspace Controller。RC.2 的 `agentPresets/list`
+DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与行为兼容混为一谈。
 
-## 验证边界
+## RC.2 新增 Remote 能力
 
-本次未新增单元测试，遵守仓库规则。类型检查和 diff 检查作为提交前验证；未对真实
-`0.1.7-rc.1` Runtime 运行联调。`scripts/verify-remote-runtime.mjs` 当前固定使用
-`0.1.5-rc.2` 与 V3 磁盘 fixture，不覆盖 multipart、双向流或 V4 存储；不把该脚本结果
-作为本次协议变更的验证证据。未来为新 Runtime 增加集成冒烟时，应使用隔离 DSH_HOME，且不请求外部模型。
+- Account 新增 `getUnnotifiedBonuses`、`ackBonusNotified`、`hasRunningAccountTasks`、`watchExpiry`。
+- Session 新增 `initializeDefaultModel`；模型目录还增加 provider 凭据/模型不可用的 Remote error code。
+- 默认 Client Remote assembly 新挂载 Schedule namespace：`schedule/list`、`catalog`、`update`、`delete`、`history`。
+- 转发事件新增 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、
+  `credentials/record-updated`、`schedule/changed`。本地 allowlist 已加入；当前只有通用事件
+  转发，没有账号或定时任务专用 UI。
+- Workspace files 的 `list` 扩展为跟随并校验 symlink/junction 目标，RPC 签名未变。
+
+## 本地适配状态
+
+- 目标 Runtime 版本、`src/remote/contracts.ts` wire-contract pin 和 README 已更新至 RC.2。
+- multipart unary、双向 stream 与活动会话归档确认继续沿用 RC.1 实现。
+- 事件 allowlist 已加入 RC.2 四个 emit 事件；无专用消费者时只通过现有通用事件路径转发。
+- Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
+- `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
+- 当前 dsh-ide 没有 Account RPC、`workspace/initializeDefault` 或 Schedule RPC 调用方；这些接口
+  不纳入本轮功能接入。后续实现对应 UI 前，必须按 RC.2 签名重新设计请求。
+
+## 验证边界与待办
+
+- 遵守仓库规则，不新增或运行单元测试；可以运行 TypeScript 检查和 `git diff --check`。
+- 未对真实 `0.1.7-rc.2` Runtime 做端到端联调。`scripts/verify-remote-runtime.mjs` 仍使用
+  `0.1.5-rc.2` 与 V3 fixture，不覆盖 multipart、双向流、V4 存储或 RC.2 业务 RPC。
+- TODO 保留 Schedule、账号 RPC 与工作区首用初始化作为未接入能力；在增加 UI 后再加入对应消费和
+  真实 Runtime smoke。

@@ -1,11 +1,30 @@
 # TODO
 
-更新时间：2026-09-24（适配 `dsh-v0.1.7-rc.1`；增量契约审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
+更新时间：2026-09-27（适配目标 `dsh-v0.1.7-rc.2`；契约审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
 
-## 本轮进展（2026-09-24，`dsh-v0.1.7-rc.1`）
+## 本轮进展（2026-09-27，`dsh-v0.1.7-rc.2`）
 
-当前默认 Runtime 与 Remote wire-contract pin 已更新至 `0.1.7-rc.1`，上游 tag 为
+默认 Runtime、Remote wire-contract pin 与 RPC 报告已指向上游 tag
+`dsh-v0.1.7-rc.2@477b4f420553e8a52c2fbccc464d7561b239c443`。RC.2 未改动 RC.1 的
+multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 新增事件和当前
+消费面的兼容性，详见审计报告。
+
+- [x] 默认 Runtime 版本、Remote contract pin、README 和 RPC 审计目标更新到 RC.2。
+- [x] Remote event allowlist 加入 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、`credentials/record-updated`、`schedule/changed`；专用账号/计划任务 UI 尚未接入。
+- [x] 保持 `agentPresets/list` 对 RC.2 缺省 `modeSelectionEnabled` 的兼容；RC.1 显式返回 `false` 时仍遵循限制。
+- [x] 现有模型可路由判断与 RC.2 `routableProviders` 语义一致：目录没有可用模型的 provider 标为不可路由。
+- [ ] **Agent Preset 选择策略**：RC.2 移除 `modeSelectionEnabled`；评估 IDE 的独立 preset chooser 应否与上游统一的工作模式设置关联。
+- [ ] **Account RPC**：尚无调用方；若接入账号资料、余额、登录或登出，按 RC.2 使用 `AccountClientMetadata`，并评估 bonus、过期事件与停止账号任务流程。
+- [ ] **默认 Workspace 首用初始化**：当前无 `workspace/initializeDefault` 调用；后续接入时使用 RC.2 的 Host 固定目录/标题策略与仅 signal 签名。
+- [ ] **Schedule RPC 与消费者**：RC.2 默认 assembly 新挂载 `schedule/list|catalog|update|delete|history`；当前未消费。新增事件已透传，仍需 UI/刷新行为设计。
+
+本地未运行真实 RC.2 Runtime 联调；历史 smoke runner 仍使用 `0.1.5-rc.2` V3 fixture，不能证明
+RC.2 业务 RPC 或 RC.1 以来的 carrier 行为。
+
+## 历史进展（2026-09-24，`dsh-v0.1.7-rc.1`）
+
+当时默认 Runtime 与 Remote wire-contract pin 更新至 `0.1.7-rc.1`，上游 tag 为
 `46a7f68b0922371ce7144b668b90e377d8e799f4`。该 tag 源码树有 125 个 `@Remote`
 声明；实际可用 endpoints 仍取决于 Runtime composition，不能把源码总数当成每个实例的挂载总数。
 
@@ -354,7 +373,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 
 ## 历史待重审：上游暂无契约（截至 `0.1.5-rc.2`）
 
-以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；`0.1.7-rc.1` 新增接口请先以 [当前适配报告](./RPC_0.1.7_ADAPTATION.md) 为准，再逐项更新候选状态。
+以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；`0.1.7-rc.2` 新增接口请先以 [当前适配报告](./RPC_0.1.7_ADAPTATION.md) 为准，再逐项更新候选状态。
 
 `packages/hooks`、`packages/session-query`、`packages/session/session-title` 三处在
 `c291e7961a`（`0.1.5-rc.2` 同步进 master 的位置）的 `@Remote` 计数仍为 0，无新增公开契约。

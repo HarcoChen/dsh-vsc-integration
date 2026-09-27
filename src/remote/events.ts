@@ -20,6 +20,9 @@ const FORWARDED_EMIT_EVENTS = new Set([
     "api-session/removed",
     "api-session/status",
     "commands/change",
+    "deepseek-account/session-expired",
+    "deepseek-account/model-sign-in-required",
+    "credentials/record-updated",
     "credentials/reference-updated",
     "goal/activation-changed",
     "cordis/request-run",
@@ -34,6 +37,7 @@ const FORWARDED_EMIT_EVENTS = new Set([
     "plugin-manager/install-log",
     "plugin-manager/install-state",
     "settings/document-updated",
+    "schedule/changed",
 ]);
 
 export interface RemoteEventControllerOptions {

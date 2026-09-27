@@ -488,6 +488,7 @@ export interface DshModelCatalogFailure {
 
 export interface DshSessionModelsResult {
     current: DshModelSelection;
+    /** Provider currently has at least one available model in the Runtime catalog. */
     routable: boolean;
     groups: DshModelProviderGroup[];
     failures: DshModelCatalogFailure[];
@@ -521,7 +522,7 @@ export interface DshAgentPresetEntry {
 
 export interface DshAgentPresetListResult {
     presets: DshAgentPresetEntry[];
-    /** Older releases omit this policy and allow mode selection. */
+    /** RC.1 policy; RC.2 omits it, so absence keeps caller-side selection enabled. */
     modeSelectionEnabled?: boolean;
 }
 
