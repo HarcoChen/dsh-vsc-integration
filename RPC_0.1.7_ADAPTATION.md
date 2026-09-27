@@ -42,7 +42,7 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 
 - 目标 Runtime 版本、`src/remote/contracts.ts` wire-contract pin 和 README 已更新至 RC.2。
 - multipart unary、双向 stream 与活动会话归档确认继续沿用 RC.1 实现。
-- 事件 allowlist 已加入 RC.2 四个 emit 事件；无专用消费者时只通过现有通用事件路径转发。
+- 事件 allowlist 已加入 RC.2 四个 emit 事件；credential record、账号过期和账号模型登录要求事件会刷新模型目录，Schedule 事件仍只走通用转发。
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
 - 当前 dsh-ide 没有 Account RPC、`workspace/initializeDefault` 或 Schedule RPC 调用方；这些接口

@@ -11,7 +11,7 @@ multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 �
 消费面的兼容性，详见审计报告。
 
 - [x] 默认 Runtime 版本、Remote contract pin、README 和 RPC 审计目标更新到 RC.2。
-- [x] Remote event allowlist 加入 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、`credentials/record-updated`、`schedule/changed`；专用账号/计划任务 UI 尚未接入。
+- [x] Remote event allowlist 加入 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、`credentials/record-updated`、`schedule/changed`；前三类事件会失效并刷新模型目录，Schedule 暂无专用 UI。
 - [x] 保持 `agentPresets/list` 对 RC.2 缺省 `modeSelectionEnabled` 的兼容；RC.1 显式返回 `false` 时仍遵循限制。
 - [x] 现有模型可路由判断与 RC.2 `routableProviders` 语义一致：目录没有可用模型的 provider 标为不可路由。
 - [ ] **Agent Preset 选择策略**：RC.2 移除 `modeSelectionEnabled`；评估 IDE 的独立 preset chooser 应否与上游统一的工作模式设置关联。

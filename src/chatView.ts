@@ -428,6 +428,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         break;
                     case "llm/adapters-updated":
                     case "credentials/reference-updated":
+                    case "credentials/record-updated":
+                    case "deepseek-account/session-expired":
+                    case "deepseek-account/model-sign-in-required":
                         this.modelCatalogs.invalidate();
                         if (this.sessionId) this.refreshModelCatalog(this.sessionId);
                         break;
