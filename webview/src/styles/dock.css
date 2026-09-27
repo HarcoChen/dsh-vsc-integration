@@ -330,6 +330,12 @@
     border-top: 1px solid var(--dsh-border);
 }
 
+.dsh-schedule-title {
+    margin-bottom: var(--dsh-space-1);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
 .dsh-schedule-prompt {
     overflow-wrap: anywhere;
     white-space: pre-wrap;

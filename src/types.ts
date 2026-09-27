@@ -1302,6 +1302,7 @@ export type DshScheduleItem =
     | {
           id: string;
           kind: "after";
+          title?: string;
           prompt: string;
           afterSeconds: number;
           scheduledAt: string;
@@ -1309,14 +1310,44 @@ export type DshScheduleItem =
     | {
           id: string;
           kind: "at";
+          title?: string;
           prompt: string;
           scheduledAt: string;
       }
     | {
           id: string;
           kind: "every";
+          title?: string;
           prompt: string;
           everySeconds: number;
+          scheduledAt: string;
+      }
+    | {
+          id: string;
+          kind: "daily";
+          title?: string;
+          prompt: string;
+          time: string;
+          timeZone: string;
+          scheduledAt: string;
+      }
+    | {
+          id: string;
+          kind: "weekly";
+          title?: string;
+          prompt: string;
+          time: string;
+          timeZone: string;
+          weekdays: number[];
+          scheduledAt: string;
+      }
+    | {
+          id: string;
+          kind: "cron";
+          title?: string;
+          prompt: string;
+          expression: string;
+          timeZone: string;
           scheduledAt: string;
       };
 

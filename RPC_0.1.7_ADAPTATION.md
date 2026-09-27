@@ -34,19 +34,21 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - Session 新增 `initializeDefaultModel`；模型目录还增加 provider 凭据/模型不可用的 Remote error code。
 - 默认 Client Remote assembly 新挂载 Schedule namespace：`schedule/list`、`catalog`、`update`、`delete`、`history`。
 - 转发事件新增 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、
-  `credentials/record-updated`、`schedule/changed`。本地 allowlist 已加入；当前只有通用事件
-  转发，没有账号或定时任务专用 UI。
+  `credentials/record-updated`、`schedule/changed`。本地 allowlist 已加入；账号事件刷新模型目录，
+  Schedule 事件刷新当前会话的活动提醒列表。
 - Workspace files 的 `list` 扩展为跟随并校验 symlink/junction 目标，RPC 签名未变。
 
 ## 本地适配状态
 
 - 目标 Runtime 版本、`src/remote/contracts.ts` wire-contract pin 和 README 已更新至 RC.2。
 - multipart unary、双向 stream 与活动会话归档确认继续沿用 RC.1 实现。
-- 事件 allowlist 已加入 RC.2 四个 emit 事件；credential record、账号过期和账号模型登录要求事件会刷新模型目录，Schedule 事件仍只走通用转发。
+- 事件 allowlist 已加入 RC.2 四个 emit 事件；credential record、账号过期和账号模型登录要求事件会刷新模型目录，Schedule 事件会刷新活动提醒。
+- Activity Dock 通过 `schedule/list` 读取当前会话的持久活动提醒，展示 RC.2 的 `daily/weekly/cron` 规则和可选标题；旧 Runtime 缺少该 endpoint 时回退到 Session Schedule 投影。
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
-- 当前 dsh-ide 没有 Account RPC、`workspace/initializeDefault` 或 Schedule RPC 调用方；这些接口
-  不纳入本轮功能接入。后续实现对应 UI 前，必须按 RC.2 签名重新设计请求。
+- 当前 dsh-ide 没有 Account RPC 或 `workspace/initializeDefault` 调用方；Schedule 只接入
+  `schedule/list` 和 `schedule/changed` 刷新，尚未接入全局 `catalog`、投递 `history`、修改/删除
+  或提醒创建 UI。后续实现对应功能前，必须按 RC.2 签名重新设计请求。
 
 ## 验证边界与待办
 

@@ -48,7 +48,7 @@ import { MessageFeedbackController } from "./messageFeedbackController";
 import { SessionFeedbackController } from "./sessionFeedbackController";
 import { SubagentController } from "./subagentController";
 import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
-import { isRemoteError } from "./remote/errors";
+import { isRemoteError, RemoteProtocolError } from "./remote/errors";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
 import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
@@ -93,6 +93,7 @@ import {
     DshReasoningEffortOption,
     DshSessionSearchItem,
     DshSessionModelsResult,
+    DshScheduleItem,
     DshSettingFieldType,
     DshSettingFieldView,
     DshSettingsCardView,
@@ -305,6 +306,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly modelSelectionProjectionSeqs = new Map<string, number>();
     private readonly skillCatalogs = new SessionCatalogCache<DshSkillEntry[]>();
     private readonly commandCatalogs = new SessionCatalogCache<DshCommandDescriptor[]>();
+    private readonly scheduleCatalogs = new SessionCatalogCache<DshScheduleItem[]>();
     private readonly messageFeedback: MessageFeedbackController;
     private readonly sessionFeedback: SessionFeedbackController;
     /**
@@ -313,6 +315,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
      * post. Cleared when a new stream generation connects.
      */
     private commandRegistryUnavailable = false;
+    private scheduleRpcUnavailable = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private modeSelectionEnabled = true;
     private agentPresetCatalogRequest: Promise<void> | undefined;
@@ -426,6 +429,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.invalidateAgentPresetCatalog();
                         this.refreshAgentPresetCatalog();
                         break;
+                    case "schedule/changed":
+                        if (this.sessionId) {
+                            this.scheduleCatalogs.invalidateSession(this.sessionId);
+                            this.refreshScheduleCatalog(this.sessionId);
+                        }
+                        break;
                     case "llm/adapters-updated":
                     case "credentials/reference-updated":
                     case "credentials/record-updated":
@@ -459,12 +468,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.goalActivation.reset();
                 this.commandRegistryUnavailable = false;
                 this.commandCatalogs.clear();
+                this.scheduleRpcUnavailable = false;
+                this.scheduleCatalogs.clear();
                 void this.refreshDynamicPlugins();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
                         this.refreshModelCatalog(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
+                        this.refreshScheduleCatalog(this.sessionId);
                         void this.subagents.refreshSubagentTree(this.sessionId);
                         void this.messageFeedback.refresh(this.sessionId, true);
                     }
@@ -2921,6 +2933,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    /** Pulls RC.2's active durable reminders for the Activity Dock schedule view. */
+    private refreshScheduleCatalog(sessionId: string): void {
+        void this.scheduleCatalogs.pull(sessionId, {
+            gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleRpcUnavailable,
+            pull: async () => {
+                const value = await this.runtime.listSchedules(sessionId);
+                if (value === undefined) return undefined;
+                const schedules = scheduleProjection(value);
+                if (schedules === undefined) {
+                    throw new RemoteProtocolError("Remote schedule/list returned an invalid value");
+                }
+                return schedules;
+            },
+            apply: (schedules) => {
+                this.scheduleCatalogs.set(sessionId, schedules);
+                if (this.sessionId === sessionId) this.postState();
+            },
+            absent: () => {
+                this.scheduleRpcUnavailable = true;
+            },
+            fail: (error) => {
+                this.output.appendLine(`[dsh:schedule] catalog refresh failed: ${errorMessage(error)}`);
+            },
+        });
+    }
+
     /**
      * The registered command a prompt line invokes, if any. The catalog must
      * already be loaded — see {@link ensureCommandCatalog}.
@@ -3169,6 +3207,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (this.sessionId) {
             this.refreshSkillCatalog(this.sessionId);
             this.refreshCommandCatalog(this.sessionId);
+            this.refreshScheduleCatalog(this.sessionId);
         }
         this.refreshAgentPresetCatalog();
         const selectedAgentPreset = selected?.agentPreset;
@@ -3180,7 +3219,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const goalCell = projectionCell(session, "goal");
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
-        const schedule = scheduleProjection(projectionValue(session, "schedule"));
+        const schedule = this.sessionId && this.scheduleCatalogs.has(this.sessionId)
+            ? this.scheduleCatalogs.get(this.sessionId)
+            : scheduleProjection(projectionValue(session, "schedule"));
         const imageLimits = imageLimitsProjection(projectionValue(session, "imageLimits"));
         const plan = planProjection(projectionValue(session, "plan"));
         const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));

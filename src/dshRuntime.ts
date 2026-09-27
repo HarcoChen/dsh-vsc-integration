@@ -2677,6 +2677,16 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
+    /** Lists active durable reminders for one session; undefined means an older Runtime has no Schedule RPC. */
+    public async listSchedules(sessionId: string): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/list", { request: { sessionId } });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     /**
      * Runs one complete slash-command line against a session's agent. This is
      * pure admission: the resolved handler's outcome is also logged durably as

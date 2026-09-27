@@ -11,13 +11,13 @@ multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 �
 消费面的兼容性，详见审计报告。
 
 - [x] 默认 Runtime 版本、Remote contract pin、README 和 RPC 审计目标更新到 RC.2。
-- [x] Remote event allowlist 加入 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、`credentials/record-updated`、`schedule/changed`；前三类事件会失效并刷新模型目录，Schedule 暂无专用 UI。
+- [x] Remote event allowlist 加入 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、`credentials/record-updated`、`schedule/changed`；前三类事件会失效并刷新模型目录，Schedule 事件刷新当前会话的活动提醒。
 - [x] 保持 `agentPresets/list` 对 RC.2 缺省 `modeSelectionEnabled` 的兼容；RC.1 显式返回 `false` 时仍遵循限制。
 - [x] 现有模型可路由判断与 RC.2 `routableProviders` 语义一致：目录没有可用模型的 provider 标为不可路由。
 - [ ] **Agent Preset 选择策略**：RC.2 移除 `modeSelectionEnabled`；评估 IDE 的独立 preset chooser 应否与上游统一的工作模式设置关联。
 - [ ] **Account RPC**：尚无调用方；若接入账号资料、余额、登录或登出，按 RC.2 使用 `AccountClientMetadata`，并评估 bonus、过期事件与停止账号任务流程。
 - [ ] **默认 Workspace 首用初始化**：当前无 `workspace/initializeDefault` 调用；后续接入时使用 RC.2 的 Host 固定目录/标题策略与仅 signal 签名。
-- [ ] **Schedule RPC 与消费者**：RC.2 默认 assembly 新挂载 `schedule/list|catalog|update|delete|history`；当前未消费。新增事件已透传，仍需 UI/刷新行为设计。
+- [ ] **Schedule 管理 RPC**：Activity Dock 已用 `schedule/list` 显示当前会话活动提醒，支持 RC.2 的 `daily/weekly/cron` 规则并响应 `schedule/changed`；`catalog/history/update/delete` 与提醒创建、编辑、删除 UI 仍未接入。
 
 本地未运行真实 RC.2 Runtime 联调；历史 smoke runner 仍使用 `0.1.5-rc.2` V3 fixture，不能证明
 RC.2 业务 RPC 或 RC.1 以来的 carrier 行为。

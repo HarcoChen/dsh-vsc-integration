@@ -31,9 +31,45 @@ function formatScheduledAt(value: string): string {
     }
 }
 
+function formatLocalTime(value: string): string {
+    const [clock, milliseconds] = value.split(".");
+    const [hours, minutes, seconds] = clock.split(":");
+    if (seconds === "00" && milliseconds === "000") return `${hours}:${minutes}`;
+    if (milliseconds === "000") return `${hours}:${minutes}:${seconds}`;
+    return value;
+}
+
+function formatWeekday(day: number): string {
+    const date = new Date(Date.UTC(2024, 0, day));
+    try {
+        return new Intl.DateTimeFormat(undefined, { weekday: "short", timeZone: "UTC" }).format(date);
+    } catch {
+        return String(day);
+    }
+}
+
 function ruleLabel(item: DshScheduleItem): string {
     if (item.kind === "after") return t("After {duration}", { duration: formatInterval(item.afterSeconds) });
     if (item.kind === "every") return t("Every {duration}", { duration: formatInterval(item.everySeconds) });
+    if (item.kind === "daily") {
+        return t("Daily at {time} ({timeZone})", {
+            time: formatLocalTime(item.time),
+            timeZone: item.timeZone,
+        });
+    }
+    if (item.kind === "weekly") {
+        return t("Weekly on {days} at {time} ({timeZone})", {
+            days: item.weekdays.map(formatWeekday).join(", "),
+            time: formatLocalTime(item.time),
+            timeZone: item.timeZone,
+        });
+    }
+    if (item.kind === "cron") {
+        return t("Cron {expression} ({timeZone})", {
+            expression: item.expression,
+            timeZone: item.timeZone,
+        });
+    }
     return t("One-time");
 }
 
@@ -44,6 +80,7 @@ export function SchedulePanel({ schedule }: { schedule: NonNullable<ChatViewStat
             <ul className="dsh-schedule-items" tabIndex={0}>
                 {schedule.map((item) => (
                     <li className="dsh-schedule-item" key={item.id}>
+                        {item.title ? <div className="dsh-schedule-title">{item.title}</div> : null}
                         <div className="dsh-schedule-prompt">{item.prompt}</div>
                         <div className="dsh-schedule-meta">
                             <span>{ruleLabel(item)}</span>

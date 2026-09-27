@@ -310,6 +310,29 @@ function scheduleSeconds(value: unknown, minimum: number): number | undefined {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum ? value : undefined;
 }
 
+function scheduleOptionalTitle(value: unknown): string | undefined | null {
+    if (value === undefined) return undefined;
+    const title = scheduleText(value);
+    return title !== undefined && title.length <= 120 ? title : null;
+}
+
+function scheduleLocalTime(value: unknown): string | undefined {
+    return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}$/u.test(value)
+        ? value
+        : undefined;
+}
+
+function scheduleWeekdays(value: unknown): number[] | undefined {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 7) return undefined;
+    const weekdays = value as unknown[];
+    if (weekdays.some((day) => typeof day !== "number" || !Number.isInteger(day) || day < 1 || day > 7)) {
+        return undefined;
+    }
+    const normalized = [...weekdays] as number[];
+    if (new Set(normalized).size !== normalized.length) return undefined;
+    return normalized.sort((left, right) => left - right);
+}
+
 /** Narrow the Schedule projection while retaining the Runtime's active order. */
 export function scheduleProjection(value: unknown): DshScheduleItem[] | undefined {
     if (!Array.isArray(value) || value.length > MAX_SCHEDULE_ITEMS) return undefined;
@@ -320,18 +343,38 @@ export function scheduleProjection(value: unknown): DshScheduleItem[] | undefine
         const id = scheduleId(candidate.id);
         const prompt = scheduleText(candidate.prompt);
         const scheduledAt = scheduleInstant(candidate.scheduledAt);
-        if (id === undefined || prompt === undefined || scheduledAt === undefined || seenIds.has(id)) return undefined;
+        const title = scheduleOptionalTitle(candidate.title);
+        if (id === undefined || prompt === undefined || scheduledAt === undefined || title === null || seenIds.has(id)) {
+            return undefined;
+        }
         seenIds.add(id);
+        const withTitle = title === undefined ? {} : { title };
         if (candidate.kind === "after") {
             const afterSeconds = scheduleSeconds(candidate.afterSeconds, 1);
             if (afterSeconds === undefined) return undefined;
-            schedules.push({ id, kind: "after", prompt, afterSeconds, scheduledAt });
+            schedules.push({ id, kind: "after", ...withTitle, prompt, afterSeconds, scheduledAt });
         } else if (candidate.kind === "at") {
-            schedules.push({ id, kind: "at", prompt, scheduledAt });
+            schedules.push({ id, kind: "at", ...withTitle, prompt, scheduledAt });
         } else if (candidate.kind === "every") {
-            const everySeconds = scheduleSeconds(candidate.everySeconds, 300);
+            const everySeconds = scheduleSeconds(candidate.everySeconds, 60);
             if (everySeconds === undefined) return undefined;
-            schedules.push({ id, kind: "every", prompt, everySeconds, scheduledAt });
+            schedules.push({ id, kind: "every", ...withTitle, prompt, everySeconds, scheduledAt });
+        } else if (candidate.kind === "daily") {
+            const time = scheduleLocalTime(candidate.time);
+            const timeZone = scheduleText(candidate.timeZone);
+            if (time === undefined || timeZone === undefined) return undefined;
+            schedules.push({ id, kind: "daily", ...withTitle, prompt, time, timeZone, scheduledAt });
+        } else if (candidate.kind === "weekly") {
+            const time = scheduleLocalTime(candidate.time);
+            const timeZone = scheduleText(candidate.timeZone);
+            const weekdays = scheduleWeekdays(candidate.weekdays);
+            if (time === undefined || timeZone === undefined || weekdays === undefined) return undefined;
+            schedules.push({ id, kind: "weekly", ...withTitle, prompt, time, timeZone, weekdays, scheduledAt });
+        } else if (candidate.kind === "cron") {
+            const expression = scheduleText(candidate.expression);
+            const timeZone = scheduleText(candidate.timeZone);
+            if (expression === undefined || timeZone === undefined) return undefined;
+            schedules.push({ id, kind: "cron", ...withTitle, prompt, expression, timeZone, scheduledAt });
         } else {
             return undefined;
         }
