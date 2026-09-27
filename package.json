@@ -66,6 +66,7 @@
         "onWebviewPanel:dsh.traceEditor",
         "onCommand:dsh.newSession",
         "onCommand:dsh.switchSession",
+        "onCommand:dsh.manageSessions",
         "onCommand:dsh.searchSession",
         "onCommand:dsh.selectModel",
         "onCommand:dsh.renameSession",
@@ -171,6 +172,12 @@
                 "title": "%command.switchSession.title%",
                 "category": "DSH",
                 "icon": "$(list-selection)"
+            },
+            {
+                "command": "dsh.manageSessions",
+                "title": "%command.manageSessions.title%",
+                "category": "DSH",
+                "icon": "$(pin)"
             },
             {
                 "command": "dsh.searchSession",

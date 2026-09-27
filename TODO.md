@@ -14,6 +14,7 @@ multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 �
 - [x] Remote event allowlist 加入 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、`credentials/record-updated`、`schedule/changed`；前三类事件会失效并刷新模型目录，Schedule 事件刷新当前会话列表与跨会话目录。
 - [x] 保持 `agentPresets/list` 对 RC.2 缺省 `modeSelectionEnabled` 的兼容；RC.1 显式返回 `false` 时仍遵循限制。
 - [x] 现有模型可路由判断与 RC.2 `routableProviders` 语义一致：目录没有可用模型的 provider 标为不可路由。
+- [x] **Session 固定与恢复**：Workspace controller 已接入 `pinSession|unpinSession|unarchiveSession` 和 `workspace/follow` 的 `pinnedSessionIds`；会话管理菜单可固定、取消固定、恢复和打开，切换器与会话列表将固定项前置。完整 archive/pin 快照可正确反映恢复和取消固定。
 - [ ] **Agent Preset 选择策略**：RC.2 移除 `modeSelectionEnabled`；评估 IDE 的独立 preset chooser 应否与上游统一的工作模式设置关联。
 - [ ] **Account RPC**：尚无调用方；若接入账号资料、余额、登录或登出，按 RC.2 使用 `AccountClientMetadata`，并评估 bonus、过期事件与停止账号任务流程。
 - [ ] **默认 Workspace 首用初始化**：当前无 `workspace/initializeDefault` 调用；后续接入时使用 RC.2 的 Host 固定目录/标题策略与仅 signal 签名。
@@ -33,7 +34,7 @@ RC.2 业务 RPC 或 RC.1 以来的 carrier 行为。
 - [x] `$events` 转发 allowlist 加入 `permission-presets/catalog-changed`、`plugin-manager/changed`、`plugin-manager/install-log`、`plugin-manager/install-state`。
 - [x] Agent Preset 对齐新版 roster/document：移除已删除的 copy/delete/directory-opener 调用；默认值按 settings 描述适配新旧 namespace/字段。
 - [x] 归档活动会话时识别 `workspace/session-active`，经第二次确认后才以 `stopActivity: true` 重试。
-- [ ] **归档会话导航**：接入 `workspace/pinSession`、`unpinSession`、`unarchiveSession` 与 `pinnedSessionIds`，让 IDE 能固定、恢复会话；现阶段仍可在官方 Web UI 管理。
+- [x] **归档会话导航**：接入 `workspace/pinSession`、`unpinSession`、`unarchiveSession` 与 `pinnedSessionIds`，会话管理菜单支持固定、取消固定和恢复；归档记录仍可在官方 Web UI 查看。
 - [ ] **远程 Workspace 文件**：评估 `workspaceFiles/read|readBytes|stat|list|changes`（5 个 endpoint）。字节响应 carrier 已支持 multipart；仍需远程目录同侧性判断和 UI 消费设计。
 - [ ] **Jobs/终端及扩展管理能力**：评估新版 `jobs`、`terminal`、`pluginManager`、`permissionPresets` 等 namespace。它们的可用性按 composition 判定；当前仅记录为候选，未接入 UI。
 - [ ] **新版事件消费**：allowlist 已接受新增事件，尚无对应 IDE 面板或刷新行为；确定角色后再接入消费者。

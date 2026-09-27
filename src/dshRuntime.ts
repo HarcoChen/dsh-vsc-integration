@@ -1971,10 +1971,51 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async archiveSession(sessionId: string, stopActivity = false): Promise<void> {
-        const result = await this.apiClient.call<{ archivedSessionIds: string[] }>("workspace/archiveSession", {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/archiveSession", {
             request: { sessionId, ...(stopActivity ? { stopActivity: true } : {}) },
         });
-        this.harnessState.catalog.replaceArchived(result.archivedSessionIds);
+        if (!isRemoteRecord(result) || !Array.isArray(result.archivedSessionIds) ||
+            !result.archivedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/archiveSession returned an invalid archive set");
+        }
+        this.harnessState.catalog.replaceArchived(result.archivedSessionIds as string[], baselineRevision);
+    }
+
+    public async unarchiveSession(sessionId: string): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/unarchiveSession", {
+            request: { sessionId },
+        });
+        if (!isRemoteRecord(result) || !Array.isArray(result.archivedSessionIds) ||
+            !result.archivedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/unarchiveSession returned an invalid archive set");
+        }
+        this.harnessState.catalog.replaceArchived(result.archivedSessionIds as string[], baselineRevision);
+    }
+
+    public async pinSession(sessionId: string): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/pinSession", {
+            request: { sessionId },
+        });
+        if (!isRemoteRecord(result) || !Array.isArray(result.pinnedSessionIds) ||
+            !result.pinnedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/pinSession returned an invalid pin set");
+        }
+        this.harnessState.catalog.replacePinned(result.pinnedSessionIds as string[], baselineRevision);
+    }
+
+    public async unpinSession(sessionId: string): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/unpinSession", {
+            request: { sessionId },
+        });
+        if (!isRemoteRecord(result) || !Array.isArray(result.pinnedSessionIds) ||
+            !result.pinnedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/unpinSession returned an invalid pin set");
+        }
+        this.harnessState.catalog.replacePinned(result.pinnedSessionIds as string[], baselineRevision);
     }
 
     /** Report whether the composed Runtime can open a Session workspace path. */

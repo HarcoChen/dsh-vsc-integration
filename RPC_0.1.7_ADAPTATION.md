@@ -33,6 +33,7 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - Account 新增 `getUnnotifiedBonuses`、`ackBonusNotified`、`hasRunningAccountTasks`、`watchExpiry`。
 - Session 新增 `initializeDefaultModel`；模型目录还增加 provider 凭据/模型不可用的 Remote error code。
 - 默认 Client Remote assembly 新挂载 Schedule namespace：`schedule/list`、`catalog`、`update`、`delete`、`history`。
+- Workspace controller 新增 `unarchiveSession`、`pinSession`、`unpinSession`，`workspace/follow` baseline 与增量增加全量 `pinnedSessionIds`。
 - 转发事件新增 `deepseek-account/session-expired`、`deepseek-account/model-sign-in-required`、
   `credentials/record-updated`、`schedule/changed`。本地 allowlist 已加入；账号事件刷新模型目录，
   Schedule 事件刷新当前会话的活动提醒列表及跨会话 catalog。
@@ -45,6 +46,7 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - 事件 allowlist 已加入 RC.2 四个 emit 事件；credential record、账号过期和账号模型登录要求事件会刷新模型目录，Schedule 事件会刷新当前会话提醒和跨会话 catalog。
 - Activity Dock 通过 `schedule/list` 读取当前会话的持久活动提醒，展示 RC.2 的 `daily/weekly/cron` 规则和标题；旧 Runtime 缺少该 endpoint 时回退到 Session Schedule 投影。RC.2 的 `schedule/history` 支持游标分页，`update` 用完整观察记录做 CAS，`delete` 会同时删除该任务的投递历史。
 - Activity Dock 通过无参数 `schedule/catalog` 展示所有会话的活动与已结束提醒、原会话 ID 和最近投递；该视图只读，编辑/移除仍使用当前会话绑定的管理面板。
+- 会话管理菜单接入 `workspace/pinSession|unpinSession|unarchiveSession` 与 `workspace/follow` pin 集；固定项在会话切换器及会话列表中前置。Archive/Pin RPC 响应只在对应流状态未更新时应用，避免旧完整快照覆盖较新的事件。
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
 - 当前 dsh-ide 没有 Account RPC 或 `workspace/initializeDefault` 调用方；Schedule Activity Dock

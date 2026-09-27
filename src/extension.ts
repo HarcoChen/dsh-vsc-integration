@@ -125,6 +125,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.switchSession", () =>
             runCommand(t("Switch session"), () => chatView.chooseSession()),
         ),
+        vscode.commands.registerCommand("dsh.manageSessions", () =>
+            runCommand(t("Manage DSH Sessions"), () => chatView.manageSessions()),
+        ),
         vscode.commands.registerCommand("dsh.searchSession", () =>
             runCommand(t("Search sessions"), () => chatView.searchSession()),
         ),

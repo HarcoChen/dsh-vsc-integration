@@ -351,6 +351,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
 
     private async consumeWorkspace(signal: AbortSignal, ready?: Deferred): Promise<void> {
         let opened = false;
+        const baselineRevision = this.catalog.baselineRevision();
         try {
             for await (const value of this.connection.open("workspace/follow", {}, signal)) {
                 if (signal.aborted) return;
@@ -362,7 +363,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                     opened = true;
                     ready?.resolve();
                 }
-                this.applyWorkspace(value);
+                this.applyWorkspace(value, baselineRevision);
             }
             if (!opened) ready?.reject(new Error("Remote workspace stream ended before baseline"));
             else if (!signal.aborted) throw new Error("Remote workspace stream ended unexpectedly");
@@ -489,14 +490,14 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         }
     }
 
-    private applyWorkspace(value: unknown): void {
+    private applyWorkspace(value: unknown, baselineRevision: number): void {
         if (!isRecord(value) || typeof value.type !== "string") {
             throw new Error("Remote workspace frame is malformed");
         }
         if (value.type === "baseline" && isRecord(value.value)) {
             const baseline = workspaceBaseline(value.value);
             if (!baseline) throw new Error("Remote workspace baseline is malformed");
-            this.catalog.replaceRemoteWorkspaces(baseline);
+            this.catalog.replaceRemoteWorkspaces(baseline, baselineRevision);
             return;
         }
         if (value.type === "upsert") {
@@ -515,6 +516,11 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                 throw new Error("Remote workspace archive set is malformed");
             }
             this.catalog.replaceArchived(value.archivedSessionIds as string[]);
+        } else if (value.type === "pinned" && Array.isArray(value.pinnedSessionIds)) {
+            if (!value.pinnedSessionIds.every((id) => typeof id === "string")) {
+                throw new Error("Remote workspace pin set is malformed");
+            }
+            this.catalog.replacePinned(value.pinnedSessionIds as string[]);
         } else {
             throw new Error(`Remote workspace frame ${value.type} is malformed`);
         }

@@ -10,6 +10,7 @@
     "command.openTrace.title": "打开会话 Trace",
     "command.newSession.title": "新建会话",
     "command.switchSession.title": "切换会话",
+    "command.manageSessions.title": "管理会话",
     "command.searchSession.title": "搜索会话",
     "command.selectModel.title": "选择模型",
     "command.renameSession.title": "重命名会话",

@@ -27,6 +27,7 @@ import { AGENT_PRESET_DOCUMENT_SCHEME, manageAgentPresets } from "./agentPresetA
 import { ChangeReviewStore } from "./changeReviewStore";
 import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
+import { manageSessions as runSessionManagement } from "./sessionActions";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { GoalActivationController } from "./goalActivation";
@@ -745,6 +746,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    public manageSessions(): Promise<void> {
+        return runSessionManagement({
+            runtime: this.runtime,
+            workspaceRoot: () => this.workspaceRoot(),
+            openSession: (sessionId) => this.switchSession(sessionId),
+        });
+    }
+
     public manageAgentPresets(): Promise<void> {
         return manageAgentPresets({
             runtime: this.runtime,
@@ -1311,6 +1320,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "manageWorkspaces":
                     await this.manageWorkspaces();
+                    break;
+                case "manageSessions":
+                    await this.manageSessions();
                     break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
@@ -2374,11 +2386,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.runtime.start(this.workspaceRoot());
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const archived = new Set(catalog.archivedSessionIds);
+        const pinnedOrder = new Map(catalog.pinnedSessionIds.map((sessionId, index) => [sessionId, index] as const));
         const choice = await vscode.window.showQuickPick(
             catalog.sessions
                 .filter((item) => !archived.has(item.sessionId))
+                .sort((left, right) => {
+                    const leftPin = pinnedOrder.get(left.sessionId);
+                    const rightPin = pinnedOrder.get(right.sessionId);
+                    if (leftPin !== undefined || rightPin !== undefined) {
+                        if (leftPin === undefined) return 1;
+                        if (rightPin === undefined) return -1;
+                        if (leftPin !== rightPin) return leftPin - rightPin;
+                    }
+                    return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
+                })
                 .map((item) => ({
-                    label: `${item.running ? "$(sync~spin)" : "$(comment-discussion)"} ${item.title || item.sessionId}`,
+                    label: `${pinnedOrder.has(item.sessionId) ? "$(pin)" : item.running ? "$(sync~spin)" : "$(comment-discussion)"} ${item.title || item.sessionId}`,
                     description: item.sessionId,
                     detail: item.cwd,
                     sessionId: item.sessionId,
@@ -2490,7 +2513,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!this.sessionId) throw new Error(t("There is no current session."));
         const archiveAction = t("Archive");
         const confirmation = await vscode.window.showWarningMessage(
-            t("Archive the current session and hide it from the DSH IDE session list? Archived sessions can be managed in the official dsh Web UI."),
+            t("Archive the current session and hide it from the DSH IDE session list? Restore it from Manage Sessions or review it in the official dsh Web UI."),
             { modal: true },
             archiveAction,
         );

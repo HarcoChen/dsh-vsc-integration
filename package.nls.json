@@ -10,6 +10,7 @@
     "command.openTrace.title": "Open Session Trace",
     "command.newSession.title": "New Session",
     "command.switchSession.title": "Switch Session",
+    "command.manageSessions.title": "Manage Sessions",
     "command.searchSession.title": "Search Sessions",
     "command.selectModel.title": "Select Model",
     "command.renameSession.title": "Rename Session",

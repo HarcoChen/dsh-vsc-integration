@@ -39,6 +39,7 @@ export type ChatViewAction =
       }
     | { type: "manageAgentPresets" }
     | { type: "manageWorkspaces" }
+    | { type: "manageSessions" }
     | { type: "openIdeContextPicker" }
     | { type: "openTerminalCommandPicker" }
     | { type: "openPromptTemplatePicker" }
@@ -312,6 +313,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "manageSettings":
         case "openSettingsDocument":
         case "manageWorkspaces":
+        case "manageSessions":
         case "openIdeContextPicker":
         case "openTerminalCommandPicker":
         case "captureAppShot":

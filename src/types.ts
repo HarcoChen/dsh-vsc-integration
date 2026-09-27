@@ -1111,6 +1111,8 @@ export interface DshWorkspaceView {
 export interface DshWorkspaceListResult {
     items: DshWorkspaceView[];
     archivedSessionIds: string[];
+    /** RC.2+: registry-global pins, newest first. */
+    pinnedSessionIds?: string[];
 }
 
 export interface DshWorkspaceCreateResult {
@@ -1154,6 +1156,11 @@ export interface DshHostArchivedSessionsChangedFrame {
     archivedSessionIds: string[];
 }
 
+export interface DshHostPinnedSessionsChangedFrame {
+    type: "host/pinned-sessions-changed";
+    pinnedSessionIds: string[];
+}
+
 export interface DshHostRemoteEventFrame {
     type: "host/remote-event";
     event: string;
@@ -1174,6 +1181,7 @@ export type DshHostFrame =
     | DshHostWorkspaceRemovedFrame
     | DshHostWorkspaceOrderChangedFrame
     | DshHostArchivedSessionsChangedFrame
+    | DshHostPinnedSessionsChangedFrame
     | DshHostRemoteEventFrame
     | DshStreamErrorFrame
     | DshUnknownHostFrame;
