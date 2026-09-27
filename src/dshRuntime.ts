@@ -12,6 +12,7 @@ import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts
 import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
+import { workspaceView } from "./remote/workspaceState";
 import type {
     DshTeamView,
     DshCreateTeamTaskRequest,
@@ -1799,6 +1800,21 @@ export class DshRuntime implements vscode.Disposable {
 
     public createWorkspace(path: string): Promise<DshWorkspaceCreateResult> {
         return this.apiClient.call("workspace/create", { request: { path } });
+    }
+
+    /** Initialize or reuse the RC.2 Host-owned default Workspace on first use. */
+    public async initializeDefaultWorkspace(signal?: AbortSignal): Promise<DshWorkspaceView | undefined> {
+        const result = await this.apiClient.call<unknown>("workspace/initializeDefault", {}, signal);
+        if (result === undefined || result === null) return undefined;
+        if (!isRemoteRecord(result)) {
+            throw new RemoteProtocolError("Remote workspace/initializeDefault returned an invalid value");
+        }
+        const workspace = workspaceView(result.workspace);
+        if (!workspace) {
+            throw new RemoteProtocolError("Remote workspace/initializeDefault returned an invalid Workspace");
+        }
+        this.harnessState.catalog.upsertWorkspace(workspace);
+        return workspace;
     }
 
     public async renameWorkspace(workspaceId: string, title: string): Promise<DshWorkspaceView> {

@@ -1765,8 +1765,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) {
-            this.reportError(new Error(t("Open a workspace before sending a task to dsh.")));
+        const sessionRoot = workspaceRoot ?? this.pendingNewSessionWorkspacePath ?? this.sessionCwd;
+        if (!sessionRoot) {
+            this.reportError(new Error(t("Open a VS Code folder or choose a DSH Workspace before sending a task.")));
             return;
         }
 
@@ -1783,7 +1784,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 throw new Error(t("dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”."));
             }
 
-            const session = await this.getOrCreateSession(workspaceRoot);
+            const session = await this.getOrCreateSession(sessionRoot);
             if (!hasAttachments && /^\/feedback$/u.test(text)) {
                 this.sessionFeedback.open(session);
                 return;
@@ -1969,10 +1970,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
         }
 
-        // The selected DSH Session may belong to a different DSH Workspace than
-        // the folder currently open in VS Code. Once a Session is explicitly
-        // selected, keep using it; the VS Code folder only determines which
-        // Session is restored or created when there is no current selection.
+        // The selected DSH Session or the Workspace explicitly staged by the
+        // new-session picker takes precedence. A VS Code folder supplies a
+        // Workspace only when the user has not selected one.
         if (!this.sessionId) {
             const workspace = this.pendingNewSessionWorkspaceId
                 ? {
@@ -2013,7 +2013,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private restorePersistedSession(workspaceRoot: string | undefined): Promise<void> {
-        if (!workspaceRoot || this.newSessionDraft) {
+        if (this.newSessionDraft) {
             return Promise.resolve();
         }
         if (this.restoringPersistedSession) {
@@ -2032,31 +2032,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return restore;
     }
 
-    private async restorePersistedSessionInternal(workspaceRoot: string): Promise<void> {
+    private async restorePersistedSessionInternal(workspaceRoot: string | undefined): Promise<void> {
         const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
         const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const archived = new Set(catalog.archivedSessionIds);
-        const persistedMatches = persisted?.cwd !== undefined && samePath(persisted.cwd, workspaceRoot);
+        const matchesCurrentWorkspace = (cwd: string | undefined): boolean =>
+            workspaceRoot === undefined || (cwd !== undefined && samePath(cwd, workspaceRoot));
+        const persistedMatches = persisted?.cwd !== undefined && matchesCurrentWorkspace(persisted.cwd);
         if (persistedMatches && persisted && archived.has(persisted.sessionId)) {
             await this.extensionContext.workspaceState.update("session", undefined);
         }
         const candidates = [
             ...(persisted?.cwd &&
-                samePath(persisted.cwd, workspaceRoot) &&
+                matchesCurrentWorkspace(persisted.cwd) &&
                 !archived.has(persisted.sessionId)
                 ? [persisted.sessionId]
                 : []),
-            ...this.runtime
-                .getSessionCatalog()
-                .sessionsForWorkspace(workspaceRoot)
-                .map((session) => session.sessionId),
+            ...(workspaceRoot === undefined
+                ? []
+                : this.runtime
+                    .getSessionCatalog()
+                    .sessionsForWorkspace(workspaceRoot)
+                    .map((session) => session.sessionId)),
         ].filter((sessionId, index, all) => all.indexOf(sessionId) === index);
         const sessionId = candidates[0];
         if (!sessionId) {
-            this.output.appendLine(
-                `[dsh] no persisted or registered session matches workspace ${workspaceRoot}`,
-            );
+            if (workspaceRoot || persisted) {
+                this.output.appendLine(
+                    `[dsh] no persisted or registered session matches workspace ${workspaceRoot ?? "<none>"}`,
+                );
+            }
             return;
         }
 
@@ -2071,17 +2077,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const latestCatalog = this.runtime.getSessionCatalog().snapshot();
             if (latestCatalog.archivedSessionIds.includes(sessionId)) {
                 const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
-                if (latest?.sessionId === sessionId && latest.cwd && samePath(latest.cwd, workspaceRoot)) {
+                if (latest?.sessionId === sessionId && matchesCurrentWorkspace(latest.cwd)) {
                     await this.extensionContext.workspaceState.update("session", undefined);
                 }
                 return;
             }
             this.sessionId = sessionId;
-            this.sessionCwd = workspaceRoot;
+            this.sessionCwd = latestCatalog.sessions.find((session) => session.sessionId === sessionId)?.cwd ??
+                latestCatalog.workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.path ??
+                persisted?.cwd ?? workspaceRoot;
             if (persist) {
                 await this.extensionContext.workspaceState.update("session", {
                     sessionId,
-                    cwd: workspaceRoot,
+                    cwd: this.sessionCwd ?? "",
                 } satisfies PersistedSession);
             }
             this.postState();
@@ -2092,7 +2100,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             void this.messageFeedback.refresh(sessionId, true);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
-            if (latest?.sessionId === sessionId && latest?.cwd && samePath(latest.cwd, workspaceRoot)) {
+            if (latest?.sessionId === sessionId && matchesCurrentWorkspace(latest.cwd)) {
                 await this.extensionContext.workspaceState.update("session", undefined);
             }
             this.output.appendLine(
@@ -2103,14 +2111,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async newSession(agentPreset?: string, useCurrentWorkspace = false): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
+        if (!workspaceRoot && useCurrentWorkspace) throw new Error(t("Open a VS Code folder first."));
         await this.runtime.start(workspaceRoot);
+        if (!this.sessionId && !this.newSessionDraft) await this.restorePersistedSession(workspaceRoot);
         const catalog = this.runtime.getSessionCatalog().snapshot();
-        const selectedWorkspace = useCurrentWorkspace
+        let selectedWorkspace = useCurrentWorkspace && workspaceRoot
             ? (await this.runtime.createWorkspace(workspaceRoot)).workspace
             : this.sessionId
                 ? catalog.workspaces.find((workspace) => workspace.sessionIds.includes(this.sessionId as string))
                 : undefined;
+        if (!workspaceRoot && !selectedWorkspace) {
+            if (catalog.workspaces.length === 0 && catalog.sessions.length === 0 &&
+                catalog.archivedSessionIds.length === 0) {
+                selectedWorkspace = await this.runtime.initializeDefaultWorkspace();
+                if (!selectedWorkspace) {
+                    throw new Error(t("The Runtime could not initialize a default DSH Workspace. Open a VS Code folder or choose an existing DSH Workspace."));
+                }
+            } else if (catalog.workspaces.length === 1) {
+                selectedWorkspace = catalog.workspaces[0];
+            } else if (catalog.workspaces.length > 1) {
+                const picked = await vscode.window.showQuickPick(
+                    catalog.workspaces.map((workspace) => ({
+                        label: `$(folder) ${workspace.title}`,
+                        description: workspace.path,
+                        workspace,
+                    })),
+                    {
+                        title: t("Choose a DSH Workspace"),
+                        placeHolder: t("Choose the DSH Workspace for the new Session"),
+                        matchOnDescription: true,
+                    },
+                );
+                if (!picked) return;
+                selectedWorkspace = picked.workspace;
+            } else {
+                throw new Error(t("Open a VS Code folder or choose an existing DSH Workspace."));
+            }
+        }
         this.pendingNewSessionSkills = this.sessionId && selectedWorkspace?.sessionIds.includes(this.sessionId)
             ? this.skillCatalogs.get(this.sessionId)
             : undefined;
@@ -2164,13 +2201,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async selectModel(): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
+        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) await this.newSession();
+        const sessionRoot = workspaceRoot ?? this.pendingNewSessionWorkspacePath ?? this.sessionCwd;
+        if (!sessionRoot) return;
 
         // Model selection is also a valid first action. The Harness model
         // catalog is session-scoped, so materialize the pending/new session
         // before requesting it instead of rejecting the command outright.
-        const sessionId = this.sessionId ?? await this.getOrCreateSession(workspaceRoot);
+        const sessionId = this.sessionId ?? await this.getOrCreateSession(sessionRoot);
         const catalog = await this.runtime.models(sessionId);
         this.modelCatalogs.set(sessionId, catalog);
         const currentEfforts = reasoningEffortOptions(
@@ -2266,9 +2305,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private async openReasoningEffort(): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
-        const sessionId = this.sessionId ?? await this.getOrCreateSession(workspaceRoot);
+        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) await this.newSession();
+        const sessionRoot = workspaceRoot ?? this.pendingNewSessionWorkspacePath ?? this.sessionCwd;
+        if (!sessionRoot) return;
+        const sessionId = this.sessionId ?? await this.getOrCreateSession(sessionRoot);
         const catalog = this.modelCatalogs.get(sessionId) ?? await this.runtime.models(sessionId);
         this.modelCatalogs.set(sessionId, catalog);
         const options = reasoningEffortOptions(catalog, catalog.current.provider, catalog.current.model);
@@ -2285,12 +2326,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async selectAgentPreset(requestedPreset?: string): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
         // The initial empty view has no Session id yet. Give persisted state a
         // chance to restore before treating the mode choice as a new-session
         // draft, otherwise a quick first `/mode` could strand the saved Session.
-        await this.restorePersistedSession(workspaceRoot);
+        if (workspaceRoot) await this.restorePersistedSession(workspaceRoot);
         const catalog = await this.runtime.agentPresets();
         this.agentPresetCatalog = catalog.presets;
         this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);
@@ -2561,7 +2601,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.scheduleHistoryView = undefined;
         }
         this.sessionId = sessionId;
-        this.sessionCwd = session?.cwd ?? this.workspaceRoot();
+        this.sessionCwd = session?.cwd ??
+            catalog.workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.path ??
+            this.workspaceRoot();
         this.newSessionDraft = false;
         this.clearNewSessionDraft();
         if (vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true)) {

@@ -47,9 +47,10 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - Activity Dock 通过 `schedule/list` 读取当前会话的持久活动提醒，展示 RC.2 的 `daily/weekly/cron` 规则和标题；旧 Runtime 缺少该 endpoint 时回退到 Session Schedule 投影。RC.2 的 `schedule/history` 支持游标分页，`update` 用完整观察记录做 CAS，`delete` 会同时删除该任务的投递历史。
 - Activity Dock 通过无参数 `schedule/catalog` 展示所有会话的活动与已结束提醒、原会话 ID 和最近投递；该视图只读，编辑/移除仍使用当前会话绑定的管理面板。
 - 会话管理菜单接入 `workspace/pinSession|unpinSession|unarchiveSession` 与 `workspace/follow` pin 集；固定项在会话切换器及会话列表中前置。Archive/Pin RPC 响应只在对应流状态未更新时应用，避免旧完整快照覆盖较新的事件。
+- 无 VS Code 文件夹时，显式新建 Session 会复用/选择现有 DSH Workspace；只有本地 Workspace、可见 Session 和 archived id 清单均为空时，才调用无参数 `workspace/initializeDefault` 使用 Host 固定 Documents 目录。之后可直接以该 Workspace 创建和使用 Session。
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
-- 当前 dsh-ide 没有 Account RPC 或 `workspace/initializeDefault` 调用方；Schedule Activity Dock
+- 当前 dsh-ide 没有 Account RPC 调用方；Schedule Activity Dock
   已接入当前会话 `list/history/update/delete` 与 `schedule/changed`。update UI 可修改名称、内容和
   timing rule（指定时间、固定间隔、每日、每周、Cron）；跨会话 `catalog` 以只读列表接入。提醒由上游
   `schedule_create` agent tool 创建，不是 Remote create endpoint。所有写请求按 RC.2 的 session
