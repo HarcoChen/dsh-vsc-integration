@@ -97,6 +97,7 @@ import {
     DshScheduleItem,
     DshScheduleHistoryState,
     DshScheduleRecord,
+    DshScheduleTimingChange,
     DshSettingFieldType,
     DshSettingFieldView,
     DshSettingsCardView,
@@ -1498,7 +1499,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (this.sessionId) await this.subagents.refreshSubagentTree(this.sessionId);
                     break;
                 case "editScheduleContent":
-                    await this.updateScheduleContent(message.scheduleId, message.title, message.prompt);
+                    await this.updateScheduleContent(message.scheduleId, message.title, message.prompt, message.change);
                     break;
                 case "deleteSchedule":
                     await this.deleteSchedule(message.scheduleId);
@@ -2983,7 +2984,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
-    private async updateScheduleContent(scheduleId: string, title: string, prompt: string): Promise<void> {
+    private async updateScheduleContent(
+        scheduleId: string,
+        title: string,
+        prompt: string,
+        change?: DshScheduleTimingChange,
+    ): Promise<void> {
         const sessionId = this.sessionId;
         if (!sessionId) throw new Error(t("There is no current session."));
         if (this.scheduleMutationPendingId) return;
@@ -2995,7 +3001,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             throw new Error(t("Reminder titles must contain 1 to 120 characters."));
         }
         if (!normalizedPrompt) throw new Error(t("Reminder instructions cannot be empty."));
-        if (normalizedTitle === item.title && normalizedPrompt === item.prompt) return;
+        if (normalizedTitle === item.title && normalizedPrompt === item.prompt && change === undefined) return;
 
         this.scheduleMutationPendingId = scheduleId;
         this.postState();
@@ -3006,6 +3012,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 expected: item as DshScheduleRecord,
                 title: normalizedTitle,
                 prompt: normalizedPrompt,
+                ...(change === undefined ? {} : { change }),
             });
             if (!isRecord(result)) {
                 throw new RemoteProtocolError("Remote schedule/update returned an invalid value");

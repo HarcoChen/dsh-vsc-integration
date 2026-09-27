@@ -1356,12 +1356,20 @@ export type DshScheduleItem =
 
 export type DshScheduleRecord = DshScheduleItem & { title: string };
 
+export type DshScheduleTimingChange =
+    | { kind: "at"; at: string }
+    | { kind: "every"; every_seconds: number }
+    | { kind: "daily"; daily: { time: string; time_zone: string } }
+    | { kind: "weekly"; weekly: { time: string; time_zone: string; weekdays: number[] } }
+    | { kind: "cron"; cron: { expression: string; time_zone: string } };
+
 export interface DshScheduleUpdateRequest {
     sessionId: string;
     id: string;
     expected: DshScheduleRecord;
     title?: string;
     prompt?: string;
+    change?: DshScheduleTimingChange;
 }
 
 export interface DshScheduleDeliveryView {

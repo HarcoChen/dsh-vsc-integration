@@ -376,6 +376,7 @@
 }
 
 .dsh-schedule-form input,
+.dsh-schedule-form select,
 .dsh-schedule-form textarea {
     width: 100%;
     padding: var(--dsh-space-2);
@@ -388,6 +389,26 @@
 
 .dsh-schedule-form textarea {
     resize: vertical;
+}
+
+.dsh-schedule-weekdays {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    width: 100%;
+}
+
+.dsh-schedule-form .dsh-schedule-weekday {
+    display: inline-flex;
+    width: auto;
+    align-items: center;
+    gap: var(--dsh-space-1);
+}
+
+.dsh-schedule-form .dsh-schedule-weekday input {
+    width: auto;
+    margin: 0;
+    padding: 0;
 }
 
 .dsh-schedule-confirm {

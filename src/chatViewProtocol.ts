@@ -6,6 +6,7 @@ import {
     DshMessageFeedbackRating,
     DshQuestionAnswerItem,
     DshQuestionItem,
+    DshScheduleTimingChange,
 } from "./types";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
@@ -99,7 +100,7 @@ export type ChatViewAction =
       ))
     | { type: "goalPause" | "goalResume" | "goalComplete" | "goalClear" }
     | { type: "refreshSubagents" }
-    | { type: "editScheduleContent"; scheduleId: string; title: string; prompt: string }
+    | { type: "editScheduleContent"; scheduleId: string; title: string; prompt: string; change?: DshScheduleTimingChange }
     | { type: "deleteSchedule"; scheduleId: string }
     | { type: "loadScheduleHistory"; scheduleId: string; before?: string }
     | { type: "openSubagent"; childSessionId: string }
@@ -225,6 +226,69 @@ function questionAnswers(value: unknown): DshQuestionAnswerItem[] | undefined {
     return answers;
 }
 
+function scheduleTimingChange(value: unknown): DshScheduleTimingChange | undefined {
+    if (!isRecord(value) || typeof value.kind !== "string") return undefined;
+    if (value.kind === "at") {
+        if (!hasOnly(value, ["kind", "at"]) || typeof value.at !== "string") return undefined;
+        const instant = Date.parse(value.at);
+        return Number.isFinite(instant) && new Date(instant).toISOString() === value.at
+            ? { kind: "at", at: value.at }
+            : undefined;
+    }
+    if (value.kind === "every") {
+        return hasOnly(value, ["kind", "every_seconds"]) &&
+            positiveInteger(value.every_seconds) && value.every_seconds >= 60
+            ? { kind: "every", every_seconds: value.every_seconds }
+            : undefined;
+    }
+    if (value.kind === "daily" || value.kind === "weekly") {
+        const nestedKey = value.kind;
+        const timing = value[nestedKey];
+        if (!hasOnly(value, ["kind", nestedKey]) || !isRecord(timing)) return undefined;
+        const isWeekly = value.kind === "weekly";
+        const nestedKeys = isWeekly ? ["time", "time_zone", "weekdays"] : ["time", "time_zone"];
+        if (
+            !hasOnly(timing, nestedKeys) ||
+            typeof timing.time !== "string" ||
+            !/^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?$/u.test(timing.time) ||
+            !nonEmptyString(timing.time_zone) || timing.time_zone.length > 128 || timing.time_zone.trim() !== timing.time_zone
+        ) return undefined;
+        if (!isWeekly) {
+            return {
+                kind: "daily",
+                daily: { time: timing.time, time_zone: timing.time_zone },
+            };
+        }
+        if (
+            !Array.isArray(timing.weekdays) || timing.weekdays.length === 0 || timing.weekdays.length > 7 ||
+            !timing.weekdays.every((day) => Number.isInteger(day) && typeof day === "number" && day >= 1 && day <= 7) ||
+            new Set(timing.weekdays).size !== timing.weekdays.length
+        ) return undefined;
+        return {
+            kind: "weekly",
+            weekly: {
+                time: timing.time,
+                time_zone: timing.time_zone,
+                weekdays: [...timing.weekdays] as number[],
+            },
+        };
+    }
+    if (value.kind === "cron") {
+        const timing = value.cron;
+        if (
+            !hasOnly(value, ["kind", "cron"]) || !isRecord(timing) ||
+            !hasOnly(timing, ["expression", "time_zone"]) ||
+            !nonEmptyString(timing.expression) || timing.expression.length > 256 ||
+            !nonEmptyString(timing.time_zone) || timing.time_zone.length > 128 || timing.time_zone.trim() !== timing.time_zone
+        ) return undefined;
+        return {
+            kind: "cron",
+            cron: { expression: timing.expression, time_zone: timing.time_zone },
+        };
+    }
+    return undefined;
+}
+
 /**
  * Strict trust boundary for messages originating in the webview.
  *
@@ -287,15 +351,20 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                     ? { type: "deleteSchedule", scheduleId: value.scheduleId }
                     : undefined;
             }
-            return hasOnly(value, ["type", "scheduleId", "title", "prompt"]) &&
-                nonEmptyString(value.scheduleId) && value.scheduleId.length <= 512
-                && nonEmptyString(value.title) && value.title.length <= 120
-                && nonEmptyString(value.prompt) && value.prompt.length <= 32_768
+            if (
+                !hasOnly(value, ["type", "scheduleId", "title", "prompt", "change"]) ||
+                !nonEmptyString(value.scheduleId) || value.scheduleId.length > 512 ||
+                !nonEmptyString(value.title) || value.title.length > 120 ||
+                !nonEmptyString(value.prompt) || value.prompt.length > 32_768
+            ) return undefined;
+            const change = value.change === undefined ? undefined : scheduleTimingChange(value.change);
+            return (value.change === undefined || change !== undefined)
                 ? {
                       type: "editScheduleContent",
                       scheduleId: value.scheduleId,
                       title: value.title,
                       prompt: value.prompt,
+                      ...(change === undefined ? {} : { change }),
                   }
                 : undefined;
         case "loadScheduleHistory":

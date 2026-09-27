@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { ChatViewState, DshScheduleItem } from "../../../../src/types";
+import type { ChatViewState, DshScheduleItem, DshScheduleTimingChange } from "../../../../src/types";
 import { postAction } from "../../bridge";
 import { t } from "../../i18n";
 
@@ -29,6 +29,21 @@ function formatScheduledAt(value: string): string {
         }).format(date);
     } catch {
         return value;
+    }
+}
+
+function formatDateTimeLocal(value: string): string {
+    const date = new Date(value);
+    if (!Number.isFinite(date.valueOf())) return "";
+    const pad = (part: number): string => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function localTimeZone(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+        return "UTC";
     }
 }
 
@@ -74,6 +89,20 @@ function ruleLabel(item: DshScheduleItem): string {
     return t("One-time");
 }
 
+type DraftTimingKind = "keep" | "at" | "every" | "daily" | "weekly" | "cron";
+
+function validScheduleTime(value: string): boolean {
+    return /^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?$/u.test(value);
+}
+
+function withSeconds(value: string): string {
+    return value.length === 5 ? `${value}:00` : value;
+}
+
+function validTimeZone(value: string): boolean {
+    return value.length > 0 && value.length <= 128 && value.trim() === value;
+}
+
 export function SchedulePanel({
     schedule,
     managementAvailable,
@@ -90,6 +119,60 @@ export function SchedulePanel({
     const [expandedHistoryId, setExpandedHistoryId] = useState<string>();
     const [draftTitle, setDraftTitle] = useState("");
     const [draftPrompt, setDraftPrompt] = useState("");
+    const [draftTimingKind, setDraftTimingKind] = useState<DraftTimingKind>("keep");
+    const [draftAt, setDraftAt] = useState("");
+    const [draftEverySeconds, setDraftEverySeconds] = useState("3600");
+    const [draftTime, setDraftTime] = useState("09:00:00.000");
+    const [draftTimeZone, setDraftTimeZone] = useState(localTimeZone);
+    const [draftWeekdays, setDraftWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
+    const [draftCronExpression, setDraftCronExpression] = useState("0 9 * * *");
+
+    const everySeconds = Number(draftEverySeconds);
+    const scheduleChange: DshScheduleTimingChange | undefined = (() => {
+        switch (draftTimingKind) {
+            case "at": {
+                const date = draftAt ? new Date(draftAt) : undefined;
+                return date && Number.isFinite(date.valueOf())
+                    ? { kind: "at", at: date.toISOString() }
+                    : undefined;
+            }
+            case "every":
+                return Number.isSafeInteger(everySeconds) && everySeconds >= 60
+                    ? { kind: "every", every_seconds: everySeconds }
+                    : undefined;
+            case "daily":
+                return validScheduleTime(withSeconds(draftTime)) && validTimeZone(draftTimeZone)
+                    ? { kind: "daily", daily: { time: withSeconds(draftTime), time_zone: draftTimeZone } }
+                    : undefined;
+            case "weekly": {
+                const weekdays = [...draftWeekdays].sort((left, right) => left - right);
+                return validScheduleTime(withSeconds(draftTime)) && validTimeZone(draftTimeZone) && weekdays.length > 0
+                    ? { kind: "weekly", weekly: { time: withSeconds(draftTime), time_zone: draftTimeZone, weekdays } }
+                    : undefined;
+            }
+            case "cron":
+                return draftCronExpression.trim().length > 0 && draftCronExpression.length <= 256 && validTimeZone(draftTimeZone)
+                    ? { kind: "cron", cron: { expression: draftCronExpression.trim(), time_zone: draftTimeZone } }
+                    : undefined;
+            default:
+                return undefined;
+        }
+    })();
+    const timingValid = draftTimingKind === "keep" || scheduleChange !== undefined;
+
+    const beginEditing = (item: DshScheduleItem): void => {
+        setEditingId(item.id);
+        setDraftTitle(item.title ?? "");
+        setDraftPrompt(item.prompt);
+        setDraftTimingKind("keep");
+        setDraftAt(formatDateTimeLocal(item.scheduledAt));
+        setDraftEverySeconds(item.kind === "every" ? String(item.everySeconds) : "3600");
+        setDraftTime(item.kind === "daily" || item.kind === "weekly" ? item.time : "09:00:00.000");
+        setDraftTimeZone(item.kind === "daily" || item.kind === "weekly" || item.kind === "cron" ? item.timeZone : localTimeZone());
+        setDraftWeekdays(item.kind === "weekly" ? [...item.weekdays] : [1, 2, 3, 4, 5]);
+        setDraftCronExpression(item.kind === "cron" ? item.expression : "0 9 * * *");
+        setConfirmingDeleteId(undefined);
+    };
 
     return (
         <div className="dsh-schedule" aria-label={t("Active reminders")}>
@@ -132,16 +215,118 @@ export function SchedulePanel({
                                                 onChange={(event) => setDraftPrompt(event.target.value)}
                                             />
                                         </label>
+                                        <label>
+                                            {t("Timing rule")}
+                                            <select
+                                                aria-label={t("Timing rule")}
+                                                value={draftTimingKind}
+                                                onChange={(event) => setDraftTimingKind(event.target.value as DraftTimingKind)}
+                                            >
+                                                <option value="keep">{t("Keep current timing")}</option>
+                                                <option value="at">{t("At a specific time")}</option>
+                                                <option value="every">{t("At an interval")}</option>
+                                                <option value="daily">{t("Daily")}</option>
+                                                <option value="weekly">{t("Weekly")}</option>
+                                                <option value="cron">{t("Cron expression")}</option>
+                                            </select>
+                                        </label>
+                                        {draftTimingKind === "at" ? (
+                                            <label>
+                                                {t("Run at")}
+                                                <input
+                                                    aria-label={t("Run at")}
+                                                    type="datetime-local"
+                                                    step={60}
+                                                    value={draftAt}
+                                                    onChange={(event) => setDraftAt(event.target.value)}
+                                                />
+                                            </label>
+                                        ) : null}
+                                        {draftTimingKind === "every" ? (
+                                            <label>
+                                                {t("Interval in seconds")}
+                                                <input
+                                                    aria-label={t("Interval in seconds")}
+                                                    type="number"
+                                                    min={60}
+                                                    step={1}
+                                                    value={draftEverySeconds}
+                                                    onChange={(event) => setDraftEverySeconds(event.target.value)}
+                                                />
+                                            </label>
+                                        ) : null}
+                                        {draftTimingKind === "daily" || draftTimingKind === "weekly" ? (
+                                            <>
+                                                <label>
+                                                    {t("Time of day")}
+                                                    <input
+                                                        aria-label={t("Time of day")}
+                                                        type="time"
+                                                        step={0.001}
+                                                        value={draftTime}
+                                                        onChange={(event) => setDraftTime(event.target.value)}
+                                                    />
+                                                </label>
+                                                <label>
+                                                    {t("Time zone")}
+                                                    <input
+                                                        aria-label={t("Time zone")}
+                                                        maxLength={128}
+                                                        value={draftTimeZone}
+                                                        onChange={(event) => setDraftTimeZone(event.target.value)}
+                                                    />
+                                                </label>
+                                            </>
+                                        ) : null}
+                                        {draftTimingKind === "weekly" ? (
+                                            <div className="dsh-schedule-weekdays" role="group" aria-label={t("Weekdays")}>
+                                                {[1, 2, 3, 4, 5, 6, 7].map((day) => (
+                                                    <label className="dsh-schedule-weekday" key={day}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={draftWeekdays.includes(day)}
+                                                            onChange={(event) => setDraftWeekdays((current) => event.target.checked
+                                                                ? [...current, day]
+                                                                : current.filter((selected) => selected !== day))}
+                                                        />
+                                                        <span>{formatWeekday(day)}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        ) : null}
+                                        {draftTimingKind === "cron" ? (
+                                            <>
+                                                <label>
+                                                    {t("Cron expression")}
+                                                    <input
+                                                        aria-label={t("Cron expression")}
+                                                        maxLength={256}
+                                                        value={draftCronExpression}
+                                                        onChange={(event) => setDraftCronExpression(event.target.value)}
+                                                    />
+                                                </label>
+                                                <label>
+                                                    {t("Time zone")}
+                                                    <input
+                                                        aria-label={t("Time zone")}
+                                                        maxLength={128}
+                                                        value={draftTimeZone}
+                                                        onChange={(event) => setDraftTimeZone(event.target.value)}
+                                                    />
+                                                </label>
+                                            </>
+                                        ) : null}
                                         <button
                                             type="button"
                                             className="dsh-button"
-                                            disabled={mutationPendingId !== undefined || !draftTitle.trim() || !draftPrompt.trim()}
+                                            disabled={mutationPendingId !== undefined || !draftTitle.trim() || !draftPrompt.trim() || !timingValid}
                                             onClick={() => {
                                                 postAction({
                                                     type: "editScheduleContent",
                                                     scheduleId: item.id,
                                                     title: draftTitle,
                                                     prompt: draftPrompt,
+                                                    ...(scheduleChange === undefined ? {} : { change: scheduleChange }),
                                                 });
                                                 setEditingId(undefined);
                                             }}
@@ -160,10 +345,7 @@ export function SchedulePanel({
                                                 className="dsh-button dsh-button-secondary"
                                                 disabled={mutationPendingId !== undefined}
                                                 onClick={() => {
-                                                    setEditingId(item.id);
-                                                    setDraftTitle(item.title ?? "");
-                                                    setDraftPrompt(item.prompt);
-                                                    setConfirmingDeleteId(undefined);
+                                                    beginEditing(item);
                                                 }}
                                             >
                                                 {t("Edit")}

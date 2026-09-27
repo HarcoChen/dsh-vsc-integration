@@ -17,7 +17,7 @@ multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 �
 - [ ] **Agent Preset 选择策略**：RC.2 移除 `modeSelectionEnabled`；评估 IDE 的独立 preset chooser 应否与上游统一的工作模式设置关联。
 - [ ] **Account RPC**：尚无调用方；若接入账号资料、余额、登录或登出，按 RC.2 使用 `AccountClientMetadata`，并评估 bonus、过期事件与停止账号任务流程。
 - [ ] **默认 Workspace 首用初始化**：当前无 `workspace/initializeDefault` 调用；后续接入时使用 RC.2 的 Host 固定目录/标题策略与仅 signal 签名。
-- [ ] **Schedule 管理 RPC**：Activity Dock 已接入 `schedule/list|history|update|delete`：可分页查看投递记录、编辑提醒名称/内容和确认移除提醒；RC.2 的 timing-rule 编辑、跨会话 `catalog` 视图仍待实现。旧 Runtime 继续回退到只读 Session 投影；提醒创建目前通过上游 `schedule_create` 工具完成。
+- [ ] **Schedule 管理 RPC**：Activity Dock 已接入 `schedule/list|history|update|delete`：可分页查看投递记录、编辑提醒名称/内容/定时规则（指定时间、固定间隔、每日、每周、Cron），并确认移除提醒；跨会话 `catalog` 视图仍待实现。旧 Runtime 继续回退到只读 Session 投影；提醒创建目前通过上游 `schedule_create` 工具完成。
 
 本地未运行真实 RC.2 Runtime 联调；历史 smoke runner 仍使用 `0.1.5-rc.2` V3 fixture，不能证明
 RC.2 业务 RPC 或 RC.1 以来的 carrier 行为。

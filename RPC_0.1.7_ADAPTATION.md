@@ -47,9 +47,10 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
 - 当前 dsh-ide 没有 Account RPC 或 `workspace/initializeDefault` 调用方；Schedule Activity Dock
-  已接入当前会话 `list/history/update/delete` 与 `schedule/changed`。update UI 只改名称和内容，
-  尚未提供 timing-rule 编辑或跨会话 `catalog` 管理；提醒由上游 `schedule_create` agent tool 创建，
-  不是 Remote create endpoint。所有写请求按 RC.2 的 session 绑定和完整 `expected` 记录发送。
+  已接入当前会话 `list/history/update/delete` 与 `schedule/changed`。update UI 可修改名称、内容和
+  timing rule（指定时间、固定间隔、每日、每周、Cron）；跨会话 `catalog` 管理仍未接入。提醒由上游
+  `schedule_create` agent tool 创建，不是 Remote create endpoint。所有写请求按 RC.2 的 session
+  绑定和完整 `expected` 记录发送。
 
 ## 验证边界与待办
 
