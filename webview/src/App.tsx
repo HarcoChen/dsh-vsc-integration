@@ -45,6 +45,9 @@ export function App(): React.JSX.Element {
                     jobs={state.jobs}
                     todos={state.todos}
                     schedule={state.schedule}
+                    scheduleManagementAvailable={state.scheduleManagementAvailable}
+                    scheduleMutationPendingId={state.scheduleMutationPendingId}
+                    scheduleHistory={state.scheduleHistory}
                     permissions={state.permissions}
                     dynamicPlugins={state.dynamicPlugins}
                     commands={state.commands}

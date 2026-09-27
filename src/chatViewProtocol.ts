@@ -99,6 +99,9 @@ export type ChatViewAction =
       ))
     | { type: "goalPause" | "goalResume" | "goalComplete" | "goalClear" }
     | { type: "refreshSubagents" }
+    | { type: "editScheduleContent"; scheduleId: string; title: string; prompt: string }
+    | { type: "deleteSchedule"; scheduleId: string }
+    | { type: "loadScheduleHistory"; scheduleId: string; before?: string }
     | { type: "openSubagent"; childSessionId: string }
     | { type: "closeSubagent" }
     | { type: "followUpSubagent"; childSessionId: string; text: string }
@@ -276,6 +279,35 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                     hasAny(value, ["sessionId", "parentSessionId", "childSessionId", "mode", "provider"]))
             ) return undefined;
             return { type: value.type } as ChatViewAction;
+        case "editScheduleContent":
+        case "deleteSchedule":
+            if (value.type === "deleteSchedule") {
+                return hasOnly(value, ["type", "scheduleId"]) &&
+                    nonEmptyString(value.scheduleId) && value.scheduleId.length <= 512
+                    ? { type: "deleteSchedule", scheduleId: value.scheduleId }
+                    : undefined;
+            }
+            return hasOnly(value, ["type", "scheduleId", "title", "prompt"]) &&
+                nonEmptyString(value.scheduleId) && value.scheduleId.length <= 512
+                && nonEmptyString(value.title) && value.title.length <= 120
+                && nonEmptyString(value.prompt) && value.prompt.length <= 32_768
+                ? {
+                      type: "editScheduleContent",
+                      scheduleId: value.scheduleId,
+                      title: value.title,
+                      prompt: value.prompt,
+                  }
+                : undefined;
+        case "loadScheduleHistory":
+            return hasOnly(value, ["type", "scheduleId", "before"]) &&
+                nonEmptyString(value.scheduleId) && value.scheduleId.length <= 512 &&
+                (value.before === undefined || (nonEmptyString(value.before) && value.before.length <= 512))
+                ? {
+                      type: "loadScheduleHistory",
+                      scheduleId: value.scheduleId,
+                      ...(value.before === undefined ? {} : { before: value.before }),
+                  }
+                : undefined;
         case "manageAgentPresets":
             return hasOnly(value, ["type", "protocol"])
                 ? { type: "manageAgentPresets" }

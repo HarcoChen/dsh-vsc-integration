@@ -353,6 +353,62 @@
     font-family: var(--vscode-editor-font-family);
 }
 
+.dsh-schedule-actions,
+.dsh-schedule-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--dsh-space-2);
+    margin-top: var(--dsh-space-2);
+}
+
+.dsh-schedule-form {
+    width: 100%;
+    align-items: stretch;
+}
+
+.dsh-schedule-form label {
+    display: grid;
+    width: 100%;
+    gap: var(--dsh-space-1);
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-schedule-form input,
+.dsh-schedule-form textarea {
+    width: 100%;
+    padding: var(--dsh-space-2);
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--dsh-radius-sm);
+    font: inherit;
+}
+
+.dsh-schedule-form textarea {
+    resize: vertical;
+}
+
+.dsh-schedule-confirm {
+    color: var(--vscode-errorForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-schedule-history {
+    display: grid;
+    gap: var(--dsh-space-2);
+    margin-top: var(--dsh-space-2);
+    padding-left: var(--dsh-space-3);
+    border-left: 2px solid var(--dsh-border);
+}
+
+.dsh-schedule-delivery {
+    padding: var(--dsh-space-2) 0;
+    border-top: 1px solid var(--dsh-border);
+    overflow-wrap: anywhere;
+}
+
 /* permissions */
 
 /* Switchable entries are buttons; the current one stays a plain row. */

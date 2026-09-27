@@ -1248,6 +1248,9 @@ export interface ChatViewState {
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
     schedule?: DshScheduleItem[];
+    scheduleManagementAvailable?: boolean;
+    scheduleMutationPendingId?: string;
+    scheduleHistory?: DshScheduleHistoryState;
     imageLimits?: DshImageLimitsView;
     plan?: DshPlanProjection;
     messageFeedback?: DshMessageFeedbackStateView;
@@ -1350,6 +1353,47 @@ export type DshScheduleItem =
           timeZone: string;
           scheduledAt: string;
       };
+
+export type DshScheduleRecord = DshScheduleItem & { title: string };
+
+export interface DshScheduleUpdateRequest {
+    sessionId: string;
+    id: string;
+    expected: DshScheduleRecord;
+    title?: string;
+    prompt?: string;
+}
+
+export interface DshScheduleDeliveryView {
+    scheduledAt: string;
+    deliveredAt: string;
+    messageId: string;
+    prompt?: string;
+}
+
+export interface DshScheduleHistoryPage {
+    id: string;
+    records: DshScheduleDeliveryView[];
+    earlierRecordsUnavailable: boolean;
+    earlierRecordsPruned: boolean;
+    nextBefore?: string;
+}
+
+export type DshScheduleHistoryResult = DshScheduleHistoryPage | {
+    id: string;
+    code: "schedule_not_found" | "delivery_cursor_not_found";
+};
+
+export interface DshScheduleHistoryState {
+    sessionId: string;
+    id: string;
+    records: DshScheduleDeliveryView[];
+    loading: boolean;
+    earlierRecordsUnavailable?: boolean;
+    earlierRecordsPruned?: boolean;
+    nextBefore?: string;
+    error?: string;
+}
 
 export interface ChangeReviewView {
     turn: number;

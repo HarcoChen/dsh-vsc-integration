@@ -5,6 +5,8 @@ import {
     DshImageUpload,
     DshPlanProjection,
     DshSessionModelsResult,
+    DshScheduleDeliveryView,
+    DshScheduleHistoryResult,
     DshSettingFieldType,
     DshSettingFieldView,
     DshSettingsNamespaceView,
@@ -380,6 +382,49 @@ export function scheduleProjection(value: unknown): DshScheduleItem[] | undefine
         }
     }
     return schedules;
+}
+
+/** Narrow one bounded RC.2 Schedule delivery-history page. */
+export function scheduleHistoryProjection(value: unknown, scheduleId: string): DshScheduleHistoryResult | undefined {
+    if (!isRecord(value) || value.id !== scheduleId) return undefined;
+    if (value.code === "schedule_not_found" || value.code === "delivery_cursor_not_found") {
+        return { id: scheduleId, code: value.code };
+    }
+    if (
+        !Array.isArray(value.records) || value.records.length > 100 ||
+        typeof value.earlierRecordsUnavailable !== "boolean" ||
+        typeof value.earlierRecordsPruned !== "boolean" ||
+        !isRecord(value.retention) ||
+        !Number.isSafeInteger(value.retention.days) || (value.retention.days as number) < 1 ||
+        !Number.isSafeInteger(value.retention.records) || (value.retention.records as number) < 1 ||
+        (value.nextBefore !== undefined &&
+            (typeof value.nextBefore !== "string" || value.nextBefore.length === 0 || value.nextBefore.length > 512))
+    ) return undefined;
+    const records: DshScheduleDeliveryView[] = [];
+    for (const candidate of value.records) {
+        if (!isRecord(candidate)) return undefined;
+        const scheduledAt = scheduleInstant(candidate.scheduledAt);
+        const deliveredAt = scheduleInstant(candidate.deliveredAt);
+        const messageId = scheduleText(candidate.messageId);
+        if (
+            scheduledAt === undefined || deliveredAt === undefined || messageId === undefined ||
+            (candidate.prompt !== undefined &&
+                (typeof candidate.prompt !== "string" || candidate.prompt.length > 32_768))
+        ) return undefined;
+        records.push({
+            scheduledAt,
+            deliveredAt,
+            messageId,
+            ...(candidate.prompt === undefined ? {} : { prompt: candidate.prompt }),
+        });
+    }
+    return {
+        id: scheduleId,
+        records,
+        earlierRecordsUnavailable: value.earlierRecordsUnavailable,
+        earlierRecordsPruned: value.earlierRecordsPruned,
+        ...(value.nextBefore === undefined ? {} : { nextBefore: value.nextBefore }),
+    };
 }
 
 export function imageLimitsProjection(value: unknown): DshImageLimitsView | undefined {

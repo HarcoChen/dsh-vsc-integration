@@ -77,6 +77,7 @@ import {
     DshSessionReferenceCandidate,
     DshSkillEntry,
     DshSkillListResult,
+    DshScheduleUpdateRequest,
     DshProviderListResult,
     DshLlmModelsResult,
     DshLlmDiscoverModelsResult,
@@ -2681,6 +2682,43 @@ export class DshRuntime implements vscode.Disposable {
     public async listSchedules(sessionId: string): Promise<unknown | undefined> {
         try {
             return await this.apiClient.call<unknown>("schedule/list", { request: { sessionId } });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Reads a bounded page of saved deliveries for one reminder. */
+    public async scheduleHistory(
+        sessionId: string,
+        id: string,
+        limit: number,
+        before?: string,
+    ): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/history", {
+                request: { sessionId, id, limit, ...(before === undefined ? {} : { before }) },
+            });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Deletes one active reminder scoped to its owning session. */
+    public async deleteSchedule(sessionId: string, id: string): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/delete", { request: { sessionId, id } });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Compare-and-updates reminder content without changing its rule or next occurrence. */
+    public async updateSchedule(request: DshScheduleUpdateRequest): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/update", { request });
         } catch (error) {
             if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;

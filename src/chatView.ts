@@ -60,6 +60,7 @@ import {
     presentSettingsPanel,
     settingsMutationOps,
     reasoningEffortOptions,
+    scheduleHistoryProjection,
     scheduleProjection,
     sessionStatsProjection,
     todoProjection,
@@ -94,6 +95,8 @@ import {
     DshSessionSearchItem,
     DshSessionModelsResult,
     DshScheduleItem,
+    DshScheduleHistoryState,
+    DshScheduleRecord,
     DshSettingFieldType,
     DshSettingFieldView,
     DshSettingsCardView,
@@ -307,6 +310,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogs = new SessionCatalogCache<DshSkillEntry[]>();
     private readonly commandCatalogs = new SessionCatalogCache<DshCommandDescriptor[]>();
     private readonly scheduleCatalogs = new SessionCatalogCache<DshScheduleItem[]>();
+    private scheduleHistoryView: DshScheduleHistoryState | undefined;
+    private scheduleHistoryGeneration = 0;
+    private scheduleMutationPendingId: string | undefined;
     private readonly messageFeedback: MessageFeedbackController;
     private readonly sessionFeedback: SessionFeedbackController;
     /**
@@ -430,8 +436,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.refreshAgentPresetCatalog();
                         break;
                     case "schedule/changed":
+                        ++this.scheduleHistoryGeneration;
+                        this.scheduleHistoryView = undefined;
+                        if (this.sessionId) this.scheduleCatalogs.invalidateSession(this.sessionId);
+                        this.postState();
                         if (this.sessionId) {
-                            this.scheduleCatalogs.invalidateSession(this.sessionId);
                             this.refreshScheduleCatalog(this.sessionId);
                         }
                         break;
@@ -470,6 +479,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.commandCatalogs.clear();
                 this.scheduleRpcUnavailable = false;
                 this.scheduleCatalogs.clear();
+                ++this.scheduleHistoryGeneration;
+                this.scheduleHistoryView = undefined;
                 void this.refreshDynamicPlugins();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
@@ -1486,6 +1497,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "refreshSubagents":
                     if (this.sessionId) await this.subagents.refreshSubagentTree(this.sessionId);
                     break;
+                case "editScheduleContent":
+                    await this.updateScheduleContent(message.scheduleId, message.title, message.prompt);
+                    break;
+                case "deleteSchedule":
+                    await this.deleteSchedule(message.scheduleId);
+                    break;
+                case "loadScheduleHistory":
+                    await this.loadScheduleHistory(message.scheduleId, message.before);
+                    break;
                 case "openSubagent":
                     await this.subagents.openSubagentHistory(message.childSessionId);
                     break;
@@ -2495,7 +2515,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return;
         }
         const session = catalog.sessions.find((item) => item.sessionId === sessionId);
-        if (this.sessionId !== sessionId) this.subagents.discardSubagentPreview();
+        if (this.sessionId !== sessionId) {
+            this.subagents.discardSubagentPreview();
+            ++this.scheduleHistoryGeneration;
+            this.scheduleHistoryView = undefined;
+        }
         this.sessionId = sessionId;
         this.sessionCwd = session?.cwd ?? this.workspaceRoot();
         this.newSessionDraft = false;
@@ -2959,6 +2983,193 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    private async updateScheduleContent(scheduleId: string, title: string, prompt: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        if (this.scheduleMutationPendingId) return;
+        const item = this.scheduleCatalogs.get(sessionId)?.find((schedule) => schedule.id === scheduleId);
+        if (!item || !item.title) throw new Error(t("This reminder is no longer available to edit."));
+        const normalizedTitle = title.trim();
+        const normalizedPrompt = prompt.trim();
+        if (!normalizedTitle || normalizedTitle.length > 120) {
+            throw new Error(t("Reminder titles must contain 1 to 120 characters."));
+        }
+        if (!normalizedPrompt) throw new Error(t("Reminder instructions cannot be empty."));
+        if (normalizedTitle === item.title && normalizedPrompt === item.prompt) return;
+
+        this.scheduleMutationPendingId = scheduleId;
+        this.postState();
+        try {
+            const result = await this.runtime.updateSchedule({
+                sessionId,
+                id: scheduleId,
+                expected: item as DshScheduleRecord,
+                title: normalizedTitle,
+                prompt: normalizedPrompt,
+            });
+            if (!isRecord(result)) {
+                throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
+            }
+            if (typeof result.message === "string" && typeof result.code === "string") {
+                throw new Error(result.message);
+            }
+            if (result.id !== scheduleId) {
+                throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
+            }
+            if (result.updated === true) {
+                this.refreshScheduleAfterMutation(sessionId);
+            } else if (result.updated === false) {
+                this.refreshScheduleAfterMutation(sessionId);
+                if (isRecord(result.record)) return;
+                if (result.code === "schedule_conflict") {
+                    void vscode.window.showInformationMessage(t("This reminder changed elsewhere. The latest version has been refreshed."));
+                    return;
+                }
+                if (result.code === "schedule_not_found" || result.code === "schedule_ended") {
+                    void vscode.window.showInformationMessage(t("This reminder is no longer active."));
+                    return;
+                }
+                throw new RemoteProtocolError("Remote schedule/update returned an unknown non-mutating result");
+            } else if (typeof result.message === "string") {
+                throw new Error(result.message);
+            } else {
+                throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
+            }
+        } finally {
+            this.scheduleMutationPendingId = undefined;
+            this.postState();
+        }
+    }
+
+    private async deleteSchedule(scheduleId: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        if (this.scheduleMutationPendingId) return;
+        if (!this.scheduleCatalogs.get(sessionId)?.some((item) => item.id === scheduleId)) {
+            throw new Error(t("This reminder is no longer active."));
+        }
+        this.scheduleMutationPendingId = scheduleId;
+        this.postState();
+        try {
+            const result = await this.runtime.deleteSchedule(sessionId, scheduleId);
+            if (!isRecord(result) || result.id !== scheduleId || typeof result.deleted !== "boolean") {
+                throw new RemoteProtocolError("Remote schedule/delete returned an invalid value");
+            }
+            this.refreshScheduleAfterMutation(sessionId);
+            if (!result.deleted && result.code !== "schedule_not_found") {
+                throw new RemoteProtocolError("Remote schedule/delete returned an unknown non-mutating result");
+            }
+            if (!result.deleted) {
+                void vscode.window.showInformationMessage(t("This reminder was already removed."));
+            }
+        } finally {
+            this.scheduleMutationPendingId = undefined;
+            this.postState();
+        }
+    }
+
+    private refreshScheduleAfterMutation(sessionId: string): void {
+        ++this.scheduleHistoryGeneration;
+        this.scheduleHistoryView = undefined;
+        this.scheduleCatalogs.invalidateSession(sessionId);
+        this.refreshScheduleCatalog(sessionId);
+    }
+
+    private async loadScheduleHistory(scheduleId: string, before?: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) return;
+        const item = this.scheduleCatalogs.get(sessionId)?.find((schedule) => schedule.id === scheduleId);
+        if (!item) return;
+        const previous = this.scheduleHistoryView;
+        if (previous?.sessionId === sessionId && previous.id === scheduleId && previous.loading) return;
+        if (before !== undefined && (
+            previous?.sessionId !== sessionId || previous.id !== scheduleId || previous.nextBefore !== before
+        )) return;
+
+        const generation = ++this.scheduleHistoryGeneration;
+        const existingRecords = before === undefined ? [] : previous?.records ?? [];
+        this.scheduleHistoryView = {
+            sessionId,
+            id: scheduleId,
+            records: existingRecords,
+            loading: true,
+            ...(previous?.earlierRecordsUnavailable === undefined
+                ? {}
+                : { earlierRecordsUnavailable: previous.earlierRecordsUnavailable }),
+            ...(previous?.earlierRecordsPruned === undefined
+                ? {}
+                : { earlierRecordsPruned: previous.earlierRecordsPruned }),
+            ...(previous?.nextBefore === undefined ? {} : { nextBefore: previous.nextBefore }),
+        };
+        this.postState();
+        try {
+            const value = await this.runtime.scheduleHistory(sessionId, scheduleId, 20, before);
+            if (generation !== this.scheduleHistoryGeneration || this.sessionId !== sessionId) return;
+            if (value === undefined) {
+                this.scheduleHistoryView = {
+                    sessionId,
+                    id: scheduleId,
+                    records: existingRecords,
+                    loading: false,
+                    error: t("The connected Runtime does not expose Schedule history."),
+                };
+            } else {
+                const page = scheduleHistoryProjection(value, scheduleId);
+                if (!page) throw new RemoteProtocolError("Remote schedule/history returned an invalid value");
+                if ("code" in page) {
+                    const error = page.code === "schedule_not_found"
+                        ? t("This reminder no longer exists.")
+                        : t("The history cursor is no longer available. Reload the history.");
+                    this.scheduleHistoryView = {
+                        sessionId,
+                        id: scheduleId,
+                        records: existingRecords,
+                        loading: false,
+                        error,
+                    };
+                } else {
+                    const mergedRecords = before === undefined
+                        ? page.records
+                        : [...existingRecords, ...page.records.filter((record) =>
+                              !existingRecords.some((existing) =>
+                                  existing.messageId === record.messageId &&
+                                  existing.scheduledAt === record.scheduledAt,
+                              ),
+                          )];
+                    this.scheduleHistoryView = {
+                        sessionId,
+                        id: scheduleId,
+                        records: mergedRecords,
+                        loading: false,
+                        earlierRecordsUnavailable: page.earlierRecordsUnavailable,
+                        earlierRecordsPruned: page.earlierRecordsPruned,
+                        ...(page.nextBefore === undefined ? {} : { nextBefore: page.nextBefore }),
+                    };
+                }
+            }
+        } catch (error) {
+            if (generation !== this.scheduleHistoryGeneration || this.sessionId !== sessionId) return;
+            this.output.appendLine(`[dsh:schedule] history refresh failed: ${errorMessage(error)}`);
+            this.scheduleHistoryView = {
+                sessionId,
+                id: scheduleId,
+                records: existingRecords,
+                loading: false,
+                ...(before === undefined || previous?.nextBefore === undefined
+                    ? {}
+                    : { nextBefore: previous.nextBefore }),
+                ...(before === undefined || previous?.earlierRecordsUnavailable === undefined
+                    ? {}
+                    : { earlierRecordsUnavailable: previous.earlierRecordsUnavailable }),
+                ...(before === undefined || previous?.earlierRecordsPruned === undefined
+                    ? {}
+                    : { earlierRecordsPruned: previous.earlierRecordsPruned }),
+                error: errorMessage(error),
+            };
+        }
+        this.postState();
+    }
+
     /**
      * The registered command a prompt line invokes, if any. The catalog must
      * already be loaded — see {@link ensureCommandCatalog}.
@@ -3334,6 +3545,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(schedule === undefined ? {} : { schedule }),
+            ...(this.sessionId && this.scheduleCatalogs.has(this.sessionId)
+                ? { scheduleManagementAvailable: true }
+                : {}),
+            ...(this.scheduleMutationPendingId === undefined
+                ? {}
+                : { scheduleMutationPendingId: this.scheduleMutationPendingId }),
+            ...(this.scheduleHistoryView?.sessionId === this.sessionId
+                ? { scheduleHistory: this.scheduleHistoryView }
+                : {}),
             ...(imageLimits === undefined ? {} : { imageLimits }),
             ...(plan === undefined ? {} : { plan }),
             ...(messageFeedback === undefined ? {} : { messageFeedback }),

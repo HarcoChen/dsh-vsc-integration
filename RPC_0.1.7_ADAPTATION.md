@@ -43,12 +43,13 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - 目标 Runtime 版本、`src/remote/contracts.ts` wire-contract pin 和 README 已更新至 RC.2。
 - multipart unary、双向 stream 与活动会话归档确认继续沿用 RC.1 实现。
 - 事件 allowlist 已加入 RC.2 四个 emit 事件；credential record、账号过期和账号模型登录要求事件会刷新模型目录，Schedule 事件会刷新活动提醒。
-- Activity Dock 通过 `schedule/list` 读取当前会话的持久活动提醒，展示 RC.2 的 `daily/weekly/cron` 规则和可选标题；旧 Runtime 缺少该 endpoint 时回退到 Session Schedule 投影。
+- Activity Dock 通过 `schedule/list` 读取当前会话的持久活动提醒，展示 RC.2 的 `daily/weekly/cron` 规则和标题；旧 Runtime 缺少该 endpoint 时回退到 Session Schedule 投影。RC.2 的 `schedule/history` 支持游标分页，`update` 用完整观察记录做 CAS，`delete` 会同时删除该任务的投递历史。
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
-- 当前 dsh-ide 没有 Account RPC 或 `workspace/initializeDefault` 调用方；Schedule 只接入
-  `schedule/list` 和 `schedule/changed` 刷新，尚未接入全局 `catalog`、投递 `history`、修改/删除
-  或提醒创建 UI。后续实现对应功能前，必须按 RC.2 签名重新设计请求。
+- 当前 dsh-ide 没有 Account RPC 或 `workspace/initializeDefault` 调用方；Schedule Activity Dock
+  已接入当前会话 `list/history/update/delete` 与 `schedule/changed`。update UI 只改名称和内容，
+  尚未提供 timing-rule 编辑或跨会话 `catalog` 管理；提醒由上游 `schedule_create` agent tool 创建，
+  不是 Remote create endpoint。所有写请求按 RC.2 的 session 绑定和完整 `expected` 记录发送。
 
 ## 验证边界与待办
 

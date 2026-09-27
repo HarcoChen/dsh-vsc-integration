@@ -28,6 +28,9 @@ interface ActivityDockProps {
     jobs: ActivityDockState["jobs"];
     todos: ActivityDockState["todos"];
     schedule: ActivityDockState["schedule"];
+    scheduleManagementAvailable: ActivityDockState["scheduleManagementAvailable"];
+    scheduleMutationPendingId: ActivityDockState["scheduleMutationPendingId"];
+    scheduleHistory: ActivityDockState["scheduleHistory"];
     permissions: ActivityDockState["permissions"];
     dynamicPlugins: ActivityDockState["dynamicPlugins"];
     commands: ActivityDockState["commands"];
@@ -46,6 +49,9 @@ export const ActivityDock = React.memo(function ActivityDock({
     jobs,
     todos,
     schedule,
+    scheduleManagementAvailable,
+    scheduleMutationPendingId,
+    scheduleHistory,
     permissions,
     dynamicPlugins,
     commands,
@@ -173,7 +179,14 @@ export const ActivityDock = React.memo(function ActivityDock({
                     {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={changeReviews} running={sessionRunning} /> : null}
                     {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && subagents ? <SubagentsPanel tree={subagents} preview={preview} autoOpenReasoning={autoOpenReasoning} /> : null}
                     {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={jobs} /> : null}
-                    {!collapsed && selectedTab === "schedule" && tab.id === "schedule" && schedule ? <SchedulePanel schedule={schedule} /> : null}
+                    {!collapsed && selectedTab === "schedule" && tab.id === "schedule" && schedule ? (
+                        <SchedulePanel
+                            schedule={schedule}
+                            managementAvailable={scheduleManagementAvailable === true}
+                            mutationPendingId={scheduleMutationPendingId}
+                            history={scheduleHistory}
+                        />
+                    ) : null}
                     {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && permissions ? <PermissionsPanel permissions={permissions} switchable={canSwitchPermissions(commands)} /> : null}
                     {!collapsed && selectedTab === "dynamicPlugins" && tab.id === "dynamicPlugins" && dynamicPlugins ? (
                         <DynamicPluginsPanel plugins={dynamicPlugins} currentSessionId={sessionId} />
