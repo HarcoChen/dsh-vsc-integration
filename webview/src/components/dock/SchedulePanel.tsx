@@ -108,12 +108,18 @@ export function SchedulePanel({
     managementAvailable,
     mutationPendingId,
     history,
+    catalog,
+    sessions,
 }: {
-    schedule: NonNullable<ChatViewState["schedule"]>;
+    schedule?: ChatViewState["schedule"];
     managementAvailable: boolean;
     mutationPendingId?: string;
     history?: ChatViewState["scheduleHistory"];
+    catalog?: ChatViewState["scheduleCatalog"];
+    sessions: ChatViewState["sessions"];
 }): React.JSX.Element {
+    const [scope, setScope] = useState<"session" | "all">("session");
+    const currentSchedule = schedule ?? [];
     const [editingId, setEditingId] = useState<string>();
     const [confirmingDeleteId, setConfirmingDeleteId] = useState<string>();
     const [expandedHistoryId, setExpandedHistoryId] = useState<string>();
@@ -176,11 +182,35 @@ export function SchedulePanel({
 
     return (
         <div className="dsh-schedule" aria-label={t("Active reminders")}>
-            <div className="dsh-card-detail">
+            {catalog || scope === "all" ? (
+                <div className="dsh-schedule-scope" role="group" aria-label={t("Reminder scope")}>
+                    <button
+                        type="button"
+                        className={`dsh-button${scope === "session" ? "" : " dsh-button-secondary"}`}
+                        aria-pressed={scope === "session"}
+                        onClick={() => setScope("session")}
+                    >
+                        {t("This session")}
+                    </button>
+                    <button
+                        type="button"
+                        className={`dsh-button${scope === "all" ? "" : " dsh-button-secondary"}`}
+                        aria-pressed={scope === "all"}
+                        disabled={catalog === undefined || catalog.status === "unavailable"}
+                        onClick={() => setScope("all")}
+                    >
+                        {t("All sessions")}
+                    </button>
+                </div>
+            ) : null}
+            <div className="dsh-card-detail" hidden={scope === "all"}>
                 {managementAvailable ? t("Active reminders · managed by this session") : t("Active reminders · read-only")}
             </div>
-            <ul className="dsh-schedule-items" tabIndex={0}>
-                {schedule.map((item) => (
+            {schedule?.length === 0 ? (
+                <div className="dsh-card-detail" hidden={scope === "all"}>{t("No active reminders for this session.")}</div>
+            ) : null}
+            <ul className="dsh-schedule-items" tabIndex={0} hidden={scope === "all"}>
+                {currentSchedule.map((item) => (
                     <li className="dsh-schedule-item" key={item.id}>
                         {item.title ? <div className="dsh-schedule-title">{item.title}</div> : null}
                         <div className="dsh-schedule-prompt">{item.prompt}</div>
@@ -445,6 +475,58 @@ export function SchedulePanel({
                     </li>
                 ))}
             </ul>
+            <div className="dsh-schedule-catalog" hidden={scope !== "all"}>
+                <div className="dsh-card-detail">{t("All sessions · read-only")}</div>
+                {catalog === undefined || catalog.status === "idle" || catalog.status === "loading"
+                    ? <div className="dsh-card-detail">{t("Loading all reminders...")}</div>
+                    : null}
+                {catalog?.status === "error" ? (
+                    <div className="dsh-card-error" role="alert">
+                        {catalog.error ?? t("Could not load reminders across sessions.")}
+                        <button type="button" className="dsh-button dsh-button-secondary" onClick={() => postAction({ type: "refreshScheduleCatalog" })}>
+                            {t("Retry")}
+                        </button>
+                    </div>
+                ) : null}
+                {catalog?.status === "unavailable"
+                    ? <div className="dsh-card-detail">{t("The connected Runtime does not expose the cross-session Schedule catalog.")}</div>
+                    : null}
+                {catalog?.status === "ready" && catalog.records.length === 0
+                    ? <div className="dsh-card-detail">{t("No reminders across sessions.")}</div>
+                    : null}
+                <ul className="dsh-schedule-items" tabIndex={0} aria-busy={catalog?.status === "loading"}>
+                    {catalog?.records.map((item) => {
+                        const owner = sessions.find((session) => session.sessionId === item.sessionId);
+                        const ownerLabel = owner ? `${owner.title} · ${item.sessionId}` : item.sessionId;
+                        return (
+                            <li className="dsh-schedule-item" key={item.id}>
+                                <div className="dsh-schedule-title">{item.title}</div>
+                                <div className="dsh-schedule-prompt">{item.prompt}</div>
+                                <div className="dsh-schedule-meta">
+                                    <span>{item.status === "active" ? t("Active") : t("Inactive")}</span>
+                                    <span aria-hidden="true"> · </span>
+                                    <span>{ruleLabel(item)}</span>
+                                </div>
+                                <div className="dsh-schedule-meta">
+                                    <span>{t("Session {session}", { session: ownerLabel })}</span>
+                                    <span aria-hidden="true"> · </span>
+                                    <time dateTime={item.scheduledAt} title={item.scheduledAt}>
+                                        {item.status === "active"
+                                            ? t("Next at {time}", { time: formatScheduledAt(item.scheduledAt) })
+                                            : t("Scheduled for {time}", { time: formatScheduledAt(item.scheduledAt) })}
+                                    </time>
+                                </div>
+                                {item.lastDelivery ? (
+                                    <div className="dsh-schedule-meta">
+                                        {t("Last delivered {time}", { time: formatScheduledAt(item.lastDelivery.deliveredAt) })}
+                                    </div>
+                                ) : null}
+                                <div className="dsh-schedule-id">{t("ID {id}", { id: item.id })}</div>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </div>
         </div>
     );
 }

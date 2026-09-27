@@ -28,12 +28,14 @@ interface ActivityDockProps {
     jobs: ActivityDockState["jobs"];
     todos: ActivityDockState["todos"];
     schedule: ActivityDockState["schedule"];
+    scheduleCatalog: ActivityDockState["scheduleCatalog"];
     scheduleManagementAvailable: ActivityDockState["scheduleManagementAvailable"];
     scheduleMutationPendingId: ActivityDockState["scheduleMutationPendingId"];
     scheduleHistory: ActivityDockState["scheduleHistory"];
     permissions: ActivityDockState["permissions"];
     dynamicPlugins: ActivityDockState["dynamicPlugins"];
     commands: ActivityDockState["commands"];
+    sessions: ActivityDockState["sessions"];
     sessionId: ActivityDockState["sessionId"];
     sessionRunning: boolean;
     agentPresetLabel: ActivityDockState["agentPresetLabel"];
@@ -49,12 +51,14 @@ export const ActivityDock = React.memo(function ActivityDock({
     jobs,
     todos,
     schedule,
+    scheduleCatalog,
     scheduleManagementAvailable,
     scheduleMutationPendingId,
     scheduleHistory,
     permissions,
     dynamicPlugins,
     commands,
+    sessions,
     sessionId,
     sessionRunning,
     agentPresetLabel,
@@ -81,7 +85,12 @@ export const ActivityDock = React.memo(function ActivityDock({
         tabs.push({ id: "subagents", label: t("Subagents"), count: subagents.nodes.length || undefined });
     }
     if (jobs.length) tabs.push({ id: "jobs", label: t("Jobs"), count: jobs.length });
-    if (schedule?.length) tabs.push({ id: "schedule", label: t("Schedule"), count: schedule.length });
+    const scheduleCatalogVisible = scheduleCatalog !== undefined &&
+        (scheduleCatalog.status === "loading" || scheduleCatalog.status === "error" || scheduleCatalog.records.length > 0);
+    if (schedule?.length || scheduleCatalogVisible) {
+        const count = scheduleCatalog?.records.length || schedule?.length;
+        tabs.push({ id: "schedule", label: t("Schedule"), count: count || undefined });
+    }
     if (permissions) tabs.push({ id: "permissions", label: t("Permissions") });
     if (dynamicPlugins && (dynamicPlugins.loading || dynamicPlugins.error !== undefined || dynamicPlugins.rows.length > 0)) {
         const pending = dynamicPlugins.rows.filter((row) => row.latestRun?.status === "awaiting-approval").length;
@@ -179,12 +188,14 @@ export const ActivityDock = React.memo(function ActivityDock({
                     {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={changeReviews} running={sessionRunning} /> : null}
                     {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && subagents ? <SubagentsPanel tree={subagents} preview={preview} autoOpenReasoning={autoOpenReasoning} /> : null}
                     {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={jobs} /> : null}
-                    {!collapsed && selectedTab === "schedule" && tab.id === "schedule" && schedule ? (
+                    {!collapsed && selectedTab === "schedule" && tab.id === "schedule" ? (
                         <SchedulePanel
                             schedule={schedule}
                             managementAvailable={scheduleManagementAvailable === true}
                             mutationPendingId={scheduleMutationPendingId}
                             history={scheduleHistory}
+                            catalog={scheduleCatalog}
+                            sessions={sessions}
                         />
                     ) : null}
                     {!collapsed && selectedTab === "permissions" && tab.id === "permissions" && permissions ? <PermissionsPanel permissions={permissions} switchable={canSwitchPermissions(commands)} /> : null}

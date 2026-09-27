@@ -61,6 +61,7 @@ import {
     settingsMutationOps,
     reasoningEffortOptions,
     scheduleHistoryProjection,
+    scheduleCatalogProjection,
     scheduleProjection,
     sessionStatsProjection,
     todoProjection,
@@ -95,6 +96,8 @@ import {
     DshSessionSearchItem,
     DshSessionModelsResult,
     DshScheduleItem,
+    DshScheduleCatalogEntry,
+    DshScheduleCatalogState,
     DshScheduleHistoryState,
     DshScheduleRecord,
     DshScheduleTimingChange,
@@ -230,6 +233,7 @@ const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
 
 /** Opens the DSH view container; `WebviewView.show()` alone cannot expand a collapsed sidebar part. */
 const SIDEBAR_CONTAINER_COMMAND = "workbench.view.extension.dsh";
+const ALL_SESSIONS_SCHEDULE_CATALOG_KEY = "__all_sessions__";
 
 function positiveTurn(value: unknown): number | undefined {
     return typeof value === "number" && Number.isSafeInteger(value) && value > 0
@@ -311,6 +315,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly skillCatalogs = new SessionCatalogCache<DshSkillEntry[]>();
     private readonly commandCatalogs = new SessionCatalogCache<DshCommandDescriptor[]>();
     private readonly scheduleCatalogs = new SessionCatalogCache<DshScheduleItem[]>();
+    private readonly allSessionsScheduleCatalog = new SessionCatalogCache<DshScheduleCatalogEntry[]>();
+    private scheduleCatalogView: DshScheduleCatalogState | undefined;
     private scheduleHistoryView: DshScheduleHistoryState | undefined;
     private scheduleHistoryGeneration = 0;
     private scheduleMutationPendingId: string | undefined;
@@ -323,6 +329,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
      */
     private commandRegistryUnavailable = false;
     private scheduleRpcUnavailable = false;
+    private scheduleCatalogRpcUnavailable = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private modeSelectionEnabled = true;
     private agentPresetCatalogRequest: Promise<void> | undefined;
@@ -440,6 +447,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         ++this.scheduleHistoryGeneration;
                         this.scheduleHistoryView = undefined;
                         if (this.sessionId) this.scheduleCatalogs.invalidateSession(this.sessionId);
+                        this.invalidateGlobalScheduleCatalog();
                         this.postState();
                         if (this.sessionId) {
                             this.refreshScheduleCatalog(this.sessionId);
@@ -480,8 +488,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.commandCatalogs.clear();
                 this.scheduleRpcUnavailable = false;
                 this.scheduleCatalogs.clear();
+                this.scheduleCatalogRpcUnavailable = false;
+                this.allSessionsScheduleCatalog.invalidate();
+                this.scheduleCatalogView = undefined;
                 ++this.scheduleHistoryGeneration;
                 this.scheduleHistoryView = undefined;
+                this.refreshGlobalScheduleCatalog(true);
                 void this.refreshDynamicPlugins();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
@@ -1497,6 +1509,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "refreshSubagents":
                     if (this.sessionId) await this.subagents.refreshSubagentTree(this.sessionId);
+                    break;
+                case "refreshScheduleCatalog":
+                    this.refreshGlobalScheduleCatalog(true);
+                    this.postState();
                     break;
                 case "editScheduleContent":
                     await this.updateScheduleContent(message.scheduleId, message.title, message.prompt, message.change);
@@ -2984,6 +3000,56 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    /** Pulls RC.2's host-wide active and inactive reminder catalog for read-only cross-session browsing. */
+    private refreshGlobalScheduleCatalog(force = false): void {
+        if (this.scheduleCatalogRpcUnavailable || !this.runtime.getUrl()) return;
+        if (!force && this.scheduleCatalogView && this.scheduleCatalogView.status !== "idle") return;
+        const retained = this.scheduleCatalogView?.records ?? this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? [];
+        if (force && this.allSessionsScheduleCatalog.has(ALL_SESSIONS_SCHEDULE_CATALOG_KEY)) {
+            this.allSessionsScheduleCatalog.invalidateSession(ALL_SESSIONS_SCHEDULE_CATALOG_KEY);
+        }
+        this.scheduleCatalogView = { records: retained, status: "loading" };
+        void this.allSessionsScheduleCatalog.pull(ALL_SESSIONS_SCHEDULE_CATALOG_KEY, {
+            gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleCatalogRpcUnavailable,
+            pull: async () => {
+                const value = await this.runtime.scheduleCatalog();
+                if (value === undefined) return undefined;
+                const records = scheduleCatalogProjection(value);
+                if (records === undefined) {
+                    throw new RemoteProtocolError("Remote schedule/catalog returned an invalid value");
+                }
+                return records;
+            },
+            apply: (records) => {
+                this.allSessionsScheduleCatalog.set(ALL_SESSIONS_SCHEDULE_CATALOG_KEY, records);
+                this.scheduleCatalogView = { records, status: "ready" };
+                this.postState();
+            },
+            absent: () => {
+                this.scheduleCatalogRpcUnavailable = true;
+                this.scheduleCatalogView = { records: retained, status: "unavailable" };
+                this.postState();
+            },
+            fail: (error) => {
+                this.scheduleCatalogView = {
+                    records: this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? retained,
+                    status: "error",
+                    error: errorMessage(error),
+                };
+                this.output.appendLine(`[dsh:schedule] global catalog refresh failed: ${errorMessage(error)}`);
+                this.postState();
+            },
+        });
+    }
+
+    private invalidateGlobalScheduleCatalog(): void {
+        if (this.scheduleCatalogRpcUnavailable) return;
+        const retained = this.scheduleCatalogView?.records ?? this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? [];
+        this.allSessionsScheduleCatalog.invalidateSession(ALL_SESSIONS_SCHEDULE_CATALOG_KEY);
+        this.scheduleCatalogView = { records: retained, status: "loading" };
+        this.refreshGlobalScheduleCatalog(true);
+    }
+
     private async updateScheduleContent(
         scheduleId: string,
         title: string,
@@ -3079,6 +3145,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ++this.scheduleHistoryGeneration;
         this.scheduleHistoryView = undefined;
         this.scheduleCatalogs.invalidateSession(sessionId);
+        this.invalidateGlobalScheduleCatalog();
         this.refreshScheduleCatalog(sessionId);
     }
 
@@ -3427,6 +3494,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshCommandCatalog(this.sessionId);
             this.refreshScheduleCatalog(this.sessionId);
         }
+        this.refreshGlobalScheduleCatalog();
         this.refreshAgentPresetCatalog();
         const selectedAgentPreset = selected?.agentPreset;
         const selectedAgentPresetLabel = this.agentPresetCatalog
@@ -3552,6 +3620,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(schedule === undefined ? {} : { schedule }),
+            ...(this.scheduleCatalogView === undefined ? {} : { scheduleCatalog: this.scheduleCatalogView }),
             ...(this.sessionId && this.scheduleCatalogs.has(this.sessionId)
                 ? { scheduleManagementAvailable: true }
                 : {}),

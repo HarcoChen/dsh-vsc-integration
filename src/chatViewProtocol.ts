@@ -100,6 +100,7 @@ export type ChatViewAction =
       ))
     | { type: "goalPause" | "goalResume" | "goalComplete" | "goalClear" }
     | { type: "refreshSubagents" }
+    | { type: "refreshScheduleCatalog" }
     | { type: "editScheduleContent"; scheduleId: string; title: string; prompt: string; change?: DshScheduleTimingChange }
     | { type: "deleteSchedule"; scheduleId: string }
     | { type: "loadScheduleHistory"; scheduleId: string; before?: string }
@@ -343,6 +344,8 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                     hasAny(value, ["sessionId", "parentSessionId", "childSessionId", "mode", "provider"]))
             ) return undefined;
             return { type: value.type } as ChatViewAction;
+        case "refreshScheduleCatalog":
+            return hasOnly(value, ["type"]) ? { type: "refreshScheduleCatalog" } : undefined;
         case "editScheduleContent":
         case "deleteSchedule":
             if (value.type === "deleteSchedule") {

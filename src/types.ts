@@ -1248,6 +1248,7 @@ export interface ChatViewState {
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
     schedule?: DshScheduleItem[];
+    scheduleCatalog?: DshScheduleCatalogState;
     scheduleManagementAvailable?: boolean;
     scheduleMutationPendingId?: string;
     scheduleHistory?: DshScheduleHistoryState;
@@ -1355,6 +1356,18 @@ export type DshScheduleItem =
       };
 
 export type DshScheduleRecord = DshScheduleItem & { title: string };
+
+export type DshScheduleCatalogEntry = DshScheduleRecord & {
+    sessionId: string;
+    status: "active" | "inactive";
+    lastDelivery?: Pick<DshScheduleDeliveryView, "scheduledAt" | "deliveredAt" | "messageId">;
+};
+
+export interface DshScheduleCatalogState {
+    records: DshScheduleCatalogEntry[];
+    status: "idle" | "loading" | "ready" | "error" | "unavailable";
+    error?: string;
+}
 
 export type DshScheduleTimingChange =
     | { kind: "at"; at: string }

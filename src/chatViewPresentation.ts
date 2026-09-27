@@ -6,6 +6,7 @@ import {
     DshPlanProjection,
     DshSessionModelsResult,
     DshScheduleDeliveryView,
+    DshScheduleCatalogEntry,
     DshScheduleHistoryResult,
     DshSettingFieldType,
     DshSettingFieldView,
@@ -286,6 +287,7 @@ export function todoProjection(value: unknown): DshTodoItemView[] | undefined {
 
 const SCHEDULE_UTC_INSTANT = /^(?!0000)\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/u;
 const MAX_SCHEDULE_ITEMS = 200;
+const MAX_SCHEDULE_CATALOG_ITEMS = 5_000;
 
 function scheduleInstant(value: unknown): string | undefined {
     if (typeof value !== "string" || !SCHEDULE_UTC_INSTANT.test(value)) return undefined;
@@ -382,6 +384,41 @@ export function scheduleProjection(value: unknown): DshScheduleItem[] | undefine
         }
     }
     return schedules;
+}
+
+/** Narrow RC.2's host-wide retained catalog, including each reminder's owning session and status. */
+export function scheduleCatalogProjection(value: unknown): DshScheduleCatalogEntry[] | undefined {
+    if (!Array.isArray(value) || value.length > MAX_SCHEDULE_CATALOG_ITEMS) return undefined;
+    const entries: DshScheduleCatalogEntry[] = [];
+    const seenIds = new Set<string>();
+    for (const candidate of value) {
+        if (!isRecord(candidate)) return undefined;
+        const sessionId = scheduleId(candidate.sessionId);
+        if (
+            sessionId === undefined ||
+            (candidate.status !== "active" && candidate.status !== "inactive")
+        ) return undefined;
+        const [schedule] = scheduleProjection([candidate]) ?? [];
+        if (!schedule?.title || seenIds.has(schedule.id)) return undefined;
+        let lastDelivery: DshScheduleCatalogEntry["lastDelivery"];
+        if (candidate.lastDelivery !== undefined) {
+            if (!isRecord(candidate.lastDelivery)) return undefined;
+            const scheduledAt = scheduleInstant(candidate.lastDelivery.scheduledAt);
+            const deliveredAt = scheduleInstant(candidate.lastDelivery.deliveredAt);
+            const messageId = scheduleText(candidate.lastDelivery.messageId);
+            if (scheduledAt === undefined || deliveredAt === undefined || messageId === undefined) return undefined;
+            lastDelivery = { scheduledAt, deliveredAt, messageId };
+        }
+        seenIds.add(schedule.id);
+        entries.push({
+            ...schedule,
+            title: schedule.title,
+            sessionId,
+            status: candidate.status,
+            ...(lastDelivery === undefined ? {} : { lastDelivery }),
+        });
+    }
+    return entries;
 }
 
 /** Narrow one bounded RC.2 Schedule delivery-history page. */

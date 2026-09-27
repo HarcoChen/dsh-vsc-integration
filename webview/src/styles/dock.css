@@ -353,6 +353,17 @@
     font-family: var(--vscode-editor-font-family);
 }
 
+.dsh-schedule-scope {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dsh-space-2);
+    margin-bottom: var(--dsh-space-2);
+}
+
+.dsh-schedule [hidden] {
+    display: none !important;
+}
+
 .dsh-schedule-actions,
 .dsh-schedule-form {
     display: flex;

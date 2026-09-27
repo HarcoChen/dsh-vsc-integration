@@ -2688,6 +2688,16 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
+    /** Lists active and inactive reminders across all sessions; undefined means the Runtime lacks the RC.2 endpoint. */
+    public async scheduleCatalog(): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/catalog", {});
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     /** Reads a bounded page of saved deliveries for one reminder. */
     public async scheduleHistory(
         sessionId: string,
