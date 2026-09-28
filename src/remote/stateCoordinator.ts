@@ -1,5 +1,6 @@
 import type { RemoteEventFrame, RemoteEventReadyFrame } from "./contracts";
 import { RemoteConnectionController, type RemoteConnectionState } from "./connection";
+import { isRemoteError } from "./errors";
 import { RemoteUnaryClient } from "./unaryClient";
 import {
     historyEntries as remoteHistoryEntries,
@@ -440,7 +441,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         }).catch((error) => {
             if (!signal.aborted && !this.stopped) {
                 this.diagnostic(`Remote session follow stopped for ${key}`, error);
-                this.connection.reconnect();
+                // A typed RPC rejection belongs to this logical stream. Reconnecting
+                // the shared carrier cannot repair the session and would restart all
+                // other streams in a loop for persistent errors such as corrupt logs.
+                if (!isRemoteError(error)) this.connection.reconnect();
             }
         });
     }
