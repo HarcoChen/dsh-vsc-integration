@@ -66,6 +66,7 @@
         "onWebviewPanel:dsh.traceEditor",
         "onCommand:dsh.newSession",
         "onCommand:dsh.switchSession",
+        "onCommand:dsh.manageSessions",
         "onCommand:dsh.searchSession",
         "onCommand:dsh.selectModel",
         "onCommand:dsh.renameSession",
@@ -88,9 +89,11 @@
         "onCommand:dsh.openIdeContextPicker",
         "onCommand:dsh.captureAppShot",
         "onCommand:dsh.configureApiKey",
+        "onCommand:dsh.configureJevApiKey",
         "onCommand:dsh.manageProviders",
         "onCommand:dsh.manageWorkspaces",
         "onCommand:dsh.manageAgentPresets",
+        "onCommand:dsh.manageAccount",
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
@@ -170,6 +173,12 @@
                 "title": "%command.switchSession.title%",
                 "category": "DSH",
                 "icon": "$(list-selection)"
+            },
+            {
+                "command": "dsh.manageSessions",
+                "title": "%command.manageSessions.title%",
+                "category": "DSH",
+                "icon": "$(pin)"
             },
             {
                 "command": "dsh.searchSession",
@@ -340,6 +349,12 @@
                 "icon": "$(key)"
             },
             {
+                "command": "dsh.configureJevApiKey",
+                "title": "%command.configureJevApiKey.title%",
+                "category": "DSH",
+                "icon": "$(key)"
+            },
+            {
                 "command": "dsh.manageProviders",
                 "title": "%command.manageProviders.title%",
                 "category": "DSH",
@@ -356,6 +371,12 @@
                 "title": "%command.manageAgentPresets.title%",
                 "category": "DSH",
                 "icon": "$(symbol-misc)"
+            },
+            {
+                "command": "dsh.manageAccount",
+                "title": "%command.manageAccount.title%",
+                "category": "DSH",
+                "icon": "$(account)"
             },
             {
                 "command": "dsh.refreshBalance",
@@ -503,6 +524,11 @@
                     "command": "dsh.restart",
                     "when": "view == dsh.chatView",
                     "group": "1_dsh@3"
+                },
+                {
+                    "command": "dsh.configureJevApiKey",
+                    "when": "view == dsh.chatView",
+                    "group": "1_dsh@4"
                 }
             ]
         },
@@ -541,6 +567,56 @@
                     "type": "boolean",
                     "default": true,
                     "description": "%config.enableCompaction.description%"
+                },
+                "dsh.jev.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.enabled.description%"
+                },
+                "dsh.jev.baseUrl": {
+                    "type": "string",
+                    "default": "https://api.typesafe.ai/v1/systemone",
+                    "description": "%config.jev.baseUrl.description%"
+                },
+                "dsh.jev.model": {
+                    "type": "string",
+                    "default": "jev-latest",
+                    "description": "%config.jev.model.description%"
+                },
+                "dsh.jev.loopGuard.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.loopGuard.enabled.description%"
+                },
+                "dsh.jev.resultShaper.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.resultShaper.enabled.description%"
+                },
+                "dsh.jev.doneGate.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.doneGate.enabled.description%"
+                },
+                "dsh.jev.toolPruner.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.toolPruner.enabled.description%"
+                },
+                "dsh.jev.skillRouter.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.skillRouter.enabled.description%"
+                },
+                "dsh.jev.decisionTools.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.jev.decisionTools.enabled.description%"
+                },
+                "dsh.jev.deterministicSafetyGuard.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.jev.deterministicSafetyGuard.enabled.description%"
                 },
                 "dsh.autonomousDebugging": {
                     "type": "boolean",
@@ -587,7 +663,7 @@
                 },
                 "dsh.runtimeVersion": {
                     "type": "string",
-                    "default": "0.1.5-rc.2",
+                    "default": "0.1.7-rc.2",
                     "pattern": "^[0-9A-Za-z.-]+$",
                     "description": "%config.runtimeVersion.description%"
                 },

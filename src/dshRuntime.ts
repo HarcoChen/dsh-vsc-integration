@@ -12,6 +12,7 @@ import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts
 import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
+import { workspaceView } from "./remote/workspaceState";
 import type {
     DshTeamView,
     DshCreateTeamTaskRequest,
@@ -64,7 +65,6 @@ import {
     DshSessionModelsResult,
     DshSessionSelectModelResult,
     DshAgentPresetListResult,
-    DshAgentPresetOpenResult,
     DshAgentPresetReadResult,
     DshAgentPresetSelectResult,
     DshDynamicPluginRemoveResult,
@@ -78,6 +78,7 @@ import {
     DshSessionReferenceCandidate,
     DshSkillEntry,
     DshSkillListResult,
+    DshScheduleUpdateRequest,
     DshProviderListResult,
     DshLlmModelsResult,
     DshLlmDiscoverModelsResult,
@@ -120,6 +121,25 @@ import { normalizePluginInventory } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
+import type { AccountClientMetadata } from "./accountTypes";
+import {
+    DEFAULT_JEV_ADVISORY_TIMEOUT_MS,
+    DEFAULT_JEV_ASK_THRESHOLD,
+    DEFAULT_JEV_BASE_URL,
+    DEFAULT_JEV_BLOCK_THRESHOLD,
+    DEFAULT_JEV_DECISION_TOOLS,
+    DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD,
+    DEFAULT_JEV_DONE_GATE,
+    DEFAULT_JEV_GUARDED_TOOLS,
+    DEFAULT_JEV_LOOP_GUARD,
+    DEFAULT_JEV_MODEL,
+    DEFAULT_JEV_RESULT_SHAPER,
+    DEFAULT_JEV_SKILL_ROUTER,
+    DEFAULT_JEV_TIMEOUT_MS,
+    DEFAULT_JEV_TOOL_PRUNER,
+    prepareJevIntegrationPatch,
+    type JevIntegrationConfig,
+} from "./jevIntegration";
 
 type RuntimeListener = (status: RuntimeStatus) => void;
 type HarnessConnectedListener = () => void;
@@ -707,6 +727,59 @@ function configuredRuntimeVersion(configuration: vscode.WorkspaceConfiguration):
     return version;
 }
 
+/** Build Jev launch config from user-facing toggles and fixed policy defaults. */
+function configuredJevIntegration(configuration: vscode.WorkspaceConfiguration): JevIntegrationConfig {
+    const text = (key: string, fallback: string): string => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "string" ? value : fallback;
+    };
+    const boolean = (key: string, fallback: boolean): boolean => {
+        const value = configuration.get<unknown>(key);
+        return typeof value === "boolean" ? value : fallback;
+    };
+    return {
+        enabled: boolean("jev.enabled", false),
+        baseUrl: text("jev.baseUrl", DEFAULT_JEV_BASE_URL),
+        model: text("jev.model", DEFAULT_JEV_MODEL),
+        timeoutMs: DEFAULT_JEV_TIMEOUT_MS,
+        advisoryTimeoutMs: DEFAULT_JEV_ADVISORY_TIMEOUT_MS,
+        askThreshold: DEFAULT_JEV_ASK_THRESHOLD,
+        blockThreshold: DEFAULT_JEV_BLOCK_THRESHOLD,
+        guardedTools: DEFAULT_JEV_GUARDED_TOOLS,
+        loopGuard: {
+            ...DEFAULT_JEV_LOOP_GUARD,
+            enabled: boolean("jev.loopGuard.enabled", DEFAULT_JEV_LOOP_GUARD.enabled),
+        },
+        resultShaper: {
+            ...DEFAULT_JEV_RESULT_SHAPER,
+            enabled: boolean("jev.resultShaper.enabled", DEFAULT_JEV_RESULT_SHAPER.enabled),
+        },
+        doneGate: {
+            ...DEFAULT_JEV_DONE_GATE,
+            enabled: boolean("jev.doneGate.enabled", DEFAULT_JEV_DONE_GATE.enabled),
+        },
+        toolPruner: {
+            ...DEFAULT_JEV_TOOL_PRUNER,
+            enabled: boolean("jev.toolPruner.enabled", DEFAULT_JEV_TOOL_PRUNER.enabled),
+        },
+        skillRouter: {
+            ...DEFAULT_JEV_SKILL_ROUTER,
+            enabled: boolean("jev.skillRouter.enabled", DEFAULT_JEV_SKILL_ROUTER.enabled),
+        },
+        decisionTools: {
+            ...DEFAULT_JEV_DECISION_TOOLS,
+            enabled: boolean("jev.decisionTools.enabled", DEFAULT_JEV_DECISION_TOOLS.enabled),
+        },
+        deterministicSafetyGuard: {
+            ...DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD,
+            enabled: boolean(
+                "jev.deterministicSafetyGuard.enabled",
+                DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD.enabled,
+            ),
+        },
+    };
+}
+
 async function probeRuntimeVersion(command: string, options: { cwd?: string; signal?: AbortSignal; args?: string[]; timeout?: number }): Promise<string | undefined> {
     options.signal?.throwIfAborted();
     try {
@@ -1223,6 +1296,7 @@ export class DshRuntime implements vscode.Disposable {
     private sharedCompositionHash: string | undefined;
     private advertisementWrite: Promise<void> = Promise.resolve();
     private compactionPatchPath: string | undefined;
+    private jevIntegrationPatchPath: string | undefined;
     private debugOverlay: DebugLaunchOverlay | undefined;
     private disposed = false;
     private status: RuntimeStatus = { state: "stopped" };
@@ -1243,6 +1317,10 @@ export class DshRuntime implements vscode.Disposable {
         private readonly storagePath: string,
         /** Shared with the context store so one DAP view backs both snapshots and tools. */
         private readonly debugContextTracker?: DebugContextTracker,
+        /** Installed extension root containing the optional vendored Jev package. */
+        private readonly extensionPath: string = join(__dirname, ".."),
+        /** Extension-managed Jev credential, kept out of settings and launch patches. */
+        private readonly jevApiKeyProvider?: () => Thenable<string | undefined>,
     ) {
         this.recoveryLedger = new RecoveryLedgerStore(storagePath);
         this.recoveryDiagnostics = new RecoveryDiagnostics(storagePath);
@@ -1674,6 +1752,77 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient.call("workspace/create", { request: { path } });
     }
 
+    public getAccountState(): Promise<unknown> {
+        return this.apiClient.call("account/getState", {});
+    }
+
+    public getAccountProfile(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/getProfile", { client });
+    }
+
+    public getAccountBalance(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/getBalance", { client });
+    }
+
+    public getUnnotifiedAccountBonuses(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/getUnnotifiedBonuses", { client });
+    }
+
+    public acknowledgeAccountBonus(
+        accountId: string,
+        orderId: string,
+        client: AccountClientMetadata,
+    ): Promise<unknown> {
+        return this.apiClient.call("account/ackBonusNotified", { accountId, orderId, client });
+    }
+
+    public startAccountSignIn(
+        client: AccountClientMetadata,
+        callbackOrigin: string,
+        loginSource: "web" | "desktop",
+    ): Promise<unknown> {
+        return this.apiClient.call("account/startSignIn", { client, callbackOrigin, loginSource });
+    }
+
+    public cancelAccountSignIn(attemptId: string): Promise<unknown> {
+        return this.apiClient.call("account/cancelSignIn", { attemptId });
+    }
+
+    public hasRunningAccountTasks(): Promise<unknown> {
+        return this.apiClient.call("account/hasRunningAccountTasks", {});
+    }
+
+    public signOutAccount(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/signOut", { client });
+    }
+
+    public initializeDefaultModel(): Promise<unknown> {
+        return this.apiClient.call("session/initializeDefaultModel", {});
+    }
+
+    public watchAccount(signal: AbortSignal): AsyncGenerator<unknown> {
+        return this.remoteConnection.open("account/watch", {}, signal);
+    }
+
+    public watchAccountExpiry(signal: AbortSignal): AsyncGenerator<unknown> {
+        return this.remoteConnection.open("account/watchExpiry", {}, signal);
+    }
+
+    /** Initialize or reuse the RC.2 Host-owned default Workspace on first use. */
+    public async initializeDefaultWorkspace(signal?: AbortSignal): Promise<DshWorkspaceView | undefined> {
+        const result = await this.apiClient.call<unknown>("workspace/initializeDefault", {}, signal);
+        if (result === undefined || result === null) return undefined;
+        if (!isRemoteRecord(result)) {
+            throw new RemoteProtocolError("Remote workspace/initializeDefault returned an invalid value");
+        }
+        const workspace = workspaceView(result.workspace);
+        if (!workspace) {
+            throw new RemoteProtocolError("Remote workspace/initializeDefault returned an invalid Workspace");
+        }
+        this.harnessState.catalog.upsertWorkspace(workspace);
+        return workspace;
+    }
+
     public async renameWorkspace(workspaceId: string, title: string): Promise<DshWorkspaceView> {
         const result = await this.apiClient.call<{ workspace: DshWorkspaceView }>("workspace/rename", {
             request: { workspaceId, title },
@@ -1843,11 +1992,52 @@ export class DshRuntime implements vscode.Disposable {
         return result;
     }
 
-    public async archiveSession(sessionId: string): Promise<void> {
-        const result = await this.apiClient.call<{ archivedSessionIds: string[] }>("workspace/archiveSession", {
+    public async archiveSession(sessionId: string, stopActivity = false): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/archiveSession", {
+            request: { sessionId, ...(stopActivity ? { stopActivity: true } : {}) },
+        });
+        if (!isRemoteRecord(result) || !Array.isArray(result.archivedSessionIds) ||
+            !result.archivedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/archiveSession returned an invalid archive set");
+        }
+        this.harnessState.catalog.replaceArchived(result.archivedSessionIds as string[], baselineRevision);
+    }
+
+    public async unarchiveSession(sessionId: string): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/unarchiveSession", {
             request: { sessionId },
         });
-        this.harnessState.catalog.replaceArchived(result.archivedSessionIds);
+        if (!isRemoteRecord(result) || !Array.isArray(result.archivedSessionIds) ||
+            !result.archivedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/unarchiveSession returned an invalid archive set");
+        }
+        this.harnessState.catalog.replaceArchived(result.archivedSessionIds as string[], baselineRevision);
+    }
+
+    public async pinSession(sessionId: string): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/pinSession", {
+            request: { sessionId },
+        });
+        if (!isRemoteRecord(result) || !Array.isArray(result.pinnedSessionIds) ||
+            !result.pinnedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/pinSession returned an invalid pin set");
+        }
+        this.harnessState.catalog.replacePinned(result.pinnedSessionIds as string[], baselineRevision);
+    }
+
+    public async unpinSession(sessionId: string): Promise<void> {
+        const baselineRevision = this.harnessState.catalog.baselineRevision();
+        const result = await this.apiClient.call<unknown>("workspace/unpinSession", {
+            request: { sessionId },
+        });
+        if (!isRemoteRecord(result) || !Array.isArray(result.pinnedSessionIds) ||
+            !result.pinnedSessionIds.every((id: unknown) => typeof id === "string")) {
+            throw new RemoteProtocolError("Remote workspace/unpinSession returned an invalid pin set");
+        }
+        this.harnessState.catalog.replacePinned(result.pinnedSessionIds as string[], baselineRevision);
     }
 
     /** Report whether the composed Runtime can open a Session workspace path. */
@@ -2037,8 +2227,6 @@ export class DshRuntime implements vscode.Disposable {
         const result = await this.apiClient.call<Partial<DshAgentPresetListResult>>("agentPresets/list", {});
         return {
             presets: result.presets ?? [],
-            authorable: result.authorable === true,
-            hasDocument: result.hasDocument ?? result.authorable === true,
             modeSelectionEnabled: result.modeSelectionEnabled !== false,
         };
     }
@@ -2139,48 +2327,15 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient.call("agentPresets/read", { agentPreset });
     }
 
-    public async copyAgentPreset(from: string, agentPreset: string, name?: string): Promise<string> {
-        await this.apiClient.call("agentPresets/copy", {
-            from,
-            id: agentPreset,
-            ...(name === undefined ? {} : { name }),
-        });
-        return agentPreset;
-    }
-
-    public openAgentPresetDocument(agentPreset: string): Promise<DshAgentPresetOpenResult> {
-        return this.apiClient.call("settings/openAgentPresetDirectory", { agentPreset });
-    }
-
-    /** Report whether this Runtime can open the Harness-owned Agent Preset directory. */
-    public async canOpenAgentPresetDirectory(signal?: AbortSignal): Promise<boolean | undefined> {
-        try {
-            const value = await this.apiClient.call<unknown>(
-                "settings/canOpenAgentPresetDirectory",
-                {},
-                signal,
-            );
-            if (typeof value !== "boolean") {
-                throw new RemoteProtocolError(
-                    "Remote settings/canOpenAgentPresetDirectory returned an invalid value",
-                );
-            }
-            return value;
-        } catch (error) {
-            // The probe is optional on older/minimally composed Runtimes.
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
-            throw error;
-        }
-    }
-
-    public async removeAgentPreset(agentPreset: string): Promise<void> {
-        await this.apiClient.call("agentPresets/deletePreset", { id: agentPreset });
-    }
-
-    public async setDefaultAgentPreset(agentPreset: string): Promise<void> {
+    public async setDefaultAgentPreset(
+        agentPreset: string,
+        namespace: "agent-preset-registry" | "agent-presets" = "agent-preset-registry",
+    ): Promise<void> {
         await this.apiClient.call("settings/update", {
-            ns: "agent-presets",
-            patch: { default: agentPreset },
+            ns: namespace,
+            patch: namespace === "agent-presets"
+                ? { default: agentPreset }
+                : { selectedDefault: agentPreset },
         });
     }
 
@@ -2586,6 +2741,63 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
+    /** Lists active durable reminders for one session; undefined means an older Runtime has no Schedule RPC. */
+    public async listSchedules(sessionId: string): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/list", { request: { sessionId } });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Lists active and inactive reminders across all sessions; undefined means the Runtime lacks the RC.2 endpoint. */
+    public async scheduleCatalog(): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/catalog", {});
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Reads a bounded page of saved deliveries for one reminder. */
+    public async scheduleHistory(
+        sessionId: string,
+        id: string,
+        limit: number,
+        before?: string,
+    ): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/history", {
+                request: { sessionId, id, limit, ...(before === undefined ? {} : { before }) },
+            });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Deletes one active reminder scoped to its owning session. */
+    public async deleteSchedule(sessionId: string, id: string): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/delete", { request: { sessionId, id } });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Compare-and-updates reminder content without changing its rule or next occurrence. */
+    public async updateSchedule(request: DshScheduleUpdateRequest): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call<unknown>("schedule/update", { request });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     /**
      * Runs one complete slash-command line against a session's agent. This is
      * pure admission: the resolved handler's outcome is also logged durably as
@@ -2820,6 +3032,25 @@ export class DshRuntime implements vscode.Disposable {
         } };
         checkStarting();
         let automaticLaunchPort: number | undefined;
+        this.jevIntegrationPatchPath = undefined;
+        if (isWebProfileArgs(args)) {
+            try {
+                this.jevIntegrationPatchPath = await prepareJevIntegrationPatch({
+                    extensionPath: this.extensionPath,
+                    outputDirectory: this.recoveryLedger.directory,
+                    config: configuredJevIntegration(configuration),
+                    onDiagnostic: (message) => this.output.appendLine(message),
+                });
+            } catch (error) {
+                // Jev is an optional internal integration. A malformed or
+                // unavailable vendor checkout must not make the base Runtime
+                // unusable; the diagnostic gives the host a clear remedy.
+                this.output.appendLine(`[dsh:jev] unable to prepare built-in integration: ${String(error)}`);
+            }
+            if (this.jevIntegrationPatchPath !== undefined) {
+                insertWebLauncherPatch(args, this.jevIntegrationPatchPath);
+            }
+        }
         if (enableCompaction && isWebProfileArgs(args)) {
             this.compactionPatchPath = join(this.recoveryLedger.directory, "compaction.patch.yml");
             try {
@@ -2878,7 +3109,11 @@ export class DshRuntime implements vscode.Disposable {
         }
         try {
             const patchPaths = patchPathsFromArgs(args);
-            const extensionOverlays = [this.compactionPatchPath, this.debugOverlay?.patchPath]
+            const extensionOverlays = [
+                this.jevIntegrationPatchPath,
+                this.compactionPatchPath,
+                this.debugOverlay?.patchPath,
+            ]
                 .filter((overlay): overlay is string =>
                     overlay !== undefined && patchPaths.some((path) => samePath(path, overlay)));
             this.lastRecoveryComposition = await buildComposition({
@@ -2980,6 +3215,16 @@ export class DshRuntime implements vscode.Disposable {
 
             this.output.appendLine(`[dsh] starting: ${launchCommand} ${attemptArgs.join(" ")}`);
             const launchEnv: NodeJS.ProcessEnv = { ...process.env };
+            if (configuredJevIntegration(configuration).enabled) {
+                try {
+                    const jevApiKey = (await this.jevApiKeyProvider?.())?.trim();
+                    if (jevApiKey) launchEnv.TYPESAFE_API_KEY = jevApiKey;
+                } catch (error) {
+                    // Credential lookup must not prevent the base Runtime from
+                    // starting; Jev will report the missing credential on demand.
+                    this.output.appendLine(`[dsh:jev] unable to load extension-managed API key: ${String(error)}`);
+                }
+            }
             if (this.debugOverlay) {
                 // The patch file interpolates this token at boot; it never sits on disk.
                 Object.assign(launchEnv, this.debugOverlay.environment);

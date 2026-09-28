@@ -4,6 +4,7 @@ import {
     AgentStatusPresentationRegistry,
     DshExtensionApi,
 } from "./agentStatusPresentation";
+import { AccountActions } from "./accountActions";
 import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider, QuickTaskKind } from "./chatView";
 import {
@@ -13,6 +14,7 @@ import {
 import { ContextStore } from "./contextStore";
 import { DebugContextTracker } from "./debugContext";
 import { DshRuntime } from "./dshRuntime";
+import { JEV_API_KEY_SECRET } from "./jevIntegration";
 import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
 import { parseTraceLocation } from "./traceProtocol";
@@ -36,7 +38,18 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         },
     });
     const debugContextTracker = new DebugContextTracker();
-    const runtime = new DshRuntime(output, context.globalStorageUri.fsPath, debugContextTracker);
+    const runtime = new DshRuntime(
+        output,
+        context.globalStorageUri.fsPath,
+        debugContextTracker,
+        context.extensionUri.fsPath,
+        () => context.secrets.get(JEV_API_KEY_SECRET),
+    );
+    const accountActions = new AccountActions(
+        runtime,
+        String(context.extension.packageJSON.version ?? ""),
+        workspaceRoot,
+    );
     let shutdown: Promise<void> | undefined;
     const stopRuntime = (): Promise<void> => shutdown ??= runtime.dispose().finally(() => {
         outputDisposed = true;
@@ -72,6 +85,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
 
     context.subscriptions.push(
         balanceService,
+        accountActions,
         terminalContext,
         debugContextTracker,
         agentStatusPresentations,
@@ -117,6 +131,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         ),
         vscode.commands.registerCommand("dsh.switchSession", () =>
             runCommand(t("Switch session"), () => chatView.chooseSession()),
+        ),
+        vscode.commands.registerCommand("dsh.manageSessions", () =>
+            runCommand(t("Manage DSH Sessions"), () => chatView.manageSessions()),
         ),
         vscode.commands.registerCommand("dsh.searchSession", () =>
             runCommand(t("Search sessions"), () => chatView.searchSession()),
@@ -224,6 +241,26 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
                 void vscode.window.showErrorMessage(t("DSH: Failed to configure API Key: {message}", { message }));
             }),
         ),
+        vscode.commands.registerCommand("dsh.configureJevApiKey", () =>
+            runCommand(t("Configure Jev API Key"), async () => {
+                const key = await vscode.window.showInputBox({
+                    title: t("Configure Jev API Key"),
+                    prompt: t("The Jev API Key is encrypted in VS Code SecretStorage and passed only to Runtime processes started by this extension. It is never written to settings, patch files, or logs."),
+                    password: true,
+                    ignoreFocusOut: true,
+                    validateInput: (value) => value.trim() ? undefined : t("Enter a Jev API Key."),
+                });
+                if (key === undefined) return;
+                await context.secrets.store(JEV_API_KEY_SECRET, key.trim());
+                if (runtime.getStatus().state !== "running") return;
+                const restart = t("Restart DSH Runtime");
+                const answer = await vscode.window.showInformationMessage(
+                    t("The Jev API Key will be used on the next Runtime launch. Restart DSH now?"),
+                    restart,
+                );
+                if (answer === restart) await vscode.commands.executeCommand("dsh.restart");
+            }),
+        ),
         vscode.commands.registerCommand("dsh.manageProviders", () =>
             runCommand(t("Manage providers"), () => chatView.manageProviders()),
         ),
@@ -232,6 +269,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         ),
         vscode.commands.registerCommand("dsh.manageAgentPresets", () =>
             runCommand(t("Manage Agent Presets"), () => chatView.manageAgentPresets()),
+        ),
+        vscode.commands.registerCommand("dsh.manageAccount", () =>
+            runCommand(t("Manage DeepSeek account"), () => accountActions.manage()),
         ),
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
         vscode.commands.registerCommand("dsh.diagnoseEnvironment", async () => {
@@ -246,12 +286,17 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
-            if (!event.affectsConfiguration("dsh.autonomousDebugging")) return;
+            const autonomousDebuggingChanged = event.affectsConfiguration("dsh.autonomousDebugging");
+            const jevChanged = event.affectsConfiguration("dsh.jev");
+            if (!autonomousDebuggingChanged && !jevChanged) return;
             if (runtime.getStatus().state !== "running") return;
             const restart = t("Restart DSH Runtime");
+            const message = jevChanged
+                ? t("Jev settings apply to the next Runtime launch. Guarded tool arguments and samples for enabled policy features may be sent to the configured TypeSafe endpoint. Restart DSH now?")
+                : t("Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?");
             void vscode.window
                 .showInformationMessage(
-                    t("Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?"),
+                    message,
                     restart,
                 )
                 .then((answer) => {

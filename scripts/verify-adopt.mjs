@@ -213,7 +213,7 @@ setTimeout(() => process.exit(9), 15_000);
         return Object.assign(Object.create(DshRuntime.prototype), {
             configuration: () => configuration,
             output: { appendLine: message => logs.push(String(message)) },
-            runtimeLock: recordedHash === "absent" ? undefined : { record: { compositionHash: recordedHash } },
+            sharedCompositionHash: recordedHash === "absent" ? undefined : recordedHash,
             findExistingRuntime: async () => endpoint,
             setRuntimeEndpoint: value => { endpoint = value; },
             setStatus: status => statuses.push(status),

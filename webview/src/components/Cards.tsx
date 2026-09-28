@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import type { ChatMessage, ChatToolCall } from "../../../src/types";
 import { findFileLocations } from "../../../src/fileLocations";
 import { postAction } from "../bridge";
@@ -104,6 +104,16 @@ export function ToolCard({ tool }: { tool: ChatToolCall }): React.JSX.Element {
 
 export function CompactionCard({ message }: { message: ChatMessage }): React.JSX.Element | null {
     const compaction = message.compaction;
+    const status = compaction?.status;
+    const detailsRef = useRef<HTMLDetailsElement>(null);
+    const previousStatus = useRef<NonNullable<ChatMessage["compaction"]>["status"]>();
+    useLayoutEffect(() => {
+        if (status === undefined) return;
+        const previous = previousStatus.current;
+        previousStatus.current = status;
+        if (previous === status || !detailsRef.current) return;
+        detailsRef.current.open = status !== "success";
+    }, [status]);
     if (!compaction) return null;
     const statusLabel =
         compaction.status === "running"
@@ -112,18 +122,18 @@ export function CompactionCard({ message }: { message: ChatMessage }): React.JSX
               ? t("Failed")
               : t("Completed");
     return (
-        <div className={`dsh-compaction-card ${compaction.status}`}>
-            <div className="dsh-compaction-head">
+        <details ref={detailsRef} className={`dsh-compaction-card ${compaction.status}`}>
+            <summary className="dsh-compaction-head">
                 <span className="dsh-compaction-status" />
                 <span className="dsh-compaction-title">{message.text}</span>
                 <span className="dsh-compaction-meta">{statusLabel}</span>
-            </div>
+            </summary>
             {compaction.summary ? (
                 <div className="dsh-compaction-summary">{compaction.summary}</div>
             ) : null}
             {compaction.error ? (
                 <div className="dsh-compaction-error">{compaction.error}</div>
             ) : null}
-        </div>
+        </details>
     );
 }
