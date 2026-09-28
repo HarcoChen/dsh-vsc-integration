@@ -9,10 +9,23 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
-### 变更
+### 新功能
 
 - 消息级赞/踩统一改为弹窗提交，支持反馈分类和描述；点击当前评价仍可直接撤回。
-- 收敛 Jev 设置为总开关、各策略开关、endpoint 和模型；数值阈值使用内置默认值。新增 `DSH: Configure Jev API Key`，通过 VS Code SecretStorage 向本扩展启动的 Runtime 传入 Jev Key。
+- 支持可选的JEV/Laya接入，使用一个开源子模块作为runtime插件
+- 支持v0.1.7-rc.2新的RPC
+- 支持会话管理
+- 支持Deepseek账户管理
+
+### 改进
+
+更新默认 Runtime 版本，扩展远程会话、工作区和计划任务支持。
+
+Compaction 状态变化时，卡片会自动展开（成功状态除外）。
+
+### 变更
+
+Agent Preset 菜单不再提供复制、打开位置和删除操作。
 
 ## [0.10.0] - 2026-09-21
 
