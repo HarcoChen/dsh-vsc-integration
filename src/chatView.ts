@@ -1772,7 +1772,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         const workspaceRoot = this.workspaceRoot();
-        const sessionRoot = workspaceRoot ?? this.pendingNewSessionWorkspacePath ?? this.sessionCwd;
+        const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
         if (!sessionRoot) {
             this.reportError(new Error(t("Open a VS Code folder or choose a DSH Workspace before sending a task.")));
             return;
@@ -2210,7 +2210,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const workspaceRoot = this.workspaceRoot();
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
         if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) await this.newSession();
-        const sessionRoot = workspaceRoot ?? this.pendingNewSessionWorkspacePath ?? this.sessionCwd;
+        const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
         if (!sessionRoot) return;
 
         // Model selection is also a valid first action. The Harness model
@@ -2314,7 +2314,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const workspaceRoot = this.workspaceRoot();
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
         if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) await this.newSession();
-        const sessionRoot = workspaceRoot ?? this.pendingNewSessionWorkspacePath ?? this.sessionCwd;
+        const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
         if (!sessionRoot) return;
         const sessionId = this.sessionId ?? await this.getOrCreateSession(sessionRoot);
         const catalog = this.modelCatalogs.get(sessionId) ?? await this.runtime.models(sessionId);
