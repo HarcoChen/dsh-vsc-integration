@@ -2209,7 +2209,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async selectModel(): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
-        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) await this.newSession();
+        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) {
+            await this.restorePersistedSession(undefined);
+            if (!this.sessionId) await this.newSession();
+        }
         const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
         if (!sessionRoot) return;
 
@@ -2313,7 +2316,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async openReasoningEffort(): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
-        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) await this.newSession();
+        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) {
+            await this.restorePersistedSession(undefined);
+            if (!this.sessionId) await this.newSession();
+        }
         const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
         if (!sessionRoot) return;
         const sessionId = this.sessionId ?? await this.getOrCreateSession(sessionRoot);
@@ -2337,7 +2343,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         // The initial empty view has no Session id yet. Give persisted state a
         // chance to restore before treating the mode choice as a new-session
         // draft, otherwise a quick first `/mode` could strand the saved Session.
-        if (workspaceRoot) await this.restorePersistedSession(workspaceRoot);
+        await this.restorePersistedSession(workspaceRoot);
         const catalog = await this.runtime.agentPresets();
         this.agentPresetCatalog = catalog.presets;
         this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);
