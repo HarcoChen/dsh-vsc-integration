@@ -326,9 +326,9 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                         !isRecord(value) ||
                         value.type !== "baseline" ||
                         !isRecord(value.value) ||
-                        !isRecord(value.value.queues) ||
-                        !isRecord(value.value.jobs) ||
-                        !isRecord(value.value.projections)
+                        !isRecord(value.value.projections) ||
+                        (value.value.queues !== undefined && !isRecord(value.value.queues)) ||
+                        (value.value.jobs !== undefined && !isRecord(value.value.jobs))
                     ) {
                         ready?.reject(new Error("Remote session control stream did not begin with a baseline"));
                         return;
@@ -450,11 +450,11 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             throw new Error("Remote session control frame is malformed");
         }
         if (value.type === "baseline" && isRecord(value.value)) {
-            if (!isRecord(value.value.queues) || !isRecord(value.value.jobs) || !isRecord(value.value.projections)) {
+            const queues = value.value.queues === undefined ? {} : value.value.queues;
+            const jobs = value.value.jobs === undefined ? {} : value.value.jobs;
+            if (!isRecord(queues) || !isRecord(jobs) || !isRecord(value.value.projections)) {
                 throw new Error("Remote session control baseline is malformed");
             }
-            const queues = value.value.queues;
-            const jobs = value.value.jobs;
             const projections = value.value.projections;
             this.controlBaseline = { queues, jobs, projections };
             this.applyControlBaseline();
