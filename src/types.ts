@@ -1259,6 +1259,11 @@ export interface ChatViewState {
     scheduleCatalog?: DshScheduleCatalogState;
     scheduleManagementAvailable?: boolean;
     scheduleMutationPendingId?: string;
+    scheduleMutationResult?: {
+        scheduleId: string;
+        mutationId: string;
+        succeeded: boolean;
+    };
     scheduleHistory?: DshScheduleHistoryState;
     imageLimits?: DshImageLimitsView;
     plan?: DshPlanProjection;

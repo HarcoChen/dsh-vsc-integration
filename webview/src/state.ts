@@ -51,6 +51,7 @@ export type ActivityDockState = Pick<
     | "scheduleCatalog"
     | "scheduleManagementAvailable"
     | "scheduleMutationPendingId"
+    | "scheduleMutationResult"
     | "scheduleHistory"
     | "permissions"
     | "dynamicPlugins"

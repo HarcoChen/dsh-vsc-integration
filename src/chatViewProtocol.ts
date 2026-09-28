@@ -102,7 +102,7 @@ export type ChatViewAction =
     | { type: "goalPause" | "goalResume" | "goalComplete" | "goalClear" }
     | { type: "refreshSubagents" }
     | { type: "refreshScheduleCatalog" }
-    | { type: "editScheduleContent"; scheduleId: string; title: string; prompt: string; change?: DshScheduleTimingChange }
+    | { type: "editScheduleContent"; scheduleId: string; mutationId: string; title: string; prompt: string; change?: DshScheduleTimingChange }
     | { type: "deleteSchedule"; scheduleId: string }
     | { type: "loadScheduleHistory"; scheduleId: string; before?: string }
     | { type: "openSubagent"; childSessionId: string }
@@ -349,7 +349,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "refreshScheduleCatalog":
             return hasOnly(value, ["type"]) ? { type: "refreshScheduleCatalog" } : undefined;
         case "editScheduleContent":
-        case "deleteSchedule":
+        case "deleteSchedule": {
             if (value.type === "deleteSchedule") {
                 return hasOnly(value, ["type", "scheduleId"]) &&
                     nonEmptyString(value.scheduleId) && value.scheduleId.length <= 512
@@ -357,8 +357,9 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                     : undefined;
             }
             if (
-                !hasOnly(value, ["type", "scheduleId", "title", "prompt", "change"]) ||
+                !hasOnly(value, ["type", "scheduleId", "mutationId", "title", "prompt", "change"]) ||
                 !nonEmptyString(value.scheduleId) || value.scheduleId.length > 512 ||
+                !nonEmptyString(value.mutationId) || value.mutationId.length > 128 ||
                 !nonEmptyString(value.title) || value.title.length > 120 ||
                 !nonEmptyString(value.prompt) || value.prompt.length > 32_768
             ) return undefined;
@@ -367,11 +368,13 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 ? {
                       type: "editScheduleContent",
                       scheduleId: value.scheduleId,
+                      mutationId: value.mutationId,
                       title: value.title,
                       prompt: value.prompt,
                       ...(change === undefined ? {} : { change }),
                   }
                 : undefined;
+        }
         case "loadScheduleHistory":
             return hasOnly(value, ["type", "scheduleId", "before"]) &&
                 nonEmptyString(value.scheduleId) && value.scheduleId.length <= 512 &&

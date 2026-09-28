@@ -1,6 +1,6 @@
 # DSH `0.1.2-rc.1` Remote RPC 适配方案
 
-> 历史方案：以下章节记录首次 RC Remote 迁移。当前适配目标为 `0.1.7-rc.1`，增量审计、实现与未覆盖能力见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)；`RPC_0.1.5_ADAPTATION.md` 保留为上一轮历史报告。
+> 历史方案：以下章节记录首次 RC Remote 迁移。当前适配目标为 `0.1.7-rc.2`，增量审计、实现与未覆盖能力见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)；`RPC_0.1.5_ADAPTATION.md` 保留为上一轮历史报告。
 
 ## 1. 目标与结论
 

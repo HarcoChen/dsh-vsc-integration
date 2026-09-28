@@ -31,6 +31,7 @@ interface ActivityDockProps {
     scheduleCatalog: ActivityDockState["scheduleCatalog"];
     scheduleManagementAvailable: ActivityDockState["scheduleManagementAvailable"];
     scheduleMutationPendingId: ActivityDockState["scheduleMutationPendingId"];
+    scheduleMutationResult: ActivityDockState["scheduleMutationResult"];
     scheduleHistory: ActivityDockState["scheduleHistory"];
     permissions: ActivityDockState["permissions"];
     dynamicPlugins: ActivityDockState["dynamicPlugins"];
@@ -54,6 +55,7 @@ export const ActivityDock = React.memo(function ActivityDock({
     scheduleCatalog,
     scheduleManagementAvailable,
     scheduleMutationPendingId,
+    scheduleMutationResult,
     scheduleHistory,
     permissions,
     dynamicPlugins,
@@ -193,6 +195,7 @@ export const ActivityDock = React.memo(function ActivityDock({
                             schedule={schedule}
                             managementAvailable={scheduleManagementAvailable === true}
                             mutationPendingId={scheduleMutationPendingId}
+                            mutationResult={scheduleMutationResult}
                             history={scheduleHistory}
                             catalog={scheduleCatalog}
                             sessions={sessions}

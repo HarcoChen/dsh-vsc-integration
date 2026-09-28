@@ -272,10 +272,11 @@ export class AccountActions implements vscode.Disposable {
     private async showUnnotifiedBonuses(client: AccountClientMetadata): Promise<void> {
         const batch = normalizeBonuses(await this.runtime.getUnnotifiedAccountBonuses(client));
         if (!batch) return;
-        const bonus = batch.bonuses[0];
+        const bonus = batch.bonuses.find((candidate) => {
+            const expiresAt = Date.parse(candidate.expiresAt);
+            return Number.isNaN(expiresAt) || expiresAt > Date.now();
+        });
         if (!bonus) return;
-        const expiresAt = Date.parse(bonus.expiresAt);
-        if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) return;
         // VS Code resolves this only after the notification has been presented and dismissed.
         await vscode.window.showInformationMessage(bonus.message);
         const acknowledged = await this.runtime.acknowledgeAccountBonus(batch.accountId, bonus.orderId, client);

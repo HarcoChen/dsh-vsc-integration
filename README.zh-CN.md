@@ -114,9 +114,9 @@
 
 **Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并在本扩展自行启动的 Runtime 中直接挂载，不需要安装第二个 IDE 插件；对已有或外部托管的 Runtime 不会做修改。集成默认关闭；启用 `dsh.jev.enabled` 后，受保护工具的完整参数会发送到配置的 TypeSafe System One endpoint。循环保护、结果整形、完成证据门、工具裁剪、skill 路由、决策工具和确定性安全设置都会原样传给挂载的插件。工具裁剪只修改模型可见 schema；skill 路由只追加有界 advice；决策工具默认关闭；确定性安全检查留在本地，不调用 Jev。请使用 **DSH：配置 Jev API Key** 将 Key 加密保存到 VS Code SecretStorage，扩展只会把它传给自己启动的 Runtime；也继续支持 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 作为回退。修改 Jev 设置后重启 DSH。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.1.7-rc.1`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.1.7-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
-Remote 源码审计目标为上游 tag `dsh-v0.1.7-rc.1`（`46a7f68b0922371ce7144b668b90e377d8e799f4`），详见 [RPC 适配报告](./RPC_0.1.7_ADAPTATION.md)。Carrier 支持 multipart 二进制 unary 响应和 Client 到 Host 的流帧。归档有活动任务的会话前，界面会先询问是否停止任务；Agent Preset 管理遵循当前只读 roster 契约。报告也记录了尚未接入 IDE 的 Jobs、插件、权限预设和终端接口。
+Remote 源码审计目标为上游 tag `dsh-v0.1.7-rc.2`（`477b4f420553e8a52c2fbccc464d7561b239c443`），详见 [RPC 适配报告](./RPC_0.1.7_ADAPTATION.md)。Carrier 支持 multipart 二进制 unary 响应和 Client 到 Host 的流帧。归档有活动任务的会话前，界面会先询问是否停止任务；Agent Preset 管理遵循当前只读 roster 契约。报告也记录了尚未接入 IDE 的 Jobs、插件、权限预设和终端接口。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
 
@@ -171,7 +171,7 @@ graph TD
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.1.7-rc.1` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 RC.1 的合法 SemVer。 |
+| `dsh.runtimeVersion` | `0.1.7-rc.2` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 RC.1 的合法 SemVer。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |

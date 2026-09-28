@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { ChatViewState, DshScheduleItem, DshScheduleTimingChange } from "../../../../src/types";
 import { postAction } from "../../bridge";
 import { t } from "../../i18n";
@@ -107,6 +107,7 @@ export function SchedulePanel({
     schedule,
     managementAvailable,
     mutationPendingId,
+    mutationResult,
     history,
     catalog,
     sessions,
@@ -114,6 +115,7 @@ export function SchedulePanel({
     schedule?: ChatViewState["schedule"];
     managementAvailable: boolean;
     mutationPendingId?: string;
+    mutationResult?: ChatViewState["scheduleMutationResult"];
     history?: ChatViewState["scheduleHistory"];
     catalog?: ChatViewState["scheduleCatalog"];
     sessions: ChatViewState["sessions"];
@@ -132,6 +134,16 @@ export function SchedulePanel({
     const [draftTimeZone, setDraftTimeZone] = useState(localTimeZone);
     const [draftWeekdays, setDraftWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
     const [draftCronExpression, setDraftCronExpression] = useState("0 9 * * *");
+    const [submittedEdit, setSubmittedEdit] = useState<{ scheduleId: string; mutationId: string }>();
+
+    useEffect(() => {
+        if (!submittedEdit || mutationPendingId === submittedEdit.scheduleId || !mutationResult) return;
+        if (mutationResult.mutationId !== submittedEdit.mutationId || mutationResult.scheduleId !== submittedEdit.scheduleId) return;
+        if (mutationResult.succeeded) {
+            setEditingId((current) => current === submittedEdit.scheduleId ? undefined : current);
+        }
+        setSubmittedEdit(undefined);
+    }, [mutationPendingId, mutationResult, submittedEdit]);
 
     const everySeconds = Number(draftEverySeconds);
     const scheduleChange: DshScheduleTimingChange | undefined = (() => {
@@ -167,6 +179,7 @@ export function SchedulePanel({
     const timingValid = draftTimingKind === "keep" || scheduleChange !== undefined;
 
     const beginEditing = (item: DshScheduleItem): void => {
+        setSubmittedEdit(undefined);
         setEditingId(item.id);
         setDraftTitle(item.title ?? "");
         setDraftPrompt(item.prompt);
@@ -351,19 +364,29 @@ export function SchedulePanel({
                                             className="dsh-button"
                                             disabled={mutationPendingId !== undefined || !draftTitle.trim() || !draftPrompt.trim() || !timingValid}
                                             onClick={() => {
+                                                const mutationId = crypto.randomUUID();
+                                                setSubmittedEdit({ scheduleId: item.id, mutationId });
                                                 postAction({
                                                     type: "editScheduleContent",
                                                     scheduleId: item.id,
+                                                    mutationId,
                                                     title: draftTitle,
                                                     prompt: draftPrompt,
                                                     ...(scheduleChange === undefined ? {} : { change: scheduleChange }),
                                                 });
-                                                setEditingId(undefined);
                                             }}
                                         >
                                             {mutationPendingId === item.id ? t("Saving…") : t("Save")}
                                         </button>
-                                        <button type="button" className="dsh-button dsh-button-secondary" onClick={() => setEditingId(undefined)}>
+                                        <button
+                                            type="button"
+                                            className="dsh-button dsh-button-secondary"
+                                            disabled={mutationPendingId === item.id}
+                                            onClick={() => {
+                                                setSubmittedEdit(undefined);
+                                                setEditingId(undefined);
+                                            }}
+                                        >
                                             {t("Cancel")}
                                         </button>
                                     </div>

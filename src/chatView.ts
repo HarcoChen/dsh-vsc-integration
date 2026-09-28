@@ -321,6 +321,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private scheduleHistoryView: DshScheduleHistoryState | undefined;
     private scheduleHistoryGeneration = 0;
     private scheduleMutationPendingId: string | undefined;
+    private scheduleMutationResult: ChatViewState["scheduleMutationResult"];
     private readonly messageFeedback: MessageFeedbackController;
     private readonly sessionFeedback: SessionFeedbackController;
     /**
@@ -447,7 +448,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     case "schedule/changed":
                         ++this.scheduleHistoryGeneration;
                         this.scheduleHistoryView = undefined;
-                        if (this.sessionId) this.scheduleCatalogs.invalidateSession(this.sessionId);
+                        this.scheduleCatalogs.invalidate();
                         this.invalidateGlobalScheduleCatalog();
                         this.postState();
                         if (this.sessionId) {
@@ -1527,7 +1528,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.postState();
                     break;
                 case "editScheduleContent":
-                    await this.updateScheduleContent(message.scheduleId, message.title, message.prompt, message.change);
+                    await this.updateScheduleContent(
+                        message.scheduleId,
+                        message.mutationId,
+                        message.title,
+                        message.prompt,
+                        message.change,
+                    );
                     break;
                 case "deleteSchedule":
                     await this.deleteSchedule(message.scheduleId);
@@ -3117,6 +3124,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private async updateScheduleContent(
         scheduleId: string,
+        mutationId: string,
         title: string,
         prompt: string,
         change?: DshScheduleTimingChange,
@@ -3136,6 +3144,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         this.scheduleMutationPendingId = scheduleId;
         this.postState();
+        let succeeded = false;
         try {
             const result = await this.runtime.updateSchedule({
                 sessionId,
@@ -3155,6 +3164,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
             }
             if (result.updated === true) {
+                succeeded = true;
                 this.refreshScheduleAfterMutation(sessionId);
             } else if (result.updated === false) {
                 this.refreshScheduleAfterMutation(sessionId);
@@ -3175,6 +3185,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
         } finally {
             this.scheduleMutationPendingId = undefined;
+            this.scheduleMutationResult = {
+                scheduleId,
+                mutationId,
+                succeeded,
+            };
             this.postState();
         }
     }
@@ -3692,6 +3707,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(this.scheduleMutationPendingId === undefined
                 ? {}
                 : { scheduleMutationPendingId: this.scheduleMutationPendingId }),
+            ...(this.scheduleMutationResult === undefined
+                ? {}
+                : { scheduleMutationResult: this.scheduleMutationResult }),
             ...(this.scheduleHistoryView?.sessionId === this.sessionId
                 ? { scheduleHistory: this.scheduleHistoryView }
                 : {}),

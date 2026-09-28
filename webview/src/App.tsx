@@ -48,6 +48,7 @@ export function App(): React.JSX.Element {
                     scheduleCatalog={state.scheduleCatalog}
                     scheduleManagementAvailable={state.scheduleManagementAvailable}
                     scheduleMutationPendingId={state.scheduleMutationPendingId}
+                    scheduleMutationResult={state.scheduleMutationResult}
                     scheduleHistory={state.scheduleHistory}
                     permissions={state.permissions}
                     dynamicPlugins={state.dynamicPlugins}
