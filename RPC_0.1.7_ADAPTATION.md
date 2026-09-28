@@ -20,7 +20,7 @@ RC.2 有业务 RPC 合约破坏性变更：5 个既有方法的参数签名改�
 | --- | --- | --- |
 | `account/getProfile`、`getBalance`、`signOut` | 新增必填 `AccountClientMetadata` 参数 | `dsh.manageAccount` 为每次调用传入扩展版本、VS Code 语言与本地 UTC 偏移。 |
 | `account/startSignIn` | 第一个参数由 `locale: string` 改为 `client: AccountClientMetadata` | 浏览器登录传入完整客户端元数据，并使用 Runtime loopback origin 作为回调来源。 |
-| `workspace/initializeDefault` | 从 `(request, signal)` 改成 `(signal)`；移除客户端传目录名和标题的 DTO | 本地暂无调用方；首用工作区由 Host 固定命名。 |
+| `workspace/initializeDefault` | 从 `(request, signal)` 改成 `(signal)`；移除客户端传目录名和标题的 DTO | 无 VS Code 文件夹且本地 Workspace/Session/archive 均为空时，显式新建 Session 会以无参数调用；首用目录由 Host 固定命名。 |
 | `agentPresets/list` | roster 移除 `modeSelectionEnabled` | 本地接收类型仍把该字段设为可选；RC.2 缺省时保留 IDE 自己的选择器。是否要跟随上游统一的工作模式设置仍需产品决策。 |
 | `session/modelCatalog` | `routableProviders` 现在只含至少有一个可用模型的 provider | wire 字段不变；现有 `routable` 派生读取该数组，语义与 RC.2 一致。空模型目录的 provider 会显示为不可路由。 |
 | `session/selectModel` | 参数与返回结构不变；现在先校验模型可用性，并不等待默认模型持久化完成 | wire 兼容；调用方不能把 RPC 返回当作默认设置已落盘的确认。 |
