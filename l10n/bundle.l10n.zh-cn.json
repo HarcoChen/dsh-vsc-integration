@@ -535,5 +535,11 @@
     "The {manager} store resolved DSH but not its dependencies, so downloading it again cannot repair the layout. Clear it and retry, or set dsh.command to a different package manager.\n\n{message}": "{manager} 的存储能解析出 DSH，却解析不到它的依赖；重新下载无法修复这种目录结构。请清空该存储后重试，或把 dsh.command 改为其他包管理器。\n\n{message}",
     "Cannot approve: {files} has unsaved editor changes. Save or revert them first, then approve again.": "无法批准：{files} 在编辑器中有未保存的改动。请先保存或还原这些改动，再重新批准。",
     "Autonomous debugging changes how the Runtime launches, so it applies to the next launch. Restart DSH now?": "自主调试会改变 Runtime 的启动方式，只在下次启动时生效。现在重启 DSH 吗？",
-    "Restart DSH Runtime": "重启 DSH Runtime"
+    "Restart DSH Runtime": "重启 DSH Runtime",
+    "DSH {version}: Jev can now use Laya.": "DSH {version} 更新：Jev 现在可使用 Laya。",
+    "Run laya-serve, then set dsh.jev.baseUrl to http://127.0.0.1:8000/v1/systemone.": "启动 laya-serve，然后将 dsh.jev.baseUrl 设置为 http://127.0.0.1:8000/v1/systemone。",
+    "Configure a non-empty Jev API key. If Laya has LAYA_API_KEY set, use the same value. Laya confidence scores differ from Jev's, so calibrate thresholds before relying on ask/block decisions.": "请配置非空的 Jev API Key。如果 Laya 设置了 LAYA_API_KEY，两边请使用相同值。Laya 的置信度分数与 Jev 定义不同；依赖 ask/block 判断前请先校准阈值。",
+    "Open Jev settings": "打开 Jev 设置",
+    "Later": "稍后",
+    "View What's New": "查看更新内容"
 }
