@@ -123,7 +123,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
 
-**How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it directly into a Runtime started by this extension. No second IDE plugin is required, and an already-running or externally managed Runtime is never modified. The integration is disabled by default; enabling `dsh.jev.enabled` sends complete arguments for the configured guarded tools to the TypeSafe System One endpoint. The nested loop-guard, result-shaper, evidence-gate, tool-pruner, skill-router, decision-tool, and deterministic-safety settings are passed unchanged to the mounted plugin. Tool pruning changes only model-visible schemas; skill routing adds bounded advice; decision tools are opt-in, while deterministic safety checks stay local and do not call Jev. Use **DSH: Configure Jev API Key** to save the key in VS Code SecretStorage; the extension passes it only to Runtime processes it starts. `TYPESAFE_API_KEY` and the existing `$HOME/.dsh/.env` entry remain supported as fallbacks. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
+**How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
 **Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.1.7-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
@@ -186,28 +186,16 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
-| `dsh.jev.enabled` | `false` | Enable the built-in minimal Jev advisory layer; guarded tool arguments may be sent to TypeSafe. Configure the key with `DSH: Configure Jev API Key`; requires a Runtime restart. |
-| `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | TypeSafe System One endpoint used by the built-in Jev layer. |
+| `dsh.jev.enabled` | `false` | Enable Jev; guarded-tool arguments and data used by enabled features may be sent to TypeSafe System One. Configure the API key with `DSH: Configure Jev API Key`; restart the Runtime to apply. |
+| `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; use HTTPS for remote endpoints. |
 | `dsh.jev.model` | `jev-latest` | Jev model name. |
-| `dsh.jev.timeoutMs` | `2000` | Overall Jev request timeout in milliseconds. |
-| `dsh.jev.advisoryTimeoutMs` | `3500` | Bounded Jev safety-advisory timeout in milliseconds. |
-| `dsh.jev.askThreshold` | `0.5` | Probability threshold for an `ask` decision. |
-| `dsh.jev.blockThreshold` | `0.85` | Probability threshold for a `deny` decision. |
-| `dsh.jev.guardedTools` | *standard shell/file tools* | Tool names whose complete arguments are sent to Jev when enabled. |
-| `dsh.jev.loopGuard.enabled` | `false` | Enable semantic loop detection after tool execution; this can send recent trajectory samples to Jev. |
-| `dsh.jev.loopGuard.*` | *protocol defaults* | Tune loop threshold, cooldown, history, tool filters and request timeout. Exact repeats remain with DSH's built-in reminder by default. |
-| `dsh.jev.resultShaper.enabled` | `false` | Remove classified repetitive lines from large tool results before the next model turn; warning and failure lines are retained by default. |
-| `dsh.jev.resultShaper.*` | *protocol defaults* | Tune result-size threshold, shaped tools, retained classifications, cluster budget and request timeout. |
-| `dsh.jev.doneGate.enabled` | `false` | Ask Jev to check completion evidence; this is a quality guard and can add a verification turn, so it is not a token-saving setting. |
-| `dsh.jev.doneGate.*` | *protocol defaults* | Tune completion threshold, evidence count, claim size, cooldown and request timeout. |
-| `dsh.jev.toolPruner.enabled` | `false` | Opt in to Jev top-K pruning of model-visible tool schemas; permissions and registered tools are unchanged. |
-| `dsh.jev.toolPruner.*` | *protocol defaults* | Tune the target tool cap, relevance/confidence floors, candidate budget, retained names and request timeout; mandatory/retained tools can exceed the target. |
-| `dsh.jev.skillRouter.enabled` | `false` | Opt in to adding bounded Jev-ranked skill advice to the next model prompt. |
-| `dsh.jev.skillRouter.*` | *protocol defaults* | Tune skill candidate/selection budgets, score/confidence floors, advice length and request timeout. |
-| `dsh.jev.decisionTools.enabled` | `false` | Opt in to the agent-facing `jev_ask`, `jev_rank` and `jev_check` tools; their bounded state is sent to Jev. |
-| `dsh.jev.decisionTools.*` | *protocol defaults* | Tune state, question, candidate, result and timeout bounds. |
-| `dsh.jev.deterministicSafetyGuard.enabled` | `true` | Keep local synchronous checks for destructive commands, privilege escalation and credential exposure enabled when DSH exposes `tools.guard`. |
-| `dsh.jev.deterministicSafetyGuard.maxArgumentChars` | `32000` | Maximum serialized argument text inspected by the local safety rules. |
+| `dsh.jev.loopGuard.enabled` | `false` | Enable semantic loop detection after tool execution; trajectory samples may be sent to Jev. |
+| `dsh.jev.resultShaper.enabled` | `false` | Enable classification and shaping of repetitive large tool results; samples may be sent to Jev. |
+| `dsh.jev.doneGate.enabled` | `false` | Ask Jev to check completion claims against tool evidence. |
+| `dsh.jev.toolPruner.enabled` | `false` | Ask Jev to rank visible tools; DSH permissions are unchanged. |
+| `dsh.jev.skillRouter.enabled` | `false` | Ask Jev to select relevant skills and add bounded advice. |
+| `dsh.jev.decisionTools.enabled` | `false` | Expose Jev ask/rank/check tools; submitted state may be sent to Jev. |
+| `dsh.jev.deterministicSafetyGuard.enabled` | `true` | Run destructive-command and credential checks locally. |
 | `dsh.autonomousDebugging` | `false` | Let the agent drive this window's debugger through a loopback MCP endpoint. Applies to a Runtime this window starts; needs a Runtime restart. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |
 | `dsh.persistSession` | `true` | Reuse the previous Session ID for the current workspace when possible. |

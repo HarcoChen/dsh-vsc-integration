@@ -599,5 +599,6 @@
     "Your DSH account is separate from API Key providers.": "DSH 账号与 API Key 提供商相互独立。",
     "Verifying the sign-in response…": "正在验证登录响应…",
     "Saving the account credential…": "正在保存账号凭据…",
-    "Signing in to DeepSeek account": "正在登录 DeepSeek 账号…"
+    "Signing in to DeepSeek account": "正在登录 DeepSeek 账号…",
+    "Jev settings apply to the next Runtime launch. Guarded tool arguments and samples for enabled policy features may be sent to the configured TypeSafe endpoint. Restart DSH now?": "Jev 设置会在下次启动 Runtime 时生效。受保护工具参数及已启用策略所需的样本可能会发送到配置的 TypeSafe endpoint。现在重启 DSH 吗？"
 }
