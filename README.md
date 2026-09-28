@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/dsh-0.1.7--rc.2-2f6feb?style=flat-square" alt="dsh 0.1.7-rc.2">
+  <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-built--in-8250df?style=flat-square" alt="Laya / Jev built-in">
+  <img src="https://img.shields.io/badge/setup-zero--config-1a7f37?style=flat-square" alt="Zero-config setup">
+</p>
+
+<p align="center">
   <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
@@ -39,12 +45,21 @@
   <img src="public/scene-intro.gif" alt="DSH IDE Workflow Demo" width="100%">
 </p>
 
+## Highlights
+
+| | |
+| --- | --- |
+| **Ready for dsh `0.1.7-rc.2`** | The default Runtime is `0.1.7-rc.2`, with the Remote RPC audited against upstream tag `dsh-v0.1.7-rc.2`. New RC.2 surfaces come with it: session management (pin, archive, restore), DeepSeek account sign-in and balance, the cross-session Schedule dock, and default DSH Workspace initialization. Any Runtime at or above `0.1.5-rc.1` still connects. |
+| **Laya / Jev built in** | The IDE-neutral [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin ships inside the extension. Add fast System One decisions from TypeSafe [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), or its wire-compatible open-source alternative [Laya](https://huggingface.co/convaiinnovations/laya), to the agent loop: loop guard, large-output shaping, done-gate, tool pruning, skill routing, and decision tools. Nothing extra to install. |
+| **Works out of the box** | Install the extension and open chat. It finds a compatible local `dsh`, offers to upgrade an old one, or downloads a managed Runtime. The Jev plugin is mounted automatically into the Runtime it starts. The only setup left is your API key. |
+
 ## Why DSH?
 
 - **See what changed.** Review tool edits in VS Code's native side-by-side diff, even outside a Git repository.
 - **Decide before execution.** Approval cards show commands and target files, with proposed diffs for supported file writes.
 - **Start with context.** Bring files, selections, Git diffs, or paused debugger state into a task without copying everything by hand.
 - **Pick up where you left off.** Resume persistent sessions and follow tools, subagents, Todos, and token usage in the Activity panel.
+- **Smarter agent decisions, no extra install.** Turn on the built-in Laya/Jev integration to catch loops, trim noisy output, and check completion claims against evidence.
 
 ## Quick start
 
@@ -54,6 +69,7 @@ Requires **VS Code 1.106.0 or later** and a configured DSH model provider with c
 2. **Open chat.** Open and trust your project folder, then run `DSH: Open Chat` from the Command Palette. The extension automatically starts or connects to a Runtime; by default, it attempts a managed Runtime download when no usable environment is available.
 3. **Set up your provider.** Run `DSH: Configure API Key` for DeepSeek credentials. For other providers, use `DSH: Open dsh Web UI in Browser`. Select or register a DSH Workspace, then choose a model.
 4. **Give it a task.** Type `@` to reference a file, or right-click a selection for DSH actions. Follow the task, respond to approval requests, and open diffs from tool cards to review the result.
+5. **(Optional) Turn on Laya/Jev.** Enable `dsh.jev.enabled` and the features you want, run `DSH: Configure Jev API Key`, then accept the Runtime restart. See [Laya / Jev System One decisions](#laya--jev-system-one-decisions-built-in).
 
 > A **DSH Workspace** groups sessions in Harness and can be associated with a project path. When using the same Runtime, you can continue sessions created in the Web UI.
 
@@ -79,6 +95,32 @@ After a `write`/`edit` tool call, open the target file to see VS Code's native s
 The approval card shows the actual command line, working directory, and target files that will be written. For supported file-writing tools, open a native diff of the proposed change before approving it.
 
 A write whose target file still has unsaved editor changes is not released: approval is refused, the card names the files and stays pending, and you can save or revert them and approve again.
+
+### Laya / Jev System One decisions, built in
+
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe's System One decision model. It does not generate text. It reads an agent state and returns calibrated, typed answers in milliseconds. [Laya](https://huggingface.co/convaiinnovations/laya) is an Apache-2.0 open-weights alternative that serves the same `POST /v1/systemone` request and response shape. The extension bundles the [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin (shared with the JetBrains plugin) and mounts it into every Runtime it starts. You do not install a separate plugin or edit your DSH profile.
+
+| Feature | Setting | What it does |
+| --- | --- | --- |
+| Loop guard | `dsh.jev.loopGuard.enabled` | Detects semantic loops after tool execution and steers the agent out. |
+| Result shaper | `dsh.jev.resultShaper.enabled` | Classifies and folds repetitive large tool output, and keeps warnings and failures. |
+| Done gate | `dsh.jev.doneGate.enabled` | Checks completion claims against tool evidence and can request one more verification turn. |
+| Tool pruner | `dsh.jev.toolPruner.enabled` | Ranks model-visible tool schemas. DSH permissions and tool registration are unchanged. |
+| Skill router | `dsh.jev.skillRouter.enabled` | Selects relevant skills and adds bounded advice to the context. |
+| Decision tools | `dsh.jev.decisionTools.enabled` | Exposes `jev_ask`, `jev_rank`, and `jev_check` tools to the agent. |
+| Deterministic safety guard | `dsh.jev.deterministicSafetyGuard.enabled` | Runs local checks for destructive commands, privilege escalation, and credential exposure. Inspected data stays local. |
+
+**Use Jev:** enable `dsh.jev.enabled` plus the features you want, run `DSH: Configure Jev API Key`, and restart the Runtime when prompted. The key is encrypted in VS Code SecretStorage.
+
+**Use Laya:** point `dsh.jev.baseUrl` at an HTTPS endpoint that serves the Laya System One API, set `dsh.jev.model` to the model name that server expects, and configure an API key. If your server ignores the key, any placeholder value works. The extension accepts only `https://` endpoints and falls back to the TypeSafe default for anything else.
+
+Everything is off by default. Enabled features may send the samples they need to the configured endpoint. Existing or externally managed Runtimes are never modified.
+
+### Sessions, account, and schedules (dsh 0.1.7-rc.2)
+
+- `DSH: Manage Sessions` pins sessions and restores archived ones. `DSH: Archive Session` asks whether to stop a running task before it archives the session. DSH Workspaces also work without an open VS Code folder.
+- `DSH: Manage DeepSeek Account` signs in through the browser, signs out, and shows the account profile and balance.
+- The Schedule dock lists reminders across sessions. You can edit daily, weekly, or cron rules, view delivery history, and delete reminders.
 
 ### Slash commands enumerated live from the Runtime
 
@@ -123,17 +165,17 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
 
-**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. RC.2 is the default download and upgrade target. V3 history and opt-in Assistant streams remain required. Session migration preserves original logs, but older runtimes cannot read the upgraded V3 files.
+**How is Laya/Jev integrated?** The extension package carries the IDE-neutral `dsh-jev-integration` Runtime package and mounts it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Laya is supported through the same System One contract by changing `dsh.jev.baseUrl` (HTTPS only). Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
-The source audit covers upstream master `c291e7961a` and release tag `dsh-v0.1.5-rc.2` (`fb2c4b9e698e30edb738bca4cf0618587db7d203`). Message feedback preserves categories for both ratings, including edits and conflict responses. When a Runtime supplies master’s optional `modeSelectionEnabled` policy, disabling it hides the IDE mode choices, clears a staged mode, and restores blank sessions to the effective default before their first prompt; started sessions keep their composition. Skill completion tooltips show `SKILL.md` paths when supplied. Missing optional fields retain RC.2 behavior. Version acceptance follows the minimum-version rule, independently of this source audit.
+**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.1.7-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
-At this audit, npm `latest` and `next` point to RC.2. The extension keeps `0.1.5-rc.2` as its default; a compatible local installation is reused without downgrading.
+The Remote source audit targets upstream tag `dsh-v0.1.7-rc.2` (`477b4f420553e8a52c2fbccc464d7561b239c443`); see [the RPC adaptation report](./RPC_0.1.7_ADAPTATION.md). The carrier handles multipart binary unary responses and client-to-host stream frames. The IDE exposes Account management, Schedule Activity Dock, and default Workspace initialization against the updated RC.2 contracts. Remote Workspace Files, Jobs, plugin-manager, permission-preset, and terminal surfaces remain candidates and are not exposed in the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
 
 Default app arguments are `web --no-open`; pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved, and auto mode strips their package prefix when selecting a local CLI. Shared Runtime discovery still runs before choosing a new launcher, so fallback reuses a healthy Runtime instead of starting a second one.
 
-As of the adaptation check, the CNB standalone Runtime mirror returns 404 for `0.1.5-rc.2`. Use a compatible local CLI, the pinned pnpm/npx fallback, or an existing instance until that mirror is published; a standalone download is not currently verified. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without downloads or model requests.
+If a standalone Runtime asset is unavailable from the configured download source, use a compatible local CLI, the pinned pnpm/npx fallback, or an existing instance. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without downloads or model requests.
 
 **Does DSH support multi-root workspaces?** DSH supports multiple independent Workspaces, but each Session has one working directory (`cwd`). A VS Code multi-root workspace is therefore represented by the first workspace folder for Runtime startup; use separate DSH Workspaces or Sessions when roots need different working directories.
 
@@ -182,10 +224,20 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverToken` | `""` | Launch token for `dsh.serverUrl`; use it when the address and token are configured separately. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.1.5-rc.2` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1 (CNB downloads require a published mirror). |
+| `dsh.runtimeVersion` | `0.1.7-rc.2` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
+| `dsh.jev.enabled` | `false` | Enable Jev; guarded-tool arguments and data used by enabled features may be sent to TypeSafe System One. Configure the API key with `DSH: Configure Jev API Key`; restart the Runtime to apply. |
+| `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint; use HTTPS for remote endpoints. |
+| `dsh.jev.model` | `jev-latest` | Jev model name. |
+| `dsh.jev.loopGuard.enabled` | `false` | Enable semantic loop detection after tool execution; trajectory samples may be sent to Jev. |
+| `dsh.jev.resultShaper.enabled` | `false` | Enable classification and shaping of repetitive large tool results; samples may be sent to Jev. |
+| `dsh.jev.doneGate.enabled` | `false` | Ask Jev to check completion claims against tool evidence. |
+| `dsh.jev.toolPruner.enabled` | `false` | Ask Jev to rank visible tools; DSH permissions are unchanged. |
+| `dsh.jev.skillRouter.enabled` | `false` | Ask Jev to select relevant skills and add bounded advice. |
+| `dsh.jev.decisionTools.enabled` | `false` | Expose Jev ask/rank/check tools; submitted state may be sent to Jev. |
+| `dsh.jev.deterministicSafetyGuard.enabled` | `true` | Run destructive-command and credential checks locally. |
 | `dsh.autonomousDebugging` | `false` | Let the agent drive this window's debugger through a loopback MCP endpoint. Applies to a Runtime this window starts; needs a Runtime restart. |
 | `dsh.maxContextBytes` | `120000` | Maximum UTF-8 bytes of `<ide_context>` included per prompt. |
 | `dsh.persistSession` | `true` | Reuse the previous Session ID for the current workspace when possible. |
@@ -200,6 +252,7 @@ Search `dsh` in VS Code settings for the full list.
 **Build from source**:
 
 ```bash
+git submodule update --init --recursive
 npm install
 npm run check
 npm run package
@@ -249,7 +302,9 @@ npm run package    # Compile + vsce package
 npm run release    # Test + version bump + CHANGELOG archive + tag
 ```
 
-To check the Remote integration against an installed `0.1.5-rc.2` launcher:
+The checked-in Remote smoke runner uses historical `0.1.5-rc.2` V3 fixtures. It does not verify the `0.1.7-rc.1` multipart, uplink, or archive changes or the `0.1.7-rc.2` business RPC changes; see the [current RPC adaptation report](./RPC_0.1.7_ADAPTATION.md) for that audit boundary.
+
+To run the historical Remote integration smoke against a compatible installed launcher:
 
 ```bash
 npm run compile

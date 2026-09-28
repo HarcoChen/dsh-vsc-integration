@@ -93,6 +93,7 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
         endpoint: string,
         args: Record<string, unknown> = {},
         signal: AbortSignal,
+        uplink?: AsyncIterable<unknown>,
     ): AsyncGenerator<unknown> {
         if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
         assertRemoteEndpoint(endpoint);
@@ -105,6 +106,19 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
         let socket: RemoteWebSocket | undefined;
         let opened = false;
         let terminal = false;
+        let uplinkStopped = false;
+        let uplinkFinished = false;
+        let uplinkIterator: AsyncIterator<unknown> | undefined;
+        const stopUplink = (): void => {
+            if (uplinkStopped || uplinkFinished) return;
+            uplinkStopped = true;
+            try {
+                const returned = uplinkIterator?.return?.();
+                if (returned !== undefined) void Promise.resolve(returned).catch(() => undefined);
+            } catch {
+                // Iterator cleanup must not hide the stream's own result/error.
+            }
+        };
         const onAbort = (): void => inbox.fail(signal.reason);
         signal.addEventListener("abort", onAbort, { once: true });
         try {
@@ -113,6 +127,39 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
             this.streams.set(streamId, inbox);
             this.send(socket, { type: "open", streamId, endpoint, payload: { args } });
             opened = true;
+            if (uplink !== undefined) {
+                uplinkIterator = uplink[Symbol.asyncIterator]();
+                const iterator = uplinkIterator;
+                void (async () => {
+                    try {
+                        while (!uplinkStopped) {
+                            const next = await iterator.next();
+                            if (uplinkStopped) return;
+                            if (next.done) {
+                                if (socket?.readyState !== WEB_SOCKET_OPEN || socket !== this.socket) {
+                                    throw new RemoteCarrierError("DSH Remote stream carrier is not connected");
+                                }
+                                this.send(socket, { type: "end", streamId });
+                                uplinkFinished = true;
+                                return;
+                            }
+                            if (next.value !== undefined && !isRemoteJsonValue(next.value)) {
+                                throw new TypeError(`Remote ${endpoint} uplink item must be JSON-safe`);
+                            }
+                            if (socket?.readyState !== WEB_SOCKET_OPEN || socket !== this.socket) {
+                                throw new RemoteCarrierError("DSH Remote stream carrier is not connected");
+                            }
+                            this.send(socket, next.value === undefined
+                                ? { type: "item", streamId }
+                                : { type: "item", streamId, value: next.value });
+                        }
+                    } catch (error) {
+                        if (!uplinkStopped) inbox.fail(error);
+                    } finally {
+                        uplinkFinished = true;
+                    }
+                })();
+            }
             while (true) {
                 const frame = await inbox.next();
                 if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted", "AbortError");
@@ -128,6 +175,7 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
             }
         } finally {
             signal.removeEventListener("abort", onAbort);
+            stopUplink();
             this.streams.delete(streamId);
             if (opened && !terminal && socket?.readyState === WEB_SOCKET_OPEN) {
                 this.send(socket, { type: "cancel", streamId });

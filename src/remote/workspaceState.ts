@@ -28,8 +28,16 @@ export function workspaceBaseline(value: unknown): DshWorkspaceListResult | unde
     const items = value.items.map(workspaceView);
     if (items.some((item) => item === undefined)) return undefined;
     if (!value.archivedSessionIds.every((id) => typeof id === "string")) return undefined;
+    if (value.pinnedSessionIds !== undefined &&
+        (!Array.isArray(value.pinnedSessionIds) || !value.pinnedSessionIds.every((id) => typeof id === "string"))) {
+        return undefined;
+    }
     const archivedSessionIds = value.archivedSessionIds as string[];
-    return { items: items as DshWorkspaceView[], archivedSessionIds };
+    return {
+        items: items as DshWorkspaceView[],
+        archivedSessionIds,
+        ...(value.pinnedSessionIds === undefined ? {} : { pinnedSessionIds: [...value.pinnedSessionIds] as string[] }),
+    };
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

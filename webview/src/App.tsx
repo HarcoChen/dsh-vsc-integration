@@ -45,9 +45,15 @@ export function App(): React.JSX.Element {
                     jobs={state.jobs}
                     todos={state.todos}
                     schedule={state.schedule}
+                    scheduleCatalog={state.scheduleCatalog}
+                    scheduleManagementAvailable={state.scheduleManagementAvailable}
+                    scheduleMutationPendingId={state.scheduleMutationPendingId}
+                    scheduleMutationResult={state.scheduleMutationResult}
+                    scheduleHistory={state.scheduleHistory}
                     permissions={state.permissions}
                     dynamicPlugins={state.dynamicPlugins}
                     commands={state.commands}
+                    sessions={state.sessions}
                     sessionId={state.sessionId}
                     sessionRunning={state.sessionStatus?.running === true}
                     agentPresetLabel={state.agentPresetLabel}

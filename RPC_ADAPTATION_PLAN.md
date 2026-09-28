@@ -1,6 +1,6 @@
 # DSH `0.1.2-rc.1` Remote RPC 适配方案
 
-> 历史方案：以下章节记录首次 RC Remote 迁移。当前适配目标已升级至 `0.1.5-rc.1`，增量审计、实现及验证见 [RPC_0.1.5_ADAPTATION.md](./RPC_0.1.5_ADAPTATION.md)。旧版本号不再代表当前默认值。
+> 历史方案：以下章节记录首次 RC Remote 迁移。当前适配目标为 `0.1.7-rc.2`，增量审计、实现与未覆盖能力见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)；`RPC_0.1.5_ADAPTATION.md` 保留为上一轮历史报告。
 
 ## 1. 目标与结论
 
@@ -433,6 +433,8 @@ RemoteError 映射规则：
 | 为兼容旧版引入双状态机 | 当前明确 fail-fast；若确有需求，另建完整 Legacy adapter，不共享 wire/store reducer |
 
 ## 14. 后续升级门禁
+
+2026-09-24 已按此流程完成 `dsh-v0.1.5-rc.2` → `dsh-v0.1.7-rc.1` 增量审计，结果与适配边界记在 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)。后续改默认版本时仍需重走以下步骤：
 
 每次修改默认 `dsh.runtimeVersion` 前必须：
 

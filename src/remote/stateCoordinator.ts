@@ -1,5 +1,6 @@
 import type { RemoteEventFrame, RemoteEventReadyFrame } from "./contracts";
 import { RemoteConnectionController, type RemoteConnectionState } from "./connection";
+import { isRemoteError } from "./errors";
 import { RemoteUnaryClient } from "./unaryClient";
 import {
     historyEntries as remoteHistoryEntries,
@@ -326,9 +327,9 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                         !isRecord(value) ||
                         value.type !== "baseline" ||
                         !isRecord(value.value) ||
-                        !isRecord(value.value.queues) ||
-                        !isRecord(value.value.jobs) ||
-                        !isRecord(value.value.projections)
+                        !isRecord(value.value.projections) ||
+                        (value.value.queues !== undefined && !isRecord(value.value.queues)) ||
+                        (value.value.jobs !== undefined && !isRecord(value.value.jobs))
                     ) {
                         ready?.reject(new Error("Remote session control stream did not begin with a baseline"));
                         return;
@@ -351,6 +352,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
 
     private async consumeWorkspace(signal: AbortSignal, ready?: Deferred): Promise<void> {
         let opened = false;
+        const baselineRevision = this.catalog.baselineRevision();
         try {
             for await (const value of this.connection.open("workspace/follow", {}, signal)) {
                 if (signal.aborted) return;
@@ -362,7 +364,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                     opened = true;
                     ready?.resolve();
                 }
-                this.applyWorkspace(value);
+                this.applyWorkspace(value, baselineRevision);
             }
             if (!opened) ready?.reject(new Error("Remote workspace stream ended before baseline"));
             else if (!signal.aborted) throw new Error("Remote workspace stream ended unexpectedly");
@@ -439,7 +441,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         }).catch((error) => {
             if (!signal.aborted && !this.stopped) {
                 this.diagnostic(`Remote session follow stopped for ${key}`, error);
-                this.connection.reconnect();
+                // A typed RPC rejection belongs to this logical stream. Reconnecting
+                // the shared carrier cannot repair the session and would restart all
+                // other streams in a loop for persistent errors such as corrupt logs.
+                if (!isRemoteError(error)) this.connection.reconnect();
             }
         });
     }
@@ -449,11 +454,11 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             throw new Error("Remote session control frame is malformed");
         }
         if (value.type === "baseline" && isRecord(value.value)) {
-            if (!isRecord(value.value.queues) || !isRecord(value.value.jobs) || !isRecord(value.value.projections)) {
+            const queues = value.value.queues === undefined ? {} : value.value.queues;
+            const jobs = value.value.jobs === undefined ? {} : value.value.jobs;
+            if (!isRecord(queues) || !isRecord(jobs) || !isRecord(value.value.projections)) {
                 throw new Error("Remote session control baseline is malformed");
             }
-            const queues = value.value.queues;
-            const jobs = value.value.jobs;
             const projections = value.value.projections;
             this.controlBaseline = { queues, jobs, projections };
             this.applyControlBaseline();
@@ -489,14 +494,14 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         }
     }
 
-    private applyWorkspace(value: unknown): void {
+    private applyWorkspace(value: unknown, baselineRevision: number): void {
         if (!isRecord(value) || typeof value.type !== "string") {
             throw new Error("Remote workspace frame is malformed");
         }
         if (value.type === "baseline" && isRecord(value.value)) {
             const baseline = workspaceBaseline(value.value);
             if (!baseline) throw new Error("Remote workspace baseline is malformed");
-            this.catalog.replaceRemoteWorkspaces(baseline);
+            this.catalog.replaceRemoteWorkspaces(baseline, baselineRevision);
             return;
         }
         if (value.type === "upsert") {
@@ -515,6 +520,11 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                 throw new Error("Remote workspace archive set is malformed");
             }
             this.catalog.replaceArchived(value.archivedSessionIds as string[]);
+        } else if (value.type === "pinned" && Array.isArray(value.pinnedSessionIds)) {
+            if (!value.pinnedSessionIds.every((id) => typeof id === "string")) {
+                throw new Error("Remote workspace pin set is malformed");
+            }
+            this.catalog.replacePinned(value.pinnedSessionIds as string[]);
         } else {
             throw new Error(`Remote workspace frame ${value.type} is malformed`);
         }

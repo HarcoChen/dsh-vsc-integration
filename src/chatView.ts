@@ -27,6 +27,7 @@ import { AGENT_PRESET_DOCUMENT_SCHEME, manageAgentPresets } from "./agentPresetA
 import { ChangeReviewStore } from "./changeReviewStore";
 import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
+import { manageSessions as runSessionManagement } from "./sessionActions";
 import { DshRuntime } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { GoalActivationController } from "./goalActivation";
@@ -48,7 +49,7 @@ import { MessageFeedbackController } from "./messageFeedbackController";
 import { SessionFeedbackController } from "./sessionFeedbackController";
 import { SubagentController } from "./subagentController";
 import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
-import { isRemoteError } from "./remote/errors";
+import { isRemoteError, RemoteProtocolError } from "./remote/errors";
 import { presentHostBaseline } from "./hostState";
 import { t } from "./localize";
 import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
@@ -60,6 +61,8 @@ import {
     presentSettingsPanel,
     settingsMutationOps,
     reasoningEffortOptions,
+    scheduleHistoryProjection,
+    scheduleCatalogProjection,
     scheduleProjection,
     sessionStatsProjection,
     todoProjection,
@@ -93,6 +96,12 @@ import {
     DshReasoningEffortOption,
     DshSessionSearchItem,
     DshSessionModelsResult,
+    DshScheduleItem,
+    DshScheduleCatalogEntry,
+    DshScheduleCatalogState,
+    DshScheduleHistoryState,
+    DshScheduleRecord,
+    DshScheduleTimingChange,
     DshSettingFieldType,
     DshSettingFieldView,
     DshSettingsCardView,
@@ -225,6 +234,7 @@ const REASONING_EFFORT_IMAGES: Readonly<Record<string, string>> = {};
 
 /** Opens the DSH view container; `WebviewView.show()` alone cannot expand a collapsed sidebar part. */
 const SIDEBAR_CONTAINER_COMMAND = "workbench.view.extension.dsh";
+const ALL_SESSIONS_SCHEDULE_CATALOG_KEY = "__all_sessions__";
 
 function positiveTurn(value: unknown): number | undefined {
     return typeof value === "number" && Number.isSafeInteger(value) && value > 0
@@ -305,6 +315,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly modelSelectionProjectionSeqs = new Map<string, number>();
     private readonly skillCatalogs = new SessionCatalogCache<DshSkillEntry[]>();
     private readonly commandCatalogs = new SessionCatalogCache<DshCommandDescriptor[]>();
+    private readonly scheduleCatalogs = new SessionCatalogCache<DshScheduleItem[]>();
+    private readonly allSessionsScheduleCatalog = new SessionCatalogCache<DshScheduleCatalogEntry[]>();
+    private scheduleCatalogView: DshScheduleCatalogState | undefined;
+    private scheduleHistoryView: DshScheduleHistoryState | undefined;
+    private scheduleHistoryGeneration = 0;
+    private scheduleMutationPendingId: string | undefined;
+    private scheduleMutationResult: ChatViewState["scheduleMutationResult"];
     private readonly messageFeedback: MessageFeedbackController;
     private readonly sessionFeedback: SessionFeedbackController;
     /**
@@ -313,6 +330,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
      * post. Cleared when a new stream generation connects.
      */
     private commandRegistryUnavailable = false;
+    private scheduleRpcUnavailable = false;
+    private scheduleCatalogRpcUnavailable = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private modeSelectionEnabled = true;
     private agentPresetCatalogRequest: Promise<void> | undefined;
@@ -426,8 +445,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.invalidateAgentPresetCatalog();
                         this.refreshAgentPresetCatalog();
                         break;
+                    case "schedule/changed":
+                        ++this.scheduleHistoryGeneration;
+                        this.scheduleHistoryView = undefined;
+                        this.scheduleCatalogs.invalidate();
+                        this.invalidateGlobalScheduleCatalog();
+                        this.postState();
+                        if (this.sessionId) {
+                            this.refreshScheduleCatalog(this.sessionId);
+                        }
+                        break;
                     case "llm/adapters-updated":
                     case "credentials/reference-updated":
+                    case "credentials/record-updated":
+                    case "deepseek-account/session-expired":
+                    case "deepseek-account/model-sign-in-required":
                         this.modelCatalogs.invalidate();
                         if (this.sessionId) this.refreshModelCatalog(this.sessionId);
                         break;
@@ -456,12 +488,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.goalActivation.reset();
                 this.commandRegistryUnavailable = false;
                 this.commandCatalogs.clear();
+                this.scheduleRpcUnavailable = false;
+                this.scheduleCatalogs.clear();
+                this.scheduleCatalogRpcUnavailable = false;
+                this.allSessionsScheduleCatalog.invalidate();
+                this.scheduleCatalogView = undefined;
+                ++this.scheduleHistoryGeneration;
+                this.scheduleHistoryView = undefined;
+                this.refreshGlobalScheduleCatalog(true);
                 void this.refreshDynamicPlugins();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
                         this.refreshModelCatalog(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
+                        this.refreshScheduleCatalog(this.sessionId);
                         void this.subagents.refreshSubagentTree(this.sessionId);
                         void this.messageFeedback.refresh(this.sessionId, true);
                     }
@@ -706,6 +747,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    public manageSessions(): Promise<void> {
+        return runSessionManagement({
+            runtime: this.runtime,
+            workspaceRoot: () => this.workspaceRoot(),
+            openSession: (sessionId) => this.switchSession(sessionId),
+        });
+    }
+
     public manageAgentPresets(): Promise<void> {
         return manageAgentPresets({
             runtime: this.runtime,
@@ -718,12 +767,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             },
             onSnapshotDocument: (uri, content) => {
                 this.agentPresetDocuments.set(uri, content);
-            },
-            onPresetRemoved: (presetId) => {
-                if (this.pendingNewSessionPreset !== presetId) return;
-                this.pendingNewSessionPreset = undefined;
-                this.pendingNewSessionSkills = undefined;
-                this.postState();
             },
         });
     }
@@ -1279,6 +1322,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "manageWorkspaces":
                     await this.manageWorkspaces();
                     break;
+                case "manageSessions":
+                    await this.manageSessions();
+                    break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
                     break;
@@ -1476,6 +1522,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "refreshSubagents":
                     if (this.sessionId) await this.subagents.refreshSubagentTree(this.sessionId);
+                    break;
+                case "refreshScheduleCatalog":
+                    this.refreshGlobalScheduleCatalog(true);
+                    this.postState();
+                    break;
+                case "editScheduleContent":
+                    await this.updateScheduleContent(
+                        message.scheduleId,
+                        message.mutationId,
+                        message.title,
+                        message.prompt,
+                        message.change,
+                    );
+                    break;
+                case "deleteSchedule":
+                    await this.deleteSchedule(message.scheduleId);
+                    break;
+                case "loadScheduleHistory":
+                    await this.loadScheduleHistory(message.scheduleId, message.before);
                     break;
                 case "openSubagent":
                     await this.subagents.openSubagentHistory(message.childSessionId);
@@ -1707,8 +1772,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) {
-            this.reportError(new Error(t("Open a workspace before sending a task to dsh.")));
+        const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
+        if (!sessionRoot) {
+            this.reportError(new Error(t("Open a VS Code folder or choose a DSH Workspace before sending a task.")));
             return;
         }
 
@@ -1725,7 +1791,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 throw new Error(t("dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”."));
             }
 
-            const session = await this.getOrCreateSession(workspaceRoot);
+            const session = await this.getOrCreateSession(sessionRoot);
             if (!hasAttachments && /^\/feedback$/u.test(text)) {
                 this.sessionFeedback.open(session);
                 return;
@@ -1911,10 +1977,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
         }
 
-        // The selected DSH Session may belong to a different DSH Workspace than
-        // the folder currently open in VS Code. Once a Session is explicitly
-        // selected, keep using it; the VS Code folder only determines which
-        // Session is restored or created when there is no current selection.
+        // The selected DSH Session or the Workspace explicitly staged by the
+        // new-session picker takes precedence. A VS Code folder supplies a
+        // Workspace only when the user has not selected one.
         if (!this.sessionId) {
             const workspace = this.pendingNewSessionWorkspaceId
                 ? {
@@ -1983,26 +2048,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!sessionRoot) return;
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const archived = new Set(catalog.archivedSessionIds);
-        const persistedMatches = persisted?.cwd !== undefined && samePath(persisted.cwd, sessionRoot);
+        const matchesCurrentWorkspace = (cwd: string | undefined): boolean =>
+            workspaceRoot === undefined || (cwd !== undefined && samePath(cwd, workspaceRoot));
+        const persistedMatches = persisted?.cwd !== undefined && matchesCurrentWorkspace(persisted.cwd);
         if (persistedMatches && persisted && archived.has(persisted.sessionId)) {
             await this.extensionContext.workspaceState.update("session", undefined);
         }
         const candidates = [
             ...(persisted?.cwd &&
-                samePath(persisted.cwd, sessionRoot) &&
+                matchesCurrentWorkspace(persisted.cwd) &&
                 !archived.has(persisted.sessionId)
                 ? [persisted.sessionId]
                 : []),
-            ...this.runtime
-                .getSessionCatalog()
-                .sessionsForWorkspace(sessionRoot)
-                .map((session) => session.sessionId),
+            ...(workspaceRoot === undefined
+                ? []
+                : this.runtime
+                    .getSessionCatalog()
+                    .sessionsForWorkspace(workspaceRoot)
+                    .map((session) => session.sessionId)),
         ].filter((sessionId, index, all) => all.indexOf(sessionId) === index);
         const sessionId = candidates[0];
         if (!sessionId) {
-            this.output.appendLine(
-                `[dsh] no persisted or registered session matches workspace ${sessionRoot}`,
-            );
+            if (workspaceRoot || persisted) {
+                this.output.appendLine(
+                    `[dsh] no persisted or registered session matches workspace ${workspaceRoot ?? "<none>"}`,
+                );
+            }
             return;
         }
 
@@ -2017,17 +2088,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const latestCatalog = this.runtime.getSessionCatalog().snapshot();
             if (latestCatalog.archivedSessionIds.includes(sessionId)) {
                 const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
-                if (latest?.sessionId === sessionId && latest.cwd && samePath(latest.cwd, sessionRoot)) {
+                if (latest?.sessionId === sessionId && matchesCurrentWorkspace(latest.cwd)) {
                     await this.extensionContext.workspaceState.update("session", undefined);
                 }
                 return;
             }
             this.sessionId = sessionId;
-            this.sessionCwd = sessionRoot;
+            this.sessionCwd = latestCatalog.sessions.find((session) => session.sessionId === sessionId)?.cwd ??
+                latestCatalog.workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.path ??
+                persisted?.cwd ?? workspaceRoot;
             if (persist) {
                 await this.extensionContext.workspaceState.update("session", {
                     sessionId,
-                    cwd: sessionRoot,
+                    cwd: this.sessionCwd ?? "",
                 } satisfies PersistedSession);
             }
             this.postState();
@@ -2038,7 +2111,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             void this.messageFeedback.refresh(sessionId, true);
         } catch (error) {
             const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
-            if (latest?.sessionId === sessionId && latest?.cwd && samePath(latest.cwd, sessionRoot)) {
+            if (latest?.sessionId === sessionId && matchesCurrentWorkspace(latest.cwd)) {
                 await this.extensionContext.workspaceState.update("session", undefined);
             }
             this.output.appendLine(
@@ -2049,14 +2122,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async newSession(agentPreset?: string, useCurrentWorkspace = false): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
-        if (!workspaceRoot) throw new Error(t("Open a workspace first."));
+        if (!workspaceRoot && useCurrentWorkspace) throw new Error(t("Open a VS Code folder first."));
         await this.runtime.start(workspaceRoot);
+        if (!this.sessionId && !this.newSessionDraft) await this.restorePersistedSession(workspaceRoot);
         const catalog = this.runtime.getSessionCatalog().snapshot();
-        const selectedWorkspace = useCurrentWorkspace
+        let selectedWorkspace = useCurrentWorkspace && workspaceRoot
             ? (await this.runtime.createWorkspace(workspaceRoot)).workspace
             : this.sessionId
                 ? catalog.workspaces.find((workspace) => workspace.sessionIds.includes(this.sessionId as string))
                 : undefined;
+        if (!workspaceRoot && !selectedWorkspace) {
+            if (catalog.workspaces.length === 0 && catalog.sessions.length === 0 &&
+                catalog.archivedSessionIds.length === 0) {
+                selectedWorkspace = await this.runtime.initializeDefaultWorkspace();
+                if (!selectedWorkspace) {
+                    throw new Error(t("The Runtime could not initialize a default DSH Workspace. Open a VS Code folder or choose an existing DSH Workspace."));
+                }
+            } else if (catalog.workspaces.length === 1) {
+                selectedWorkspace = catalog.workspaces[0];
+            } else if (catalog.workspaces.length > 1) {
+                const picked = await vscode.window.showQuickPick(
+                    catalog.workspaces.map((workspace) => ({
+                        label: `$(folder) ${workspace.title}`,
+                        description: workspace.path,
+                        workspace,
+                    })),
+                    {
+                        title: t("Choose a DSH Workspace"),
+                        placeHolder: t("Choose the DSH Workspace for the new Session"),
+                        matchOnDescription: true,
+                    },
+                );
+                if (!picked) return;
+                selectedWorkspace = picked.workspace;
+            } else {
+                throw new Error(t("Open a VS Code folder or choose an existing DSH Workspace."));
+            }
+        }
         this.pendingNewSessionSkills = this.sessionId && selectedWorkspace?.sessionIds.includes(this.sessionId)
             ? this.skillCatalogs.get(this.sessionId)
             : undefined;
@@ -2111,13 +2213,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async selectModel(): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
-        await this.restorePersistedSession(workspaceRoot);
+        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) {
+            await this.restorePersistedSession(undefined);
+            if (!this.sessionId) await this.newSession();
+        }
+        const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
+        if (!sessionRoot) return;
 
         // Model selection is also a valid first action. The Harness model
         // catalog is session-scoped, so materialize the pending/new session
         // before requesting it instead of rejecting the command outright.
-        const sessionId = this.sessionId ?? (workspaceRoot ? await this.getOrCreateSession(workspaceRoot) : undefined);
-        if (!sessionId) throw new Error(t("Open a workspace first."));
+        const sessionId = this.sessionId ?? await this.getOrCreateSession(sessionRoot);
         const catalog = await this.runtime.models(sessionId);
         this.modelCatalogs.set(sessionId, catalog);
         const currentEfforts = reasoningEffortOptions(
@@ -2214,9 +2320,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async openReasoningEffort(): Promise<void> {
         const workspaceRoot = this.workspaceRoot();
         if (!this.runtime.getUrl()) await this.runtime.start(workspaceRoot);
-        await this.restorePersistedSession(workspaceRoot);
-        const sessionId = this.sessionId ?? (workspaceRoot ? await this.getOrCreateSession(workspaceRoot) : undefined);
-        if (!sessionId) throw new Error(t("Open a workspace first."));
+        if (!workspaceRoot && !this.sessionId && !this.newSessionDraft) {
+            await this.restorePersistedSession(undefined);
+            if (!this.sessionId) await this.newSession();
+        }
+        const sessionRoot = this.pendingNewSessionWorkspacePath ?? workspaceRoot ?? this.sessionCwd;
+        if (!sessionRoot) return;
+        const sessionId = this.sessionId ?? await this.getOrCreateSession(sessionRoot);
         const catalog = this.modelCatalogs.get(sessionId) ?? await this.runtime.models(sessionId);
         this.modelCatalogs.set(sessionId, catalog);
         const options = reasoningEffortOptions(catalog, catalog.current.provider, catalog.current.model);
@@ -2334,11 +2444,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         await this.runtime.start(this.workspaceRoot());
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const archived = new Set(catalog.archivedSessionIds);
+        const pinnedOrder = new Map(catalog.pinnedSessionIds.map((sessionId, index) => [sessionId, index] as const));
         const choice = await vscode.window.showQuickPick(
             catalog.sessions
                 .filter((item) => !archived.has(item.sessionId))
+                .sort((left, right) => {
+                    const leftPin = pinnedOrder.get(left.sessionId);
+                    const rightPin = pinnedOrder.get(right.sessionId);
+                    if (leftPin !== undefined || rightPin !== undefined) {
+                        if (leftPin === undefined) return 1;
+                        if (rightPin === undefined) return -1;
+                        if (leftPin !== rightPin) return leftPin - rightPin;
+                    }
+                    return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
+                })
                 .map((item) => ({
-                    label: `${item.running ? "$(sync~spin)" : "$(comment-discussion)"} ${item.title || item.sessionId}`,
+                    label: `${pinnedOrder.has(item.sessionId) ? "$(pin)" : item.running ? "$(sync~spin)" : "$(comment-discussion)"} ${item.title || item.sessionId}`,
                     description: item.sessionId,
                     detail: item.cwd,
                     sessionId: item.sessionId,
@@ -2450,13 +2571,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!this.sessionId) throw new Error(t("There is no current session."));
         const archiveAction = t("Archive");
         const confirmation = await vscode.window.showWarningMessage(
-            t("Archive the current session and hide it from the DSH IDE session list? Archived sessions can be managed in the official dsh Web UI."),
+            t("Archive the current session and hide it from the DSH IDE session list? Restore it from Manage Sessions or review it in the official dsh Web UI."),
             { modal: true },
             archiveAction,
         );
         if (confirmation !== archiveAction) return;
         const archived = this.sessionId;
-        await this.runtime.archiveSession(archived);
+        try {
+            await this.runtime.archiveSession(archived);
+        } catch (error) {
+            if (!isRemoteError(error) || error.code !== "workspace/session-active") throw error;
+            const stopAndArchive = t("Stop and Archive");
+            const stopConfirmation = await vscode.window.showWarningMessage(
+                t("This session has active work. Stop it and archive the session?"),
+                { modal: true, detail: t("Stopping the session will end its running work.") },
+                stopAndArchive,
+            );
+            if (stopConfirmation !== stopAndArchive) return;
+            await this.runtime.archiveSession(archived, true);
+        }
         const next = this.runtime
             .getSessionCatalog()
             .snapshot()
@@ -2480,9 +2613,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             return;
         }
         const session = catalog.sessions.find((item) => item.sessionId === sessionId);
-        if (this.sessionId !== sessionId) this.subagents.discardSubagentPreview();
+        if (this.sessionId !== sessionId) {
+            this.subagents.discardSubagentPreview();
+            ++this.scheduleHistoryGeneration;
+            this.scheduleHistoryView = undefined;
+        }
         this.sessionId = sessionId;
-        this.sessionCwd = session?.cwd ?? this.workspaceRoot();
+        this.sessionCwd = session?.cwd ??
+            catalog.workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.path ??
+            this.workspaceRoot();
         this.newSessionDraft = false;
         this.clearNewSessionDraft();
         if (vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true)) {
@@ -2918,6 +3057,284 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    /** Pulls RC.2's active durable reminders for the Activity Dock schedule view. */
+    private refreshScheduleCatalog(sessionId: string): void {
+        void this.scheduleCatalogs.pull(sessionId, {
+            gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleRpcUnavailable,
+            pull: async () => {
+                const value = await this.runtime.listSchedules(sessionId);
+                if (value === undefined) return undefined;
+                const schedules = scheduleProjection(value);
+                if (schedules === undefined) {
+                    throw new RemoteProtocolError("Remote schedule/list returned an invalid value");
+                }
+                return schedules;
+            },
+            apply: (schedules) => {
+                this.scheduleCatalogs.set(sessionId, schedules);
+                if (this.sessionId === sessionId) this.postState();
+            },
+            absent: () => {
+                this.scheduleRpcUnavailable = true;
+            },
+            fail: (error) => {
+                this.output.appendLine(`[dsh:schedule] catalog refresh failed: ${errorMessage(error)}`);
+            },
+        });
+    }
+
+    /** Pulls RC.2's host-wide active and inactive reminder catalog for read-only cross-session browsing. */
+    private refreshGlobalScheduleCatalog(force = false): void {
+        if (this.scheduleCatalogRpcUnavailable || !this.runtime.getUrl()) return;
+        if (!force && this.scheduleCatalogView && this.scheduleCatalogView.status !== "idle") return;
+        const retained = this.scheduleCatalogView?.records ?? this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? [];
+        if (force && this.allSessionsScheduleCatalog.has(ALL_SESSIONS_SCHEDULE_CATALOG_KEY)) {
+            this.allSessionsScheduleCatalog.invalidateSession(ALL_SESSIONS_SCHEDULE_CATALOG_KEY);
+        }
+        this.scheduleCatalogView = { records: retained, status: "loading" };
+        void this.allSessionsScheduleCatalog.pull(ALL_SESSIONS_SCHEDULE_CATALOG_KEY, {
+            gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleCatalogRpcUnavailable,
+            pull: async () => {
+                const value = await this.runtime.scheduleCatalog();
+                if (value === undefined) return undefined;
+                const records = scheduleCatalogProjection(value);
+                if (records === undefined) {
+                    throw new RemoteProtocolError("Remote schedule/catalog returned an invalid value");
+                }
+                return records;
+            },
+            apply: (records) => {
+                this.allSessionsScheduleCatalog.set(ALL_SESSIONS_SCHEDULE_CATALOG_KEY, records);
+                this.scheduleCatalogView = { records, status: "ready" };
+                this.postState();
+            },
+            absent: () => {
+                this.scheduleCatalogRpcUnavailable = true;
+                this.scheduleCatalogView = { records: retained, status: "unavailable" };
+                this.postState();
+            },
+            fail: (error) => {
+                this.scheduleCatalogView = {
+                    records: this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? retained,
+                    status: "error",
+                    error: errorMessage(error),
+                };
+                this.output.appendLine(`[dsh:schedule] global catalog refresh failed: ${errorMessage(error)}`);
+                this.postState();
+            },
+        });
+    }
+
+    private invalidateGlobalScheduleCatalog(): void {
+        if (this.scheduleCatalogRpcUnavailable) return;
+        const retained = this.scheduleCatalogView?.records ?? this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? [];
+        this.allSessionsScheduleCatalog.invalidateSession(ALL_SESSIONS_SCHEDULE_CATALOG_KEY);
+        this.scheduleCatalogView = { records: retained, status: "loading" };
+        this.refreshGlobalScheduleCatalog(true);
+    }
+
+    private async updateScheduleContent(
+        scheduleId: string,
+        mutationId: string,
+        title: string,
+        prompt: string,
+        change?: DshScheduleTimingChange,
+    ): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        if (this.scheduleMutationPendingId) return;
+        const item = this.scheduleCatalogs.get(sessionId)?.find((schedule) => schedule.id === scheduleId);
+        if (!item || !item.title) throw new Error(t("This reminder is no longer available to edit."));
+        const normalizedTitle = title.trim();
+        const normalizedPrompt = prompt.trim();
+        if (!normalizedTitle || normalizedTitle.length > 120) {
+            throw new Error(t("Reminder titles must contain 1 to 120 characters."));
+        }
+        if (!normalizedPrompt) throw new Error(t("Reminder instructions cannot be empty."));
+        if (normalizedTitle === item.title && normalizedPrompt === item.prompt && change === undefined) return;
+
+        this.scheduleMutationPendingId = scheduleId;
+        this.postState();
+        let succeeded = false;
+        try {
+            const result = await this.runtime.updateSchedule({
+                sessionId,
+                id: scheduleId,
+                expected: item as DshScheduleRecord,
+                title: normalizedTitle,
+                prompt: normalizedPrompt,
+                ...(change === undefined ? {} : { change }),
+            });
+            if (!isRecord(result)) {
+                throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
+            }
+            if (typeof result.message === "string" && typeof result.code === "string") {
+                throw new Error(result.message);
+            }
+            if (result.id !== scheduleId) {
+                throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
+            }
+            if (result.updated === true) {
+                succeeded = true;
+                this.refreshScheduleAfterMutation(sessionId);
+            } else if (result.updated === false) {
+                this.refreshScheduleAfterMutation(sessionId);
+                if (isRecord(result.record)) return;
+                if (result.code === "schedule_conflict") {
+                    void vscode.window.showInformationMessage(t("This reminder changed elsewhere. The latest version has been refreshed."));
+                    return;
+                }
+                if (result.code === "schedule_not_found" || result.code === "schedule_ended") {
+                    void vscode.window.showInformationMessage(t("This reminder is no longer active."));
+                    return;
+                }
+                throw new RemoteProtocolError("Remote schedule/update returned an unknown non-mutating result");
+            } else if (typeof result.message === "string") {
+                throw new Error(result.message);
+            } else {
+                throw new RemoteProtocolError("Remote schedule/update returned an invalid value");
+            }
+        } finally {
+            this.scheduleMutationPendingId = undefined;
+            this.scheduleMutationResult = {
+                scheduleId,
+                mutationId,
+                succeeded,
+            };
+            this.postState();
+        }
+    }
+
+    private async deleteSchedule(scheduleId: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        if (this.scheduleMutationPendingId) return;
+        if (!this.scheduleCatalogs.get(sessionId)?.some((item) => item.id === scheduleId)) {
+            throw new Error(t("This reminder is no longer active."));
+        }
+        this.scheduleMutationPendingId = scheduleId;
+        this.postState();
+        try {
+            const result = await this.runtime.deleteSchedule(sessionId, scheduleId);
+            if (!isRecord(result) || result.id !== scheduleId || typeof result.deleted !== "boolean") {
+                throw new RemoteProtocolError("Remote schedule/delete returned an invalid value");
+            }
+            this.refreshScheduleAfterMutation(sessionId);
+            if (!result.deleted && result.code !== "schedule_not_found") {
+                throw new RemoteProtocolError("Remote schedule/delete returned an unknown non-mutating result");
+            }
+            if (!result.deleted) {
+                void vscode.window.showInformationMessage(t("This reminder was already removed."));
+            }
+        } finally {
+            this.scheduleMutationPendingId = undefined;
+            this.postState();
+        }
+    }
+
+    private refreshScheduleAfterMutation(sessionId: string): void {
+        ++this.scheduleHistoryGeneration;
+        this.scheduleHistoryView = undefined;
+        this.scheduleCatalogs.invalidateSession(sessionId);
+        this.invalidateGlobalScheduleCatalog();
+        this.refreshScheduleCatalog(sessionId);
+    }
+
+    private async loadScheduleHistory(scheduleId: string, before?: string): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) return;
+        const item = this.scheduleCatalogs.get(sessionId)?.find((schedule) => schedule.id === scheduleId);
+        if (!item) return;
+        const previous = this.scheduleHistoryView;
+        if (previous?.sessionId === sessionId && previous.id === scheduleId && previous.loading) return;
+        if (before !== undefined && (
+            previous?.sessionId !== sessionId || previous.id !== scheduleId || previous.nextBefore !== before
+        )) return;
+
+        const generation = ++this.scheduleHistoryGeneration;
+        const existingRecords = before === undefined ? [] : previous?.records ?? [];
+        this.scheduleHistoryView = {
+            sessionId,
+            id: scheduleId,
+            records: existingRecords,
+            loading: true,
+            ...(previous?.earlierRecordsUnavailable === undefined
+                ? {}
+                : { earlierRecordsUnavailable: previous.earlierRecordsUnavailable }),
+            ...(previous?.earlierRecordsPruned === undefined
+                ? {}
+                : { earlierRecordsPruned: previous.earlierRecordsPruned }),
+            ...(previous?.nextBefore === undefined ? {} : { nextBefore: previous.nextBefore }),
+        };
+        this.postState();
+        try {
+            const value = await this.runtime.scheduleHistory(sessionId, scheduleId, 20, before);
+            if (generation !== this.scheduleHistoryGeneration || this.sessionId !== sessionId) return;
+            if (value === undefined) {
+                this.scheduleHistoryView = {
+                    sessionId,
+                    id: scheduleId,
+                    records: existingRecords,
+                    loading: false,
+                    error: t("The connected Runtime does not expose Schedule history."),
+                };
+            } else {
+                const page = scheduleHistoryProjection(value, scheduleId);
+                if (!page) throw new RemoteProtocolError("Remote schedule/history returned an invalid value");
+                if ("code" in page) {
+                    const error = page.code === "schedule_not_found"
+                        ? t("This reminder no longer exists.")
+                        : t("The history cursor is no longer available. Reload the history.");
+                    this.scheduleHistoryView = {
+                        sessionId,
+                        id: scheduleId,
+                        records: existingRecords,
+                        loading: false,
+                        error,
+                    };
+                } else {
+                    const mergedRecords = before === undefined
+                        ? page.records
+                        : [...existingRecords, ...page.records.filter((record) =>
+                              !existingRecords.some((existing) =>
+                                  existing.messageId === record.messageId &&
+                                  existing.scheduledAt === record.scheduledAt,
+                              ),
+                          )];
+                    this.scheduleHistoryView = {
+                        sessionId,
+                        id: scheduleId,
+                        records: mergedRecords,
+                        loading: false,
+                        earlierRecordsUnavailable: page.earlierRecordsUnavailable,
+                        earlierRecordsPruned: page.earlierRecordsPruned,
+                        ...(page.nextBefore === undefined ? {} : { nextBefore: page.nextBefore }),
+                    };
+                }
+            }
+        } catch (error) {
+            if (generation !== this.scheduleHistoryGeneration || this.sessionId !== sessionId) return;
+            this.output.appendLine(`[dsh:schedule] history refresh failed: ${errorMessage(error)}`);
+            this.scheduleHistoryView = {
+                sessionId,
+                id: scheduleId,
+                records: existingRecords,
+                loading: false,
+                ...(before === undefined || previous?.nextBefore === undefined
+                    ? {}
+                    : { nextBefore: previous.nextBefore }),
+                ...(before === undefined || previous?.earlierRecordsUnavailable === undefined
+                    ? {}
+                    : { earlierRecordsUnavailable: previous.earlierRecordsUnavailable }),
+                ...(before === undefined || previous?.earlierRecordsPruned === undefined
+                    ? {}
+                    : { earlierRecordsPruned: previous.earlierRecordsPruned }),
+                error: errorMessage(error),
+            };
+        }
+        this.postState();
+    }
+
     /**
      * The registered command a prompt line invokes, if any. The catalog must
      * already be loaded — see {@link ensureCommandCatalog}.
@@ -3166,7 +3583,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (this.sessionId) {
             this.refreshSkillCatalog(this.sessionId);
             this.refreshCommandCatalog(this.sessionId);
+            this.refreshScheduleCatalog(this.sessionId);
         }
+        this.refreshGlobalScheduleCatalog();
         this.refreshAgentPresetCatalog();
         const selectedAgentPreset = selected?.agentPreset;
         const selectedAgentPresetLabel = this.agentPresetCatalog
@@ -3177,7 +3596,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const goalCell = projectionCell(session, "goal");
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
-        const schedule = scheduleProjection(projectionValue(session, "schedule"));
+        const schedule = this.sessionId && this.scheduleCatalogs.has(this.sessionId)
+            ? this.scheduleCatalogs.get(this.sessionId)
+            : scheduleProjection(projectionValue(session, "schedule"));
         const imageLimits = imageLimitsProjection(projectionValue(session, "imageLimits"));
         const plan = planProjection(projectionValue(session, "plan"));
         const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));
@@ -3290,6 +3711,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             permissions: permissionProjection(permissionsCell?.value),
             ...(todos === undefined ? {} : { todos }),
             ...(schedule === undefined ? {} : { schedule }),
+            ...(this.scheduleCatalogView === undefined ? {} : { scheduleCatalog: this.scheduleCatalogView }),
+            ...(this.sessionId && this.scheduleCatalogs.has(this.sessionId)
+                ? { scheduleManagementAvailable: true }
+                : {}),
+            ...(this.scheduleMutationPendingId === undefined
+                ? {}
+                : { scheduleMutationPendingId: this.scheduleMutationPendingId }),
+            ...(this.scheduleMutationResult === undefined
+                ? {}
+                : { scheduleMutationResult: this.scheduleMutationResult }),
+            ...(this.scheduleHistoryView?.sessionId === this.sessionId
+                ? { scheduleHistory: this.scheduleHistoryView }
+                : {}),
             ...(imageLimits === undefined ? {} : { imageLimits }),
             ...(plan === undefined ? {} : { plan }),
             ...(messageFeedback === undefined ? {} : { messageFeedback }),

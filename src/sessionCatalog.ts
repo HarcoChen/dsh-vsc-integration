@@ -22,6 +22,8 @@ export interface HarnessCatalogSnapshot {
     sessions: readonly SessionCatalogItem[];
     workspaces: readonly DshWorkspaceView[];
     archivedSessionIds: readonly string[];
+    /** Registry-global pins, newest first. */
+    pinnedSessionIds: readonly string[];
     revision: number;
 }
 
@@ -40,6 +42,7 @@ export function presentSessionRows(
     catalog: HarnessCatalogSnapshot,
 ): ChatViewState["sessions"] {
     const archived = new Set(catalog.archivedSessionIds);
+    const pinnedOrder = new Map(catalog.pinnedSessionIds.map((sessionId, index) => [sessionId, index] as const));
     const workspaceBySession = new Map(
         catalog.workspaces.flatMap((workspace) =>
             workspace.sessionIds.map((sessionId) => [sessionId, workspace] as const),
@@ -47,6 +50,16 @@ export function presentSessionRows(
     );
     return catalog.sessions
         .filter((item) => !archived.has(item.sessionId))
+        .sort((left, right) => {
+            const leftPin = pinnedOrder.get(left.sessionId);
+            const rightPin = pinnedOrder.get(right.sessionId);
+            if (leftPin !== undefined || rightPin !== undefined) {
+                if (leftPin === undefined) return 1;
+                if (rightPin === undefined) return -1;
+                if (leftPin !== rightPin) return leftPin - rightPin;
+            }
+            return (right.updatedAt ?? 0) - (left.updatedAt ?? 0);
+        })
         .map((item) => {
             const workspace = workspaceBySession.get(item.sessionId);
             return {
@@ -140,6 +153,7 @@ export class HarnessCatalogStore {
     private readonly pendingBySession = new Map<string, "approval" | "question">();
     private readonly listeners = new Set<HarnessCatalogListener>();
     private archived = { ids: new Set<string>(), revision: 0 };
+    private pinned = { ids: [] as string[], revision: 0 };
     private workspaceOrder: string[] = [];
     private revision = 0;
     private remoteBaselineDepth = 0;
@@ -185,6 +199,7 @@ export class HarnessCatalogStore {
         this.pendingBySession.clear();
         this.workspaceOrder = [];
         this.archived = { ids: new Set(), revision: ++this.revision };
+        this.pinned = { ids: [], revision: this.revision };
         this.publish();
     }
 
@@ -209,7 +224,7 @@ export class HarnessCatalogStore {
     }
 
     /** Replace the workspace-follow baseline belonging to one Remote generation. */
-    public replaceRemoteWorkspaces(result: DshWorkspaceListResult): void {
+    public replaceRemoteWorkspaces(result: DshWorkspaceListResult, baselineRevision = this.revision): void {
         this.workspaces.clear();
         const revision = ++this.revision;
         for (const workspace of result.items) {
@@ -219,12 +234,14 @@ export class HarnessCatalogStore {
             });
         }
         this.workspaceOrder = result.items.map((item) => item.workspaceId);
-        // Archive membership is append-only. A live archive mutation can race
-        // this generation's workspace baseline, so never let the late
-        // baseline make an already archived Session visible again.
-        const archived = new Set(this.archived.ids);
-        for (const sessionId of result.archivedSessionIds) archived.add(sessionId);
-        this.archived = { ids: archived, revision };
+        // A full baseline includes removals. Preserve state changes received
+        // after this stream generation began while applying the snapshot.
+        if (this.archived.revision <= baselineRevision) {
+            this.archived = { ids: new Set(result.archivedSessionIds), revision };
+        }
+        if (result.pinnedSessionIds !== undefined && this.pinned.revision <= baselineRevision) {
+            this.pinned = { ids: [...result.pinnedSessionIds], revision };
+        }
         this.publish();
     }
 
@@ -281,6 +298,9 @@ export class HarnessCatalogStore {
                 ids: new Set(result.archivedSessionIds),
                 revision: baselineRevision,
             };
+        }
+        if (result.pinnedSessionIds !== undefined && this.pinned.revision <= baselineRevision) {
+            this.pinned = { ids: [...result.pinnedSessionIds], revision: baselineRevision };
         }
         const liveIds = this.workspaceOrder.filter((id) => this.workspaces.has(id));
         const missingIds = result.items
@@ -391,8 +411,11 @@ export class HarnessCatalogStore {
                 break;
             case "host/archived-sessions-changed":
                 if (!stringArray(frame.archivedSessionIds)) return;
-                for (const sessionId of frame.archivedSessionIds) this.archived.ids.add(sessionId);
-                this.archived = { ids: this.archived.ids, revision };
+                this.archived = { ids: new Set(frame.archivedSessionIds), revision };
+                break;
+            case "host/pinned-sessions-changed":
+                if (!stringArray(frame.pinnedSessionIds)) return;
+                this.pinned = { ids: [...frame.pinnedSessionIds], revision };
                 break;
             default:
                 return;
@@ -572,12 +595,15 @@ export class HarnessCatalogStore {
         this.publish();
     }
 
-    public replaceArchived(ids: readonly string[]): void {
-        // The Host archive registry has no unarchive operation. Merge live
-        // snapshots so an RPC response or stream frame that arrives after a
-        // newer archive mutation cannot resurrect that Session in the UI.
-        for (const sessionId of ids) this.archived.ids.add(sessionId);
-        this.archived = { ids: this.archived.ids, revision: ++this.revision };
+    public replaceArchived(ids: readonly string[], baselineRevision?: number): void {
+        if (baselineRevision !== undefined && this.archived.revision > baselineRevision) return;
+        this.archived = { ids: new Set(ids), revision: ++this.revision };
+        this.publish();
+    }
+
+    public replacePinned(ids: readonly string[], baselineRevision?: number): void {
+        if (baselineRevision !== undefined && this.pinned.revision > baselineRevision) return;
+        this.pinned = { ids: [...ids], revision: ++this.revision };
         this.publish();
     }
 
@@ -643,6 +669,7 @@ export class HarnessCatalogStore {
                 sessionIds: [...workspace.sessionIds],
             })),
             archivedSessionIds: [...this.archived.ids],
+            pinnedSessionIds: [...this.pinned.ids],
             revision: this.revision,
         };
     }

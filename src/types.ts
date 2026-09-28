@@ -488,6 +488,7 @@ export interface DshModelCatalogFailure {
 
 export interface DshSessionModelsResult {
     current: DshModelSelection;
+    /** Provider currently has at least one available model in the Runtime catalog. */
     routable: boolean;
     groups: DshModelProviderGroup[];
     failures: DshModelCatalogFailure[];
@@ -513,7 +514,6 @@ export interface ReasoningEffortView {
 
 export interface DshAgentPresetEntry {
     id: string;
-    trust: "system" | "user";
     isDefault: boolean;
     name?: string;
     description?: string;
@@ -522,9 +522,7 @@ export interface DshAgentPresetEntry {
 
 export interface DshAgentPresetListResult {
     presets: DshAgentPresetEntry[];
-    authorable: boolean;
-    hasDocument: boolean;
-    /** Older releases omit this policy and allow mode selection. */
+    /** RC.1 policy; RC.2 omits it, so absence keeps caller-side selection enabled. */
     modeSelectionEnabled?: boolean;
 }
 
@@ -534,7 +532,6 @@ export interface DshAgentPresetSelectResult {
 
 export interface DshAgentPresetReadResult {
     agentPreset: string;
-    trust: "system" | "user";
     content: string;
     name?: string;
     description?: string;
@@ -682,10 +679,6 @@ export type DshDynamicPluginRemoveResult =
 export interface DshDynamicPluginResolveResult {
     accepted: boolean;
 }
-
-export type DshAgentPresetOpenResult =
-    | { opened: true }
-    | { opened: false; path: string };
 
 export interface DshSessionRenameResult {
     title: string;
@@ -1118,6 +1111,8 @@ export interface DshWorkspaceView {
 export interface DshWorkspaceListResult {
     items: DshWorkspaceView[];
     archivedSessionIds: string[];
+    /** RC.2+: registry-global pins, newest first. */
+    pinnedSessionIds?: string[];
 }
 
 export interface DshWorkspaceCreateResult {
@@ -1161,6 +1156,11 @@ export interface DshHostArchivedSessionsChangedFrame {
     archivedSessionIds: string[];
 }
 
+export interface DshHostPinnedSessionsChangedFrame {
+    type: "host/pinned-sessions-changed";
+    pinnedSessionIds: string[];
+}
+
 export interface DshHostRemoteEventFrame {
     type: "host/remote-event";
     event: string;
@@ -1181,6 +1181,7 @@ export type DshHostFrame =
     | DshHostWorkspaceRemovedFrame
     | DshHostWorkspaceOrderChangedFrame
     | DshHostArchivedSessionsChangedFrame
+    | DshHostPinnedSessionsChangedFrame
     | DshHostRemoteEventFrame
     | DshStreamErrorFrame
     | DshUnknownHostFrame;
@@ -1255,6 +1256,15 @@ export interface ChatViewState {
     permissions?: PermissionProjectionView;
     todos?: DshTodoItemView[];
     schedule?: DshScheduleItem[];
+    scheduleCatalog?: DshScheduleCatalogState;
+    scheduleManagementAvailable?: boolean;
+    scheduleMutationPendingId?: string;
+    scheduleMutationResult?: {
+        scheduleId: string;
+        mutationId: string;
+        succeeded: boolean;
+    };
+    scheduleHistory?: DshScheduleHistoryState;
     imageLimits?: DshImageLimitsView;
     plan?: DshPlanProjection;
     messageFeedback?: DshMessageFeedbackStateView;
@@ -1309,6 +1319,7 @@ export type DshScheduleItem =
     | {
           id: string;
           kind: "after";
+          title?: string;
           prompt: string;
           afterSeconds: number;
           scheduledAt: string;
@@ -1316,16 +1327,107 @@ export type DshScheduleItem =
     | {
           id: string;
           kind: "at";
+          title?: string;
           prompt: string;
           scheduledAt: string;
       }
     | {
           id: string;
           kind: "every";
+          title?: string;
           prompt: string;
           everySeconds: number;
           scheduledAt: string;
+      }
+    | {
+          id: string;
+          kind: "daily";
+          title?: string;
+          prompt: string;
+          time: string;
+          timeZone: string;
+          scheduledAt: string;
+      }
+    | {
+          id: string;
+          kind: "weekly";
+          title?: string;
+          prompt: string;
+          time: string;
+          timeZone: string;
+          weekdays: number[];
+          scheduledAt: string;
+      }
+    | {
+          id: string;
+          kind: "cron";
+          title?: string;
+          prompt: string;
+          expression: string;
+          timeZone: string;
+          scheduledAt: string;
       };
+
+export type DshScheduleRecord = DshScheduleItem & { title: string };
+
+export type DshScheduleCatalogEntry = DshScheduleRecord & {
+    sessionId: string;
+    status: "active" | "inactive";
+    lastDelivery?: Pick<DshScheduleDeliveryView, "scheduledAt" | "deliveredAt" | "messageId">;
+};
+
+export interface DshScheduleCatalogState {
+    records: DshScheduleCatalogEntry[];
+    status: "idle" | "loading" | "ready" | "error" | "unavailable";
+    error?: string;
+}
+
+export type DshScheduleTimingChange =
+    | { kind: "at"; at: string }
+    | { kind: "every"; every_seconds: number }
+    | { kind: "daily"; daily: { time: string; time_zone: string } }
+    | { kind: "weekly"; weekly: { time: string; time_zone: string; weekdays: number[] } }
+    | { kind: "cron"; cron: { expression: string; time_zone: string } };
+
+export interface DshScheduleUpdateRequest {
+    sessionId: string;
+    id: string;
+    expected: DshScheduleRecord;
+    title?: string;
+    prompt?: string;
+    change?: DshScheduleTimingChange;
+}
+
+export interface DshScheduleDeliveryView {
+    scheduledAt: string;
+    deliveredAt: string;
+    messageId: string;
+    prompt?: string;
+}
+
+export interface DshScheduleHistoryPage {
+    id: string;
+    records: DshScheduleDeliveryView[];
+    earlierRecordsUnavailable: boolean;
+    earlierRecordsPruned: boolean;
+    nextBefore?: string;
+}
+
+export type DshScheduleHistoryResult = DshScheduleHistoryPage | {
+    id: string;
+    code: "schedule_not_found" | "delivery_cursor_not_found";
+};
+
+export interface DshScheduleHistoryState {
+    sessionId: string;
+    id: string;
+    records: DshScheduleDeliveryView[];
+    loading: boolean;
+    earlierRecordsUnavailable?: boolean;
+    earlierRecordsPruned?: boolean;
+    nextBefore?: string;
+    error?: string;
+}
 
 export interface ChangeReviewView {
     turn: number;

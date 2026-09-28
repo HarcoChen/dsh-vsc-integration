@@ -122,10 +122,11 @@ export class RemoteConnectionController implements AsyncDisposable {
         endpoint: string,
         args: Record<string, unknown> = {},
         signal: AbortSignal,
+        uplink?: AsyncIterable<unknown>,
     ): AsyncGenerator<unknown> {
         this.start();
         await this.waitUntilReady(signal);
-        yield* this.mux.open(endpoint, args, signal);
+        yield* this.mux.open(endpoint, args, signal, uplink);
     }
 
     public async answerRemoteEvent(

@@ -9,10 +9,25 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
-### 变更
+## [0.10.1] - 2026-09-28
+
+### 新功能
 
 - 消息级赞/踩统一改为弹窗提交，支持反馈分类和描述；点击当前评价仍可直接撤回。
-- 扩展首次安装或升级后显示一次 Jev/Laya 使用说明；可从命令面板重新打开。
+- 支持可选的JEV/Laya接入，使用一个开源子模块作为runtime插件
+- 支持v0.1.7-rc.2新的RPC
+- 支持会话管理
+- 支持Deepseek账户管理
+
+### 改进
+
+更新默认 Runtime 版本，扩展远程会话、工作区和计划任务支持。
+
+Compaction 状态变化时，卡片会自动展开（成功状态除外）。
+
+### 变更
+
+Agent Preset 菜单不再提供复制、打开位置和删除操作。
 
 ## [0.10.0] - 2026-09-21
 
@@ -293,6 +308,7 @@
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.10.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.6...v0.10.0
 [0.9.6]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.4...v0.9.5

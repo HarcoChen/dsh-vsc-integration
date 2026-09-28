@@ -70,15 +70,15 @@ export class RemoteUnaryClient {
             if (!response.ok) {
                 throw new RemoteHttpError(endpoint, response.status);
             }
-            let decoded: unknown;
-            try {
-                decoded = await response.json();
-            } catch (cause) {
-                throw new RemoteProtocolError(`Remote ${endpoint} returned invalid JSON`, { cause });
-            }
             let full;
             try {
-                full = parseRemoteServerResponse(decoded);
+                const mediaType = response.headers.get("content-type")
+                    ?.split(";", 1)[0]
+                    ?.trim()
+                    .toLowerCase();
+                full = mediaType === "multipart/form-data"
+                    ? await parseBinaryResponse(response)
+                    : parseRemoteServerResponse(await response.json());
             } catch (cause) {
                 throw new RemoteProtocolError(`Remote ${endpoint} returned an invalid response`, { cause });
             }
@@ -127,6 +127,103 @@ export class RemoteUnaryClient {
     private requestHeaders(): Record<string, string> {
         return this.options.requestHeaders?.() ?? {};
     }
+}
+
+/** Rebuild Connection's multipart attachment envelope used for native RPC bytes. */
+async function parseBinaryResponse(response: Response) {
+    const form = await response.formData();
+    const fields = new Map<string, FormDataEntryValue>();
+    form.forEach((value, name) => {
+        if (fields.has(name)) throw new TypeError("Remote binary response has duplicate fields");
+        fields.set(name, value);
+    });
+
+    const metadata = fields.get("metadata");
+    fields.delete("metadata");
+    if (typeof metadata !== "string") throw new TypeError("Remote binary response has no metadata field");
+    const envelope: unknown = JSON.parse(metadata);
+    if (
+        !isPlainRecord(envelope) ||
+        !exactKeys(envelope, ["type", "rpcId", "result", "attachments"]) ||
+        !Array.isArray(envelope.attachments) ||
+        envelope.attachments.length === 0
+    ) {
+        throw new TypeError("Remote binary response metadata is malformed");
+    }
+
+    const full = parseRemoteServerResponse({
+        type: envelope.type,
+        rpcId: envelope.rpcId,
+        result: envelope.result,
+    });
+    if (!full.result.ok || full.result.value === undefined) {
+        throw new TypeError("Remote binary response must contain a successful value");
+    }
+
+    const root: { value: unknown } = { value: full.result.value };
+    const paths = new Set<string>();
+    for (const rawAttachment of envelope.attachments) {
+        if (
+            !isPlainRecord(rawAttachment) ||
+            !exactKeys(rawAttachment, ["path", "codec", "part"]) ||
+            rawAttachment.codec !== "bytes" ||
+            typeof rawAttachment.part !== "string" ||
+            !/^bytes-[0-9]+$/u.test(rawAttachment.part) ||
+            !Array.isArray(rawAttachment.path) ||
+            !rawAttachment.path.every((segment) =>
+                typeof segment === "string" ||
+                (typeof segment === "number" && Number.isSafeInteger(segment) && segment >= 0),
+            )
+        ) {
+            throw new TypeError("Remote binary response attachment is malformed");
+        }
+        const pathKey = JSON.stringify(rawAttachment.path);
+        if (paths.has(pathKey)) throw new TypeError("Remote binary response repeats an attachment path");
+        paths.add(pathKey);
+
+        const bytes = fields.get(rawAttachment.part);
+        fields.delete(rawAttachment.part);
+        if (!(bytes instanceof Blob)) throw new TypeError("Remote binary response is missing a byte part");
+
+        let parent: object = root;
+        let key: string | number = "value";
+        for (const segment of rawAttachment.path) {
+            const value: unknown = Reflect.get(parent, key);
+            if (typeof value !== "object" || value === null) {
+                throw new TypeError("Remote binary response path is invalid");
+            }
+            if (Array.isArray(value)) {
+                if (typeof segment !== "number" || segment >= value.length) {
+                    throw new TypeError("Remote binary response path is invalid");
+                }
+            } else if (typeof segment !== "string") {
+                throw new TypeError("Remote binary response path is invalid");
+            }
+            if (!Object.hasOwn(value, segment)) throw new TypeError("Remote binary response path is invalid");
+            parent = value;
+            key = segment;
+        }
+        if (Reflect.get(parent, key) !== null) {
+            throw new TypeError("Remote binary response byte placeholder is invalid");
+        }
+        Object.defineProperty(parent, key, {
+            value: new Uint8Array(await bytes.arrayBuffer()),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+        });
+    }
+    if (fields.size !== 0) throw new TypeError("Remote binary response has unexpected fields");
+    return {
+        type: "server-response" as const,
+        rpcId: full.rpcId,
+        result: { ok: true as const, value: root.value },
+    };
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+    const actual = Reflect.ownKeys(value);
+    return actual.length === keys.length && actual.every((key) => typeof key === "string" && keys.includes(key));
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

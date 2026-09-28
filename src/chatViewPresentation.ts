@@ -5,6 +5,9 @@ import {
     DshImageUpload,
     DshPlanProjection,
     DshSessionModelsResult,
+    DshScheduleDeliveryView,
+    DshScheduleCatalogEntry,
+    DshScheduleHistoryResult,
     DshSettingFieldType,
     DshSettingFieldView,
     DshSettingsNamespaceView,
@@ -284,6 +287,7 @@ export function todoProjection(value: unknown): DshTodoItemView[] | undefined {
 
 const SCHEDULE_UTC_INSTANT = /^(?!0000)\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/u;
 const MAX_SCHEDULE_ITEMS = 200;
+const MAX_SCHEDULE_CATALOG_ITEMS = 5_000;
 
 function scheduleInstant(value: unknown): string | undefined {
     if (typeof value !== "string" || !SCHEDULE_UTC_INSTANT.test(value)) return undefined;
@@ -310,6 +314,29 @@ function scheduleSeconds(value: unknown, minimum: number): number | undefined {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum ? value : undefined;
 }
 
+function scheduleOptionalTitle(value: unknown): string | undefined | null {
+    if (value === undefined) return undefined;
+    const title = scheduleText(value);
+    return title !== undefined && title.length <= 120 ? title : null;
+}
+
+function scheduleLocalTime(value: unknown): string | undefined {
+    return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}$/u.test(value)
+        ? value
+        : undefined;
+}
+
+function scheduleWeekdays(value: unknown): number[] | undefined {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 7) return undefined;
+    const weekdays = value as unknown[];
+    if (weekdays.some((day) => typeof day !== "number" || !Number.isInteger(day) || day < 1 || day > 7)) {
+        return undefined;
+    }
+    const normalized = [...weekdays] as number[];
+    if (new Set(normalized).size !== normalized.length) return undefined;
+    return normalized.sort((left, right) => left - right);
+}
+
 /** Narrow the Schedule projection while retaining the Runtime's active order. */
 export function scheduleProjection(value: unknown): DshScheduleItem[] | undefined {
     if (!Array.isArray(value) || value.length > MAX_SCHEDULE_ITEMS) return undefined;
@@ -320,23 +347,121 @@ export function scheduleProjection(value: unknown): DshScheduleItem[] | undefine
         const id = scheduleId(candidate.id);
         const prompt = scheduleText(candidate.prompt);
         const scheduledAt = scheduleInstant(candidate.scheduledAt);
-        if (id === undefined || prompt === undefined || scheduledAt === undefined || seenIds.has(id)) return undefined;
+        const title = scheduleOptionalTitle(candidate.title);
+        if (id === undefined || prompt === undefined || scheduledAt === undefined || title === null || seenIds.has(id)) {
+            return undefined;
+        }
         seenIds.add(id);
+        const withTitle = title === undefined ? {} : { title };
         if (candidate.kind === "after") {
             const afterSeconds = scheduleSeconds(candidate.afterSeconds, 1);
             if (afterSeconds === undefined) return undefined;
-            schedules.push({ id, kind: "after", prompt, afterSeconds, scheduledAt });
+            schedules.push({ id, kind: "after", ...withTitle, prompt, afterSeconds, scheduledAt });
         } else if (candidate.kind === "at") {
-            schedules.push({ id, kind: "at", prompt, scheduledAt });
+            schedules.push({ id, kind: "at", ...withTitle, prompt, scheduledAt });
         } else if (candidate.kind === "every") {
-            const everySeconds = scheduleSeconds(candidate.everySeconds, 300);
+            const everySeconds = scheduleSeconds(candidate.everySeconds, 60);
             if (everySeconds === undefined) return undefined;
-            schedules.push({ id, kind: "every", prompt, everySeconds, scheduledAt });
+            schedules.push({ id, kind: "every", ...withTitle, prompt, everySeconds, scheduledAt });
+        } else if (candidate.kind === "daily") {
+            const time = scheduleLocalTime(candidate.time);
+            const timeZone = scheduleText(candidate.timeZone);
+            if (time === undefined || timeZone === undefined) return undefined;
+            schedules.push({ id, kind: "daily", ...withTitle, prompt, time, timeZone, scheduledAt });
+        } else if (candidate.kind === "weekly") {
+            const time = scheduleLocalTime(candidate.time);
+            const timeZone = scheduleText(candidate.timeZone);
+            const weekdays = scheduleWeekdays(candidate.weekdays);
+            if (time === undefined || timeZone === undefined || weekdays === undefined) return undefined;
+            schedules.push({ id, kind: "weekly", ...withTitle, prompt, time, timeZone, weekdays, scheduledAt });
+        } else if (candidate.kind === "cron") {
+            const expression = scheduleText(candidate.expression);
+            const timeZone = scheduleText(candidate.timeZone);
+            if (expression === undefined || timeZone === undefined) return undefined;
+            schedules.push({ id, kind: "cron", ...withTitle, prompt, expression, timeZone, scheduledAt });
         } else {
             return undefined;
         }
     }
     return schedules;
+}
+
+/** Narrow RC.2's host-wide retained catalog, including each reminder's owning session and status. */
+export function scheduleCatalogProjection(value: unknown): DshScheduleCatalogEntry[] | undefined {
+    if (!Array.isArray(value) || value.length > MAX_SCHEDULE_CATALOG_ITEMS) return undefined;
+    const entries: DshScheduleCatalogEntry[] = [];
+    const seenIds = new Set<string>();
+    for (const candidate of value) {
+        if (!isRecord(candidate)) return undefined;
+        const sessionId = scheduleId(candidate.sessionId);
+        if (
+            sessionId === undefined ||
+            (candidate.status !== "active" && candidate.status !== "inactive")
+        ) return undefined;
+        const [schedule] = scheduleProjection([candidate]) ?? [];
+        if (!schedule?.title || seenIds.has(schedule.id)) return undefined;
+        let lastDelivery: DshScheduleCatalogEntry["lastDelivery"];
+        if (candidate.lastDelivery !== undefined) {
+            if (!isRecord(candidate.lastDelivery)) return undefined;
+            const scheduledAt = scheduleInstant(candidate.lastDelivery.scheduledAt);
+            const deliveredAt = scheduleInstant(candidate.lastDelivery.deliveredAt);
+            const messageId = scheduleText(candidate.lastDelivery.messageId);
+            if (scheduledAt === undefined || deliveredAt === undefined || messageId === undefined) return undefined;
+            lastDelivery = { scheduledAt, deliveredAt, messageId };
+        }
+        seenIds.add(schedule.id);
+        entries.push({
+            ...schedule,
+            title: schedule.title,
+            sessionId,
+            status: candidate.status,
+            ...(lastDelivery === undefined ? {} : { lastDelivery }),
+        });
+    }
+    return entries;
+}
+
+/** Narrow one bounded RC.2 Schedule delivery-history page. */
+export function scheduleHistoryProjection(value: unknown, scheduleId: string): DshScheduleHistoryResult | undefined {
+    if (!isRecord(value) || value.id !== scheduleId) return undefined;
+    if (value.code === "schedule_not_found" || value.code === "delivery_cursor_not_found") {
+        return { id: scheduleId, code: value.code };
+    }
+    if (
+        !Array.isArray(value.records) || value.records.length > 100 ||
+        typeof value.earlierRecordsUnavailable !== "boolean" ||
+        typeof value.earlierRecordsPruned !== "boolean" ||
+        !isRecord(value.retention) ||
+        !Number.isSafeInteger(value.retention.days) || (value.retention.days as number) < 1 ||
+        !Number.isSafeInteger(value.retention.records) || (value.retention.records as number) < 1 ||
+        (value.nextBefore !== undefined &&
+            (typeof value.nextBefore !== "string" || value.nextBefore.length === 0 || value.nextBefore.length > 512))
+    ) return undefined;
+    const records: DshScheduleDeliveryView[] = [];
+    for (const candidate of value.records) {
+        if (!isRecord(candidate)) return undefined;
+        const scheduledAt = scheduleInstant(candidate.scheduledAt);
+        const deliveredAt = scheduleInstant(candidate.deliveredAt);
+        const messageId = scheduleText(candidate.messageId);
+        if (
+            scheduledAt === undefined || deliveredAt === undefined || messageId === undefined ||
+            (candidate.prompt !== undefined &&
+                (typeof candidate.prompt !== "string" || candidate.prompt.length > 32_768))
+        ) return undefined;
+        records.push({
+            scheduledAt,
+            deliveredAt,
+            messageId,
+            ...(candidate.prompt === undefined ? {} : { prompt: candidate.prompt }),
+        });
+    }
+    return {
+        id: scheduleId,
+        records,
+        earlierRecordsUnavailable: value.earlierRecordsUnavailable,
+        earlierRecordsPruned: value.earlierRecordsPruned,
+        ...(value.nextBefore === undefined ? {} : { nextBefore: value.nextBefore }),
+    };
 }
 
 export function imageLimitsProjection(value: unknown): DshImageLimitsView | undefined {
