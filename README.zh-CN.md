@@ -16,6 +16,8 @@
   <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
+  <img src="https://img.shields.io/badge/dsh支持-0.1.7--rc.2-2f6feb?style=flat-square" alt="dsh 0.1.7-rc.2">
+  <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-支持-8250df?style=flat-square" alt="支持 Laya / Jev">
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
 </p>
 
@@ -31,12 +33,13 @@
 </p>
 
 <p align="center">
-  JetBrains IDE（IDEA、PyCharm 等）版本请见 <a href="https://github.com/HarcoChen/dsh-intellij-integration">dsh-intellij-integration</a>。
+  JetBrains IDE版本请见 <a href="https://github.com/HarcoChen/dsh-intellij-integration">dsh-intellij-integration</a>。
 </p>
 
 <p align="center">
   <img src="public/scene-intro.gif" alt="DSH IDE 工作流演示" width="100%">
 </p>
+
 
 ## 为什么选择 DSH？
 
@@ -44,6 +47,7 @@
 - **在执行前做决定**：审批卡展示命令与目标文件，受支持的文件写入可预览拟议改动。
 - **带着上下文开始任务**：引用文件、选区、Git Diff 或暂停时的调试状态，减少来回复制粘贴。
 - **随时接着做**：恢复持久会话，在活动面板查看工具执行、子代理、Todo 与 Token 用量。
+- **更聪明的 Agent 决策，无需额外安装**：打开内置的 Laya/Jev 集成，发现循环、精简冗长输出，并用证据核对“已完成”的说法。
 
 ## 快速开始
 
@@ -53,6 +57,7 @@
 2. **打开聊天**：打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。扩展会自动启动或连接 Runtime；缺少可用环境时，默认尝试下载托管 Runtime。
 3. **完成首次配置**：通过 `DSH: 配置 API Key`（`DSH: Configure API Key`）设置 DeepSeek 凭据。其他 Provider 可在 `DSH: 在浏览器中打开 dsh Web UI` 中配置。选择或注册 DSH Workspace，再选择模型。
 4. **开始一个任务**：输入 `@` 引用文件，或右键选区选择 DSH 操作。查看执行过程，在需要审批时确认操作，并通过工具卡打开 Diff 审查结果。
+5. **（可选）启用 Laya/Jev**：打开 `dsh.jev.enabled` 及需要的功能开关，运行 `DSH: 配置 Jev API Key`，按提示重启 Runtime。详见 [内置 Laya / Jev System One 决策](#内置-laya--jev-system-one-决策)。
 
 ### 从这些任务开始
 
@@ -76,6 +81,32 @@
 审批卡片会展示真实的命令行、工作目录以及写入的目标文件，对于受支持的文件写入工具，还可以在批准前打开原生 Diff，检查拟议改动。
 
 若目标文件在编辑器中仍有未保存改动，审批不会被放行：卡片会列出这些文件并保持待处理，保存或还原后即可重新批准。
+
+### 内置 Laya / Jev System One 决策
+
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) 是 TypeSafe 推出的 System One 决策模型。它不生成文本，而是读取 Agent 状态，在毫秒级返回经过校准的结构化答案。[Laya](https://huggingface.co/convaiinnovations/laya) 是 Apache-2.0 协议的开源权重替代品，提供相同的 `POST /v1/systemone` 请求与响应格式。扩展随包携带 [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime 插件（与 JetBrains 版共用），并挂载到它启动的每个 Runtime 上。不需要另装插件，也不需要改 DSH profile。
+
+| 功能 | 设置 | 作用 |
+| --- | --- | --- |
+| 循环保护 | `dsh.jev.loopGuard.enabled` | 工具执行后识别语义上的死循环，引导 Agent 跳出。 |
+| 结果整形 | `dsh.jev.resultShaper.enabled` | 对重复的大段工具输出分类折叠，保留警告与失败信息。 |
+| 完成检查 | `dsh.jev.doneGate.enabled` | 用工具证据核对“已完成”的说法，必要时追加一轮验证。 |
+| 工具裁剪 | `dsh.jev.toolPruner.enabled` | 对模型可见的工具 schema 排序，不改变 DSH 权限和工具注册。 |
+| Skill 路由 | `dsh.jev.skillRouter.enabled` | 挑选相关 skill，并在上下文中加入有长度上限的建议。 |
+| 决策工具 | `dsh.jev.decisionTools.enabled` | 向 Agent 暴露 `jev_ask`、`jev_rank`、`jev_check` 工具。 |
+| 确定性安全检查 | `dsh.jev.deterministicSafetyGuard.enabled` | 在本地检查破坏性命令、提权和凭据泄露，检查数据不出本机。 |
+
+**使用 Jev**：打开 `dsh.jev.enabled` 及需要的功能，运行 `DSH: 配置 Jev API Key`，按提示重启 Runtime。Key 加密保存在 VS Code SecretStorage。
+
+**使用 Laya**：将 `dsh.jev.baseUrl` 指向提供 Laya System One 接口的 HTTPS 地址，`dsh.jev.model` 设为该服务要求的模型名，并配置 API Key；服务端不校验 Key 时填任意占位值即可。扩展只接受 `https://` 地址，其他地址会回退到 TypeSafe 默认端点。
+
+所有功能默认关闭。启用后，相关功能可能把所需样本发送到配置的端点。已有或外部托管的 Runtime 不会被修改。
+
+### 会话、账号与定时提醒（dsh 0.1.7-rc.2）
+
+- `DSH: 管理会话` 可置顶会话、恢复已归档会话；`DSH: 归档会话` 遇到仍在运行的任务时，会先询问是否停止。没有打开 VS Code 文件夹时也能使用 DSH Workspace。
+- `DSH: 管理 DeepSeek 账号` 支持浏览器登录、登出，并查看账号资料和余额。
+- 定时提醒面板跨会话列出提醒，可编辑每日、每周或 cron 规则，查看投递历史，删除提醒。
 
 ### 斜杠命令
 
@@ -112,7 +143,7 @@
 
 **需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
 
-**Jev 是怎么集成的？** 内测构建会随扩展携带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
+**Laya/Jev 是怎么集成的？** 扩展安装包自带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Laya 走同一套 System One 接口，修改 `dsh.jev.baseUrl` 即可（仅限 HTTPS）。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.1.7-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 

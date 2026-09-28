@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/dsh-0.1.7--rc.2-2f6feb?style=flat-square" alt="dsh 0.1.7-rc.2">
+  <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-built--in-8250df?style=flat-square" alt="Laya / Jev built-in">
+  <img src="https://img.shields.io/badge/setup-zero--config-1a7f37?style=flat-square" alt="Zero-config setup">
+</p>
+
+<p align="center">
   <strong>English</strong> | <a href="README.zh-CN.md">简体中文</a>
 </p>
 
@@ -39,12 +45,21 @@
   <img src="public/scene-intro.gif" alt="DSH IDE Workflow Demo" width="100%">
 </p>
 
+## Highlights
+
+| | |
+| --- | --- |
+| **Ready for dsh `0.1.7-rc.2`** | The default Runtime is `0.1.7-rc.2`, with the Remote RPC audited against upstream tag `dsh-v0.1.7-rc.2`. New RC.2 surfaces come with it: session management (pin, archive, restore), DeepSeek account sign-in and balance, the cross-session Schedule dock, and default DSH Workspace initialization. Any Runtime at or above `0.1.5-rc.1` still connects. |
+| **Laya / Jev built in** | The IDE-neutral [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin ships inside the extension. Add fast System One decisions from TypeSafe [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), or its wire-compatible open-source alternative [Laya](https://huggingface.co/convaiinnovations/laya), to the agent loop: loop guard, large-output shaping, done-gate, tool pruning, skill routing, and decision tools. Nothing extra to install. |
+| **Works out of the box** | Install the extension and open chat. It finds a compatible local `dsh`, offers to upgrade an old one, or downloads a managed Runtime. The Jev plugin is mounted automatically into the Runtime it starts. The only setup left is your API key. |
+
 ## Why DSH?
 
 - **See what changed.** Review tool edits in VS Code's native side-by-side diff, even outside a Git repository.
 - **Decide before execution.** Approval cards show commands and target files, with proposed diffs for supported file writes.
 - **Start with context.** Bring files, selections, Git diffs, or paused debugger state into a task without copying everything by hand.
 - **Pick up where you left off.** Resume persistent sessions and follow tools, subagents, Todos, and token usage in the Activity panel.
+- **Smarter agent decisions, no extra install.** Turn on the built-in Laya/Jev integration to catch loops, trim noisy output, and check completion claims against evidence.
 
 ## Quick start
 
@@ -54,6 +69,7 @@ Requires **VS Code 1.106.0 or later** and a configured DSH model provider with c
 2. **Open chat.** Open and trust your project folder, then run `DSH: Open Chat` from the Command Palette. The extension automatically starts or connects to a Runtime; by default, it attempts a managed Runtime download when no usable environment is available.
 3. **Set up your provider.** Run `DSH: Configure API Key` for DeepSeek credentials. For other providers, use `DSH: Open dsh Web UI in Browser`. Select or register a DSH Workspace, then choose a model.
 4. **Give it a task.** Type `@` to reference a file, or right-click a selection for DSH actions. Follow the task, respond to approval requests, and open diffs from tool cards to review the result.
+5. **(Optional) Turn on Laya/Jev.** Enable `dsh.jev.enabled` and the features you want, run `DSH: Configure Jev API Key`, then accept the Runtime restart. See [Laya / Jev System One decisions](#laya--jev-system-one-decisions-built-in).
 
 > A **DSH Workspace** groups sessions in Harness and can be associated with a project path. When using the same Runtime, you can continue sessions created in the Web UI.
 
@@ -79,6 +95,32 @@ After a `write`/`edit` tool call, open the target file to see VS Code's native s
 The approval card shows the actual command line, working directory, and target files that will be written. For supported file-writing tools, open a native diff of the proposed change before approving it.
 
 A write whose target file still has unsaved editor changes is not released: approval is refused, the card names the files and stays pending, and you can save or revert them and approve again.
+
+### Laya / Jev System One decisions, built in
+
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe's System One decision model. It does not generate text. It reads an agent state and returns calibrated, typed answers in milliseconds. [Laya](https://huggingface.co/convaiinnovations/laya) is an Apache-2.0 open-weights alternative that serves the same `POST /v1/systemone` request and response shape. The extension bundles the [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin (shared with the JetBrains plugin) and mounts it into every Runtime it starts. You do not install a separate plugin or edit your DSH profile.
+
+| Feature | Setting | What it does |
+| --- | --- | --- |
+| Loop guard | `dsh.jev.loopGuard.enabled` | Detects semantic loops after tool execution and steers the agent out. |
+| Result shaper | `dsh.jev.resultShaper.enabled` | Classifies and folds repetitive large tool output, and keeps warnings and failures. |
+| Done gate | `dsh.jev.doneGate.enabled` | Checks completion claims against tool evidence and can request one more verification turn. |
+| Tool pruner | `dsh.jev.toolPruner.enabled` | Ranks model-visible tool schemas. DSH permissions and tool registration are unchanged. |
+| Skill router | `dsh.jev.skillRouter.enabled` | Selects relevant skills and adds bounded advice to the context. |
+| Decision tools | `dsh.jev.decisionTools.enabled` | Exposes `jev_ask`, `jev_rank`, and `jev_check` tools to the agent. |
+| Deterministic safety guard | `dsh.jev.deterministicSafetyGuard.enabled` | Runs local checks for destructive commands, privilege escalation, and credential exposure. Inspected data stays local. |
+
+**Use Jev:** enable `dsh.jev.enabled` plus the features you want, run `DSH: Configure Jev API Key`, and restart the Runtime when prompted. The key is encrypted in VS Code SecretStorage.
+
+**Use Laya:** point `dsh.jev.baseUrl` at an HTTPS endpoint that serves the Laya System One API, set `dsh.jev.model` to the model name that server expects, and configure an API key. If your server ignores the key, any placeholder value works. The extension accepts only `https://` endpoints and falls back to the TypeSafe default for anything else.
+
+Everything is off by default. Enabled features may send the samples they need to the configured endpoint. Existing or externally managed Runtimes are never modified.
+
+### Sessions, account, and schedules (dsh 0.1.7-rc.2)
+
+- `DSH: Manage Sessions` pins sessions and restores archived ones. `DSH: Archive Session` asks whether to stop a running task before it archives the session. DSH Workspaces also work without an open VS Code folder.
+- `DSH: Manage DeepSeek Account` signs in through the browser, signs out, and shows the account profile and balance.
+- The Schedule dock lists reminders across sessions. You can edit daily, weekly, or cron rules, view delivery history, and delete reminders.
 
 ### Slash commands enumerated live from the Runtime
 
@@ -123,7 +165,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
 
-**How is Jev integrated?** Internal builds carry the IDE-neutral `dsh-jev-integration` Runtime package and mount it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
+**How is Laya/Jev integrated?** The extension package carries the IDE-neutral `dsh-jev-integration` Runtime package and mounts it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Laya is supported through the same System One contract by changing `dsh.jev.baseUrl` (HTTPS only). Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
 **Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.1.7-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
