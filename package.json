@@ -93,6 +93,7 @@
         "onCommand:dsh.manageProviders",
         "onCommand:dsh.manageWorkspaces",
         "onCommand:dsh.manageAgentPresets",
+        "onCommand:dsh.manageAccount",
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
@@ -370,6 +371,12 @@
                 "title": "%command.manageAgentPresets.title%",
                 "category": "DSH",
                 "icon": "$(symbol-misc)"
+            },
+            {
+                "command": "dsh.manageAccount",
+                "title": "%command.manageAccount.title%",
+                "category": "DSH",
+                "icon": "$(account)"
             },
             {
                 "command": "dsh.refreshBalance",

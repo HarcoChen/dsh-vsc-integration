@@ -1,9 +1,9 @@
 # TODO
 
-更新时间：2026-09-27（适配目标 `dsh-v0.1.7-rc.2`；契约审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
+更新时间：2026-09-28（适配目标 `dsh-v0.1.7-rc.2`；契约审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
 
-## 本轮进展（2026-09-27，`dsh-v0.1.7-rc.2`）
+## 本轮进展（2026-09-28，`dsh-v0.1.7-rc.2`）
 
 默认 Runtime、Remote wire-contract pin 与 RPC 报告已指向上游 tag
 `dsh-v0.1.7-rc.2@477b4f420553e8a52c2fbccc464d7561b239c443`。RC.2 未改动 RC.1 的
@@ -16,7 +16,7 @@ multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 �
 - [x] 现有模型可路由判断与 RC.2 `routableProviders` 语义一致：目录没有可用模型的 provider 标为不可路由。
 - [x] **Session 固定与恢复**：Workspace controller 已接入 `pinSession|unpinSession|unarchiveSession` 和 `workspace/follow` 的 `pinnedSessionIds`；会话管理菜单可固定、取消固定、恢复和打开，切换器与会话列表将固定项前置。完整 archive/pin 快照可正确反映恢复和取消固定。
 - [x] **Agent Preset 选择策略**：RC.2 的 `agentPresets/list` 不再暴露 `modeSelectionEnabled`，Registry 用 `selectedDefault` 记录默认 Preset，不提供全局隐藏 chooser 的设置；IDE 在字段缺省时保持自己的新会话 chooser 可用，并继续兼容旧 Runtime 显式 `false`。
-- [ ] **Account RPC**：尚无调用方；若接入账号资料、余额、登录或登出，按 RC.2 使用 `AccountClientMetadata`，并评估 bonus、过期事件与停止账号任务流程。
+- [x] **Account RPC**：`dsh.manageAccount` 接入资料、充值/赠金钱包、余额刷新、usage/top-up 链接、浏览器登录/取消、登出和账号状态流；每次到 Platform 的调用携带版本、语言和 UTC 偏移 `AccountClientMetadata`。只在账号任务检查后经模态确认才登出，RC.2 provider 按账号路由停止运行中的 Agent；赠金提示关闭后按所属账号和订单确认；登录成功尝试调用 `session.initializeDefaultModel`，登录要求与实时过期分别通知用户。浏览器登录仅对浏览器可访问的 `localhost` HTTP Host 开放，避免生成无法回调的授权请求。
 - [x] **默认 Workspace 首用初始化**：无 VS Code 文件夹时，用户显式新建 Session 且本地 DSH Workspace/Session/archive 清单为空时调用无参数 `workspace/initializeDefault`；Host 决定 Documents 下的固定目录与标题。现有 DSH Workspace 则先让用户选择，不自动创建默认目录。
 - [x] **Schedule RPC**：Activity Dock 已接入 `schedule/list|history|update|delete|catalog`：当前会话可分页查看投递记录、编辑提醒名称/内容/定时规则（指定时间、固定间隔、每日、每周、Cron）并确认移除提醒；跨会话目录显示活动/已结束提醒、所属会话和最近投递，只读浏览。旧 Runtime 继续回退到只读 Session 投影；提醒创建目前通过上游 `schedule_create` 工具完成。
 

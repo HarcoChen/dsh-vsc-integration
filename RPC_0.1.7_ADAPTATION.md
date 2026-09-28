@@ -18,8 +18,8 @@ RC.2 有业务 RPC 合约破坏性变更：5 个既有方法的参数签名改�
 
 | Remote surface | RC.2 变化 | dsh-ide 影响 |
 | --- | --- | --- |
-| `account/getProfile`、`getBalance`、`signOut` | 新增必填 `AccountClientMetadata` 参数 | 本地暂无调用方；今后接入账号 UI 时必须传调用端元数据。 |
-| `account/startSignIn` | 第一个参数由 `locale: string` 改为 `client: AccountClientMetadata` | 本地暂无调用方；旧参数序列不能复用。 |
+| `account/getProfile`、`getBalance`、`signOut` | 新增必填 `AccountClientMetadata` 参数 | `dsh.manageAccount` 为每次调用传入扩展版本、VS Code 语言与本地 UTC 偏移。 |
+| `account/startSignIn` | 第一个参数由 `locale: string` 改为 `client: AccountClientMetadata` | 浏览器登录传入完整客户端元数据，并使用 Runtime loopback origin 作为回调来源。 |
 | `workspace/initializeDefault` | 从 `(request, signal)` 改成 `(signal)`；移除客户端传目录名和标题的 DTO | 本地暂无调用方；首用工作区由 Host 固定命名。 |
 | `agentPresets/list` | roster 移除 `modeSelectionEnabled` | 本地接收类型仍把该字段设为可选；RC.2 缺省时保留 IDE 自己的选择器。是否要跟随上游统一的工作模式设置仍需产品决策。 |
 | `session/modelCatalog` | `routableProviders` 现在只含至少有一个可用模型的 provider | wire 字段不变；现有 `routable` 派生读取该数组，语义与 RC.2 一致。空模型目录的 provider 会显示为不可路由。 |
@@ -50,7 +50,8 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - 无 VS Code 文件夹时，显式新建 Session 会复用/选择现有 DSH Workspace；只有本地 Workspace、可见 Session 和 archived id 清单均为空时，才调用无参数 `workspace/initializeDefault` 使用 Host 固定 Documents 目录。之后可直接以该 Workspace 创建和使用 Session。
 - Preset roster 对 `modeSelectionEnabled` 缺失保持兼容；RC.1 的显式 `false` 仍会被尊重。
 - `session/modelCatalog` 继续按 `routableProviders` 派生路由状态，适配 RC.2 的非空模型目录语义。
-- 当前 dsh-ide 没有 Account RPC 调用方；Schedule Activity Dock
+- `dsh.manageAccount` 已接入 Account `getState/getProfile/getBalance/getUnnotifiedBonuses/ackBonusNotified/startSignIn/cancelSignIn/signOut/hasRunningAccountTasks/watch` 与 `watchExpiry`；提示显示后确认赠金，登录成功后尝试初始化默认模型，退出登录前向用户说明受影响的运行中账号任务。浏览器登录只使用可从浏览器访问的 localhost HTTP Runtime 来源。
+- Schedule Activity Dock
   已接入当前会话 `list/history/update/delete` 与 `schedule/changed`。update UI 可修改名称、内容和
   timing rule（指定时间、固定间隔、每日、每周、Cron）；跨会话 `catalog` 以只读列表接入。提醒由上游
   `schedule_create` agent tool 创建，不是 Remote create endpoint。所有写请求按 RC.2 的 session
@@ -61,5 +62,5 @@ DTO 删除和模型目录语义变化另列在表中，避免把类型兼容与�
 - 遵守仓库规则，不新增或运行单元测试；可以运行 TypeScript 检查和 `git diff --check`。
 - 未对真实 `0.1.7-rc.2` Runtime 做端到端联调。`scripts/verify-remote-runtime.mjs` 仍使用
   `0.1.5-rc.2` 与 V3 fixture，不覆盖 multipart、双向流、V4 存储或 RC.2 业务 RPC。
-- TODO 保留 Schedule、账号 RPC 与工作区首用初始化作为未接入能力；在增加 UI 后再加入对应消费和
-  真实 Runtime smoke。
+- TODO 中 Schedule、Account 与工作区首用初始化均已标记接入；仍未实现 Remote Workspace Files
+  消费面，也未对真实 RC.2 Runtime 执行业务 RPC smoke。

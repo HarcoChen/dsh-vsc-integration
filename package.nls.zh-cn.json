@@ -48,6 +48,7 @@
     "command.manageProviders.title": "管理提供商",
     "command.manageWorkspaces.title": "管理工作区",
     "command.manageAgentPresets.title": "管理 Agent Preset",
+    "command.manageAccount.title": "管理 DeepSeek 账号",
     "command.refreshBalance.title": "刷新 DeepSeek 余额",
     "command.diagnoseEnvironment.title": "诊断环境",
     "command.revealConversationMilestone.title": "跳转到对话里程碑",

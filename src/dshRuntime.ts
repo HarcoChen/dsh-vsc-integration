@@ -121,6 +121,7 @@ import { normalizePluginInventory } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
+import type { AccountClientMetadata } from "./accountTypes";
 import {
     DEFAULT_JEV_ADVISORY_TIMEOUT_MS,
     DEFAULT_JEV_ASK_THRESHOLD,
@@ -1800,6 +1801,62 @@ export class DshRuntime implements vscode.Disposable {
 
     public createWorkspace(path: string): Promise<DshWorkspaceCreateResult> {
         return this.apiClient.call("workspace/create", { request: { path } });
+    }
+
+    public getAccountState(): Promise<unknown> {
+        return this.apiClient.call("account/getState", {});
+    }
+
+    public getAccountProfile(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/getProfile", { client });
+    }
+
+    public getAccountBalance(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/getBalance", { client });
+    }
+
+    public getUnnotifiedAccountBonuses(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/getUnnotifiedBonuses", { client });
+    }
+
+    public acknowledgeAccountBonus(
+        accountId: string,
+        orderId: string,
+        client: AccountClientMetadata,
+    ): Promise<unknown> {
+        return this.apiClient.call("account/ackBonusNotified", { accountId, orderId, client });
+    }
+
+    public startAccountSignIn(
+        client: AccountClientMetadata,
+        callbackOrigin: string,
+        loginSource: "web" | "desktop",
+    ): Promise<unknown> {
+        return this.apiClient.call("account/startSignIn", { client, callbackOrigin, loginSource });
+    }
+
+    public cancelAccountSignIn(attemptId: string): Promise<unknown> {
+        return this.apiClient.call("account/cancelSignIn", { attemptId });
+    }
+
+    public hasRunningAccountTasks(): Promise<unknown> {
+        return this.apiClient.call("account/hasRunningAccountTasks", {});
+    }
+
+    public signOutAccount(client: AccountClientMetadata): Promise<unknown> {
+        return this.apiClient.call("account/signOut", { client });
+    }
+
+    public initializeDefaultModel(): Promise<unknown> {
+        return this.apiClient.call("session/initializeDefaultModel", {});
+    }
+
+    public watchAccount(signal: AbortSignal): AsyncGenerator<unknown> {
+        return this.remoteConnection.open("account/watch", {}, signal);
+    }
+
+    public watchAccountExpiry(signal: AbortSignal): AsyncGenerator<unknown> {
+        return this.remoteConnection.open("account/watchExpiry", {}, signal);
     }
 
     /** Initialize or reuse the RC.2 Host-owned default Workspace on first use. */

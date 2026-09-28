@@ -48,6 +48,7 @@
     "command.manageProviders.title": "Manage Providers",
     "command.manageWorkspaces.title": "Manage Workspaces",
     "command.manageAgentPresets.title": "Manage Agent Presets",
+    "command.manageAccount.title": "Manage DeepSeek Account",
     "command.refreshBalance.title": "Refresh DeepSeek Balance",
     "command.diagnoseEnvironment.title": "Diagnose Environment",
     "command.revealConversationMilestone.title": "Reveal Conversation Milestone",

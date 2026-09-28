@@ -4,6 +4,7 @@ import {
     AgentStatusPresentationRegistry,
     DshExtensionApi,
 } from "./agentStatusPresentation";
+import { AccountActions } from "./accountActions";
 import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider, QuickTaskKind } from "./chatView";
 import {
@@ -44,6 +45,11 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         context.extensionUri.fsPath,
         () => context.secrets.get(JEV_API_KEY_SECRET),
     );
+    const accountActions = new AccountActions(
+        runtime,
+        String(context.extension.packageJSON.version ?? ""),
+        workspaceRoot,
+    );
     let shutdown: Promise<void> | undefined;
     const stopRuntime = (): Promise<void> => shutdown ??= runtime.dispose().finally(() => {
         outputDisposed = true;
@@ -79,6 +85,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
 
     context.subscriptions.push(
         balanceService,
+        accountActions,
         terminalContext,
         debugContextTracker,
         agentStatusPresentations,
@@ -262,6 +269,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         ),
         vscode.commands.registerCommand("dsh.manageAgentPresets", () =>
             runCommand(t("Manage Agent Presets"), () => chatView.manageAgentPresets()),
+        ),
+        vscode.commands.registerCommand("dsh.manageAccount", () =>
+            runCommand(t("Manage DeepSeek account"), () => accountActions.manage()),
         ),
         vscode.commands.registerCommand("dsh.refreshBalance", () => balanceService.refresh()),
         vscode.commands.registerCommand("dsh.diagnoseEnvironment", async () => {
