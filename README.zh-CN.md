@@ -147,7 +147,7 @@
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.1.7-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
-Remote 源码审计目标为上游 tag `dsh-v0.1.7-rc.2`（`477b4f420553e8a52c2fbccc464d7561b239c443`），详见 [RPC 适配报告](./RPC_0.1.7_ADAPTATION.md)。Carrier 支持 multipart 二进制 unary 响应和 Client 到 Host 的流帧。归档有活动任务的会话前，界面会先询问是否停止任务；Agent Preset 管理遵循当前只读 roster 契约。报告也记录了尚未接入 IDE 的 Jobs、插件、权限预设和终端接口。
+已实现的 Runtime 契约仍固定在 `dsh-v0.1.7-rc.2`（`477b4f420553e8a52c2fbccc464d7561b239c443`）；最新上游 RPC 清单已复核至 `dsh-v0.2.0-rc.1`，见 [RC.1 RPC 增量清单](./RPC_0.2.0_ADAPTATION.md) 和 [RC.2 实现审计](./RPC_0.1.7_ADAPTATION.md)。RC.1 新增仅供桌面端使用的 `productAnalytics` RPC，IDE 不调用；定时任务则移入可选 bundle，外部 Runtime 需启用该包才提供 Schedule RPC。IDE 的账号管理和默认 Workspace 初始化仍基于 RC.2 契约。报告也记录了尚未接入 IDE 的 Jobs、插件、权限预设和终端接口。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
 
@@ -280,7 +280,7 @@ npm run package    # 编译 + vsce 打包
 npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 ```
 
-仓库中的 Remote 冒烟脚本使用历史 `0.1.5-rc.2` V3 fixture，不验证 `0.1.7-rc.1` 的 multipart、上行流或归档变更；当前适配边界见 [RPC 适配报告](./RPC_0.1.7_ADAPTATION.md)。
+仓库中的 Remote 冒烟脚本使用历史 `0.1.5-rc.2` V3 fixture，不验证 `0.1.7-rc.1` 的 multipart、上行流或归档变更、`0.1.7-rc.2` 业务 RPC 或 `0.2.0-rc.1` 清单；边界见 [RC.1 RPC 增量清单](./RPC_0.2.0_ADAPTATION.md) 和 [RC.2 实现审计](./RPC_0.1.7_ADAPTATION.md)。
 
 对兼容的本机启动器运行历史 Remote 冒烟：
 

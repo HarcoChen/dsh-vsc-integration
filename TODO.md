@@ -1,7 +1,14 @@
 # TODO
 
-更新时间：2026-09-28（适配目标 `dsh-v0.1.7-rc.2`；契约审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
+更新时间：2026-09-29（默认实现目标仍为 `dsh-v0.1.7-rc.2`；最新上游清单为 [`dsh-v0.2.0-rc.1`](./RPC_0.2.0_ADAPTATION.md)，RC.2 实现审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
+
+## RPC 清单增量（2026-09-29，`dsh-v0.2.0-rc.1`）
+
+已从 `deepseek-harness` 上游拉取 tag `dsh-v0.2.0-rc.1@4878cdabd87d4041bdaff61d04c966883b9fd07a`，对照 RC.2 源码完成增量清单。新增 `productAnalytics/enabled|watchPolicy|report` 三个桌面遥测 RPC；既有 Remote endpoint 签名和事件 allowlist 未变。Schedule 的接口签名未变，但已移入默认 Web profile 不包含的可选 bundle。详情见 [RC.1 RPC 增量清单](./RPC_0.2.0_ADAPTATION.md)。
+
+- [x] 更新 RPC inventory 与中英文 README 链接；默认 Runtime 及 wire-contract pin 仍保持 RC.2，未进行版本升级或真实 RC.1 Runtime 联调。
+- [ ] 若后续将默认 Runtime 升到 RC.1，先验证 Schedule bundle 缺省时 Activity Dock 的降级行为，再按 `RPC_ADAPTATION_PLAN.md` §14 完成版本升级门禁。
 
 ## 本轮进展（2026-09-28，`dsh-v0.1.7-rc.2`）
 
@@ -374,7 +381,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 
 ## 历史待重审：上游暂无契约（截至 `0.1.5-rc.2`）
 
-以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；`0.1.7-rc.2` 新增接口请先以 [当前适配报告](./RPC_0.1.7_ADAPTATION.md) 为准，再逐项更新候选状态。
+以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；较新的 RC.2 实现和 RC.1 清单增量分别见 [RC.2 报告](./RPC_0.1.7_ADAPTATION.md) 与 [RC.1 增量清单](./RPC_0.2.0_ADAPTATION.md)，再逐项更新候选状态。
 
 `packages/hooks`、`packages/session-query`、`packages/session/session-title` 三处在
 `c291e7961a`（`0.1.5-rc.2` 同步进 master 的位置）的 `@Remote` 计数仍为 0，无新增公开契约。
