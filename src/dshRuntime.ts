@@ -2741,7 +2741,7 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    /** Lists active durable reminders for one session; undefined means an older Runtime has no Schedule RPC. */
+    /** Lists active durable reminders for one session; undefined means this Runtime composition has no Schedule service. */
     public async listSchedules(sessionId: string): Promise<unknown | undefined> {
         try {
             return await this.apiClient.call<unknown>("schedule/list", { request: { sessionId } });
@@ -2751,7 +2751,7 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    /** Lists active and inactive reminders across all sessions; undefined means the Runtime lacks the RC.2 endpoint. */
+    /** Lists active and inactive reminders across all sessions; undefined means the optional Schedule bundle is absent. */
     public async scheduleCatalog(): Promise<unknown | undefined> {
         try {
             return await this.apiClient.call<unknown>("schedule/catalog", {});

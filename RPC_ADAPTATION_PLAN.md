@@ -1,6 +1,6 @@
 # DSH `0.1.2-rc.1` Remote RPC 适配方案
 
-> 历史方案：以下章节记录首次 RC Remote 迁移。当前实现目标为 `0.1.7-rc.2`，见 [RC.2 实现审计](./RPC_0.1.7_ADAPTATION.md)；上游 `0.2.0-rc.1` 的 RPC 清单增量见 [RPC_0.2.0_ADAPTATION.md](./RPC_0.2.0_ADAPTATION.md)，尚未升级默认 Runtime。`RPC_0.1.5_ADAPTATION.md` 保留为上一轮历史报告。
+> 历史方案：以下章节记录首次 RC Remote 迁移。当前实现目标为上游可用的 `0.2.0-rc.1` 候选版，见 [RC.1 适配报告](./RPC_0.2.0_ADAPTATION.md)；尚无正式 `v0.2.0` tag，且本次没有真实 Runtime 联调。`RPC_0.1.7_ADAPTATION.md` 与 `RPC_0.1.5_ADAPTATION.md` 保留为历史报告。
 
 ## 1. 目标与结论
 
@@ -434,7 +434,7 @@ RemoteError 映射规则：
 
 ## 14. 后续升级门禁
 
-2026-09-24 已按此流程完成 `dsh-v0.1.5-rc.2` → `dsh-v0.1.7-rc.1` 增量审计；2026-09-29 已对照 `dsh-v0.2.0-rc.1` 更新 [RPC 增量清单](./RPC_0.2.0_ADAPTATION.md)，但没有变更默认版本。后续改默认版本时仍需重走以下步骤：
+2026-09-24 已按此流程完成 `dsh-v0.1.5-rc.2` → `dsh-v0.1.7-rc.1` 增量审计；2026-09-29 完成 `dsh-v0.2.0-rc.1` 源码适配并更新默认 pin，尚未进行真实 Runtime 联调。后续切换到新的稳定版或候选版时仍需重走以下步骤：
 
 每次修改默认 `dsh.runtimeVersion` 前必须：
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/dsh-0.1.7--rc.2-2f6feb?style=flat-square" alt="dsh 0.1.7-rc.2">
+  <img src="https://img.shields.io/badge/dsh-0.2.0--rc.1-2f6feb?style=flat-square" alt="dsh 0.2.0-rc.1">
   <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-built--in-8250df?style=flat-square" alt="Laya / Jev built-in">
   <img src="https://img.shields.io/badge/setup-zero--config-1a7f37?style=flat-square" alt="Zero-config setup">
 </p>
@@ -49,7 +49,7 @@
 
 | | |
 | --- | --- |
-| **Ready for dsh `0.1.7-rc.2`** | The default Runtime is `0.1.7-rc.2`, with the Remote RPC audited against upstream tag `dsh-v0.1.7-rc.2`. New RC.2 surfaces come with it: session management (pin, archive, restore), DeepSeek account sign-in and balance, the cross-session Schedule dock, and default DSH Workspace initialization. Any Runtime at or above `0.1.5-rc.1` still connects. |
+| **Ready for dsh `0.2.0-rc.1`** | The default Runtime and Remote contract target `dsh-v0.2.0-rc.1`. Session management, DeepSeek account sign-in and balance, and default DSH Workspace initialization remain supported. Schedule is an optional official bundle in this release and the dock explains how to enable it when absent. Desktop-only product analytics RPCs are not used by the IDE. Any Runtime at or above `0.1.5-rc.1` still connects. |
 | **Laya / Jev built in** | The IDE-neutral [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin ships inside the extension. Add fast System One decisions from TypeSafe [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), or its wire-compatible open-source alternative [Laya](https://huggingface.co/convaiinnovations/laya), to the agent loop: loop guard, large-output shaping, done-gate, tool pruning, skill routing, and decision tools. Nothing extra to install. |
 | **Works out of the box** | Install the extension and open chat. It finds a compatible local `dsh`, offers to upgrade an old one, or downloads a managed Runtime. The Jev plugin is mounted automatically into the Runtime it starts. The only setup left is your API key. |
 
@@ -116,11 +116,11 @@ A write whose target file still has unsaved editor changes is not released: appr
 
 Everything is off by default. Enabled features may send the samples they need to the configured endpoint. Existing or externally managed Runtimes are never modified.
 
-### Sessions, account, and schedules (dsh 0.1.7-rc.2)
+### Sessions, account, and schedules (dsh 0.2.0-rc.1)
 
 - `DSH: Manage Sessions` pins sessions and restores archived ones. `DSH: Archive Session` asks whether to stop a running task before it archives the session. DSH Workspaces also work without an open VS Code folder.
 - `DSH: Manage DeepSeek Account` signs in through the browser, signs out, and shows the account profile and balance.
-- The Schedule dock lists reminders across sessions. You can edit daily, weekly, or cron rules, view delivery history, and delete reminders.
+- When the official Schedule bundle is enabled, the Schedule dock lists reminders across sessions. You can edit daily, weekly, or cron rules, view delivery history, and delete reminders. If the bundle is absent, the dock shows where to enable it.
 
 ### Slash commands enumerated live from the Runtime
 
@@ -167,9 +167,9 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **How is Laya/Jev integrated?** The extension package carries the IDE-neutral `dsh-jev-integration` Runtime package and mounts it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Laya is supported through the same System One contract by changing `dsh.jev.baseUrl` (HTTPS only). Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
-**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.1.7-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
+**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.2.0-rc.1`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
-The implemented Runtime contract remains pinned to `dsh-v0.1.7-rc.2` (`477b4f420553e8a52c2fbccc464d7561b239c443`); the latest upstream inventory review covers `dsh-v0.2.0-rc.1` in [the RPC delta report](./RPC_0.2.0_ADAPTATION.md), with the prior implementation audit in [the RC.2 report](./RPC_0.1.7_ADAPTATION.md). The RC.1 inventory adds Desktop-only `productAnalytics` RPCs, which the IDE does not call, and moves Schedule into an optional bundle that must be enabled on an external Runtime for its Schedule RPCs to be available. The IDE's Account management and default Workspace initialization remain based on the RC.2 contracts. Remote Workspace Files, Jobs, plugin-manager, permission-preset, and terminal surfaces remain candidates and are not exposed in the IDE.
+The implemented Runtime contract targets the available `dsh-v0.2.0-rc.1` release candidate (`4878cdabd87d4041bdaff61d04c966883b9fd07a`); an upstream stable `v0.2.0` tag is not available yet. The [RPC adaptation report](./RPC_0.2.0_ADAPTATION.md) records the source audit and its limits. The new `productAnalytics` RPCs are Desktop-only and unused by the IDE. Schedule is an optional official bundle; enable `@deepseek-ai/dsh-experimental-schedule-bundle` in the Runtime Plugins page for Schedule RPC support. The Jev plugin hooks and pinned Git submodule were also checked against the release candidate. Remote Workspace Files, Jobs, plugin-manager, permission-preset, and terminal surfaces remain candidates and are not exposed in the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
 
@@ -224,7 +224,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverToken` | `""` | Launch token for `dsh.serverUrl`; use it when the address and token are configured separately. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.1.7-rc.2` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above RC.1. |
+| `dsh.runtimeVersion` | `0.2.0-rc.1` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above `0.1.5-rc.1`. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |

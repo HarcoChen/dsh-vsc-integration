@@ -88,7 +88,8 @@ export const ActivityDock = React.memo(function ActivityDock({
     }
     if (jobs.length) tabs.push({ id: "jobs", label: t("Jobs"), count: jobs.length });
     const scheduleCatalogVisible = scheduleCatalog !== undefined &&
-        (scheduleCatalog.status === "loading" || scheduleCatalog.status === "error" || scheduleCatalog.records.length > 0);
+        (scheduleCatalog.status === "loading" || scheduleCatalog.status === "error" ||
+            scheduleCatalog.status === "unavailable" || scheduleCatalog.records.length > 0);
     if (schedule?.length || scheduleCatalogVisible) {
         const count = scheduleCatalog?.records.length || schedule?.length;
         tabs.push({ id: "schedule", label: t("Schedule"), count: count || undefined });

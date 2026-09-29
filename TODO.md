@@ -1,14 +1,17 @@
 # TODO
 
-更新时间：2026-09-29（默认实现目标仍为 `dsh-v0.1.7-rc.2`；最新上游清单为 [`dsh-v0.2.0-rc.1`](./RPC_0.2.0_ADAPTATION.md)，RC.2 实现审计见 [RPC_0.1.7_ADAPTATION.md](./RPC_0.1.7_ADAPTATION.md)）。
+更新时间：2026-09-29（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.1`](./RPC_0.2.0_ADAPTATION.md)；上游尚无正式 `v0.2.0` tag）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
 
 ## RPC 清单增量（2026-09-29，`dsh-v0.2.0-rc.1`）
 
-已从 `deepseek-harness` 上游拉取 tag `dsh-v0.2.0-rc.1@4878cdabd87d4041bdaff61d04c966883b9fd07a`，对照 RC.2 源码完成增量清单。新增 `productAnalytics/enabled|watchPolicy|report` 三个桌面遥测 RPC；既有 Remote endpoint 签名和事件 allowlist 未变。Schedule 的接口签名未变，但已移入默认 Web profile 不包含的可选 bundle。详情见 [RC.1 RPC 增量清单](./RPC_0.2.0_ADAPTATION.md)。
+已从 `deepseek-harness` 上游拉取 tag `dsh-v0.2.0-rc.1@4878cdabd87d4041bdaff61d04c966883b9fd07a`，对照 RC.2 源码完成增量清单。新增 `productAnalytics/enabled|watchPolicy|report` 三个桌面遥测 RPC；既有 Remote endpoint 签名和事件 allowlist 未变。Schedule 接口签名未变，但已移入默认 Web profile 不包含的可选 bundle。详情见 [RC.1 RPC 适配报告](./RPC_0.2.0_ADAPTATION.md)。
 
-- [x] 更新 RPC inventory 与中英文 README 链接；默认 Runtime 及 wire-contract pin 仍保持 RC.2，未进行版本升级或真实 RC.1 Runtime 联调。
-- [ ] 若后续将默认 Runtime 升到 RC.1，先验证 Schedule bundle 缺省时 Activity Dock 的降级行为，再按 `RPC_ADAPTATION_PLAN.md` §14 完成版本升级门禁。
+- [x] 默认 Runtime、Remote contract、设置文案和中英文 README 更新到 RC.1；最低兼容版本仍为 `0.1.5-rc.1`。
+- [x] Schedule bundle 缺失时显示说明；遥测 RPC 不接入 IDE。
+- [x] 检查 Jev 子模块 hooks 与运行时最低版本；保持 `vendor/dsh-jev-integration@795907cbdf3347f97b27c473f4f6194f5877a74d` pin 不变。
+- [ ] 当前环境无法解析 `cnb.cool`；待确认独立托管归档 `v0.2.0-rc.1/manifest.json` 已发布。
+- [ ] 仍需在真实 `0.2.0-rc.1` Runtime 上联调。按仓库规则，本轮未运行测试。
 
 ## 本轮进展（2026-09-28，`dsh-v0.1.7-rc.2`）
 

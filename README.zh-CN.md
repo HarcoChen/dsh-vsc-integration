@@ -16,7 +16,7 @@
   <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
-  <img src="https://img.shields.io/badge/dsh支持-0.1.7--rc.2-2f6feb?style=flat-square" alt="dsh 0.1.7-rc.2">
+  <img src="https://img.shields.io/badge/dsh支持-0.2.0--rc.1-2f6feb?style=flat-square" alt="dsh 0.2.0-rc.1">
   <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-支持-8250df?style=flat-square" alt="支持 Laya / Jev">
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
 </p>
@@ -102,11 +102,11 @@
 
 所有功能默认关闭。启用后，相关功能可能把所需样本发送到配置的端点。已有或外部托管的 Runtime 不会被修改。
 
-### 会话、账号与定时提醒（dsh 0.1.7-rc.2）
+### 会话、账号与定时提醒（dsh 0.2.0-rc.1）
 
 - `DSH: 管理会话` 可置顶会话、恢复已归档会话；`DSH: 归档会话` 遇到仍在运行的任务时，会先询问是否停止。没有打开 VS Code 文件夹时也能使用 DSH Workspace。
 - `DSH: 管理 DeepSeek 账号` 支持浏览器登录、登出，并查看账号资料和余额。
-- 定时提醒面板跨会话列出提醒，可编辑每日、每周或 cron 规则，查看投递历史，删除提醒。
+- 启用官方 Schedule bundle 后，定时提醒面板可跨会话列出提醒、编辑规则、查看投递历史并删除提醒；未启用时面板会提示如何开启。
 
 ### 斜杠命令
 
@@ -145,9 +145,9 @@
 
 **Laya/Jev 是怎么集成的？** 扩展安装包自带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Laya 走同一套 System One 接口，修改 `dsh.jev.baseUrl` 即可（仅限 HTTPS）。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.1.7-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.2.0-rc.1`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
-已实现的 Runtime 契约仍固定在 `dsh-v0.1.7-rc.2`（`477b4f420553e8a52c2fbccc464d7561b239c443`）；最新上游 RPC 清单已复核至 `dsh-v0.2.0-rc.1`，见 [RC.1 RPC 增量清单](./RPC_0.2.0_ADAPTATION.md) 和 [RC.2 实现审计](./RPC_0.1.7_ADAPTATION.md)。RC.1 新增仅供桌面端使用的 `productAnalytics` RPC，IDE 不调用；定时任务则移入可选 bundle，外部 Runtime 需启用该包才提供 Schedule RPC。IDE 的账号管理和默认 Workspace 初始化仍基于 RC.2 契约。报告也记录了尚未接入 IDE 的 Jobs、插件、权限预设和终端接口。
+当前上游可用的 `dsh-v0.2.0-rc.1` 是预发布候选（`4878cdabd87d4041bdaff61d04c966883b9fd07a`），尚无正式 `v0.2.0` tag；本扩展的默认 Runtime 和 Remote 契约已更新到该候选版。适配范围与验证限制见 [RPC 适配报告](./RPC_0.2.0_ADAPTATION.md)。新增的 `productAnalytics` RPC 仅供桌面端使用，IDE 不调用。Schedule 位于可选官方 bundle；需要在 Runtime 插件管理页启用 `@deepseek-ai/dsh-experimental-schedule-bundle` 才会提供 Schedule RPC，未启用时 Activity Dock 会给出提示。Jev 插件所需钩子和固定的 Git 子模块也已检查。IDE 尚未接入 Remote Workspace Files、Jobs、插件管理、权限预设和终端接口。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
 
@@ -202,7 +202,7 @@ graph TD
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.1.7-rc.2` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 RC.1 的合法 SemVer。 |
+| `dsh.runtimeVersion` | `0.2.0-rc.1` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 `0.1.5-rc.1` 的合法 SemVer。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |

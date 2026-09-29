@@ -1,8 +1,8 @@
 # DSH `0.2.0-rc.1` Remote RPC 增量清单
 
-审计目标：上游 tag [`dsh-v0.2.0-rc.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1)，commit `4878cdabd87d4041bdaff61d04c966883b9fd07a`（2026-09-28 发布）。
+审计目标：上游 tag [`dsh-v0.2.0-rc.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1)，commit `4878cdabd87d4041bdaff61d04c966883b9fd07a`（2026-09-28 发布）。截至本次适配，上游 0.2.0 系列仍只有预发布候选，没有正式 `v0.2.0` tag。
 
-差异基线：`dsh-v0.1.7-rc.2`。本报告更新 RPC 清单；dsh-ide 当前实现和默认 Runtime 仍以 RC.2 为准，没有在本次变更中升级版本 pin。
+差异基线：`dsh-v0.1.7-rc.2`。默认 Runtime 与 Remote wire-contract pin 已切换至上述 RC.1。此次依据固定 tag 做了源码适配；没有运行测试，也没有连接真实 RC.1 Runtime 联调。
 
 ## 新增 Remote namespace
 
@@ -24,7 +24,22 @@ RC.1 在 `packages/api/remotes/src/client/index.ts` 中新增并挂载 `productA
 - `schedule/list|history|update|delete|catalog` 的签名没有变化，但 RC.1 把 Schedule composition 移入可选包 `@deepseek-ai/dsh-experimental-schedule-bundle`。标准 Web profile 不包含 `time-context`、`schedule`、`ui-schedule` 这三项；安装并启用可选包后才提供对应服务。`schedule_create` 仍是 Agent tool，不是 Remote create endpoint。
 - Session client API 的 `fork` 增加 `onCreated` callback；它不是 `@Remote` endpoint，不属于 wire RPC 清单。
 
-因此，外接 `0.2.0-rc.1` Web Runtime 时，Schedule Dock 的 RPC 能力取决于该 Runtime 是否启用了 Schedule bundle。默认 Runtime pin 与 `src/remote/contracts.ts` 仍保持 `0.1.7-rc.2`，本清单不代表已完成 RC.1 Runtime 联调或版本升级。
+因此，外接 `0.2.0-rc.1` Web Runtime 时，Schedule Dock 的 RPC 能力取决于该 Runtime 是否启用了 Schedule bundle。dsh-ide 仍兼容 Schedule endpoint 缺失的 Runtime；Activity Dock 会保留 Schedule 标签，并显示启用官方 bundle 的说明。
+
+## 插件与 Git 子模块
+
+- `.gitmodules` 中登记的唯一 Git 子模块是 `vendor/dsh-jev-integration`，当前固定在 `795907cbdf3347f97b27c473f4f6194f5877a74d`，子模块工作区干净。该提交满足适配所需；没有推进子模块指针。
+- Jev 协议的最低 Runtime 版本仍为 `0.1.5-rc.1`。它使用的 `agent/turn-stopping`、`session/event`、`session/disposed`、`system-prompt/assemble`、工具执行钩子和 `tokenMeter`/`toolResultPruner` 服务在 RC.1 源码中仍存在，未发现需要调整的插件接口。
+- 本地 `dsh-jev-integration` `origin/main` 比子模块 pin 前进两个提交，其中新增的 opt-in `tokenOptimization` 是另一项功能，不是 RC.1 兼容所需，故未一并升级。没有真实 Runtime 联调，因此未提高插件协议报告的 `testedDshRuntime`。
+
+源码参照：[Jev 子模块 pin](https://github.com/HarcoChen/dsh-jev-integration/tree/795907cbdf3347f97b27c473f4f6194f5877a74d)、[Jev Runtime 兼容声明](https://github.com/HarcoChen/dsh-jev-integration/blob/795907cbdf3347f97b27c473f4f6194f5877a74d/protocol/src/index.ts)。
+
+## 适配范围与验证状态
+
+- 默认 Runtime 下载及用户同意后的升级目标、Remote contract 注释、英文和中文设置说明均已指向 RC.1；最低兼容版本保持 `0.1.5-rc.1`。
+- 桌面专用遥测不接入；Schedule bundle 缺失时保留面板并解释如何启用；Jev 子模块 pin 和最低版本保持不变。
+- 独立托管归档由 `dsh-runtimes` CNB 流水线发布；本环境无法解析 `cnb.cool`，因此未能核实 `v0.2.0-rc.1/manifest.json` 是否已发布。
+- 尚未对真实 `0.2.0-rc.1` Runtime 执行联调。仓库规则禁止新增单元测试；本次未运行测试。
 
 ## 源码依据
 
@@ -36,3 +51,4 @@ RC.1 在 `packages/api/remotes/src/client/index.ts` 中新增并挂载 `productA
 - [Product Analytics composition and collection notes](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.0-rc.1/packages/client/product-analytics/README.zh.md)
 - [Optional Schedule bundle composition](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.0-rc.1/packages/experimental/schedule-bundle/cordis.patch.yml)
 - [Profile bundle defaults](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.0-rc.1/packages/boot/app-boot/src/profile.ts)
+- [Optional Schedule bundle in the Plugins page](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.0-rc.1/packages/bundle/web-app/README.zh.md)
