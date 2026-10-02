@@ -23,6 +23,12 @@ function phaseLabel(phase: DshPluginFiberPhase): string {
     return phase === null ? t("Not running") : t(PHASE_LABELS[phase]);
 }
 
+function readOnlyLabel(reason: string): string {
+    if (reason === "management-required") return t("Required by plugin management");
+    if (reason === "unaddressable") return t("This row cannot be addressed by the profile patch");
+    return reason;
+}
+
 function moduleShortName(moduleName: string): string {
     const unscoped = moduleName.startsWith("@") && moduleName.includes("/")
         ? moduleName.slice(moduleName.indexOf("/") + 1)
@@ -122,6 +128,7 @@ function globalEntryCard(
     entry: DshPluginInventoryEntry,
     enabledIn: readonly string[] | undefined,
     managed: DshManagedPluginInfo | undefined,
+    mutation: DshPluginInventoryPanelView["mutation"],
 ): React.JSX.Element {
     const failed = entry.fiberPhase === "failed";
     const presetProvided = !entry.enabled && enabledIn !== undefined && enabledIn.length > 0;
@@ -143,7 +150,7 @@ function globalEntryCard(
         facts.push([t("Status"), phaseLabel(phase)]);
     }
     if (managed?.patchId !== undefined) facts.push([t("Patch row"), managed.patchId]);
-    if (managed?.readOnlyReason !== undefined) facts.push([t("Read-only"), managed.readOnlyReason]);
+    if (managed?.readOnlyReason !== undefined) facts.push([t("Read-only"), readOnlyLabel(managed.readOnlyReason)]);
     return (
         <li key={entry.entryId}>
             <InventoryCard
@@ -153,11 +160,20 @@ function globalEntryCard(
                 phase={phase}
                 facts={facts}
             />
+            {managed ? <button
+                type="button"
+                className="dsh-button dsh-button-secondary"
+                title={managed.readOnlyReason === undefined ? undefined : readOnlyLabel(managed.readOnlyReason)}
+                disabled={managed.readOnlyReason !== undefined || mutation?.pending === true}
+                onClick={() => postAction({ type: "setPluginEnabled", entryId: managed.entryId, enabled: !managed.enabled })}
+            >
+                {managed.enabled ? t("Disable") : t("Enable")}
+            </button> : null}
         </li>
     );
 }
 
-function bundleCard(bundle: DshPluginBundleInfo): React.JSX.Element {
+function bundleCard(bundle: DshPluginBundleInfo, mutation: DshPluginInventoryPanelView["mutation"]): React.JSX.Element {
     const status = bundle.errorCode
         ? t("Error: {code}", { code: bundle.errorCode })
         : bundle.enabled
@@ -178,9 +194,18 @@ function bundleCard(bundle: DshPluginBundleInfo): React.JSX.Element {
                     ...(bundle.version === undefined ? [] : [[t("Version"), bundle.version] as const]),
                     ...(bundle.description === undefined ? [] : [[t("Description"), bundle.description] as const]),
                     [t("Activation"), bundle.enabled ? t("Selected in this profile") : t("Not selected")],
-                    ...(bundle.readOnlyReason === undefined ? [] : [[t("Read-only"), bundle.readOnlyReason] as const]),
+                    ...(bundle.readOnlyReason === undefined ? [] : [[t("Read-only"), readOnlyLabel(bundle.readOnlyReason)] as const]),
                 ]}
             />
+            <button
+                type="button"
+                className="dsh-button dsh-button-secondary"
+                title={bundle.readOnlyReason === undefined ? undefined : readOnlyLabel(bundle.readOnlyReason)}
+                disabled={bundle.readOnlyReason !== undefined || mutation?.pending === true || (!bundle.enabled && bundle.errorCode !== undefined)}
+                onClick={() => postAction({ type: "setBundleEnabled", name: bundle.name, enabled: !bundle.enabled })}
+            >
+                {bundle.enabled ? t("Deselect bundle") : t("Select bundle")}
+            </button>
         </li>
     );
 }
@@ -244,7 +269,7 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
             <div className="dsh-plugin-inventory-head">
                 <div>
                     <strong>{t("Plugin inventory")}</strong>
-                    <small>{t("Read-only plugin inventory")}</small>
+                    <small>{t("Enable or disable Runtime plugins and bundles")}</small>
                 </div>
                 <button
                     type="button"
@@ -255,6 +280,9 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     {t("Refresh")}
                 </button>
             </div>
+            {inventory.mutation?.pending ? <div className="dsh-card-detail">{t("Applying plugin change...")}</div> : null}
+            {inventory.mutation?.message ? <div role="status" className={inventory.mutation.failed ? "dsh-settings-error" : "dsh-card-detail"}>{inventory.mutation.message}</div> : null}
+            {inventory.mutation?.restartRequired ? <button type="button" className="dsh-button" onClick={() => postAction({ type: "restartRuntime" })}>{t("Restart Runtime")}</button> : null}
             <label className="dsh-plugin-inventory-search">
                 <span>{t("Search plugins")}</span>
                 <input
@@ -273,9 +301,9 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                         <strong>{t("Runtime bundles")}</strong>
                         <span>{t("{count} bundles", { count: matchingBundles.length })}</span>
                     </summary>
-                    <small>{t("Read-only metadata from the Runtime plugin manager")}</small>
+                    <small>{t("Choose the bundles used by this Runtime profile")}</small>
                     <ul className="dsh-plugin-cards">
-                        {matchingBundles.map(bundleCard)}
+                        {matchingBundles.map((bundle) => bundleCard(bundle, inventory.mutation))}
                     </ul>
                 </details>
             ) : null}
@@ -324,8 +352,8 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     <small>{t("Shared by the system and every session")}</small>
                     {failedEntries.length + regularEntries.length > 0 ? (
                         <ul className="dsh-plugin-cards">
-                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId)))}
-                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId)))}
+                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
+                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
                         </ul>
                     ) : null}
                 </details>

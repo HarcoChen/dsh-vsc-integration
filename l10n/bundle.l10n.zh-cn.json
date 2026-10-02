@@ -619,5 +619,13 @@
     "Verifying the sign-in response…": "正在验证登录响应…",
     "Saving the account credential…": "正在保存账号凭据…",
     "Signing in to DeepSeek account": "正在登录 DeepSeek 账号…",
-    "Jev settings apply to the next Runtime launch. Guarded tool arguments and samples for enabled policy features may be sent to the configured TypeSafe endpoint. Restart DSH now?": "Jev 设置会在下次启动 Runtime 时生效。受保护工具参数及已启用策略所需的样本可能会发送到配置的 TypeSafe endpoint。现在重启 DSH 吗？"
+    "Jev settings apply to the next Runtime launch. Guarded tool arguments and samples for enabled policy features may be sent to the configured TypeSafe endpoint. Restart DSH now?": "Jev 设置会在下次启动 Runtime 时生效。受保护工具参数及已启用策略所需的样本可能会发送到配置的 TypeSafe endpoint。现在重启 DSH 吗？",
+    "This plugin or bundle cannot be changed.": "无法更改此插件或组合包。",
+    "A bundle with a load error cannot be selected.": "无法选择存在加载错误的组合包。",
+    "Plugin change applied.": "插件变更已生效。",
+    "Change saved. Restart the Runtime to apply it.": "变更已保存，重启 Runtime 后生效。",
+    "Change saved, but a higher priority layer overrides it.": "变更已保存，但被更高优先级的配置覆盖。",
+    "Change saved, but the Runtime could not apply it.": "变更已保存，但 Runtime 未能应用。",
+    "The Runtime rejected this change.": "Runtime 拒绝了此次变更。",
+    "Plugin change cancelled.": "插件变更已取消。"
 }

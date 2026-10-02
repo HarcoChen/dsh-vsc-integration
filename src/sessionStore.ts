@@ -161,8 +161,11 @@ export interface SessionApprovalInteraction extends SessionInteractionBase {
 export interface SessionQuestionInteraction extends SessionInteractionBase {
     kind: "question";
     questions: readonly DshQuestionItem[];
-    /** RC.2 continued timed question, answered through userQuestions/answer. */
+    /** RC.2 timed call identity, retained across foreground wait and continued reply. */
     continuedCallId?: string;
+    questionState?: "open" | "continued";
+    timed?: boolean;
+    answers?: DshQuestionAnswerItem[];
 }
 
 export type SessionInteractionSnapshot =
@@ -886,7 +889,7 @@ class SessionState {
         rpcId: string,
         receivedAt: number,
     ): void {
-        const key = `q:${rpcId}`;
+        const key = frame.callId === undefined ? `q:${rpcId}` : `u:${frame.callId}`;
         const current = this.interactions.get(key);
         this.interactions.set(key, {
             kind: "question",
@@ -895,6 +898,7 @@ class SessionState {
             sessionId: frame.sessionId,
             questions: frame.questions.map((question) => ({ ...question })),
             ...(frame.callId === undefined ? {} : { continuedCallId: frame.callId }),
+            ...(frame.callId === undefined ? {} : { questionState: "open" as const, timed: frame.timed === true }),
             status: current?.status === "unavailable" || current?.status === "failed"
                 ? "pending"
                 : current?.status ?? "pending",
@@ -905,12 +909,11 @@ class SessionState {
     }
 
     public resolveQuestion(frame: DshQuestionResolved): void {
-        const key = `q:${frame.questionRpcId}`;
-        const interaction = this.interactions.get(key);
+        const interaction = [...this.interactions.values()].find((item) => item.rpcId === frame.questionRpcId);
         if (!interaction || interaction.kind !== "question") {
             return;
         }
-        this.interactions.set(key, {
+        this.interactions.set(interaction.key, {
             ...interaction,
             status: "resolved",
             outcome: frame.outcome,
@@ -1012,6 +1015,7 @@ class SessionState {
     public markRemoteInteractionsUnavailable(): boolean {
         let changed = false;
         for (const [key, interaction] of this.interactions) {
+            if (interaction.kind === "question" && interaction.questionState === "continued") continue;
             if (interaction.status !== "pending" && interaction.status !== "submitting") continue;
             this.interactions.set(key, {
                 ...interaction,
@@ -1024,32 +1028,50 @@ class SessionState {
     }
 
     public snapshot(): SessionStateSnapshot {
-        const interactions = [...this.interactions.values()]
-            .sort((left, right) => left.receivedAt - right.receivedAt)
-            .map((interaction) => ({ ...interaction }));
         const projection = normalizeUserQuestionProjection(this.projections.get("userQuestions")?.value);
         if (projection) {
-            const knownCalls = new Set(
-                interactions
-                    .filter((interaction): interaction is SessionQuestionInteraction => interaction.kind === "question")
-                    .map((interaction) => interaction.continuedCallId)
-                    .filter((callId): callId is string => callId !== undefined),
-            );
             const projectionSeq = this.projections.get("userQuestions")?.seq ?? 0;
             for (const question of projection.active) {
-                if (question.state !== "continued" || knownCalls.has(question.callId)) continue;
-                interactions.push({
-                    key: `u:${question.callId}`,
-                    rpcId: question.callId,
+                const key = `u:${question.callId}`;
+                const current = this.interactions.get(key);
+                const continued = question.state === "continued";
+                this.interactions.set(key, {
+                    ...current,
+                    key,
+                    rpcId: current?.rpcId ?? question.callId,
                     sessionId: this.sessionId,
-                    status: "pending",
+                    status: continued && (current?.kind !== "question" || current.questionState !== "continued") && current?.status !== "submitting" && current?.status !== "resolved"
+                        ? "pending" : current?.status ?? "unavailable",
                     kind: "question",
                     questions: question.questions.map((item) => ({ ...item })),
                     continuedCallId: question.callId,
-                    receivedAt: projectionSeq,
+                    questionState: question.state,
+                    timed: true,
+                    ...(continued ? { error: undefined } : {}),
+                    receivedAt: current?.receivedAt ?? projectionSeq,
                 });
             }
+            for (const settled of projection.settled) {
+                const key = `u:${settled.callId}`;
+                const current = this.interactions.get(key);
+                if (current?.kind === "question") {
+                    this.interactions.set(key, { ...current, status: "resolved", outcome: "answered", error: undefined, answers: settled.answers });
+                    continue;
+                }
+                // Recovered Sessions have the durable answer but no live waterfall card.
+                const call = this.events.ordered().find(item => item.event.type === "tool/call" && isRecord(item.event.data) && item.event.data.callId === settled.callId);
+                const data = call && isRecord(call.event.data) ? call.event.data : undefined;
+                let args: unknown = data?.arguments;
+                if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = undefined; } }
+                const questions = isRecord(args) ? normalizeQuestionItems(args.questions) : undefined;
+                if (questions) this.interactions.set(key, { key, rpcId: settled.callId, sessionId: this.sessionId,
+                    kind: "question", status: "resolved", outcome: "answered", questions, continuedCallId: settled.callId,
+                    answers: settled.answers, receivedAt: call?.event.time ?? projectionSeq });
+            }
         }
+        const interactions = [...this.interactions.values()]
+            .sort((left, right) => left.receivedAt - right.receivedAt)
+            .map((interaction) => ({ ...interaction }));
         return {
             sessionId: this.sessionId,
             assistantStream: this.visibleAssistantStream(),
@@ -1062,6 +1084,15 @@ class SessionState {
             subscribedLastSeq: this.events.subscribedWatermark,
             needsHistoryBaseline: this.events.needsHistoryBaseline,
         };
+    }
+
+    /** A fresh history/projection read can reopen an uncertain continued reply. */
+    public recoverContinuedQuestions(): void {
+        for (const [key, item] of this.interactions) {
+            if (item.kind === "question" && item.questionState === "continued" && (item.status === "failed" || item.status === "unavailable")) {
+                this.interactions.set(key, { ...item, status: "pending", error: undefined });
+            }
+        }
     }
 }
 
@@ -1097,6 +1128,7 @@ export class HarnessSessionStore {
         if (history.projections) {
             state.projections.seed(history.projections);
         }
+        state.recoverContinuedQuestions();
         return this.publish(state);
     }
 
@@ -1111,6 +1143,7 @@ export class HarnessSessionStore {
         state.rebuildAssistantSettlements();
         if (cursor !== undefined) state.events.followCursor(cursor, history.hasMore === true);
         if (history.projections) state.projections.seed(history.projections);
+        state.recoverContinuedQuestions();
         return this.publish(state);
     }
 
@@ -1207,6 +1240,7 @@ export class HarnessSessionStore {
             sessionId,
             questions,
             ...(wait === undefined ? {} : { callId: wait }),
+            ...(isRecord(request.wait) && request.wait.timed === true ? { timed: true } : {}),
         }, eventId, this.now());
         this.schedulePublish(state);
         return true;

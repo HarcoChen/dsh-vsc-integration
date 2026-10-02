@@ -10,8 +10,10 @@ import { QueuePanel } from "./QueuePanel";
 import { SchedulePanel } from "./SchedulePanel";
 import { SubagentsPanel } from "./SubagentsPanel";
 import { TodosPanel } from "./TodosPanel";
+import { TeamPanel } from "./TeamPanel";
+import type { DshTeamProjection } from "../../../../src/agentTeamTypes";
 
-type DockTab = "todos" | "goal" | "queue" | "changes" | "subagents" | "jobs" | "schedule" | "permissions" | "dynamicPlugins";
+type DockTab = "todos" | "goal" | "queue" | "changes" | "subagents" | "jobs" | "team" | "schedule" | "permissions" | "dynamicPlugins";
 
 interface TabDef {
     id: DockTab;
@@ -26,6 +28,7 @@ interface ActivityDockProps {
     subagents: ActivityDockState["subagents"];
     subagentPreview: ActivityDockState["subagentPreview"];
     jobs: ActivityDockState["jobs"];
+    team?: DshTeamProjection;
     todos: ActivityDockState["todos"];
     schedule: ActivityDockState["schedule"];
     scheduleCatalog: ActivityDockState["scheduleCatalog"];
@@ -50,6 +53,7 @@ export const ActivityDock = React.memo(function ActivityDock({
     subagents,
     subagentPreview,
     jobs,
+    team,
     todos,
     schedule,
     scheduleCatalog,
@@ -83,10 +87,11 @@ export const ActivityDock = React.memo(function ActivityDock({
         const count = changeReviews.reduce((total, review) => total + review.files.length, 0);
         tabs.push({ id: "changes", label: t("Changes"), count: count || undefined });
     }
-    if (subagents && sessionId) {
+    if (subagents && sessionId && !team) {
         tabs.push({ id: "subagents", label: t("Subagents"), count: subagents.nodes.length || undefined });
     }
     if (jobs.length) tabs.push({ id: "jobs", label: t("Jobs"), count: jobs.length });
+    if (team) tabs.push({ id: "team", label: t("Team"), count: team.members.length + team.tasks.length || undefined });
     const scheduleCatalogVisible = scheduleCatalog !== undefined &&
         (scheduleCatalog.status === "loading" || scheduleCatalog.status === "error" ||
             scheduleCatalog.status === "unavailable" || scheduleCatalog.records.length > 0);
@@ -191,6 +196,7 @@ export const ActivityDock = React.memo(function ActivityDock({
                     {!collapsed && selectedTab === "changes" && tab.id === "changes" ? <ChangesPanel reviews={changeReviews} running={sessionRunning} /> : null}
                     {!collapsed && selectedTab === "subagents" && tab.id === "subagents" && subagents ? <SubagentsPanel tree={subagents} preview={preview} autoOpenReasoning={autoOpenReasoning} /> : null}
                     {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={jobs} /> : null}
+                    {!collapsed && selectedTab === "team" && tab.id === "team" && team ? <TeamPanel team={team} currentSessionId={sessionId} preview={preview} subagents={subagents} autoOpenReasoning={autoOpenReasoning} /> : null}
                     {!collapsed && selectedTab === "schedule" && tab.id === "schedule" ? (
                         <SchedulePanel
                             schedule={schedule}

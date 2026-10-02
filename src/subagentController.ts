@@ -1,4 +1,5 @@
 import { errorMessage } from "./errors";
+import { normalizeAgentTeamProjection } from "./agentTeamTypes";
 import type { DshRuntime } from "./dshRuntime";
 import { t } from "./localize";
 import {
@@ -76,6 +77,7 @@ export class SubagentController {
         }
         const timing = normalizeSubagentTiming(projectionValue(snapshot, "subagentTiming"));
         const changed = this.trees.updateTiming(rootSessionId, sessionId, timing);
+        if (changed && this.teamCatalog(rootSessionId)) this.scheduleSubagentRefresh();
         if (
             changed &&
             this.preview?.rootSessionId === rootSessionId &&
@@ -104,7 +106,11 @@ export class SubagentController {
 
         try {
             const catalogs = new Map<string, DshSubagentCatalog>();
-            const pending = [rootSessionId];
+            // Team profiles deliberately disable subagents/list. The public
+            // Team projection supplies its durable continuable-child roster.
+            const team = this.teamCatalog(rootSessionId);
+            if (team) catalogs.set(rootSessionId, team);
+            const pending = team ? [] : [rootSessionId];
             const visited = new Set<string>();
             while (pending.length > 0) {
                 const parentSessionId = pending.shift();
@@ -167,6 +173,23 @@ export class SubagentController {
             }
             if (rootSessionId === this.deps.currentRootSession()) this.deps.onChange();
         }
+    }
+
+    private teamCatalog(rootSessionId: string): DshSubagentCatalog | undefined {
+        const team = normalizeAgentTeamProjection(projectionValue(this.deps.runtime.getSessionStore().get(rootSessionId), "agentTeam"));
+        if (!team) return undefined;
+        const sessions = this.deps.runtime.getSessionCatalog().snapshot().sessions;
+        return {
+            parentAvailable: this.deps.runtime.getUrl() !== undefined && sessions.some(session => session.sessionId === rootSessionId),
+            entries: team.members.flatMap(member => {
+                if (member.role !== "teammate" || member.phase !== "active") return [];
+                const snapshot = this.deps.runtime.getSessionStore().get(member.id);
+                const timing = normalizeSubagentTiming(projectionValue(snapshot, "subagentTiming"));
+                const running = sessions.find(session => session.sessionId === member.id)?.running === true || timing?.active !== undefined;
+                return [{ kind: "child" as const, id: member.id, label: member.name, mode: "continuable" as const,
+                    activity: running ? "running" as const : "inactive" as const, hasChildren: false }];
+            }),
+        };
     }
 
     private subagentTimingMap(

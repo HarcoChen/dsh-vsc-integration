@@ -10,6 +10,8 @@ import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
 import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
+import { JobsController } from "./jobsController";
+import { UserQuestionWaitController } from "./userQuestionWait";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
 import { WorkspaceFilesClient } from "./workspaceFiles";
@@ -72,6 +74,7 @@ import {
     DshDynamicPluginRow,
     DshDynamicPluginStopResult,
     DshPluginInventorySnapshot,
+    DshPluginChangeResult,
     DshSessionRenameResult,
     DshSessionSearchResult,
     DshFileReferenceCandidate,
@@ -105,6 +108,7 @@ import {
     DshManagedPluginInfo,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
+    DshJobWatchItem,
     HarnessGoalEditChanges,
     HarnessHostDescription,
     HarnessQueueAction,
@@ -121,7 +125,7 @@ import {
     normalizeDynamicPluginResolveResult,
     normalizeDynamicPluginStopResult,
 } from "./dynamicPlugins";
-import { normalizePluginInventory } from "./pluginInventory";
+import { normalizePluginChange, normalizePluginInventory } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
@@ -1234,6 +1238,8 @@ export class DshRuntime implements vscode.Disposable {
     private readonly listeners = new Set<RuntimeListener>();
     private readonly harnessConnectedListeners = new Set<HarnessConnectedListener>();
     private readonly remoteEventListeners = new Set<RemoteEventListener>();
+    private readonly jobs: JobsController;
+    private readonly userQuestionWait: UserQuestionWaitController;
     private readonly apiClient: RemoteUnaryClient;
     private readonly remoteConnection: RemoteConnectionController;
     public readonly workspaceFiles: WorkspaceFilesClient;
@@ -1315,6 +1321,8 @@ export class DshRuntime implements vscode.Disposable {
             },
         });
         this.workspaceFiles = new WorkspaceFilesClient(this.apiClient, this.remoteConnection);
+        this.jobs = new JobsController(this.apiClient, this.remoteConnection, message => this.output.appendLine(message));
+        this.userQuestionWait = new UserQuestionWaitController(this.remoteConnection, message => this.output.appendLine(message));
         this.harnessState = new RemoteStateCoordinator(this.remoteConnection, {
             onConnectionState: (state) => this.output.appendLine(`[dsh:remote] connection ${state}`),
             onHostDescription: (description) => {
@@ -1651,6 +1659,7 @@ export class DshRuntime implements vscode.Disposable {
 
     private async stopResources(): Promise<void> {
         ++this.resourceCleanupDepth;
+        this.jobs.dispose();
         this.subagentHistoryCursors.clear();
         const child = this.child;
         this.baseUrl = undefined;
@@ -2224,7 +2233,7 @@ export class DshRuntime implements vscode.Disposable {
             return value.map((item) => {
                 if (!isRecord(item) || typeof item.entryId !== "string" || typeof item.moduleName !== "string" ||
                     typeof item.enabled !== "boolean" ||
-                    (item.fiberPhase !== null && typeof item.fiberPhase !== "string")) {
+                    (item.fiberPhase !== null && !["pending", "loading", "active", "failed", "unloading"].includes(String(item.fiberPhase)))) {
                     throw new RemoteProtocolError("Remote pluginManager/listPlugins returned an invalid plugin");
                 }
                 return {
@@ -2240,6 +2249,24 @@ export class DshRuntime implements vscode.Disposable {
             if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
+    }
+
+    /** Toggle one Loader row through the RC.2 plugin manager. */
+    public async setPluginEnabled(entryId: string, enabled: boolean): Promise<DshPluginChangeResult> {
+        const value = await this.apiClient.call<unknown>("pluginManager/setPluginEnabled", { id: entryId, enabled });
+        return this.normalizePluginChange(value, "pluginManager/setPluginEnabled");
+    }
+
+    /** Select or deselect one bundle layer through the RC.2 plugin manager. */
+    public async setBundleEnabled(name: string, enabled: boolean): Promise<DshPluginChangeResult> {
+        const value = await this.apiClient.call<unknown>("pluginManager/setBundleEnabled", { name, enabled });
+        return this.normalizePluginChange(value, "pluginManager/setBundleEnabled");
+    }
+
+    private normalizePluginChange(value: unknown, endpoint: string): DshPluginChangeResult {
+        const result = normalizePluginChange(value);
+        if (!result) throw new RemoteProtocolError(`Remote ${endpoint} returned an invalid value`);
+        return result;
     }
 
     /** List direct children in the Runtime's Session workspace; undefined means the optional Remote is absent. */
@@ -2287,6 +2314,23 @@ export class DshRuntime implements vscode.Disposable {
         signal: AbortSignal,
     ) {
         yield* this.workspaceFiles.changes(sessionId, path, signal);
+    }
+
+    public watchJobs(sessionId: string, listener: (items: readonly DshJobWatchItem[]) => void): vscode.Disposable {
+        return new vscode.Disposable(this.jobs.watch(sessionId, listener));
+    }
+
+    public killJob(sessionId: string, jobId: string): Promise<"requested" | "already-finished"> {
+        return this.jobs.killJob(sessionId, jobId);
+    }
+
+    public watchUserQuestionWait(
+        sessionId: string,
+        callId: string,
+        onState: (state: { deadline?: number; connected: boolean; error?: string }) => void,
+        onTimeout: () => Promise<void>,
+    ): vscode.Disposable {
+        return new vscode.Disposable(this.userQuestionWait.watch(sessionId, callId, onState, onTimeout));
     }
 
     /** Detects the optional Agent Teams profile without probing an unmounted RPC. */
@@ -2924,6 +2968,7 @@ export class DshRuntime implements vscode.Disposable {
     public dispose(): Promise<void> {
         if (this.disposePromise) return this.disposePromise;
         this.disposed = true;
+        this.jobs.dispose();
         this.disposePromise = this.stop();
         return this.disposePromise;
     }

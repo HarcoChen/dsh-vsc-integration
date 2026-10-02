@@ -6,6 +6,7 @@ import type {
     DshPluginInventoryRow,
     DshPluginInventorySnapshot,
     DshPluginPresetEnablement,
+    DshPluginChangeResult,
 } from "./types";
 
 const MAX_PLUGIN_ENTRIES = 1_000;
@@ -14,6 +15,25 @@ const MAX_PLUGIN_ROWS = 1_000;
 
 function nonEmptyString(value: unknown): value is string {
     return typeof value === "string" && value.trim().length > 0;
+}
+
+/** Persistence and application are independent in the Plugin Manager response. */
+export function normalizePluginChange(value: unknown): DshPluginChangeResult | undefined {
+    if (!isRecord(value) || typeof value.changed !== "boolean" || typeof value.target !== "string" ||
+        typeof value.application !== "string" || !["applied", "restart-required", "overridden", "failed", "cancelled"].includes(value.application) ||
+        (value.warnings !== undefined && (!Array.isArray(value.warnings) || !value.warnings.every(item => typeof item === "string"))) ||
+        (value.error !== undefined && (!isRecord(value.error) || typeof value.error.code !== "string" ||
+            (value.error.diagnostic !== undefined && typeof value.error.diagnostic !== "string")))) return undefined;
+    return {
+        changed: value.changed,
+        application: value.application as DshPluginChangeResult["application"],
+        target: value.target,
+        ...(value.warnings === undefined ? {} : { warnings: [...value.warnings as string[]] }),
+        ...(isRecord(value.error) ? { error: {
+            code: value.error.code as string,
+            ...(typeof value.error.diagnostic === "string" ? { diagnostic: value.error.diagnostic } : {}),
+        } } : {}),
+    };
 }
 
 function fiberPhase(value: unknown): value is DshPluginFiberPhase {

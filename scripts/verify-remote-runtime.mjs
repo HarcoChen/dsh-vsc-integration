@@ -2,7 +2,7 @@
 /** Integration smoke against a real DSH launcher, using the extension's compiled Remote clients.
  * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
  * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle,
- * --timed-questions, --with-team-bundle, --keep.
+ * --timed-questions, --with-team-bundle, --feature-controls, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
@@ -23,12 +23,16 @@ const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
 const { RUNTIME_DEFAULT_VERSION } = require(join(root, "dist/managedRuntime/types"));
 const { WorkspaceFilesClient, readRuntimeTextPreview, RUNTIME_TEXT_PREVIEW_MAX_BYTES } = require(join(root, "dist/workspaceFiles"));
 const { detectAgentTeamsCapability, normalizeAgentTeamProjection } = require(join(root, "dist/agentTeamTypes"));
-const { normalizePluginInventory } = require(join(root, "dist/pluginInventory"));
+const { normalizePluginInventory, normalizePluginChange } = require(join(root, "dist/pluginInventory"));
 const {
     normalizeMessageFeedbackPutResult,
     normalizeMessageFeedbackListResult,
     normalizeMessageFeedbackDeleteResult,
 } = require(join(root, "dist/messageFeedback"));
+const { SubagentController } = require(join(root, "dist/subagentController"));
+const { historyEntries, projectionBlock: remoteProjectionBlock } = require(join(root, "dist/remote/sessionState"));
+const { JobsController } = require(join(root, "dist/jobsController"));
+const { UserQuestionWaitController } = require(join(root, "dist/userQuestionWait"));
 const argv = process.argv.slice(2);
 const launcherIndex = argv.indexOf("--launcher");
 if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launcher /absolute/path/to/dsh");
@@ -37,6 +41,7 @@ const keep = argv.includes("--keep");
 const withScheduleBundle = argv.includes("--with-schedule-bundle");
 const withTeamBundle = argv.includes("--with-team-bundle");
 const timedQuestions = argv.includes("--timed-questions");
+const featureControls = argv.includes("--feature-controls");
 const versionIndex = argv.indexOf("--expect-version");
 if (versionIndex >= 0 && !argv[versionIndex + 1]) throw new Error("--expect-version requires a version");
 const expectedVersion = versionIndex >= 0 ? argv[versionIndex + 1] : RUNTIME_DEFAULT_VERSION;
@@ -68,13 +73,16 @@ if (withScheduleBundle || withTeamBundle) {
     }, null, 2) + "\n");
 }
 if (timedQuestions) {
-    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n");
+    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n      - id: tool-bash\n        name: '@deepseek-ai/dsh-tool-bash'\n      - id: tool-jobs\n        name: '@deepseek-ai/dsh-tool-jobs'\n");
 }
 env.DSH_HOME = dshHome;
 env.DSH_SMOKE_API_KEY = "local-smoke-only";
 let finishStream;
 let heldStream = false;
-let timedQuestionServed = false;
+const servedQuestions = new Set();
+let jobToolServed = false;
+let teamTaskServed = false;
+let teammateServed = false;
 let modelRequests = 0;
 const model = createServer(async (request, response) => {
     if (request.url === "/models") {
@@ -91,13 +99,32 @@ const model = createServer(async (request, response) => {
     const event = data => response.write(`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`);
     event({ type: "message_start", message: { id: randomUUID(), model: payload.model,
         usage: { input_tokens: 3, output_tokens: 0 } } });
-    if (timedQuestions && !timedQuestionServed && modelRequests >= 12) {
-        timedQuestionServed = true;
-        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "smoke-question", name: "ask_user_question", input: {} } });
-        event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({
+    const messages = JSON.stringify(payload.messages);
+    const questionMarker = ["TIMED_QUESTION_SMOKE", "FOREGROUND_QUESTION_SMOKE", "RECONNECT_QUESTION_SMOKE"]
+        .find(marker => messages.includes(marker) && !servedQuestions.has(marker));
+    const teamCall = featureControls && withTeamBundle
+        ? messages.includes("TEAM_TASK_SMOKE") && !teamTaskServed ? "team_task_create"
+            : messages.includes("TEAM_PANEL_SMOKE") && !teammateServed ? "spawn_teammate" : undefined
+        : undefined;
+    const jobCall = featureControls && messages.includes("JOBS_CONTROL_SMOKE") && !jobToolServed;
+    if (teamCall || jobCall || (timedQuestions && questionMarker)) {
+        if (teamCall === "spawn_teammate") teammateServed = true;
+        else if (teamCall === "team_task_create") teamTaskServed = true;
+        else if (jobCall) jobToolServed = true;
+        else servedQuestions.add(questionMarker);
+        const name = teamCall ?? (jobCall ? "bash" : "ask_user_question");
+        const input = teamCall === "spawn_teammate" ? { name: "smoke-worker", description: "Isolated member for the panel smoke", prompt: "Return a short hello for TEAM_WORKER_REPLY", context: "fresh" }
+            : teamCall === "team_task_create" ? { subject: "Smoke team task", description: "Verify the public task projection", write_scopes: ["src/"] }
+            : jobCall ? {
+            command: "for index in {1..80}; do echo job-stream-$index; sleep 0.15; done",
+            description: "Isolated background output for the Remote smoke",
+            run_in_background: true,
+        } : {
             questions: [{ id: "scope", question: "Which scope should be used?", options: [{ label: "Tool only" }] }],
-            timeout: 1,
-        }) } });
+            timeout: questionMarker === "TIMED_QUESTION_SMOKE" ? 1 : 10,
+        };
+        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: teamCall ?? (jobCall ? "smoke-job" : questionMarker), name, input: {} } });
+        event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } });
         event({ type: "content_block_stop", index: 0 });
         event({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } });
         event({ type: "message_stop" });
@@ -135,6 +162,8 @@ child.once("error", error => { launchError = error; });
 child.once("exit", (code, signal) => { exited = { code, signal }; });
 let connection;
 let coordinator;
+const featureDisposers = [];
+let jobsController;
 const diagnostics = [];
 const wireFrames = [];
 const remoteEvents = [];
@@ -438,16 +467,163 @@ try {
         }, "continued timed question settlement", 20_000);
         pass("timed ask_user_question continues after timeout and accepts a late Remote answer");
     }
+    if (featureControls) {
+        const optionalName = "@deepseek-ai/dsh-experimental-schedule-bundle";
+        const originalBundle = (await connection.unary.call("pluginManager/listBundles", {})).find(bundle => bundle.name === optionalName);
+        assert.ok(originalBundle);
+        const selected = normalizePluginChange(await connection.unary.call("pluginManager/setBundleEnabled", { name: optionalName, enabled: !originalBundle.enabled }));
+        assert.ok(selected && selected.application !== "failed", JSON.stringify(selected));
+        assert.equal((await connection.unary.call("pluginManager/listBundles", {})).find(bundle => bundle.name === optionalName).enabled, !originalBundle.enabled);
+        const restored = normalizePluginChange(await connection.unary.call("pluginManager/setBundleEnabled", { name: optionalName, enabled: originalBundle.enabled }));
+        assert.ok(restored && restored.application !== "failed");
+        const rows = await connection.unary.call("pluginManager/listPlugins", {});
+        const mutable = rows.find(row => row.moduleName === "@deepseek-ai/dsh-file-reference-local" && row.readOnlyReason === undefined)
+            ?? rows.find(row => row.moduleName === "@deepseek-ai/dsh-tool-pruner" && row.readOnlyReason === undefined);
+        assert.ok(mutable, `need a mutable plugin: ${JSON.stringify(rows.map(row => ({ module: row.moduleName, reason: row.readOnlyReason })))}`);
+        const pluginChanged = normalizePluginChange(await connection.unary.call("pluginManager/setPluginEnabled", { id: mutable.entryId, enabled: !mutable.enabled }));
+        assert.ok(pluginChanged && pluginChanged.application !== "failed", JSON.stringify(pluginChanged));
+        const pluginRestored = normalizePluginChange(await connection.unary.call("pluginManager/setPluginEnabled", { id: mutable.entryId, enabled: mutable.enabled }));
+        assert.ok(pluginRestored && pluginRestored.application !== "failed");
+        const protectedRow = rows.find(row => row.readOnlyReason === "management-required");
+        assert.ok(protectedRow);
+        const refused = normalizePluginChange(await connection.unary.call("pluginManager/setPluginEnabled", { id: protectedRow.entryId, enabled: false }));
+        assert.equal(refused.application, "failed");
+        assert.equal(refused.changed, false);
+        pass("Plugin and Bundle switches persist changes, preserve application outcomes, and reject protected rows");
+
+        const jobSession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "standard" } });
+        coordinator.watchSession(jobSession.sessionId);
+        jobsController = new JobsController(connection.unary, connection, message => console.log(message));
+        let jobRows = [];
+        featureDisposers.push(jobsController.watch(jobSession.sessionId, rows => { jobRows = rows; }));
+        await connection.unary.call("session/prompt", { request: { sessionId: jobSession.sessionId,
+            requestId: randomUUID(), mode: "queue", content: [{ type: "text", text: "JOBS_CONTROL_SMOKE" }] } });
+        await until(async () => {
+            const approval = coordinator.sessions.get(jobSession.sessionId)?.interactions.find(item => item.kind === "approval" && item.status === "pending");
+            if (approval) {
+                coordinator.sessions.claimInteraction(jobSession.sessionId, approval.key);
+                await connection.answerRemoteEvent(approval.rpcId, { kind: "result", value: "allowed-once" });
+                coordinator.sessions.settleRemoteInteraction(jobSession.sessionId, approval.key);
+            }
+            return jobRows.find(job => job.outputText?.includes("job-stream-"));
+        }, "live Job output");
+        const job = jobRows.find(job => job.kind === "bash");
+        assert.ok(job && job.status === "running");
+        const before = job.outputText;
+        const oldGeneration = connection.currentGeneration;
+        connection.reconnect();
+        await until(() => connection.currentGeneration > oldGeneration && jobRows.find(row => row.id === job.id)?.outputText?.length > before.length, "Job output resumed after reconnect");
+        const outputAfterReconnect = jobRows.find(row => row.id === job.id).outputText;
+        assert.equal((outputAfterReconnect.match(/job-stream-1\n/g) ?? []).length, 1, "resume must not duplicate output");
+        assert.equal(await jobsController.killJob(jobSession.sessionId, job.id), "requested");
+        await until(() => jobRows.find(row => row.id === job.id)?.status === "killed" && jobRows.find(row => row.id === job.id)?.streaming === false, "Job cancellation and output drain");
+        assert.match(jobRows.find(row => row.id === job.id).outputSummary, /cancelled by the user/);
+        pass("JobsController consumes real list/follow streams, resumes without duplication, and kills a running job");
+
+        if (timedQuestions) {
+            const waits = new UserQuestionWaitController(connection, message => console.log(message));
+            for (const marker of ["FOREGROUND_QUESTION_SMOKE", "RECONNECT_QUESTION_SMOKE"]) {
+                const asked = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "standard" } });
+                coordinator.watchSession(asked.sessionId);
+                await connection.unary.call("session/prompt", { request: { sessionId: asked.sessionId, requestId: randomUUID(),
+                    mode: "queue", content: [{ type: "text", text: marker }] } });
+                const interaction = await until(() => coordinator.sessions.get(asked.sessionId)?.interactions.find(item => item.kind === "question" && item.questionState === "open" && item.status === "pending"), "foreground question");
+                let waitState;
+                const release = waits.watch(asked.sessionId, interaction.continuedCallId, state => { waitState = state; }, async () => {
+                    const current = coordinator.sessions.get(asked.sessionId).interactions.find(item => item.key === interaction.key);
+                    await connection.answerRemoteEvent(current.rpcId, { kind: "rejected", error: { name: "UserQuestionError", code: "ASK_TIMED_OUT", message: "smoke countdown ended" } });
+                });
+                featureDisposers.push(release);
+                await until(() => waitState?.deadline, "Host wait claim");
+                if (marker === "RECONNECT_QUESTION_SMOKE") {
+                    const generation = connection.currentGeneration;
+                    const previousKey = interaction.key;
+                    connection.reconnect();
+                    await until(() => connection.currentGeneration > generation && waitState?.connected && waitState?.deadline, "question wait reattached");
+                    const current = await until(() => coordinator.sessions.get(asked.sessionId)?.interactions.find(item => item.key === previousKey && item.status === "pending"), "stable question identity after reconnect");
+                    assert.equal(current.continuedCallId, interaction.continuedCallId);
+                    await until(() => coordinator.sessions.get(asked.sessionId)?.interactions.find(item => item.key === previousKey && item.questionState === "continued"), "Client countdown timeout transition", 20_000);
+                    release();
+                    const claimed = coordinator.sessions.claimInteraction(asked.sessionId, previousKey);
+                    assert.ok(claimed, "projection-backed cards must be claimable");
+                    assert.equal(await connection.unary.call("userQuestions/answer", { agentId: asked.sessionId, callId: interaction.continuedCallId,
+                        answer: { answers: [{ id: "scope", selected: ["Tool only"] }] } }), true);
+                } else {
+                    await connection.answerRemoteEvent(interaction.rpcId, { kind: "result", value: { answers: [{ id: "scope", selected: ["Tool only"] }] } });
+                }
+                await until(() => coordinator.sessions.get(asked.sessionId)?.interactions.find(item => item.key === interaction.key)?.answers?.[0]?.selected[0] === "Tool only", "recorded answer reconciliation");
+                release();
+            }
+            pass("Foreground questions claim Host waits; reconnect preserves identity; countdown and late reply settle the same card");
+        }
+    }
+    if (featureControls && withTeamBundle) {
+        const lead = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "standard" } });
+        coordinator.watchSession(lead.sessionId);
+        await connection.unary.call("session/prompt", { request: { sessionId: lead.sessionId, requestId: randomUUID(), mode: "queue",
+            content: [{ type: "text", text: "TEAM_PANEL_SMOKE: explicitly create one teammate and a task for integration verification" }] } });
+        await until(() => {
+            const value = normalizeAgentTeamProjection(coordinator.sessions.get(lead.sessionId)?.projections.find(cell => cell.key === "agentTeam")?.value);
+            return value?.members.some(member => member.name === "smoke-worker" && member.phase === "active");
+        }, "Team member projection");
+        await connection.unary.call("session/prompt", { request: { sessionId: lead.sessionId, requestId: randomUUID(), mode: "queue",
+            content: [{ type: "text", text: "TEAM_TASK_SMOKE: create the shared task for the panel verification" }] } });
+        const team = await until(() => {
+            const value = normalizeAgentTeamProjection(coordinator.sessions.get(lead.sessionId)?.projections.find(cell => cell.key === "agentTeam")?.value);
+            return value?.tasks.length === 1 ? value : undefined;
+        }, "Team task projection");
+        assert.equal(team.tasks[0].subject, "Smoke team task");
+        assert.deepEqual(team.tasks[0].writeScopes, ["src"]);
+        const member = team.members.find(row => row.name === "smoke-worker");
+        // Team profiles disable the legacy subagents/list contribution; the durable projection is the roster.
+        await assert.rejects(() => connection.unary.call("subagents/list", { parentSessionId: lead.sessionId }), error => error.status === 404);
+        const history = await first("session/follow", { request: { address: { kind: "subagent", parentSessionId: lead.sessionId,
+            childSessionId: member.id, mode: "continuable" } } });
+        assert.equal(history.type, "snapshot");
+        const panel = new SubagentController({
+            runtime: {
+                getUrl: () => baseUrl,
+                getSessionStore: () => coordinator.sessions,
+                getSessionCatalog: () => coordinator.catalog,
+                listSubagents: () => { throw new Error("Team navigation must use its projection, not subagents/list"); },
+                subagentHistory: async (address, _beforeSeq, _maxMessages, signal) => {
+                    const abort = new AbortController();
+                    try {
+                        for await (const frame of connection.open("session/follow", { request: { address: { kind: "subagent", ...address }, maxMessages: 100 } }, AbortSignal.any([abort.signal, signal]))) {
+                            assert.equal(frame.type, "snapshot");
+                            coordinator.watchSubagent({ kind: "subagent", ...address });
+                            return { events: historyEntries(frame.records), hasMore: frame.hasMore, projections: remoteProjectionBlock(frame.projections) };
+                        }
+                    } finally { abort.abort(); }
+                    throw new Error("missing member snapshot");
+                },
+                promptSubagent: (address, text) => connection.unary.call("subagents/prompt", { request: { ...address, delivery: "queue", requestId: randomUUID(), content: [{ type: "text", text }] } }),
+            },
+            currentRootSession: () => lead.sessionId,
+            onChange: () => undefined,
+        });
+        featureDisposers.push(() => panel.dispose());
+        await panel.refreshSubagentTree(lead.sessionId);
+        assert.equal(panel.tree(lead.sessionId).state, "ready");
+        await panel.openSubagentHistory(member.id);
+        assert.equal(panel.previewFor(lead.sessionId).state, "ready", JSON.stringify(panel.previewFor(lead.sessionId)));
+        await panel.followUpSubagent(member.id, "TEAM_FOLLOWUP_SMOKE");
+        assert.equal(panel.previewFor(lead.sessionId).error, undefined);
+        pass("Team projection, member history and follow-up work with subagents/list absent, through the actual panel controller");
+    }
     const streamTypes = [...new Set(wireFrames.map(({ endpoint, frame }) => `${endpoint}:${frame.type ?? frame.kind}`))];
     console.log(`Observed frames: ${streamTypes.join(", ")}`);
     assert.equal(diagnostics.length, 0, diagnostics.join("\n"));
     console.log(`OK: real Runtime integration smoke passed; ${modelRequests} local mock model request(s), no external model calls.`);
 } catch (error) {
     console.error(error.stack ?? error);
-    console.error(`Mock requests: ${modelRequests}; recent wire frames: ${JSON.stringify(wireFrames.slice(-8))}`);
+    if (featureControls) console.error(`Feature tool/job frames: ${JSON.stringify(wireFrames.filter(item => item.endpoint.startsWith("job/") || ["tool/call", "tool/result"].includes(item.frame.event?.type)).slice(-10))}`);
+    console.error(`Mock requests: ${modelRequests}; recent wire frames: ${JSON.stringify(wireFrames.slice(-8).map(item => ({ endpoint: item.endpoint, type: item.frame.type, event: item.frame.event?.type, generation: item.generation })))}`);
     process.exitCode = 1;
 } finally {
     finishStream?.();
+    for (const release of featureDisposers) release();
+    jobsController?.dispose();
     await coordinator?.stop().catch(() => undefined);
     if (!coordinator) await connection?.stop().catch(() => undefined);
     if (!exited) child.kill("SIGTERM");

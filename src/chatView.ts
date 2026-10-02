@@ -29,6 +29,7 @@ import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
 import { manageSessions as runSessionManagement } from "./sessionActions";
 import { DshRuntime, OFFICIAL_DESKTOP_DOWNLOAD_URL, OfficialDesktopRequiredError } from "./dshRuntime";
+import { normalizeAgentTeamProjection } from "./agentTeamTypes";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { GoalActivationController } from "./goalActivation";
 import { isImageMediaType, isRecord } from "./guards";
@@ -107,6 +108,8 @@ import {
     DshSettingsCardView,
     DshSettingsPanelView,
     DshSettingsNamespaceView,
+    DshPluginInventoryPanelView,
+    DshJobWatchItem,
     DshCommandDescriptor,
     DshSkillEntry,
     DshTodoItemView,
@@ -350,12 +353,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly settingsNamespaces = new Map<string, DshSettingsNamespaceView>();
     private settingsPanelGeneration = 0;
     private pluginInventoryGeneration = 0;
+    private pluginMutation: DshPluginInventoryPanelView["mutation"];
     private dynamicPlugins: DshDynamicPluginPanelView | undefined;
     private dynamicPluginsGeneration = 0;
     private readonly changeReviews: ChangeReviewStore;
     private readonly toolDiffs: ToolDiffStore;
     private readonly runtimeWorkspaceBrowser: RuntimeWorkspaceBrowser;
     private agentStatusChoice: { sessionId: string; candidateKey: string; label: string } | undefined;
+    private jobWatchDisposable: vscode.Disposable | undefined;
+    private jobWatchSessionId: string | undefined;
+    private liveJobs: readonly DshJobWatchItem[] = [];
+    private jobWatchReady = false;
+    private readonly jobKillPending = new Set<string>();
+    private readonly questionWaits = new Map<string, { deadline?: number; connected: boolean; error?: string }>();
+    private readonly questionWaitDisposables = new Map<string, vscode.Disposable>();
 
     public constructor(
         private readonly extensionContext: vscode.ExtensionContext,
@@ -402,6 +413,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
             const subagentTimingChanged = this.subagents.observeSubagentTiming(sessionId, snapshot);
             if (sessionId === this.sessionId) {
+                if (projectionCell(snapshot, "agentTeam")) this.subagents.scheduleSubagentRefresh();
                 this.observeModelSelection(sessionId, snapshot);
                 this.goalMutations.observe(
                     sessionId,
@@ -433,6 +445,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }),
             runtime.onDidChange((status) => {
                 if (status.state === "stopped") {
+                    this.ensureJobWatch(undefined);
+                    this.ensureQuestionWaits(undefined, undefined);
                     ++this.dynamicPluginsGeneration;
                     this.dynamicPlugins = undefined;
                     ++this.permissionCatalogGeneration;
@@ -492,6 +506,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     case "cordis/request-run-resolved":
                         void this.refreshDynamicPlugins();
                         break;
+                    case "plugin-manager/changed":
+                        // Composition changes can remount the optional Job Remote
+                        // without replacing the physical carrier.
+                        this.ensureJobWatch(undefined);
+                        if (this.settingsPanel?.open) void this.refreshPluginInventory();
+                        this.schedulePostState();
+                        break;
                     default:
                         break;
                 }
@@ -512,6 +533,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.scheduleHistoryView = undefined;
                 this.refreshGlobalScheduleCatalog(true);
                 void this.refreshDynamicPlugins();
+                if (this.settingsPanel?.open) void this.refreshPluginInventory();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
                         this.refreshModelCatalog(this.sessionId);
@@ -636,6 +658,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.activeSurface = Array.from(this.surfaces)[0];
         }
         this.updateViewBadge();
+        if (this.surfaces.size === 0) {
+            this.ensureJobWatch(undefined);
+            this.ensureQuestionWaits(undefined, undefined);
+        }
     }
 
     private anySurfaceVisible(): boolean {
@@ -1314,6 +1340,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public dispose(): void {
+        this.jobWatchDisposable?.dispose();
+        this.jobWatchDisposable = undefined;
+        for (const disposable of this.questionWaitDisposables.values()) disposable.dispose();
+        this.questionWaitDisposables.clear();
+        this.questionWaits.clear();
         for (const surface of Array.from(this.surfaces)) surface.dispose();
         if (this.stateUpdateTimer) clearTimeout(this.stateUpdateTimer);
         this.subagents.dispose();
@@ -1370,6 +1401,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     await this.toggleSettingsPanel();
                     break;
                 case "refreshPluginInventory":
+                    await this.refreshPluginInventory();
+                    break;
+                case "setPluginEnabled":
+                    await this.mutatePlugin("plugin", message.entryId, message.enabled);
+                    break;
+                case "setBundleEnabled":
+                    await this.mutatePlugin("bundle", message.name, message.enabled);
+                    break;
+                case "restartRuntime":
+                    await this.runtime.restart(this.workspaceRoot());
+                    this.pluginMutation = undefined;
                     await this.refreshPluginInventory();
                     break;
                 case "refreshDynamicPlugins":
@@ -1633,6 +1675,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "answerQuestion":
                     await this.answerQuestion(message);
+                    break;
+                case "killJob":
+                    await this.killJob(message.jobId);
+                    break;
+                case "openTeamMember":
+                    await this.openTeamMember(message.memberId);
                     break;
                 case "updateQueue":
                     await this.updateQueue(message);
@@ -2056,7 +2104,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         // Workspace only when the user has not selected one.
         if (!this.sessionId) {
             const workspace = this.pendingNewSessionWorkspaceId
-                ? {
+                                ? {
                       workspace: {
                           workspaceId: this.pendingNewSessionWorkspaceId,
                       },
@@ -2894,7 +2942,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!current || current.kind !== "question" || current.status !== "pending") return;
         const invalid = validateQuestionAnswers(current.questions, action.answers);
         if (invalid) throw new Error(t("{message} Sending was refused.", { message: invalid }));
-        if (current.continuedCallId !== undefined) {
+        if (current.continuedCallId !== undefined && current.questionState === "continued") {
+            const claimed = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
+            if (!claimed) return;
             try {
                 const accepted = await this.runtime.answerUserQuestion(
                     sessionId,
@@ -2906,6 +2956,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
                 this.schedulePostState();
             } catch (error) {
+                if (isRemoteError(error) && (error.code === "REPLY_QUEUED" || /reply is already queued/u.test(error.message))) {
+                    this.schedulePostState();
+                    return;
+                }
+                this.runtime.getSessionStore().failInteraction(sessionId, action.key, errorMessage(error));
+                void this.runtime.syncSession(sessionId);
                 this.reportError(error);
             }
             return;
@@ -3613,6 +3669,135 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return vscode.workspace.getConfiguration("dsh").get<boolean>("enableEffortKnob", true);
     }
 
+    private ensureJobWatch(sessionId: string | undefined): void {
+        if (this.jobWatchSessionId === sessionId && (sessionId === undefined || this.jobWatchDisposable !== undefined)) return;
+        this.jobWatchDisposable?.dispose();
+        this.jobWatchDisposable = undefined;
+        this.jobWatchSessionId = sessionId;
+        this.liveJobs = [];
+        this.jobKillPending.clear();
+        this.jobWatchReady = false;
+        if (sessionId === undefined) return;
+        this.jobWatchDisposable = this.runtime.watchJobs(sessionId, (items) => {
+            if (this.jobWatchSessionId !== sessionId) return;
+            this.liveJobs = items;
+            for (const id of this.jobKillPending) {
+                if (!items.some(item => item.id === id && item.status === "running")) this.jobKillPending.delete(id);
+            }
+            this.jobWatchReady = true;
+            this.schedulePostState();
+        });
+    }
+
+    private ensureQuestionWaits(sessionId: string | undefined, snapshot: SessionStateSnapshot | undefined): void {
+        const active = new Set(
+            snapshot?.interactions
+                .filter((item): item is Extract<typeof item, { kind: "question" }> => item.kind === "question" && item.continuedCallId !== undefined && item.timed === true && item.questionState === "open" && (item.status === "pending" || item.status === "submitting"))
+                .map((item) => item.continuedCallId as string) ?? [],
+        );
+        for (const [callId, disposable] of this.questionWaitDisposables) {
+            if (sessionId !== undefined && active.has(callId)) continue;
+            disposable.dispose();
+            this.questionWaitDisposables.delete(callId);
+            this.questionWaits.delete(callId);
+        }
+        if (sessionId === undefined) return;
+        for (const callId of active) {
+            if (this.questionWaitDisposables.has(callId)) continue;
+            this.questionWaits.set(callId, { connected: false });
+            this.questionWaitDisposables.set(callId, this.runtime.watchUserQuestionWait(
+                sessionId,
+                callId,
+                (state) => {
+                    this.questionWaits.set(callId, state);
+                    this.schedulePostState();
+                },
+                () => this.expireQuestion(sessionId, callId),
+            ));
+        }
+    }
+
+    private async expireQuestion(sessionId: string, callId: string): Promise<void> {
+        const store = this.runtime.getSessionStore();
+        const current = store.get(sessionId)?.interactions.find((item) => item.kind === "question" && item.continuedCallId === callId);
+        if (!current || current.status !== "pending" || current.kind !== "question" || current.questionState !== "open") return;
+        const claimed = store.claimInteraction(sessionId, current.key);
+        if (!claimed) return;
+        try {
+            await this.runtime.respondRemoteEvent(current.rpcId, {
+                kind: "rejected",
+                error: { name: "UserQuestionError", code: "ASK_TIMED_OUT", message: "ask_user_question timed out before the user answered" },
+            });
+            store.cancelRemoteInteraction(current.rpcId);
+        } catch (error) {
+            store.failInteraction(sessionId, current.key, errorMessage(error));
+        }
+    }
+
+    private async mutatePlugin(kind: "plugin" | "bundle", target: string, enabled: boolean): Promise<void> {
+        const inventory = this.settingsPanel?.pluginInventory;
+        if (!this.settingsPanel?.open || !inventory || this.pluginMutation?.pending) return;
+        const row = kind === "plugin"
+            ? inventory.managedPlugins?.find(item => item.entryId === target)
+            : inventory.bundles?.find(item => item.name === target);
+        if (!row || row.readOnlyReason !== undefined) throw new Error(t("This plugin or bundle cannot be changed."));
+        if (kind === "bundle" && enabled && inventory.bundles?.find(item => item.name === target)?.errorCode) {
+            throw new Error(t("A bundle with a load error cannot be selected."));
+        }
+        this.pluginMutation = { target, kind, pending: true };
+        this.postState();
+        try {
+            const result = kind === "plugin"
+                ? await this.runtime.setPluginEnabled(target, enabled)
+                : await this.runtime.setBundleEnabled(target, enabled);
+            const messages = {
+                applied: t("Plugin change applied."),
+                "restart-required": t("Change saved. Restart the Runtime to apply it."),
+                overridden: t("Change saved, but a higher priority layer overrides it."),
+                failed: result.changed ? t("Change saved, but the Runtime could not apply it.") : t("The Runtime rejected this change."),
+                cancelled: t("Plugin change cancelled."),
+            };
+            this.pluginMutation = { target, kind, pending: false,
+                failed: result.application === "failed",
+                restartRequired: result.application === "restart-required",
+                message: [messages[result.application], result.error?.code, result.error?.diagnostic, ...(result.warnings ?? [])].filter(Boolean).join("\n") };
+            if (result.application === "applied" && this.sessionId) {
+                void this.runtime.syncSession(this.sessionId).catch(error => this.output.appendLine(`[dsh:plugins] session refresh failed: ${errorMessage(error)}`));
+                this.commandCatalogs.invalidate();
+                this.skillCatalogs.invalidate();
+                void this.refreshPermissionCatalog(true);
+            }
+        } catch (error) {
+            this.pluginMutation = { target, kind, pending: false, failed: true, message: errorMessage(error) };
+        } finally {
+            await this.refreshPluginInventory();
+            this.postState();
+        }
+    }
+
+    private async killJob(jobId: string): Promise<void> {
+        if (!this.sessionId) return;
+        const job = this.liveJobs.find((item) => item.id === jobId);
+        if (!job || !job.canKill || this.jobKillPending.has(jobId)) return;
+        this.jobKillPending.add(jobId);
+        this.postState();
+        try {
+            await this.runtime.killJob(this.sessionId, jobId);
+        } catch (error) {
+            this.jobKillPending.delete(jobId);
+            this.reportError(error);
+        }
+        this.postState();
+    }
+
+    private async openTeamMember(memberId: string): Promise<void> {
+        if (!this.sessionId || memberId === this.sessionId) return;
+        const team = normalizeAgentTeamProjection(projectionValue(this.runtime.getSessionStore().get(this.sessionId), "agentTeam"));
+        if (!team?.members.some((member) => member.id === memberId)) return;
+        await this.subagents.refreshSubagentTree(this.sessionId);
+        await this.subagents.openSubagentHistory(memberId);
+    }
+
     /**
      * The knob sprite a surface should show for one effort, as a path under
      * `resources/`. Kept as a file name rather than a URI because
@@ -3684,6 +3869,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const session = this.sessionId
             ? this.runtime.getSessionStore().get(this.sessionId)
             : undefined;
+        this.ensureJobWatch(this.runtime.getStatus().state === "running" ? this.sessionId : undefined);
+        this.ensureQuestionWaits(this.sessionId, session);
         const goalCell = projectionCell(session, "goal");
         const permissionsCell = projectionCell(session, "permissions");
         const todos = todoProjection(projectionValue(session, "todos"));
@@ -3732,7 +3919,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ),
             context: this.contextStore.snapshot(),
             fileReferenceCandidates: this.fileReferenceCandidates,
-            ...(this.settingsPanel === undefined ? {} : { settings: this.settingsPanel }),
+            ...(this.settingsPanel === undefined ? {} : { settings: {
+                ...this.settingsPanel,
+                ...(this.settingsPanel.pluginInventory === undefined ? {} : { pluginInventory: {
+                    ...this.settingsPanel.pluginInventory, mutation: this.pluginMutation,
+                } }),
+            } }),
             ...(this.dynamicPlugins === undefined ? {} : { dynamicPlugins: this.dynamicPlugins }),
             selection: this.contextStore.getCurrentSelectionMetadata(),
             selectionEnabled: this.selectionEnabled,
@@ -3848,7 +4040,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                                     kind: "plan-review" as const,
                                     status: interaction.status,
                                     review,
+                                    questions: [...interaction.questions],
                                     planHtml: renderSafeMarkdown(review.plan),
+                                    draftKey: `${interaction.sessionId}:${interaction.key}`,
+                                    questionState: interaction.questionState,
+                                    questionWait: interaction.continuedCallId === undefined ? undefined : this.questionWaits.get(interaction.continuedCallId),
+                                    answers: interaction.answers,
                                     ...(interaction.outcome === undefined
                                         ? {}
                                         : { outcome: interaction.outcome }),
@@ -3861,9 +4058,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                                     kind: "question" as const,
                                     status: interaction.status,
                                     questions: [...interaction.questions],
+                                    draftKey: `${interaction.sessionId}:${interaction.key}`,
+                                    questionState: interaction.questionState,
+                                    answers: interaction.answers,
                                     ...(interaction.continuedCallId === undefined
                                         ? {}
                                         : { continuedCallId: interaction.continuedCallId }),
+                                    ...(interaction.continuedCallId === undefined
+                                        ? {}
+                                        : { questionWait: this.questionWaits.get(interaction.continuedCallId) }),
                                     ...(interaction.outcome === undefined
                                         ? {}
                                         : { outcome: interaction.outcome }),
@@ -3893,8 +4096,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                   }
                 : undefined,
             jobs: this.sessionId
-                ? presentJobCenter(this.sessionId, session?.jobs.items ?? [])
+                ? (this.jobWatchReady
+                    ? this.liveJobs.map((job) => ({ ...job, canKill: job.canKill === true && !this.jobKillPending.has(job.id) }))
+                    : presentJobCenter(this.sessionId, session?.jobs.items ?? []))
                 : [],
+            team: this.sessionId
+                ? normalizeAgentTeamProjection(projectionValue(session, "agentTeam"))
+                : undefined,
             changeReviews: this.changeReviews.view(this.sessionId),
         };
         for (const surface of this.surfaces) {

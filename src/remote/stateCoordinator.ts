@@ -148,10 +148,13 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     }
 
     public syncHistory(sessionId: string): Promise<void> {
-        this.watchSession(sessionId);
+        // A selected Team member remains parent-addressed during history repair.
+        const address = [...this.desiredAddresses.values()].find((candidate) => candidate.kind === "subagent" && candidate.childSessionId === sessionId)
+            ?? { kind: "session" as const, sessionId };
+        if (address.kind === "session") this.watchSession(sessionId);
         const current = this.syncing.get(sessionId);
         if (current) return current;
-        const sync = this.readCompleteHistory(sessionId)
+        const sync = this.readCompleteHistory(address)
             .catch((error) => {
                 if (!this.stopped) this.diagnostic(`Failed to rebaseline session ${sessionId}`, error);
             })
@@ -173,6 +176,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     /** Keep one addressed subagent live while its trace/preview is visible. */
     public watchSubagent(address: Extract<RemoteSessionAddress, { kind: "subagent" }>): void {
         if (!address.parentSessionId || !address.childSessionId) return;
+        this.desiredAddresses.delete(`session:${address.childSessionId}`);
         this.desiredAddresses.set(addressKey(address), { ...address });
         this.startAddressFollow(address);
     }
@@ -191,19 +195,20 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         this.applyControlBaseline();
     }
 
-    private async readCompleteHistory(sessionId: string): Promise<void> {
+    private async readCompleteHistory(address: RemoteSessionAddress): Promise<void> {
         const openingAbort = new AbortController();
         const historyAbort = new AbortController();
         this.historyAborts.add(historyAbort);
         try {
-            await this.readHistoryWindow(sessionId, historyAbort.signal, openingAbort);
+            await this.readHistoryWindow(address, historyAbort.signal, openingAbort);
         } finally {
             openingAbort.abort();
             this.historyAborts.delete(historyAbort);
         }
     }
 
-    private async readHistoryWindow(sessionId: string, lifetime: AbortSignal, openingAbort: AbortController): Promise<void> {
+    private async readHistoryWindow(address: RemoteSessionAddress, lifetime: AbortSignal, openingAbort: AbortController): Promise<void> {
+        const sessionId = address.kind === "session" ? address.sessionId : address.childSessionId;
         let generation = this.connection.currentGeneration;
         let signal = AbortSignal.any([lifetime, ...(this.generationAbort ? [this.generationAbort.signal] : [])]);
         const openingSignal = AbortSignal.any([openingAbort.signal, signal]);
@@ -211,7 +216,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         try {
             for await (const value of this.connection.open("session/follow", {
                 request: {
-                    address: { kind: "session", sessionId },
+                    address,
                     maxMessages: this.historyPageSize,
                 },
             }, openingSignal)) {
@@ -235,7 +240,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             }
             const page = toHistory(await this.unary.call<unknown>("session/page", {
                 request: {
-                    address: { kind: "session", sessionId },
+                    address,
                     throughSeq: tail.cursor,
                     beforeSeq,
                     maxMessages: this.historyPageSize,

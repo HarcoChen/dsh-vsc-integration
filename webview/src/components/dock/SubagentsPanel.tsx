@@ -88,7 +88,7 @@ function formatExactDuration(milliseconds: number): string {
     });
 }
 
-function SubagentPreviewCard({ preview, now, autoOpenReasoning }: { preview: SubagentHistoryPreview; now: number; autoOpenReasoning?: boolean }): React.JSX.Element {
+export function SubagentPreviewCard({ preview, now, autoOpenReasoning }: { preview: SubagentHistoryPreview; now: number; autoOpenReasoning?: boolean }): React.JSX.Element {
     const [followUp, setFollowUp] = useState("");
     const busy = Boolean(preview.pendingAction);
     const canFollowUp = preview.parentAvailable && !busy;

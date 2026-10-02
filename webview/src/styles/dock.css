@@ -303,6 +303,37 @@
     overflow-wrap: anywhere;
 }
 
+.dsh-job-output {
+    max-height: 240px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--dsh-font-xs);
+    padding: var(--dsh-space-2);
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.dsh-team-members, .dsh-team-tasks {
+    list-style: none;
+    padding: 0;
+}
+
+.dsh-team-members li, .dsh-team-task {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dsh-space-1);
+    padding: var(--dsh-space-2) 0;
+    border-bottom: 1px solid var(--dsh-border);
+    overflow-wrap: anywhere;
+}
+
+.dsh-team-task span, .dsh-team-task small:not(.dsh-card-error) {
+    color: var(--vscode-descriptionForeground);
+}
+
+.dsh-team-task-completed { opacity: .7; }
+
 /* Scroll containers whose children are plain text are unreachable by keyboard
    unless the container itself takes focus; these carry tabIndex={0}. */
 .dsh-goal-error-detail pre:focus-visible,
