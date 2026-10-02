@@ -589,9 +589,20 @@ export interface DshPluginBundleInfo {
     errorCode?: string;
 }
 
+/** Read-only plugin-manager entry metadata for one Loader row. */
+export interface DshManagedPluginInfo {
+    entryId: string;
+    moduleName: string;
+    enabled: boolean;
+    fiberPhase: DshPluginFiberPhase;
+    patchId?: string;
+    readOnlyReason?: string;
+}
+
 /** Settings-owned state for the read-only plugin inventory tab. */
 export interface DshPluginInventoryPanelView extends DshPluginInventorySnapshot {
     bundles?: DshPluginBundleInfo[];
+    managedPlugins?: DshManagedPluginInfo[];
     loading?: boolean;
     error?: string;
 }

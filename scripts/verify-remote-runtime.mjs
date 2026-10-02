@@ -261,6 +261,9 @@ try {
     const pluginBundles = await connection.unary.call("pluginManager/listBundles", {});
     assert.ok(Array.isArray(pluginBundles));
     pass("pluginManager/listBundles supplies read-only Runtime bundle metadata");
+    const managedPlugins = await connection.unary.call("pluginManager/listPlugins", {});
+    assert.ok(Array.isArray(managedPlugins));
+    pass("pluginManager/listPlugins supplies read-only plugin patch metadata");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");

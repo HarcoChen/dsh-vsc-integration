@@ -809,10 +809,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
         try {
             await this.runtime.start(this.workspaceRoot());
-            const [settingsResult, inventoryResult, managerResult] = await Promise.allSettled([
+            const [settingsResult, inventoryResult, managerResult, managedPluginsResult] = await Promise.allSettled([
                 this.runtime.describeSettings(),
                 this.runtime.pluginInventory(),
                 this.runtime.pluginManagerBundles(),
+                this.runtime.pluginManagerPlugins(),
             ]);
             if (generation !== this.settingsPanelGeneration || inventoryGeneration !== this.pluginInventoryGeneration) return;
             if (settingsResult.status === "fulfilled") {
@@ -841,6 +842,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         : managerResult.status === "fulfilled"
                             ? { bundles: managerResult.value }
                             : {}),
+                    ...(managedPluginsResult.status === "fulfilled" && managedPluginsResult.value !== undefined
+                        ? { managedPlugins: managedPluginsResult.value }
+                        : {}),
                 };
             } else {
                 this.settingsPanel.pluginInventory = {
@@ -900,9 +904,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
         try {
             await this.runtime.start(this.workspaceRoot());
-            const [inventory, bundles] = await Promise.all([
+            const [inventory, bundles, managedPlugins] = await Promise.all([
                 this.runtime.pluginInventory(),
                 this.runtime.pluginManagerBundles(),
+                this.runtime.pluginManagerPlugins(),
             ]);
             if (generation !== this.pluginInventoryGeneration || !this.settingsPanel?.open) return;
             this.settingsPanel = {
@@ -913,6 +918,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         ? {}
                         : { agentPresets: inventory.agentPresets }),
                     ...(bundles === undefined ? {} : { bundles }),
+                    ...(managedPlugins === undefined ? {} : { managedPlugins }),
                 },
             };
         } catch (error) {

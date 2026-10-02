@@ -6,6 +6,7 @@ import type {
     DshPluginInventoryPreset,
     DshPluginInventoryRow,
     DshPluginBundleInfo,
+    DshManagedPluginInfo,
 } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
@@ -120,6 +121,7 @@ function presetRowCard(preset: DshPluginInventoryPreset, row: DshPluginInventory
 function globalEntryCard(
     entry: DshPluginInventoryEntry,
     enabledIn: readonly string[] | undefined,
+    managed: DshManagedPluginInfo | undefined,
 ): React.JSX.Element {
     const failed = entry.fiberPhase === "failed";
     const presetProvided = !entry.enabled && enabledIn !== undefined && enabledIn.length > 0;
@@ -140,6 +142,8 @@ function globalEntryCard(
     } else if (phase !== undefined) {
         facts.push([t("Status"), phaseLabel(phase)]);
     }
+    if (managed?.patchId !== undefined) facts.push([t("Patch row"), managed.patchId]);
+    if (managed?.readOnlyReason !== undefined) facts.push([t("Read-only"), managed.readOnlyReason]);
     return (
         <li key={entry.entryId}>
             <InventoryCard
@@ -186,6 +190,9 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
     const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>();
     const presets = inventory.agentPresets ?? [];
     const bundles = inventory.bundles ?? [];
+    const managedById = useMemo(() => new Map(
+        (inventory.managedPlugins ?? []).map((plugin) => [plugin.entryId, plugin]),
+    ), [inventory.managedPlugins]);
     const fallbackPreset = presets.find((preset) => preset.isDefault) ?? presets[0];
     const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? fallbackPreset;
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -317,8 +324,8 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     <small>{t("Shared by the system and every session")}</small>
                     {failedEntries.length + regularEntries.length > 0 ? (
                         <ul className="dsh-plugin-cards">
-                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName)))}
-                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName)))}
+                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId)))}
+                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId)))}
                         </ul>
                     ) : null}
                 </details>

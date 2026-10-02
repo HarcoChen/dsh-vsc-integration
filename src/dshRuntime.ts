@@ -104,6 +104,7 @@ import {
     DshQuestionAnswerItem,
     DshPermissionCatalog,
     DshPluginBundleInfo,
+    DshManagedPluginInfo,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
     HarnessGoalEditChanges,
@@ -2267,6 +2268,32 @@ export class DshRuntime implements vscode.Disposable {
                     removable: item.removable,
                     ...(typeof item.readOnlyReason === "string" ? { readOnlyReason: item.readOnlyReason } : {}),
                     ...(error === undefined ? {} : { errorCode: error }),
+                };
+            });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Reads plugin-manager entry metadata without mutating the profile. */
+    public async pluginManagerPlugins(): Promise<DshManagedPluginInfo[] | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("pluginManager/listPlugins", {});
+            if (!Array.isArray(value)) throw new RemoteProtocolError("Remote pluginManager/listPlugins returned an invalid value");
+            return value.map((item) => {
+                if (!isRecord(item) || typeof item.entryId !== "string" || typeof item.moduleName !== "string" ||
+                    typeof item.enabled !== "boolean" ||
+                    (item.fiberPhase !== null && typeof item.fiberPhase !== "string")) {
+                    throw new RemoteProtocolError("Remote pluginManager/listPlugins returned an invalid plugin");
+                }
+                return {
+                    entryId: item.entryId,
+                    moduleName: item.moduleName,
+                    enabled: item.enabled,
+                    fiberPhase: item.fiberPhase as DshManagedPluginInfo["fiberPhase"],
+                    ...(typeof item.patchId === "string" ? { patchId: item.patchId } : {}),
+                    ...(typeof item.readOnlyReason === "string" ? { readOnlyReason: item.readOnlyReason } : {}),
                 };
             });
         } catch (error) {
