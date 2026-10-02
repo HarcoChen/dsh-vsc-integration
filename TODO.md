@@ -14,6 +14,7 @@
 - [ ] 仍需真实账号登录、Schedule 到期投递、Jev 和 VS Code UI 人工验收；覆盖边界见 [RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md)。
 - [x] Agent Teams 增加 composition capability probe：通过 `pluginInventory/list` 检查 `agent-team` Host row 是否 active；不再直接对标准 Web Runtime 发送必然 404 的 `agentTeams/*` 请求。完整 Team UI 仍需启用实验性 profile 后再接入。
 - [x] RC.2 `permissionPresets/catalog` 接入权限面板；兼容 RC.1 projection 自带 options 与 RC.2 projection 只返回 currentValue 的两种格式。
+- [x] Plugin Manager `listBundles` 接入 Settings 插件清单，只读展示 Runtime Bundle 元数据；变更操作仍由 Harness Web UI 负责。
 
 ## RC.1 适配与验证（2026-10-02，`dsh-v0.2.0-rc.1`）
 

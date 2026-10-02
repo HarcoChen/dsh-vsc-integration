@@ -576,8 +576,22 @@ export interface DshPluginInventorySnapshot {
     agentPresets?: DshPluginInventoryPreset[];
 }
 
+/** Read-only bundle metadata returned by the RC.2 plugin manager. */
+export interface DshPluginBundleInfo {
+    name: string;
+    version?: string;
+    description?: string;
+    enabled: boolean;
+    installed: boolean;
+    optional: boolean;
+    removable: boolean;
+    readOnlyReason?: string;
+    errorCode?: string;
+}
+
 /** Settings-owned state for the read-only plugin inventory tab. */
 export interface DshPluginInventoryPanelView extends DshPluginInventorySnapshot {
+    bundles?: DshPluginBundleInfo[];
     loading?: boolean;
     error?: string;
 }

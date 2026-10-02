@@ -809,9 +809,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
         try {
             await this.runtime.start(this.workspaceRoot());
-            const [settingsResult, inventoryResult] = await Promise.allSettled([
+            const [settingsResult, inventoryResult, managerResult] = await Promise.allSettled([
                 this.runtime.describeSettings(),
                 this.runtime.pluginInventory(),
+                this.runtime.pluginManagerBundles(),
             ]);
             if (generation !== this.settingsPanelGeneration || inventoryGeneration !== this.pluginInventoryGeneration) return;
             if (settingsResult.status === "fulfilled") {
@@ -835,6 +836,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     ...(inventoryResult.value.agentPresets === undefined
                         ? {}
                         : { agentPresets: inventoryResult.value.agentPresets }),
+                    ...(managerResult.status === "fulfilled" && managerResult.value === undefined
+                        ? {}
+                        : managerResult.status === "fulfilled"
+                            ? { bundles: managerResult.value }
+                            : {}),
                 };
             } else {
                 this.settingsPanel.pluginInventory = {
@@ -894,7 +900,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
         try {
             await this.runtime.start(this.workspaceRoot());
-            const inventory = await this.runtime.pluginInventory();
+            const [inventory, bundles] = await Promise.all([
+                this.runtime.pluginInventory(),
+                this.runtime.pluginManagerBundles(),
+            ]);
             if (generation !== this.pluginInventoryGeneration || !this.settingsPanel?.open) return;
             this.settingsPanel = {
                 ...this.settingsPanel,
@@ -903,6 +912,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     ...(inventory.agentPresets === undefined
                         ? {}
                         : { agentPresets: inventory.agentPresets }),
+                    ...(bundles === undefined ? {} : { bundles }),
                 },
             };
         } catch (error) {

@@ -5,6 +5,7 @@ import type {
     DshPluginInventoryPanelView,
     DshPluginInventoryPreset,
     DshPluginInventoryRow,
+    DshPluginBundleInfo,
 } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
@@ -152,10 +153,39 @@ function globalEntryCard(
     );
 }
 
+function bundleCard(bundle: DshPluginBundleInfo): React.JSX.Element {
+    const status = bundle.errorCode
+        ? t("Error: {code}", { code: bundle.errorCode })
+        : bundle.enabled
+          ? t("Enabled")
+          : bundle.installed
+            ? t("Installed")
+            : bundle.optional
+              ? t("Available")
+              : t("Dependency");
+    return (
+        <li key={bundle.name}>
+            <InventoryCard
+                moduleName={bundle.name}
+                entryId={null}
+                status={status}
+                facts={[
+                    [t("Bundle"), bundle.name],
+                    ...(bundle.version === undefined ? [] : [[t("Version"), bundle.version] as const]),
+                    ...(bundle.description === undefined ? [] : [[t("Description"), bundle.description] as const]),
+                    [t("Activation"), bundle.enabled ? t("Selected in this profile") : t("Not selected")],
+                    ...(bundle.readOnlyReason === undefined ? [] : [[t("Read-only"), bundle.readOnlyReason] as const]),
+                ]}
+            />
+        </li>
+    );
+}
+
 export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInventoryPanelView }): React.JSX.Element {
     const [query, setQuery] = useState("");
     const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>();
     const presets = inventory.agentPresets ?? [];
+    const bundles = inventory.bundles ?? [];
     const fallbackPreset = presets.find((preset) => preset.isDefault) ?? presets[0];
     const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? fallbackPreset;
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -187,7 +217,8 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
         (total, preset) => total + preset.rows.filter((row) => matches(row.moduleName, row.entryId, normalizedQuery)).length,
         0,
     );
-    const hasMatches = failedEntries.length > 0 || regularEntries.length > 0 || selectedRows.length > 0 || otherMatchCount > 0;
+    const matchingBundles = bundles.filter((bundle) => matches(bundle.name, null, normalizedQuery));
+    const hasMatches = failedEntries.length > 0 || regularEntries.length > 0 || selectedRows.length > 0 || otherMatchCount > 0 || matchingBundles.length > 0;
 
     if (inventory.loading) {
         return <section className="dsh-plugin-inventory"><div className="dsh-settings-loading">{t("Reading plugins...")}</div></section>;
@@ -226,8 +257,21 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     onChange={(event) => setQuery(event.target.value)}
                 />
             </label>
-            {inventory.entries.length === 0 && presets.length === 0 ? <div className="dsh-settings-empty">{t("No plugins are available.")}</div> : null}
+            {inventory.entries.length === 0 && presets.length === 0 && bundles.length === 0 ? <div className="dsh-settings-empty">{t("No plugins are available.")}</div> : null}
             {normalizedQuery && !hasMatches ? <div className="dsh-settings-empty">{t("No matching plugins.")}</div> : null}
+
+            {matchingBundles.length > 0 ? (
+                <details className="dsh-plugin-group" open>
+                    <summary>
+                        <strong>{t("Runtime bundles")}</strong>
+                        <span>{t("{count} bundles", { count: matchingBundles.length })}</span>
+                    </summary>
+                    <small>{t("Read-only metadata from the Runtime plugin manager")}</small>
+                    <ul className="dsh-plugin-cards">
+                        {matchingBundles.map(bundleCard)}
+                    </ul>
+                </details>
+            ) : null}
 
             {selectedPreset ? (
                 <details className="dsh-plugin-group" open>

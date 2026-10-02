@@ -103,6 +103,7 @@ import {
     DshSessionFeedbackRecordResult,
     DshQuestionAnswerItem,
     DshPermissionCatalog,
+    DshPluginBundleInfo,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
     HarnessGoalEditChanges,
@@ -2242,6 +2243,36 @@ export class DshRuntime implements vscode.Disposable {
             throw new RemoteProtocolError("Remote pluginInventory/list returned an invalid value");
         }
         return inventory;
+    }
+
+    /** Reads plugin-manager bundle metadata without enabling or mutating anything. */
+    public async pluginManagerBundles(): Promise<DshPluginBundleInfo[] | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("pluginManager/listBundles", {});
+            if (!Array.isArray(value)) throw new RemoteProtocolError("Remote pluginManager/listBundles returned an invalid value");
+            return value.map((item) => {
+                if (!isRecord(item) || typeof item.name !== "string" ||
+                    typeof item.enabled !== "boolean" || typeof item.installed !== "boolean" ||
+                    typeof item.optional !== "boolean" || typeof item.removable !== "boolean") {
+                    throw new RemoteProtocolError("Remote pluginManager/listBundles returned an invalid bundle");
+                }
+                const error = isRecord(item.error) && typeof item.error.code === "string" ? item.error.code : undefined;
+                return {
+                    name: item.name,
+                    ...(typeof item.version === "string" ? { version: item.version } : {}),
+                    ...(typeof item.description === "string" ? { description: item.description } : {}),
+                    enabled: item.enabled,
+                    installed: item.installed,
+                    optional: item.optional,
+                    removable: item.removable,
+                    ...(typeof item.readOnlyReason === "string" ? { readOnlyReason: item.readOnlyReason } : {}),
+                    ...(error === undefined ? {} : { errorCode: error }),
+                };
+            });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
     }
 
     /** Detects the optional Agent Teams profile without probing an unmounted RPC. */

@@ -258,6 +258,9 @@ try {
     assert.ok(Array.isArray(permissionCatalog.options));
     assert.ok(typeof permissionCatalog.defaultPreset === "string");
     pass("permissionPresets/catalog supplies the process-level preset options");
+    const pluginBundles = await connection.unary.call("pluginManager/listBundles", {});
+    assert.ok(Array.isArray(pluginBundles));
+    pass("pluginManager/listBundles supplies read-only Runtime bundle metadata");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
