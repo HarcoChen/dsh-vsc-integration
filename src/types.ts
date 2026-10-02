@@ -1534,6 +1534,21 @@ export interface PermissionProjectionView {
     }>;
 }
 
+/** Process-level permission preset catalog returned by the RC.2 Remote. */
+export interface DshPermissionCatalog {
+    options: Array<{
+        value: string;
+        name: string;
+        description?: string;
+    }>;
+    defaultOptions: Array<{
+        value: string;
+        name: string;
+        description?: string;
+    }>;
+    defaultPreset: string;
+}
+
 export interface TurnStatusView {
     phase: "queued" | "running" | "waiting" | "completed" | "cancelled" | "failed";
     turn?: number;

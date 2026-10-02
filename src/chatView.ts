@@ -111,6 +111,7 @@ import {
     DshSkillEntry,
     DshTodoItemView,
     DshWorkspaceView,
+    DshPermissionCatalog,
     PermissionProjectionView,
     SessionStatsView,
 } from "./types";
@@ -332,6 +333,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private commandRegistryUnavailable = false;
     private scheduleRpcUnavailable = false;
     private scheduleCatalogRpcUnavailable = false;
+    private permissionCatalog: DshPermissionCatalog | undefined;
+    private permissionCatalogRequest: Promise<void> | undefined;
+    private permissionCatalogGeneration = 0;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private modeSelectionEnabled = true;
     private agentPresetCatalogRequest: Promise<void> | undefined;
@@ -455,6 +459,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                             this.refreshScheduleCatalog(this.sessionId);
                         }
                         break;
+                    case "permission-presets/catalog-changed":
+                        void this.refreshPermissionCatalog(true);
+                        break;
                     case "llm/adapters-updated":
                     case "credentials/reference-updated":
                     case "credentials/record-updated":
@@ -487,6 +494,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.refreshAgentPresetCatalog();
                 this.goalActivation.reset();
                 this.commandRegistryUnavailable = false;
+                void this.refreshPermissionCatalog(true);
                 this.commandCatalogs.clear();
                 this.scheduleRpcUnavailable = false;
                 this.scheduleCatalogs.clear();
@@ -851,6 +859,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.output.appendLine(`[dsh:settings] panel load failed: ${errorMessage(error)}`);
         }
         this.postState();
+    }
+
+    /** Refresh the process-level permission catalog used to complete RC.2 projections. */
+    private async refreshPermissionCatalog(force = false): Promise<void> {
+        if (!force && this.permissionCatalogRequest !== undefined) return this.permissionCatalogRequest;
+        const generation = ++this.permissionCatalogGeneration;
+        const request = this.runtime.permissionCatalog()
+            .then((catalog) => {
+                if (generation !== this.permissionCatalogGeneration) return;
+                this.permissionCatalog = catalog;
+                this.postState();
+            })
+            .catch((error) => {
+                if (generation !== this.permissionCatalogGeneration) return;
+                this.permissionCatalog = undefined;
+                this.output.appendLine(`[dsh:permissions] catalog refresh failed: ${errorMessage(error)}`);
+            })
+            .finally(() => {
+                if (this.permissionCatalogRequest === request) this.permissionCatalogRequest = undefined;
+            });
+        this.permissionCatalogRequest = request;
+        return request;
     }
 
     private async refreshPluginInventory(): Promise<void> {
@@ -3596,6 +3626,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshCommandCatalog(this.sessionId);
             this.refreshScheduleCatalog(this.sessionId);
         }
+        void this.refreshPermissionCatalog();
         this.refreshGlobalScheduleCatalog();
         this.refreshAgentPresetCatalog();
         const selectedAgentPreset = selected?.agentPreset;
@@ -3719,7 +3750,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ),
             ...(sessionStats === undefined ? {} : { sessionStats }),
             reasoningEffort: this.reasoningEffortView(),
-            permissions: permissionProjection(permissionsCell?.value),
+            permissions: permissionProjection(permissionsCell?.value, this.permissionCatalog),
             ...(todos === undefined ? {} : { todos }),
             ...(schedule === undefined ? {} : { schedule }),
             ...(this.scheduleCatalogView === undefined ? {} : { scheduleCatalog: this.scheduleCatalogView }),

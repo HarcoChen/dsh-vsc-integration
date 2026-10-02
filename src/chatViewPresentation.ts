@@ -16,6 +16,7 @@ import {
     DshScheduleItem,
     DshTodoItemView,
     PermissionProjectionView,
+    DshPermissionCatalog,
     SessionStatsView,
 } from "./types";
 import { isImageMediaType, isRecord } from "./guards";
@@ -233,9 +234,14 @@ function coerceFieldValue(type: DshSettingFieldType, raw: string): unknown {
     return raw;
 }
 
-export function permissionProjection(value: unknown): PermissionProjectionView | undefined {
-    if (!isRecord(value) || typeof value.currentValue !== "string" || !Array.isArray(value.options)) return undefined;
-    const options = value.options.flatMap((option): PermissionProjectionView["options"] => {
+export function permissionProjection(
+    value: unknown,
+    catalog?: DshPermissionCatalog,
+): PermissionProjectionView | undefined {
+    if (!isRecord(value) || typeof value.currentValue !== "string") return undefined;
+    const rawOptions = Array.isArray(value.options) ? value.options : catalog?.options;
+    if (!rawOptions) return undefined;
+    const options = rawOptions.flatMap((option): PermissionProjectionView["options"] => {
         if (!isRecord(option) || typeof option.value !== "string" || typeof option.name !== "string") return [];
         return [{
             value: option.value,

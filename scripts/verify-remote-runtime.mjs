@@ -254,6 +254,10 @@ try {
     waitAbort.abort();
     assert.equal(waitFrames, 0);
     pass("RC.2 userQuestions/answer and attachWait handle an unknown continued question without mutation");
+    const permissionCatalog = await connection.unary.call("permissionPresets/catalog", {});
+    assert.ok(Array.isArray(permissionCatalog.options));
+    assert.ok(typeof permissionCatalog.defaultPreset === "string");
+    pass("permissionPresets/catalog supplies the process-level preset options");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");

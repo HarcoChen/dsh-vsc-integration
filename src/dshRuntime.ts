@@ -102,6 +102,7 @@ import {
     DshSessionFeedbackRecordRequest,
     DshSessionFeedbackRecordResult,
     DshQuestionAnswerItem,
+    DshPermissionCatalog,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
     HarnessGoalEditChanges,
@@ -2251,6 +2252,39 @@ export class DshRuntime implements vscode.Disposable {
             if (error instanceof RemoteHttpError && error.status === 404) {
                 return { available: false, status: "unsupported" };
             }
+            throw error;
+        }
+    }
+
+    /** Reads the RC.2 process-level permission preset catalog; older Runtimes return undefined. */
+    public async permissionCatalog(): Promise<DshPermissionCatalog | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("permissionPresets/catalog", {});
+            if (!isRecord(value) || !Array.isArray(value.options) || !Array.isArray(value.defaultOptions) ||
+                typeof value.defaultPreset !== "string") {
+                throw new RemoteProtocolError("Remote permissionPresets/catalog returned an invalid value");
+            }
+            const parseOptions = (raw: unknown): DshPermissionCatalog["options"] => {
+                if (!Array.isArray(raw)) throw new RemoteProtocolError("Remote permissionPresets/catalog returned invalid options");
+                return raw.map((option) => {
+                    if (!isRecord(option) || typeof option.value !== "string" || typeof option.name !== "string" ||
+                        (option.description !== undefined && typeof option.description !== "string")) {
+                        throw new RemoteProtocolError("Remote permissionPresets/catalog returned an invalid option");
+                    }
+                    return {
+                        value: option.value,
+                        name: option.name,
+                        ...(option.description === undefined ? {} : { description: option.description }),
+                    };
+                });
+            };
+            return {
+                options: parseOptions(value.options),
+                defaultOptions: parseOptions(value.defaultOptions),
+                defaultPreset: value.defaultPreset,
+            };
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
     }
