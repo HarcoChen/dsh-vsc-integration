@@ -1,5 +1,5 @@
 /**
-  * Internal Agent Team wire vocabulary for Harness v0.1.5-rc.2.
+  * Internal Agent Team wire vocabulary for Harness v0.2.0-rc.2.
   * Mirrors packages/experimental/agent-team/src/{client,types}.ts.
   * Deliberately independent of the opt-in experimental package and webview protocol.
   */
@@ -73,3 +73,52 @@ export type DshTeamTaskMutationResult =
             readonly message: string;
         }
     };
+
+/** Capability state for the opt-in Agent Teams profile bundle. */
+export interface DshAgentTeamsCapability {
+    /** True only when the Host-side Agent Teams service row is active. */
+    readonly available: boolean;
+    /** Why the current Runtime cannot be used for Agent Teams. */
+    readonly status: "active" | "inactive" | "absent" | "unsupported";
+}
+
+/**
+ * Detect Agent Teams from the Runtime's composition inventory.
+ *
+ * Agent Teams is an experimental profile bundle. Its `agentTeams/*` methods
+ * are not part of the standard `api/remotes` assembly, so probing an endpoint
+ * directly produces an unhelpful 404. The profile row is the authoritative
+ * capability signal exposed by `pluginInventory/list`.
+ *
+ * @param inventory - Host plugin inventory returned by the public Remote.
+ * @returns Capability state for the current composition.
+ */
+export function detectAgentTeamsCapability(
+    inventory: {
+        readonly entries: readonly { readonly moduleName: string; readonly enabled: boolean; readonly fiberPhase: string | null }[];
+        readonly agentPresets?: readonly { readonly rows: readonly {
+            readonly entryId: string | null;
+            readonly moduleName: string;
+            readonly enabled: boolean | "conditional";
+            readonly fiberPhase: string | null;
+        }[] }[];
+    },
+): DshAgentTeamsCapability {
+    const rows = [
+        ...inventory.entries.map((entry) => ({
+            entryId: undefined,
+            moduleName: entry.moduleName,
+            enabled: entry.enabled,
+            fiberPhase: entry.fiberPhase,
+        })),
+        ...(inventory.agentPresets ?? []).flatMap((preset) => preset.rows),
+    ];
+    const teamRow = rows.find((row) =>
+        row.entryId === "agent-team" || row.moduleName === "@deepseek-ai/dsh-experimental-agent-team",
+    );
+    if (!teamRow) return { available: false, status: "absent" };
+    if (teamRow.enabled !== true || teamRow.fiberPhase !== "active") {
+        return { available: false, status: "inactive" };
+    }
+    return { available: true, status: "active" };
+}

@@ -12,6 +12,7 @@
 - [x] Remote smoke 校验 RC.2 版本、unknown question answer、timed timeout projection 和 late answer settlement；标准 Web、Schedule bundle profile 均通过。
 - [x] CNB `0.2.0-rc.2` manifest 和五个平台资产通过 `verify-managed-runtime.mjs` 远端检查（9/9）。
 - [ ] 仍需真实账号登录、Schedule 到期投递、Jev 和 VS Code UI 人工验收；覆盖边界见 [RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md)。
+- [x] Agent Teams 增加 composition capability probe：通过 `pluginInventory/list` 检查 `agent-team` Host row 是否 active；不再直接对标准 Web Runtime 发送必然 404 的 `agentTeams/*` 请求。完整 Team UI 仍需启用实验性 profile 后再接入。
 
 ## RC.1 适配与验证（2026-10-02，`dsh-v0.2.0-rc.1`）
 

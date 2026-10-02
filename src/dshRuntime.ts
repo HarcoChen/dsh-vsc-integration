@@ -14,11 +14,13 @@ import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
 import { workspaceView } from "./remote/workspaceState";
 import type {
+    DshAgentTeamsCapability,
     DshTeamView,
     DshCreateTeamTaskRequest,
     DshUpdateTeamTaskRequest,
     DshTeamTaskMutationResult,
 } from "./agentTeamTypes";
+import { detectAgentTeamsCapability } from "./agentTeamTypes";
 import {
     acquireRuntimeStartupMutex, advertisedEndpointRefused, publishRuntimeAdvertisement,
     readRuntimeAdvertisements, removeRuntimeAdvertisement, type RuntimeAdvertisement,
@@ -2241,6 +2243,18 @@ export class DshRuntime implements vscode.Disposable {
         return inventory;
     }
 
+    /** Detects the optional Agent Teams profile without probing an unmounted RPC. */
+    public async agentTeamsCapability(): Promise<DshAgentTeamsCapability> {
+        try {
+            return detectAgentTeamsCapability(await this.pluginInventory());
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) {
+                return { available: false, status: "unsupported" };
+            }
+            throw error;
+        }
+    }
+
     /** Reads the optional frame-wide dynamic Cordis plugin registry. */
     public async dynamicPluginInventory(): Promise<DshDynamicPluginRow[] | undefined> {
         try {
@@ -2415,7 +2429,7 @@ export class DshRuntime implements vscode.Disposable {
 
     /** Internal opt-in Team API; no UI registration or background probing. */
     public getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamView> {
-        return this.apiClient.call("agentTeams/view", { agentId: sessionId }, signal);
+        return this.requireAgentTeams().then(() => this.apiClient.call("agentTeams/view", { agentId: sessionId }, signal));
     }
 
     public createAgentTeamTask(
@@ -2423,7 +2437,7 @@ export class DshRuntime implements vscode.Disposable {
         request: DshCreateTeamTaskRequest,
         signal?: AbortSignal,
     ): Promise<DshTeamTaskMutationResult> {
-        return this.apiClient.call("agentTeams/createTask", { agentId: sessionId, request }, signal);
+        return this.requireAgentTeams().then(() => this.apiClient.call("agentTeams/createTask", { agentId: sessionId, request }, signal));
     }
 
     /** Preserve expectedRevision and typed conflicts; never retry a stale mutation. */
@@ -2432,7 +2446,16 @@ export class DshRuntime implements vscode.Disposable {
         request: DshUpdateTeamTaskRequest,
         signal?: AbortSignal,
     ): Promise<DshTeamTaskMutationResult> {
-        return this.apiClient.call("agentTeams/updateTask", { agentId: sessionId, request }, signal);
+        return this.requireAgentTeams().then(() => this.apiClient.call("agentTeams/updateTask", { agentId: sessionId, request }, signal));
+    }
+
+    private async requireAgentTeams(): Promise<void> {
+        const capability = await this.agentTeamsCapability();
+        if (!capability.available) {
+            throw new RemoteProtocolError(
+                `Agent Teams is unavailable in the connected Runtime (${capability.status}); enable the optional Agent Teams profile bundle first`,
+            );
+        }
     }
 
     public listSubagents(
