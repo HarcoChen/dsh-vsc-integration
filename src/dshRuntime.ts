@@ -2355,6 +2355,42 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
+    /** Read a bounded binary window from the Runtime's Session workspace. */
+    public async workspaceFilesReadBytes(
+        sessionId: string,
+        path: string,
+        options?: { range?: { offset?: number; length?: number }; baseFile?: string },
+        signal?: AbortSignal,
+    ): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call("workspaceFiles/readBytes", {
+                workspaceFileScopeId: sessionId,
+                path,
+                ...(options === undefined ? {} : { options }),
+            }, signal);
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Watch one Runtime workspace file; old Runtimes end the optional stream cleanly. */
+    public async *workspaceFilesChanges(
+        sessionId: string,
+        path: string,
+        signal: AbortSignal,
+    ): AsyncGenerator<unknown> {
+        try {
+            yield* this.remoteConnection.open("workspaceFiles/changes", {
+                workspaceFileScopeId: sessionId,
+                path,
+            }, signal);
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return;
+            throw error;
+        }
+    }
+
     /** Detects the optional Agent Teams profile without probing an unmounted RPC. */
     public async agentTeamsCapability(): Promise<DshAgentTeamsCapability> {
         try {

@@ -51,6 +51,7 @@ const dshHome = join(storage, "home");
 const workspacePath = join(storage, "workspace");
 await Promise.all([mkdir(dshHome), mkdir(workspacePath)]);
 await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
+await writeFile(join(workspacePath, "remote-smoke.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
 if (withScheduleBundle) {
     const profileDirectory = join(dshHome, "profiles", "web");
     await mkdir(profileDirectory, { recursive: true });
@@ -282,7 +283,24 @@ try {
         range: { offset: 2, limit: 1 },
     });
     assert.equal(remoteText.text, "second line");
-    pass("workspaceFiles/list, stat, and paged read access the Runtime workspace");
+    const remoteBytes = await connection.unary.call("workspaceFiles/readBytes", {
+        workspaceFileScopeId: seededSessionId,
+        path: join(workspacePath, "remote-smoke.bin"),
+        options: { range: { offset: 2, length: 2 } },
+    });
+    assert.deepEqual([...remoteBytes.data], [2, 3]);
+    const changesAbort = new AbortController();
+    let watchReady;
+    for await (const frame of connection.open("workspaceFiles/changes", {
+        workspaceFileScopeId: seededSessionId,
+        path: join(workspacePath, "remote-smoke.txt"),
+    }, changesAbort.signal)) {
+        watchReady = frame;
+        break;
+    }
+    changesAbort.abort();
+    assert.equal(watchReady.kind, "ready");
+    pass("workspaceFiles/list, stat, paged read, binary window, and changes ready frame work");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
