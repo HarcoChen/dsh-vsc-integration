@@ -99,6 +99,7 @@ import {
     DshMessageFeedbackPutResult,
     DshSessionFeedbackRecordRequest,
     DshSessionFeedbackRecordResult,
+    DshQuestionAnswerItem,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
     HarnessGoalEditChanges,
@@ -2626,6 +2627,23 @@ export class DshRuntime implements vscode.Disposable {
         outcome: import("./remote/contracts").RemoteEventOutcome,
     ): Promise<void> {
         await this.remoteConnection.answerRemoteEvent(eventId, outcome);
+    }
+
+    /** Answer a continued RC.2 timed user question through the Session-scoped Remote. */
+    public async answerUserQuestion(
+        sessionId: string,
+        callId: string,
+        answers: DshQuestionAnswerItem[],
+    ): Promise<boolean> {
+        const result = await this.apiClient.call<unknown>("userQuestions/answer", {
+            agentId: sessionId,
+            callId,
+            answer: { answers },
+        });
+        if (typeof result !== "boolean") {
+            throw new RemoteProtocolError("Remote userQuestions/answer returned an invalid value");
+        }
+        return result;
     }
 
     /** Stores a credential in the runtime-owned credential provider. */

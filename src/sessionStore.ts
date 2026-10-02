@@ -10,6 +10,8 @@ import {
     DshQuestionItem,
     DshQuestionRequested,
     DshQuestionResolved,
+    DshQuestionAnswerItem,
+    DshUserQuestionProjection,
     DshQueuedInboxItem,
     DshRpcReceipt,
     DshSessionEvent,
@@ -159,6 +161,8 @@ export interface SessionApprovalInteraction extends SessionInteractionBase {
 export interface SessionQuestionInteraction extends SessionInteractionBase {
     kind: "question";
     questions: readonly DshQuestionItem[];
+    /** RC.2 continued timed question, answered through userQuestions/answer. */
+    continuedCallId?: string;
 }
 
 export type SessionInteractionSnapshot =
@@ -229,6 +233,38 @@ function normalizeQuestionItems(value: unknown): DshQuestionItem[] | undefined {
         });
     }
     return result;
+}
+
+function normalizeUserQuestionProjection(value: unknown): DshUserQuestionProjection | undefined {
+    if (!isRecord(value) || !Array.isArray(value.active) || !Array.isArray(value.settled)) return undefined;
+    const active: DshUserQuestionProjection["active"] = [];
+    const seen = new Set<string>();
+    for (const candidate of value.active) {
+        if (!isRecord(candidate) || typeof candidate.callId !== "string" || !candidate.callId ||
+            (candidate.state !== "open" && candidate.state !== "continued")) return undefined;
+        const questions = normalizeQuestionItems(candidate.questions);
+        if (!questions || seen.has(candidate.callId)) return undefined;
+        seen.add(candidate.callId);
+        active.push({ callId: candidate.callId, questions, state: candidate.state });
+    }
+    const settled: DshUserQuestionProjection["settled"] = [];
+    for (const candidate of value.settled) {
+        if (!isRecord(candidate) || typeof candidate.callId !== "string" || !candidate.callId ||
+            !Array.isArray(candidate.answers)) return undefined;
+        const answers: DshQuestionAnswerItem[] = [];
+        for (const answer of candidate.answers) {
+            if (!isRecord(answer) || typeof answer.id !== "string" || !Array.isArray(answer.selected) ||
+                !answer.selected.every((item) => typeof item === "string") ||
+                (answer.custom !== undefined && typeof answer.custom !== "string")) return undefined;
+            answers.push({
+                id: answer.id,
+                selected: [...answer.selected],
+                ...(answer.custom === undefined ? {} : { custom: answer.custom }),
+            });
+        }
+        settled.push({ callId: candidate.callId, answers });
+    }
+    return { active, settled };
 }
 
 function normalizeEvent(value: DshHistoryEvent | DshSessionEvent): DshSessionEvent | undefined {
@@ -858,6 +894,7 @@ class SessionState {
             rpcId,
             sessionId: frame.sessionId,
             questions: frame.questions.map((question) => ({ ...question })),
+            ...(frame.callId === undefined ? {} : { continuedCallId: frame.callId }),
             status: current?.status === "unavailable" || current?.status === "failed"
                 ? "pending"
                 : current?.status ?? "pending",
@@ -987,6 +1024,32 @@ class SessionState {
     }
 
     public snapshot(): SessionStateSnapshot {
+        const interactions = [...this.interactions.values()]
+            .sort((left, right) => left.receivedAt - right.receivedAt)
+            .map((interaction) => ({ ...interaction }));
+        const projection = normalizeUserQuestionProjection(this.projections.get("userQuestions")?.value);
+        if (projection) {
+            const knownCalls = new Set(
+                interactions
+                    .filter((interaction): interaction is SessionQuestionInteraction => interaction.kind === "question")
+                    .map((interaction) => interaction.continuedCallId)
+                    .filter((callId): callId is string => callId !== undefined),
+            );
+            const projectionSeq = this.projections.get("userQuestions")?.seq ?? 0;
+            for (const question of projection.active) {
+                if (question.state !== "continued" || knownCalls.has(question.callId)) continue;
+                interactions.push({
+                    key: `u:${question.callId}`,
+                    rpcId: question.callId,
+                    sessionId: this.sessionId,
+                    status: "pending",
+                    kind: "question",
+                    questions: question.questions.map((item) => ({ ...item })),
+                    continuedCallId: question.callId,
+                    receivedAt: projectionSeq,
+                });
+            }
+        }
         return {
             sessionId: this.sessionId,
             assistantStream: this.visibleAssistantStream(),
@@ -995,9 +1058,7 @@ class SessionState {
             projections: this.projections.snapshot(),
             queue: cloneSnapshot(this.queueState),
             jobs: cloneSnapshot(this.jobsState),
-            interactions: [...this.interactions.values()]
-                .sort((left, right) => left.receivedAt - right.receivedAt)
-                .map((interaction) => ({ ...interaction })),
+            interactions,
             subscribedLastSeq: this.events.subscribedWatermark,
             needsHistoryBaseline: this.events.needsHistoryBaseline,
         };
@@ -1137,8 +1198,16 @@ export class HarnessSessionStore {
     public applyRemoteQuestion(sessionId: string, eventId: string, request: Record<string, unknown>): boolean {
         const questions = normalizeQuestionItems(request.questions);
         if (!questions) return false;
+        const wait = isRecord(request.wait) && typeof request.wait.callId === "string"
+            ? request.wait.callId
+            : undefined;
         const state = this.state(sessionId);
-        state.requestQuestion({ type: "question/requested", sessionId, questions }, eventId, this.now());
+        state.requestQuestion({
+            type: "question/requested",
+            sessionId,
+            questions,
+            ...(wait === undefined ? {} : { callId: wait }),
+        }, eventId, this.now());
         this.schedulePublish(state);
         return true;
     }
@@ -1303,7 +1372,12 @@ export class HarnessSessionStore {
                 }
                 const state = this.state(sessionId);
                 state.requestQuestion(
-                    { type: "question/requested", sessionId, questions },
+                    {
+                        type: "question/requested",
+                        sessionId,
+                        questions,
+                        ...(typeof frame.callId === "string" ? { callId: frame.callId } : {}),
+                    },
                     envelope.rpcId,
                     this.now(),
                 );

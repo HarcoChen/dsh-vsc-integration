@@ -973,6 +973,8 @@ export interface DshQuestionRequested {
     type: "question/requested";
     sessionId: string;
     questions: DshQuestionItem[];
+    /** RC.2 timed-tool call identity, present when the request can continue after timeout. */
+    callId?: string;
 }
 
 export interface DshQuestionResolved {
@@ -993,6 +995,21 @@ export interface DshQuestionResponse {
     answer: {
         answers: DshQuestionAnswerItem[];
     };
+}
+
+/** Durable RC.2 timed-question projection exposed by the Session Remote API. */
+export interface DshPendingUserQuestion {
+    callId: string;
+    questions: DshQuestionItem[];
+    state: "open" | "continued";
+}
+
+export interface DshUserQuestionProjection {
+    active: DshPendingUserQuestion[];
+    settled: Array<{
+        callId: string;
+        answers: DshQuestionAnswerItem[];
+    }>;
 }
 
 export interface DshSessionEventFrame {
@@ -1278,6 +1295,8 @@ export interface ChatViewState {
         /** What a pending approval would actually do; absent when unknown. */
         call?: ApprovalCallView;
         questions?: DshQuestionItem[];
+        /** RC.2 continued timed question call id; answer through userQuestions/answer. */
+        continuedCallId?: string;
         review?: {
             id: string;
             question: string;

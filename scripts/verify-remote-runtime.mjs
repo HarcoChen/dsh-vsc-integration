@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /** Integration smoke against a real DSH launcher, using the extension's compiled Remote clients.
  * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
- * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle, --keep.
+ * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle,
+ * --timed-questions, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
@@ -31,6 +32,7 @@ if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launc
 const launcher = resolve(argv[launcherIndex + 1]);
 const keep = argv.includes("--keep");
 const withScheduleBundle = argv.includes("--with-schedule-bundle");
+const timedQuestions = argv.includes("--timed-questions");
 const versionIndex = argv.indexOf("--expect-version");
 if (versionIndex >= 0 && !argv[versionIndex + 1]) throw new Error("--expect-version requires a version");
 const expectedVersion = versionIndex >= 0 ? argv[versionIndex + 1] : RUNTIME_DEFAULT_VERSION;
@@ -57,10 +59,14 @@ if (withScheduleBundle) {
             "@deepseek-ai/dsh-experimental-schedule-bundle"] } },
     }, null, 2) + "\n");
 }
+if (timedQuestions) {
+    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n");
+}
 env.DSH_HOME = dshHome;
 env.DSH_SMOKE_API_KEY = "local-smoke-only";
 let finishStream;
 let heldStream = false;
+let timedQuestionServed = false;
 let modelRequests = 0;
 const model = createServer(async (request, response) => {
     if (request.url === "/models") {
@@ -77,6 +83,19 @@ const model = createServer(async (request, response) => {
     const event = data => response.write(`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`);
     event({ type: "message_start", message: { id: randomUUID(), model: payload.model,
         usage: { input_tokens: 3, output_tokens: 0 } } });
+    if (timedQuestions && !timedQuestionServed && modelRequests >= 12) {
+        timedQuestionServed = true;
+        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "smoke-question", name: "ask_user_question", input: {} } });
+        event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({
+            questions: [{ id: "scope", question: "Which scope should be used?", options: [{ label: "Tool only" }] }],
+            timeout: 1,
+        }) } });
+        event({ type: "content_block_stop", index: 0 });
+        event({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } });
+        event({ type: "message_stop" });
+        response.end();
+        return;
+    }
     event({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
     event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } });
     if (!heldStream && JSON.stringify(payload.messages).includes("SMOKE_STREAM")) {
@@ -218,6 +237,23 @@ try {
         }
         pass("standard Web composition omits Schedule list/catalog with HTTP 404");
     }
+    const questionAnswer = await connection.unary.call("userQuestions/answer", {
+        agentId: seededSessionId,
+        callId: randomUUID(),
+        answer: { answers: [] },
+    });
+    assert.equal(questionAnswer, false);
+    const waitAbort = new AbortController();
+    let waitFrames = 0;
+    for await (const _frame of connection.open("userQuestions/attachWait", {
+        agentId: seededSessionId,
+        callId: randomUUID(),
+    }, waitAbort.signal)) {
+        waitFrames += 1;
+    }
+    waitAbort.abort();
+    assert.equal(waitFrames, 0);
+    pass("RC.2 userQuestions/answer and attachWait handle an unknown continued question without mutation");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
@@ -304,6 +340,36 @@ try {
         delivery: "queue", requestId: randomUUID(), content: [{ type: "text", text: "Smoke" }],
     } }), error => error.isDSHRemoteError === true && error.code === "subagent/not-resumable");
     pass("subagents/prompt request/delivery envelope reaches missing-child validation");
+    if (timedQuestions) {
+        const timedSession = await connection.unary.call("session/create", {
+            request: { workspaceId, agentPreset: "standard" },
+        });
+        coordinator.watchSession(timedSession.sessionId);
+        await connection.unary.call("session/prompt", { request: { sessionId: timedSession.sessionId,
+            requestId: randomUUID(), mode: "queue", content: [{ type: "text", text: "TIMED_QUESTION_SMOKE" }] } });
+        const pending = await until(() => {
+            const snapshot = coordinator.sessions.get(timedSession.sessionId);
+            const cell = snapshot?.projections.find(({ key }) => key === "userQuestions");
+            if (!cell || typeof cell.value !== "object" || cell.value === null || Array.isArray(cell.value)) return undefined;
+            const active = cell.value.active;
+            if (!Array.isArray(active)) return undefined;
+            const question = active.find((item) => item && item.state === "continued");
+            return question && typeof question.callId === "string" ? question : undefined;
+        }, "continued timed question projection", 20_000);
+        const accepted = await connection.unary.call("userQuestions/answer", {
+            agentId: timedSession.sessionId,
+            callId: pending.callId,
+            answer: { answers: [{ id: "scope", selected: ["Tool only"] }] },
+        });
+        assert.equal(accepted, true);
+        await until(() => {
+            const snapshot = coordinator.sessions.get(timedSession.sessionId);
+            const cell = snapshot?.projections.find(({ key }) => key === "userQuestions");
+            return cell && typeof cell.value === "object" && cell.value !== null &&
+                Array.isArray(cell.value.active) && !cell.value.active.some((item) => item?.callId === pending.callId);
+        }, "continued timed question settlement", 20_000);
+        pass("timed ask_user_question continues after timeout and accepts a late Remote answer");
+    }
     const streamTypes = [...new Set(wireFrames.map(({ endpoint, frame }) => `${endpoint}:${frame.type}`))];
     console.log(`Observed frames: ${streamTypes.join(", ")}`);
     assert.equal(diagnostics.length, 0, diagnostics.join("\n"));

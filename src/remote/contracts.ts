@@ -1,8 +1,8 @@
 /**
  * Wire contracts for the RC Remote API.
  *
- * Target contract: `deepseek-harness` tag `dsh-v0.2.0-rc.1`, commit
- * `4878cdabd87d4041bdaff61d04c966883b9fd07a`. Keep this pin next to the
+ * Target contract: `deepseek-harness` tag `dsh-v0.2.0-rc.2`, commit
+ * `639ed015397290b3745d163aafe02ffee4aa3f84`. Keep this pin next to the
  * carrier vocabulary: upgrading the managed Runtime requires an endpoint and
  * descriptor audit before changing it.
  */

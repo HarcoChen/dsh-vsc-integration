@@ -663,7 +663,7 @@
                 },
                 "dsh.runtimeVersion": {
                     "type": "string",
-                    "default": "0.2.0-rc.1",
+                    "default": "0.2.0-rc.2",
                     "pattern": "^[0-9A-Za-z.-]+$",
                     "description": "%config.runtimeVersion.description%"
                 },

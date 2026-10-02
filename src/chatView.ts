@@ -2820,6 +2820,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         if (!current || current.kind !== "question" || current.status !== "pending") return;
         const invalid = validateQuestionAnswers(current.questions, action.answers);
         if (invalid) throw new Error(t("{message} Sending was refused.", { message: invalid }));
+        if (current.continuedCallId !== undefined) {
+            try {
+                const accepted = await this.runtime.answerUserQuestion(
+                    sessionId,
+                    current.continuedCallId,
+                    action.answers,
+                );
+                if (!accepted) {
+                    throw new Error(t("This question is no longer waiting for an answer."));
+                }
+                this.schedulePostState();
+            } catch (error) {
+                this.reportError(error);
+            }
+            return;
+        }
         const interaction = this.runtime.getSessionStore().claimInteraction(sessionId, action.key);
         if (!interaction || interaction.kind !== "question") return;
         try {
@@ -3765,6 +3781,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                                     kind: "question" as const,
                                     status: interaction.status,
                                     questions: [...interaction.questions],
+                                    ...(interaction.continuedCallId === undefined
+                                        ? {}
+                                        : { continuedCallId: interaction.continuedCallId }),
                                     ...(interaction.outcome === undefined
                                         ? {}
                                         : { outcome: interaction.outcome }),

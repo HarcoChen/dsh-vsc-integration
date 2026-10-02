@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/dsh-0.2.0--rc.1-2f6feb?style=flat-square" alt="dsh 0.2.0-rc.1">
+  <img src="https://img.shields.io/badge/dsh-0.2.0--rc.2-2f6feb?style=flat-square" alt="dsh 0.2.0-rc.2">
   <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-built--in-8250df?style=flat-square" alt="Laya / Jev built-in">
   <img src="https://img.shields.io/badge/setup-zero--config-1a7f37?style=flat-square" alt="Zero-config setup">
 </p>
@@ -49,7 +49,7 @@
 
 | | |
 | --- | --- |
-| **Ready for dsh `0.2.0-rc.1`** | The default Runtime and Remote contract target `dsh-v0.2.0-rc.1`. Session management, DeepSeek account sign-in and balance, and default DSH Workspace initialization remain supported. Schedule is an optional official bundle in this release and the dock explains how to enable it when absent. Desktop-only product analytics RPCs are not used by the IDE. Any Runtime at or above `0.1.5-rc.1` still connects. |
+| **Ready for dsh `0.2.0-rc.2`** | The default Runtime and Remote contract target `dsh-v0.2.0-rc.2`. Session management, DeepSeek account sign-in and balance, default DSH Workspace initialization, and late answers to timed questions remain supported. Schedule is an optional official bundle in this release and the dock explains how to enable it when absent. Desktop-only product analytics RPCs are not used by the IDE. Any Runtime at or above `0.1.5-rc.1` still connects. |
 | **Laya / Jev built in** | The IDE-neutral [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin ships inside the extension. Add fast System One decisions from TypeSafe [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), or its wire-compatible open-source alternative [Laya](https://huggingface.co/convaiinnovations/laya), to the agent loop: loop guard, large-output shaping, done-gate, tool pruning, skill routing, and decision tools. Nothing extra to install. |
 | **Works out of the box** | Install the extension and open chat. It finds a compatible local `dsh`, offers to upgrade an old one, or downloads a managed Runtime. The Jev plugin is mounted automatically into the Runtime it starts. The only setup left is your API key. |
 
@@ -116,7 +116,7 @@ A write whose target file still has unsaved editor changes is not released: appr
 
 Everything is off by default. Enabled features may send the samples they need to the configured endpoint. Existing or externally managed Runtimes are never modified.
 
-### Sessions, account, and schedules (dsh 0.2.0-rc.1)
+### Sessions, account, and schedules (dsh 0.2.0-rc.2)
 
 - `DSH: Manage Sessions` pins sessions and restores archived ones. `DSH: Archive Session` asks whether to stop a running task before it archives the session. DSH Workspaces also work without an open VS Code folder.
 - `DSH: Manage DeepSeek Account` signs in through the browser, signs out, and shows the account profile and balance.
@@ -167,15 +167,15 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **How is Laya/Jev integrated?** The extension package carries the IDE-neutral `dsh-jev-integration` Runtime package and mounts it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Laya is supported through the same System One contract by changing `dsh.jev.baseUrl` (HTTPS only). Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
-**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.2.0-rc.1`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
+**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.2.0-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
-The implemented Runtime contract targets `dsh-v0.2.0-rc.1` (`4878cdabd87d4041bdaff61d04c966883b9fd07a`). Both the standard Web profile and the profile with Schedule enabled passed isolated integration checks against the exact npm release; the [RPC adaptation report](./RPC_0.2.0_ADAPTATION.md) records coverage and remaining checks. The new `productAnalytics` RPCs are Desktop-only and unused by the IDE. Schedule is an optional official bundle; enable `@deepseek-ai/dsh-experimental-schedule-bundle` in the Runtime Plugins page for Schedule RPC support. The Jev plugin hooks and pinned Git submodule were also checked against the release candidate. Remote Workspace Files, Jobs, plugin-manager, permission-preset, and terminal surfaces remain candidates and are not exposed in the IDE.
+The implemented Runtime contract targets `dsh-v0.2.0-rc.2` (`639ed015397290b3745d163aafe02ffee4aa3f84`). Both the standard Web profile and the profile with Schedule enabled passed isolated integration checks against the exact npm release; the [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records coverage and remaining checks. The new `productAnalytics` RPCs are Desktop-only and unused by the IDE. Schedule is an optional official bundle; enable `@deepseek-ai/dsh-experimental-schedule-bundle` in the Runtime Plugins page for Schedule RPC support. The Jev plugin hooks and pinned Git submodule were also checked against the release candidate. Remote Workspace Files, Jobs, plugin-manager, permission-preset, and terminal surfaces remain candidates and are not exposed in the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
 
 Default app arguments are `web --no-open`; pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved, and auto mode strips their package prefix when selecting a local CLI. Shared Runtime discovery still runs before choosing a new launcher, so fallback reuses a healthy Runtime instead of starting a second one.
 
-On 2026-10-02, the CNB standalone `0.2.0-rc.1` manifest returned HTTP 404. Until those archives are published, use a compatible local CLI, the pinned pnpm/npx fallback, or an existing instance. With npm available and default launch arguments, `dsh.command: "npx"` and `dsh.runtimeVersion: "0.2.0-rc.1"` pin a new launcher to that release. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without downloads or model requests.
+The CNB standalone `0.2.0-rc.2` manifest and all five platform assets are published and pass the managed-runtime remote check. With npm available and default launch arguments, `dsh.command: "npx"` and `dsh.runtimeVersion: "0.2.0-rc.2"` pin a new launcher to that release. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without model requests.
 
 **Does DSH support multi-root workspaces?** DSH supports multiple independent Workspaces, but each Session has one working directory (`cwd`). A VS Code multi-root workspace is therefore represented by the first workspace folder for Runtime startup; use separate DSH Workspaces or Sessions when roots need different working directories.
 
@@ -224,7 +224,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverToken` | `""` | Launch token for `dsh.serverUrl`; use it when the address and token are configured separately. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.2.0-rc.1` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above `0.1.5-rc.1`. |
+| `dsh.runtimeVersion` | `0.2.0-rc.2` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above `0.1.5-rc.1`. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
@@ -302,17 +302,18 @@ npm run package    # Compile + vsce package
 npm run release    # Test + version bump + CHANGELOG archive + tag
 ```
 
-The Remote smoke runner checks the launcher's actual version against the managed Runtime pin, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, and optional Schedule availability. The [RC.1 adaptation report](./RPC_0.2.0_ADAPTATION.md) records results and the remaining account, Schedule mutation, Jev, and UI checks.
+The Remote smoke runner checks the launcher's actual version against the managed Runtime pin, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
 
-To run the Remote integration smoke against an installed `0.2.0-rc.1` launcher:
+To run the Remote integration smoke against an installed `0.2.0-rc.2` launcher:
 
 ```bash
 npm run compile
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
+node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --timed-questions
 ```
 
-This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopback Messages model stub. It does not use your sessions or external model credentials. Use a Node.js version supported by the selected Runtime (`^22.19.0 || >=24.0.0` for RC.1). `--expect-version <version>` explicitly selects another smoke target; `--keep` retains the temporary state.
+This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopback Messages model stub. It does not use your sessions or external model credentials. Use a Node.js version supported by the selected Runtime (`^22.19.0 || >=24.0.0`). `--with-schedule-bundle` checks optional Schedule RPCs; `--timed-questions` checks timeout continuation and a late answer; `--expect-version <version>` explicitly selects another smoke target; `--keep` retains the temporary state.
 
 To verify the managed Runtime release logic:
 

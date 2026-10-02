@@ -1,7 +1,17 @@
 # TODO
 
-更新时间：2026-10-02（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.1`](./RPC_0.2.0_ADAPTATION.md)）。
+更新时间：2026-10-02（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.2`](./RPC_0.2.0_RC2_ADAPTATION.md)）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
+
+## RC.2 适配与验证（2026-10-02，`dsh-v0.2.0-rc.2`）
+
+已从 `deepseek-harness` 上游拉取 tag `dsh-v0.2.0-rc.2@639ed015397290b3745d163aafe02ffee4aa3f84`。RC.2 新增 `userQuestions/answer` 和 `userQuestions/attachWait`，并把 timed `ask_user_question` 的继续回答写入 `userQuestions` projection；Desktop 命令管理、模型搜索和本地应用打开属于 Runtime 自身 UI，IDE 不复制。
+
+- [x] 默认 Runtime、Remote contract、设置文案和中英文 README 更新到 RC.2。
+- [x] Session store 消费 `userQuestions` projection；continued 问题卡通过 `userQuestions/answer` 发送延迟回答。
+- [x] Remote smoke 校验 RC.2 版本、unknown question answer、timed timeout projection 和 late answer settlement；标准 Web、Schedule bundle profile 均通过。
+- [x] CNB `0.2.0-rc.2` manifest 和五个平台资产通过 `verify-managed-runtime.mjs` 远端检查（9/9）。
+- [ ] 仍需真实账号登录、Schedule 到期投递、Jev 和 VS Code UI 人工验收；覆盖边界见 [RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md)。
 
 ## RC.1 适配与验证（2026-10-02，`dsh-v0.2.0-rc.1`）
 
