@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /** Integration smoke against a real DSH launcher, using the extension's compiled Remote clients.
- * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh [--keep]
+ * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
+ * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { zstdCompressSync } from "node:zlib";
 import { createServer } from "node:http";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,6 +19,7 @@ const require = createRequire(import.meta.url);
 const { RemoteConnectionController } = require(join(root, "dist/remote/connection"));
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
+const { RUNTIME_DEFAULT_VERSION } = require(join(root, "dist/managedRuntime/types"));
 const {
     normalizeMessageFeedbackPutResult,
     normalizeMessageFeedbackListResult,
@@ -29,40 +30,34 @@ const launcherIndex = argv.indexOf("--launcher");
 if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launcher /absolute/path/to/dsh");
 const launcher = resolve(argv[launcherIndex + 1]);
 const keep = argv.includes("--keep");
-const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
-const dshHome = join(storage, "home");
-const workspacePath = join(storage, "workspace");
-const seededSessionId = randomUUID();
-const projectKey = `--${workspacePath.replace(/[\\/:]+/gu, "-").replace(/^-+/u, "").slice(0, 251)}--`;
-const sessionDirectory = join(dshHome, "sessions", projectKey, seededSessionId);
-await Promise.all([mkdir(sessionDirectory, { recursive: true }), mkdir(workspacePath)]);
-
-// Native V3 packed records seed durable history without a model or external service.
-const records = [{ type: "session", version: 3, id: seededSessionId, createdAt: Date.now(),
-    cwd: workspacePath, isSeeded: false, delegationDepth: 0, agentPreset: "minimal" }];
-for (let turn = 1; turn <= 8; turn += 1) {
-    records.push({ type: "turn/start", data: { turn } });
-    records.push({ type: "user/message", data: { id: `user-${turn}`, role: "user",
-        source: { kind: "user" }, content: [{ type: "text", text: `Smoke prompt ${turn}` }] }, surfaceOp: "append" });
-    records.push({ type: "assistant/message", data: { turn, step: 1,
-        message: { id: `assistant-${turn}`, role: "assistant", source: { kind: "model", provider: "smoke", model: "local" },
-            content: [{ type: "text", text: `Smoke answer ${turn}` }] },
-        stream: [{ type: "chunk", time: Date.now(), chunk: { type: "block-start", index: 0, blockType: "text" } },
-            { type: "text-chunks", time0: Date.now(), index: 0, dt: [], texts: [`Smoke answer ${turn}`] },
-            { type: "chunk", time: Date.now(), chunk: { type: "block-end", index: 0, block: { type: "text", text: `Smoke answer ${turn}` } } },
-            { type: "chunk", time: Date.now(), chunk: { type: "finish", reason: { kind: "stop" } } }] }, surfaceOp: "append" });
-    records.push({ type: "turn/end", data: { turn, reason: { kind: "completed" } } });
-}
-await writeFile(join(sessionDirectory, "session.v3.jsonl.zstd"), Buffer.concat(
-    records.map((record, index) => zstdCompressSync(Buffer.from(JSON.stringify(index === 0
-        ? record : { ...record, seq: index - 1, time: Date.now() + index }) + "\n"))),
-));
-
+const withScheduleBundle = argv.includes("--with-schedule-bundle");
+const versionIndex = argv.indexOf("--expect-version");
+if (versionIndex >= 0 && !argv[versionIndex + 1]) throw new Error("--expect-version requires a version");
+const expectedVersion = versionIndex >= 0 ? argv[versionIndex + 1] : RUNTIME_DEFAULT_VERSION;
 // Allowlist environment variables: do not inherit API keys, user profile paths, or loader overrides.
 const env = Object.fromEntries(["PATH", "SystemRoot", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TMPDIR"]
     .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
-env.DSH_HOME = dshHome;
 env.NO_COLOR = "1";
+const versionProbe = spawnSync(launcher, ["--version"], { env, encoding: "utf8", timeout: 15000 });
+if (versionProbe.error) throw versionProbe.error;
+assert.equal(versionProbe.status, 0, versionProbe.stderr);
+const runtimeVersion = versionProbe.stdout.trim();
+assert.equal(runtimeVersion, expectedVersion, "Launcher version must match the requested smoke target");
+console.log(`Verified Runtime version: ${runtimeVersion}; Schedule bundle: ${withScheduleBundle ? "enabled" : "disabled"}`);
+const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
+const dshHome = join(storage, "home");
+const workspacePath = join(storage, "workspace");
+await Promise.all([mkdir(dshHome), mkdir(workspacePath)]);
+if (withScheduleBundle) {
+    const profileDirectory = join(dshHome, "profiles", "web");
+    await mkdir(profileDirectory, { recursive: true });
+    await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
+        private: true, type: "module",
+        dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
+            "@deepseek-ai/dsh-experimental-schedule-bundle"] } },
+    }, null, 2) + "\n");
+}
+env.DSH_HOME = dshHome;
 env.DSH_SMOKE_API_KEY = "local-smoke-only";
 let finishStream;
 let heldStream = false;
@@ -73,24 +68,25 @@ const model = createServer(async (request, response) => {
         response.end(JSON.stringify({ object: "list", data: [{ id: "deepseek-flash", object: "model" }] }));
         return;
     }
-    if (request.url !== "/chat/completions") { response.writeHead(404); response.end(); return; }
+    if (request.url !== "/v1/messages") { response.writeHead(404); response.end(); return; }
     let body = "";
     for await (const part of request) body += part;
     const payload = JSON.parse(body);
     modelRequests += 1;
     response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-    const chunk = (delta, finish_reason = null) => response.write(`data: ${JSON.stringify({
-        id: "smoke-completion", object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000),
-        model: payload.model, choices: [{ index: 0, delta, finish_reason }],
-    })}\n\n`);
-    chunk({ role: "assistant", content: "Hello" });
+    const event = data => response.write(`event: ${data.type}\ndata: ${JSON.stringify(data)}\n\n`);
+    event({ type: "message_start", message: { id: randomUUID(), model: payload.model,
+        usage: { input_tokens: 3, output_tokens: 0 } } });
+    event({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+    event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } });
     if (!heldStream && JSON.stringify(payload.messages).includes("SMOKE_STREAM")) {
         heldStream = true;
         await new Promise(resolveFinish => { finishStream = resolveFinish; });
     }
-    chunk({ content: " world" });
-    chunk({}, "stop");
-    response.write("data: [DONE]\n\n");
+    event({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " world" } });
+    event({ type: "content_block_stop", index: 0 });
+    event({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } });
+    event({ type: "message_stop" });
     response.end();
 });
 await new Promise((resolveListen, rejectListen) => {
@@ -129,6 +125,10 @@ async function until(check, label, timeout = 30000) {
 }
 function pass(label) { console.log(`PASS ${label}`); }
 function goalReference(value) { return value.ref ?? value; }
+function conversationMessages(snapshot) {
+    return snapshot?.surface.nodes.filter(({ event }) => event.type === "assistant/message" ||
+        (event.type === "user/message" && event.data.source.kind === "user")) ?? [];
+}
 async function first(endpoint, args = {}) {
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(new Error(`${endpoint} timed out`)), 15000);
@@ -164,12 +164,11 @@ try {
     coordinator = new RemoteStateCoordinator(connection, {
         onHostDescription: () => { descriptions += 1; },
         onDiagnostic: (message, cause) => diagnostics.push(`${message}: ${cause?.message ?? cause ?? ""}`),
-    }, { historyPageSize: 2, runtimeVersion: "0.1.5-rc.2" });
+    }, { historyPageSize: 2, runtimeVersion });
     coordinator.start();
     await until(() => descriptions > 0, "coordinator baseline");
     await connection.unary.probe();
     pass("authenticated unary, mux $events, workspace and control baselines");
-    assert.ok(coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId));
     const workspace = await connection.unary.call("workspace/create", { request: { path: workspacePath } });
     const workspaceId = workspace.workspace?.workspaceId ?? workspace.workspaceId;
     assert.ok(workspaceId, JSON.stringify(workspace));
@@ -179,22 +178,51 @@ try {
     await coordinator.refreshCatalog();
     assert.ok(coordinator.catalog.snapshot().sessions.some(session => session.sessionId === created.sessionId));
     pass("workspace/create and session/create update the live catalog");
+    // Let the selected Runtime persist its current format through public RPCs.
+    const { sessionId: seededSessionId } = await connection.unary.call("session/create", {
+        request: { workspaceId, agentPreset: "minimal" },
+    });
     coordinator.watchSession(seededSessionId);
+    for (let turn = 1; turn <= 8; turn += 1) {
+        await connection.unary.call("session/prompt", { request: { sessionId: seededSessionId,
+            requestId: randomUUID(), mode: "queue", content: [{ type: "text", text: `Smoke prompt ${turn}` }] } });
+        const ended = await until(() => coordinator.sessions.get(seededSessionId)?.events.find(({ event }) =>
+            event.type === "turn/end" && event.data.turn === turn), `local history turn ${turn}`);
+        assert.equal(ended.event.data.reason.kind, "completed", JSON.stringify(ended.event));
+    }
     await coordinator.syncHistory(seededSessionId);
     const history = await until(() => {
         const state = coordinator.sessions.get(seededSessionId);
-        return state?.surface.nodes.length === 16 && state.surface.complete && state;
-    }, "V3 paginated durable history");
+        return conversationMessages(state).length === 16 && state.surface.complete && state;
+    }, "paginated durable history");
     assert.ok(history.events.length >= 32);
     assert.equal(history.needsHistoryBaseline, false);
+    assert.deepEqual(conversationMessages(history).filter(({ event }) => event.type === "user/message")
+        .map(({ event }) => event.data.content[0].text), Array.from({ length: 8 }, (_, index) => `Smoke prompt ${index + 1}`));
     const tail = await first("session/follow", { request: { address: { kind: "session", sessionId: seededSessionId }, maxMessages: 2 } });
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
-    pass("V3 packed session/follow snapshot and backward session/page history (16 message surfaces)");
+    pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
+    if (withScheduleBundle) {
+        assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
+        assert.deepEqual(await connection.unary.call("schedule/catalog", {}), []);
+        const missingRequest = { sessionId: seededSessionId, id: randomUUID() };
+        assert.equal((await connection.unary.call("schedule/history", { request: { ...missingRequest, limit: 2 } })).code,
+            "schedule_not_found");
+        assert.deepEqual(await connection.unary.call("schedule/delete", { request: missingRequest }),
+            { id: missingRequest.id, deleted: false, code: "schedule_not_found" });
+        pass("optional Schedule bundle exposes list/catalog/history/delete RPCs");
+    } else {
+        for (const [endpoint, args] of [["schedule/list", { request: { sessionId: seededSessionId } }], ["schedule/catalog", {}]]) {
+            await assert.rejects(() => connection.unary.call(endpoint, args), error => error.status === 404);
+        }
+        pass("standard Web composition omits Schedule list/catalog with HTTP 404");
+    }
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
-    const feedbackRequest = { sessionId: seededSessionId, messageId: "assistant-1",
+    const messageId = history.surface.nodes.find(({ event }) => event.type === "assistant/message").event.data.message.id;
+    const feedbackRequest = { sessionId: seededSessionId, messageId,
         rating: "positive", category: "task-result", note: "Useful answer", ifVersion: null };
     const feedback = normalizeMessageFeedbackPutResult(await connection.unary.call("messageFeedback/put", { request: feedbackRequest }));
     assert.equal(feedback?.ok, true);
@@ -224,7 +252,7 @@ try {
     connection.reconnect();
     await until(() => connection.currentGeneration > oldGeneration && descriptions > oldDescriptions, "reconnect baselines");
     await coordinator.syncHistory(seededSessionId);
-    assert.equal(coordinator.sessions.get(seededSessionId).surface.nodes.length, 16);
+    assert.equal(conversationMessages(coordinator.sessions.get(seededSessionId)).length, 16);
     assert.equal(coordinator.catalog.snapshot().workspaces.length, 1);
     pass("reconnect reopens event/control/workspace/session streams without duplicate surfaces");
     coordinator.watchSession(created.sessionId);

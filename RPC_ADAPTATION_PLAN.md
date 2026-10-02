@@ -1,6 +1,6 @@
 # DSH `0.1.2-rc.1` Remote RPC 适配方案
 
-> 历史方案：以下章节记录首次 RC Remote 迁移。当前实现目标为上游可用的 `0.2.0-rc.1` 候选版，见 [RC.1 适配报告](./RPC_0.2.0_ADAPTATION.md)；尚无正式 `v0.2.0` tag，且本次没有真实 Runtime 联调。`RPC_0.1.7_ADAPTATION.md` 与 `RPC_0.1.5_ADAPTATION.md` 保留为历史报告。
+> 历史方案：以下章节记录首次 RC Remote 迁移。当前实现目标为 `0.2.0-rc.1` 候选版，已通过真实 Runtime 的隔离 Remote 联调；CNB manifest 返回 404，托管归档仍待发布。适配范围与验证边界见 [RC.1 适配报告](./RPC_0.2.0_ADAPTATION.md)。`RPC_0.1.7_ADAPTATION.md` 与 `RPC_0.1.5_ADAPTATION.md` 保留为历史报告。
 
 ## 1. 目标与结论
 

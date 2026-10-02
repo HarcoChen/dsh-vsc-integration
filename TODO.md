@@ -1,17 +1,18 @@
 # TODO
 
-更新时间：2026-09-29（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.1`](./RPC_0.2.0_ADAPTATION.md)；上游尚无正式 `v0.2.0` tag）。
+更新时间：2026-10-02（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.1`](./RPC_0.2.0_ADAPTATION.md)）。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
 
-## RPC 清单增量（2026-09-29，`dsh-v0.2.0-rc.1`）
+## RC.1 适配与验证（2026-10-02，`dsh-v0.2.0-rc.1`）
 
 已从 `deepseek-harness` 上游拉取 tag `dsh-v0.2.0-rc.1@4878cdabd87d4041bdaff61d04c966883b9fd07a`，对照 RC.2 源码完成增量清单。新增 `productAnalytics/enabled|watchPolicy|report` 三个桌面遥测 RPC；既有 Remote endpoint 签名和事件 allowlist 未变。Schedule 接口签名未变，但已移入默认 Web profile 不包含的可选 bundle。详情见 [RC.1 RPC 适配报告](./RPC_0.2.0_ADAPTATION.md)。
 
 - [x] 默认 Runtime、Remote contract、设置文案和中英文 README 更新到 RC.1；最低兼容版本仍为 `0.1.5-rc.1`。
 - [x] Schedule bundle 缺失时显示说明；遥测 RPC 不接入 IDE。
 - [x] 检查 Jev 子模块 hooks 与运行时最低版本；保持 `vendor/dsh-jev-integration@795907cbdf3347f97b27c473f4f6194f5877a74d` pin 不变。
-- [ ] 当前环境无法解析 `cnb.cool`；待确认独立托管归档 `v0.2.0-rc.1/manifest.json` 已发布。
-- [ ] 仍需在真实 `0.2.0-rc.1` Runtime 上联调。按仓库规则，本轮未运行测试。
+- [ ] 2026-10-02，扩展下载代码确认 CNB `v0.2.0-rc.1/manifest.json` 返回 HTTP 404；需补发 manifest 和五个平台归档，再跑远端检查及 `--full` 本机安装验证。官方 npm RC.1 已安装并通过隔离联调。
+- [x] 更新现有 Remote 冒烟脚本：校验实际版本、通过公开 RPC 生成历史、使用 Messages 模拟模型；真实 RC.1 的标准 Web profile 和启用 Schedule bundle 的 profile 均通过。类型检查与编译通过，未新增单元测试。
+- [ ] 补充真实账号、Schedule 创建/编辑/到期投递、Jev 及 VS Code UI 验证；详细覆盖边界见 RC.1 适配报告。
 
 ## 本轮进展（2026-09-28，`dsh-v0.1.7-rc.2`）
 
@@ -30,8 +31,7 @@ multipart unary、双向 Remote stream 或 Gateway carrier；本轮处理 RC.2 �
 - [x] **默认 Workspace 首用初始化**：无 VS Code 文件夹时，用户显式新建 Session 且本地 DSH Workspace/Session/archive 清单为空时调用无参数 `workspace/initializeDefault`；Host 决定 Documents 下的固定目录与标题。现有 DSH Workspace 则先让用户选择，不自动创建默认目录。
 - [x] **Schedule RPC**：Activity Dock 已接入 `schedule/list|history|update|delete|catalog`：当前会话可分页查看投递记录、编辑提醒名称/内容/定时规则（指定时间、固定间隔、每日、每周、Cron）并确认移除提醒；跨会话目录显示活动/已结束提醒、所属会话和最近投递，只读浏览。旧 Runtime 继续回退到只读 Session 投影；提醒创建目前通过上游 `schedule_create` 工具完成。
 
-本地未运行真实 RC.2 Runtime 联调；历史 smoke runner 仍使用 `0.1.5-rc.2` V3 fixture，不能证明
-RC.2 业务 RPC 或 RC.1 以来的 carrier 行为。
+当时未运行真实 RC.2 Runtime 联调；2026-10-02 已移除 smoke runner 的 V3 fixture，并在真实 `0.2.0-rc.1` 上完成部分继承路径联调，覆盖范围见 RC.1 适配报告。
 
 ## 历史进展（2026-09-24，`dsh-v0.1.7-rc.1`）
 
@@ -50,8 +50,8 @@ RC.2 业务 RPC 或 RC.1 以来的 carrier 行为。
 - [ ] **新版事件消费**：allowlist 已接受新增事件，尚无对应 IDE 面板或刷新行为；确定角色后再接入消费者。
 
 上游把 session log 的存储格式推进到 V4；IDE 继续通过公开的 `session/page`、`session/follow`
-读取记录，不解码 Runtime 内部的磁盘格式。仓库中的 `verify-remote-runtime.mjs` 仍使用
-`0.1.5-rc.2` V3 fixture，不能作为本次 wire 变更的冒烟依据；报告中记录了此验证边界。
+读取记录，不解码 Runtime 内部的磁盘格式。当时的 `verify-remote-runtime.mjs` 使用
+`0.1.5-rc.2` V3 fixture；2026-10-02 已改用公开 RPC 生成历史，较新的验证记录见 RC.1 适配报告。
 
 ## 本轮进展（2026-09-06）
 

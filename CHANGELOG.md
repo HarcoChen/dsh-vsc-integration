@@ -14,6 +14,7 @@
 - 默认 Runtime 与 Remote 契约 pin 更新至 `dsh-v0.2.0-rc.1`；该版本新增的 Desktop 遥测 RPC 不由 IDE 调用。
 - Schedule 位于可选官方 bundle；未启用时 Activity Dock 会提示如何启用。
 - 核对 Jev 插件所需钩子与上游兼容下限；保持现有 Jev Git 子模块 pin 不变。
+- Remote 集成冒烟检查实际 Runtime 版本，通过公开 RPC 生成历史并使用 Messages 模拟模型；真实 RC.1 的标准 Web 与 Schedule bundle profile 均通过。CNB RC.1 manifest 返回 404，托管下载归档待发布。
 
 ## [0.10.1] - 2026-09-28
 

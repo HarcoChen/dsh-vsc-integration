@@ -1,8 +1,8 @@
-# DSH `0.2.0-rc.1` Remote RPC 增量清单
+# DSH `0.2.0-rc.1` Remote RPC 适配审计
 
-审计目标：上游 tag [`dsh-v0.2.0-rc.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1)，commit `4878cdabd87d4041bdaff61d04c966883b9fd07a`（2026-09-28 发布）。截至本次适配，上游 0.2.0 系列仍只有预发布候选，没有正式 `v0.2.0` tag。
+审计目标：上游预发布 tag [`dsh-v0.2.0-rc.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.1)，commit `4878cdabd87d4041bdaff61d04c966883b9fd07a`（2026-09-28 发布）。复核日期：2026-10-02。
 
-差异基线：`dsh-v0.1.7-rc.2`。默认 Runtime 与 Remote wire-contract pin 已切换至上述 RC.1。此次依据固定 tag 做了源码适配；没有运行测试，也没有连接真实 RC.1 Runtime 联调。
+差异基线：`dsh-v0.1.7-rc.2`。默认 Runtime 与 Remote wire-contract pin 已切换至上述 RC.1。真实 RC.1 的标准 Web profile 与启用 Schedule bundle 的 profile 均已通过隔离 Remote 联调；CNB 独立 Runtime manifest 返回 HTTP 404，托管下载路径仍待补发归档。
 
 ## 新增 Remote namespace
 
@@ -30,7 +30,7 @@ RC.1 在 `packages/api/remotes/src/client/index.ts` 中新增并挂载 `productA
 
 - `.gitmodules` 中登记的唯一 Git 子模块是 `vendor/dsh-jev-integration`，当前固定在 `795907cbdf3347f97b27c473f4f6194f5877a74d`，子模块工作区干净。该提交满足适配所需；没有推进子模块指针。
 - Jev 协议的最低 Runtime 版本仍为 `0.1.5-rc.1`。它使用的 `agent/turn-stopping`、`session/event`、`session/disposed`、`system-prompt/assemble`、工具执行钩子和 `tokenMeter`/`toolResultPruner` 服务在 RC.1 源码中仍存在，未发现需要调整的插件接口。
-- 本地 `dsh-jev-integration` `origin/main` 比子模块 pin 前进两个提交，其中新增的 opt-in `tokenOptimization` 是另一项功能，不是 RC.1 兼容所需，故未一并升级。没有真实 Runtime 联调，因此未提高插件协议报告的 `testedDshRuntime`。
+- `tokenOptimization` 属于独立功能，不是 RC.1 兼容所需，故未一并升级。本轮 Remote 联调未启用 Jev，因此未提高插件协议报告的 `testedDshRuntime`。
 
 源码参照：[Jev 子模块 pin](https://github.com/HarcoChen/dsh-jev-integration/tree/795907cbdf3347f97b27c473f4f6194f5877a74d)、[Jev Runtime 兼容声明](https://github.com/HarcoChen/dsh-jev-integration/blob/795907cbdf3347f97b27c473f4f6194f5877a74d/protocol/src/index.ts)。
 
@@ -38,8 +38,36 @@ RC.1 在 `packages/api/remotes/src/client/index.ts` 中新增并挂载 `productA
 
 - 默认 Runtime 下载及用户同意后的升级目标、Remote contract 注释、英文和中文设置说明均已指向 RC.1；最低兼容版本保持 `0.1.5-rc.1`。
 - 桌面专用遥测不接入；Schedule bundle 缺失时保留面板并解释如何启用；Jev 子模块 pin 和最低版本保持不变。
-- 独立托管归档由 `dsh-runtimes` CNB 流水线发布；本环境无法解析 `cnb.cool`，因此未能核实 `v0.2.0-rc.1/manifest.json` 是否已发布。
-- 尚未对真实 `0.2.0-rc.1` Runtime 执行联调。仓库规则禁止新增单元测试；本次未运行测试。
+- 2026-10-02，CNB 的 `v0.2.0-rc.1/manifest.json` 返回 HTTP 404；同源 `v0.1.7-rc.2/manifest.json` 返回 HTTP 200。扩展自身的 `CnbRuntimeProvider` 也复现 RC.1 的 404。官方 npm 包 `@deepseek-ai/dsh@0.2.0-rc.1` 可安装，自动 pnpm/npx 回退及显式 npm 启动器可用；无 Node/npm 环境的首启下载仍受阻。
+- 发布前需补发 RC.1 独立 Runtime manifest 与五个平台归档，再通过 `verify-managed-runtime.mjs` 的远端检查及 `--full` 本机安装验证。此次没有下载、解压或运行 CNB 的 RC.1 归档。
+- 仓库规则禁止新增单元测试；本轮只更新现有集成冒烟脚本并运行类型检查、编译与隔离联调。
+
+## 真实 Runtime 联调
+
+`scripts/verify-remote-runtime.mjs` 启动前检查 `dsh --version`，默认要求与 `RUNTIME_DEFAULT_VERSION` 一致。历史数据通过 `session/create` 和 `session/prompt` 生成，由 Runtime 写入当前存储格式，替代旧 V3 磁盘 fixture；模拟模型使用 DeepSeek 的 Messages SSE 协议。`--with-schedule-bundle` 只在临时 Web profile 中选择官方 Schedule bundle。
+
+本轮使用临时 npm 安装的精确版本 `@deepseek-ai/dsh@0.2.0-rc.1`，不替换本机 `0.1.7-rc.2` CLI。两个 profile 均通过下列路径：
+
+- 未认证请求被拒绝、启动 token 换 cookie、unary 与 mux `$events` 握手及 Workspace/Control baseline。
+- DSH Workspace 与 Session 创建、八轮本地模型历史、`session/follow` 快照与 `session/page` 向旧记录分页回填、标题实时更新。
+- 赞/踩分类、评价编辑、列表、CAS 冲突与删除。
+- 断线后重建 baseline、流式回复中途重连恢复前缀、最终只提交一条助手消息。
+- Goal 创建/暂停/恢复/清除及 activation 事件、命令附件参数、Subagent 缺失子会话错误。
+- 标准 profile 的 `schedule/list|catalog` 返回 HTTP 404；启用 bundle 后二者返回空列表，`history|delete` 对不存在的任务返回 `schedule_not_found`。
+
+执行记录（`/absolute/path/to/dsh` 代表上述临时安装中的启动器）：
+
+```sh
+npm run check
+npm run compile
+node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh
+node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
+node scripts/verify-managed-runtime.mjs --version 0.2.0-rc.1
+```
+
+前四项通过；最后一项在 manifest 下载阶段因 HTTP 404 失败。额外用本机 RC.2 启动器验证了版本不匹配会在启动前被拒绝。联调使用临时 DSH_HOME、独立 DSH Workspace 和回环模型服务，不读取用户会话或外部模型凭据。
+
+验证边界：未执行真实模型 API、DeepSeek 账号登录/钱包、Schedule 创建/编辑/到期投递、Jev 调用或 VS Code UI 人工联调；此脚本也未覆盖 multipart 字节载荷、mux 上行流、归档/固定/恢复及默认 Workspace 初始化。这些功能的 tag 差异结论来自源码审计。
 
 ## 源码依据
 

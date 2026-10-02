@@ -147,13 +147,13 @@
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.2.0-rc.1`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
-当前上游可用的 `dsh-v0.2.0-rc.1` 是预发布候选（`4878cdabd87d4041bdaff61d04c966883b9fd07a`），尚无正式 `v0.2.0` tag；本扩展的默认 Runtime 和 Remote 契约已更新到该候选版。适配范围与验证限制见 [RPC 适配报告](./RPC_0.2.0_ADAPTATION.md)。新增的 `productAnalytics` RPC 仅供桌面端使用，IDE 不调用。Schedule 位于可选官方 bundle；需要在 Runtime 插件管理页启用 `@deepseek-ai/dsh-experimental-schedule-bundle` 才会提供 Schedule RPC，未启用时 Activity Dock 会给出提示。Jev 插件所需钩子和固定的 Git 子模块也已检查。IDE 尚未接入 Remote Workspace Files、Jobs、插件管理、权限预设和终端接口。
+本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.1`（`4878cdabd87d4041bdaff61d04c966883b9fd07a`）。精确 npm 版本的标准 Web profile 与启用 Schedule bundle 的 profile 均已通过隔离联调，覆盖范围与剩余验证见 [RPC 适配报告](./RPC_0.2.0_ADAPTATION.md)。新增的 `productAnalytics` RPC 仅供桌面端使用，IDE 不调用。Schedule 位于可选官方 bundle；需要在 Runtime 插件管理页启用 `@deepseek-ai/dsh-experimental-schedule-bundle` 才会提供 Schedule RPC，未启用时 Activity Dock 会给出提示。Jev 插件所需钩子和固定的 Git 子模块也已检查。IDE 尚未接入 Remote Workspace Files、Jobs、插件管理、权限预设和终端接口。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
 
 默认应用参数为 `web --no-open`，没有保存参数覆盖时会自动为 pnpm/npx 补齐启动前缀。已有包管理器参数配置保留，auto 选中本机 CLI 时移除包管理器及包名前缀。共享 Runtime 的发现仍先于新启动器选择，回退会复用健康的 Runtime，而不是再起一个。
 
-如果配置的下载源暂时没有独立 Runtime 资产，可使用兼容的本机 CLI、固定版本的 pnpm/npx 回退或已有实例。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证选择及实际启动参数，不下载包、不请求模型。
+2026-10-02，CNB 的 `0.2.0-rc.1` 独立 Runtime manifest 返回 HTTP 404。归档发布前，可使用兼容的本机 CLI、固定版本的 pnpm/npx 回退或已有实例；有 npm 且使用默认启动参数时，将 `dsh.command` 设为 `"npx"`、`dsh.runtimeVersion` 设为 `"0.2.0-rc.1"` 可固定新启动器的版本。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证选择及实际启动参数，不下载包、不请求模型。
 
 **支持多根工作区吗？** DSH 支持多个彼此独立的 Workspace，但每个 Session 只有一个工作目录（`cwd`）。VS Code 多根工作区启动 Runtime 时使用第一个 workspace folder；如果不同根目录需要不同工作目录，请分别建立 DSH Workspace 或 Session。
 
@@ -280,16 +280,17 @@ npm run package    # 编译 + vsce 打包
 npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 ```
 
-仓库中的 Remote 冒烟脚本使用历史 `0.1.5-rc.2` V3 fixture，不验证 `0.1.7-rc.1` 的 multipart、上行流或归档变更、`0.1.7-rc.2` 业务 RPC 或 `0.2.0-rc.1` 清单；边界见 [RC.1 RPC 增量清单](./RPC_0.2.0_ADAPTATION.md) 和 [RC.2 实现审计](./RPC_0.1.7_ADAPTATION.md)。
+Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、分页、评价、重连、流式输出、Goal、命令及可选 Schedule 的可用性。[RC.1 适配报告](./RPC_0.2.0_ADAPTATION.md) 记录运行结果及账号、Schedule 修改、Jev、UI 等剩余验证。
 
-对兼容的本机启动器运行历史 Remote 冒烟：
+对已安装的 `0.2.0-rc.1` 启动器运行 Remote 冒烟：
 
 ```bash
 npm run compile
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh
+node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
 ```
 
-脚本使用临时 DSH_HOME、工作目录和回环地址上的模拟模型，不使用现有 Session 或外部模型凭据。验证脚本要求 Node.js >=22.15.0，且 `node:zlib` 支持 Zstandard（`zstdCompressSync`；Node 23 用户需 >=23.8.0）。
+脚本使用临时 DSH_HOME、独立 DSH Workspace 和回环地址上的 Messages 模拟模型，不使用现有 Session 或外部模型凭据。Node.js 版本须满足所选 Runtime 的要求（RC.1 为 `^22.19.0 || >=24.0.0`）。`--expect-version <version>` 可显式指定其他验证目标，`--keep` 保留临时状态。
 
 验证托管 Runtime 的发布逻辑：
 
