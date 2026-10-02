@@ -2042,6 +2042,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async restorePersistedSessionInternal(workspaceRoot: string | undefined): Promise<void> {
         const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
         const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
+        // A folderless VS Code window can still restore its saved DSH Session.
+        // The persisted cwd identifies the DSH Workspace in that case.
+        const sessionRoot = workspaceRoot ?? persisted?.cwd;
+        if (!sessionRoot) return;
         const catalog = this.runtime.getSessionCatalog().snapshot();
         const archived = new Set(catalog.archivedSessionIds);
         const matchesCurrentWorkspace = (cwd: string | undefined): boolean =>
@@ -2344,6 +2348,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         // chance to restore before treating the mode choice as a new-session
         // draft, otherwise a quick first `/mode` could strand the saved Session.
         await this.restorePersistedSession(workspaceRoot);
+        if (!workspaceRoot && !this.sessionId) throw new Error(t("Open a workspace first."));
         const catalog = await this.runtime.agentPresets();
         this.agentPresetCatalog = catalog.presets;
         this.applyModeSelectionPolicy(catalog.modeSelectionEnabled !== false);

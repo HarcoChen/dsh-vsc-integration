@@ -19,6 +19,7 @@ import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
 import { parseTraceLocation } from "./traceProtocol";
 import { TerminalContextStore } from "./terminalContext";
+import { showWhatsNew, showWhatsNewOnUpdate } from "./whatsNew";
 
 let shutdownRuntime: (() => Promise<void>) | undefined;
 
@@ -111,6 +112,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         registerChatParticipant(chatView, context.extensionUri),
         vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
         vscode.commands.registerCommand("dsh.open", () => chatView.reveal()),
+        vscode.commands.registerCommand("dsh.showWhatsNew", () =>
+            runQuietCommand(t("View What's New"), () => showWhatsNew(context)),
+        ),
         vscode.commands.registerCommand("dsh.openInEditor", () => chatView.openInEditor()),
         vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
             try {
@@ -316,6 +320,9 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             output.appendLine(`[dsh] automatic startup failed: ${message}`);
         });
     }
+    void showWhatsNewOnUpdate(context).catch((error: unknown) => {
+        output.appendLine(`[dsh] could not show update notice: ${error instanceof Error ? error.message : String(error)}`);
+    });
 
     return {
         registerAgentStatusPresentation: (presentation) =>
