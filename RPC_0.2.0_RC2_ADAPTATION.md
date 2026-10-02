@@ -35,7 +35,7 @@ node scripts/verify-managed-runtime.mjs --version 0.2.0-rc.2
 
 此前标准 Web、Schedule bundle 与 timed-question smoke 均通过，CNB manifest 与五个平台资产检查通过（9/9）。本轮重新运行标准 Web 和 Team bundle smoke；下段记录新增覆盖，历史账号与 Schedule 的验证边界保持不变。
 
-联调使用临时 DSH_HOME、独立 Workspace 和回环 Messages 模拟模型，不读取用户会话或外部模型凭据；没有执行真实模型 API、账号登录、Schedule 到期投递或 VS Code UI 人工验收。`userQuestions/attachWait` 已由上游契约审计，但当前 IDE 使用固定问题卡，不依赖浏览器倒计时 claim，因此未将它接入 UI。
+联调使用临时 DSH_HOME、独立 Workspace 和回环 Messages 模拟模型，不读取用户会话或外部模型凭据；没有执行真实模型 API、账号登录、Schedule 到期投递或 VS Code UI 人工验收。`userQuestions/attachWait` 已由上游契约审计，但当前 IDE 使用固定问题卡，不依赖浏览器倒计时 claim，因此未将它接入 UI。独立托管 Runtime 下载已弃用；没有可用 `dsh` 时由扩展引导安装官方 Desktop。
 
 源码参照：[RC.2 release notes](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.2)、[user-questions Remote service](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.0-rc.2/packages/interaction/user-questions/src/index.ts)、[user-question projection](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.0-rc.2/packages/interaction/user-questions/src/projection.ts)、[RC.1 report](./RPC_0.2.0_ADAPTATION.md)。
 
@@ -44,3 +44,5 @@ node scripts/verify-managed-runtime.mjs --version 0.2.0-rc.2
 本轮补充的 smoke 直接复用 `WorkspaceFilesClient` 和预览读取函数，验证缺省参数、分页、multipart bytes、ready 后真实 change、更新后的完整文本、二进制/超大预览拒绝和 not-found；可选 Team bundle 验证 active service、Lead projection 与旧 RPC 的 404。没有新增单元测试。编辑器 UI、远端跨机器部署和手动刷新仍需人工验收。
 
 剩余产品集成按优先级见 [TODO](./TODO.md)：Jobs 输出/取消、timed 问答完整生命周期、Team 投影面板、插件变更操作、Runtime Terminal。`fileUploads/upload` 与现有官方裸字节上传功能等价；Desktop telemetry 与执行不可信 Client half 不纳入 IDE 计划。
+
+Runtime 启动策略说明：扩展不再自动下载或使用独立 CNB Runtime。`dsh.command=auto` 只发现兼容的本机/官方 Desktop `dsh`，缺失时抛出带官方下载入口的引导错误；显式 `pnpm`/`npx` 仍作为高级用户路径保留。

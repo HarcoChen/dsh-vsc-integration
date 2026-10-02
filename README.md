@@ -51,7 +51,7 @@
 | --- | --- |
 | **Ready for dsh `0.2.0-rc.2`** | The default Runtime and Remote contract target `dsh-v0.2.0-rc.2`. Session management, DeepSeek account sign-in and balance, default DSH Workspace initialization, and late answers to timed questions remain supported. Schedule is an optional official bundle in this release and the dock explains how to enable it when absent. Desktop-only product analytics RPCs are not used by the IDE. Any Runtime at or above `0.1.5-rc.1` still connects. |
 | **Laya / Jev built in** | The IDE-neutral [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin ships inside the extension. Add fast System One decisions from TypeSafe [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), or its wire-compatible open-source alternative [Laya](https://huggingface.co/convaiinnovations/laya), to the agent loop: loop guard, large-output shaping, done-gate, tool pruning, skill routing, and decision tools. Nothing extra to install. |
-| **Works out of the box** | Install the extension and open chat. It finds a compatible local `dsh`, offers to upgrade an old one, or downloads a managed Runtime. The Jev plugin is mounted automatically into the Runtime it starts. The only setup left is your API key. |
+| **Works out of the box** | Install the extension and the official [DeepSeek Desktop](https://www.deepseek.com/en/download/) app. The Desktop app registers the `dsh` command; the extension finds it, connects to its Web Runtime, and guides you to the download page when it is unavailable. The only setup left is your API key. |
 
 ## Why DSH?
 
@@ -66,7 +66,7 @@
 Requires **VS Code 1.106.0 or later** and a configured DSH model provider with credentials.
 
 1. **Install the extension** from the Marketplace or Open VSX links above, or search for `harcochen.dsh-vsc-integration` in Extensions.
-2. **Open chat.** Open and trust your project folder, then run `DSH: Open Chat` from the Command Palette. The extension automatically starts or connects to a Runtime; by default, it attempts a managed Runtime download when no usable environment is available.
+2. **Open chat.** Install and launch the official [DeepSeek Desktop](https://www.deepseek.com/en/download/) app, then open and trust your project folder and run `DSH: Open Chat`. The Desktop app registers `dsh`; if the command is unavailable, the extension offers the official download page.
 3. **Set up your provider.** Run `DSH: Configure API Key` for DeepSeek credentials. For other providers, use `DSH: Open dsh Web UI in Browser`. Select or register a DSH Workspace, then choose a model.
 4. **Give it a task.** Type `@` to reference a file, or right-click a selection for DSH actions. Follow the task, respond to approval requests, and open diffs from tool cards to review the result.
 5. **(Optional) Turn on Laya/Jev.** Enable `dsh.jev.enabled` and the features you want, run `DSH: Configure Jev API Key`, then accept the Runtime restart. See [Laya / Jev System One decisions](#laya--jev-system-one-decisions-built-in).
@@ -164,7 +164,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 ## FAQ
 
-**Do I need to install DSH manually?** Usually no. The extension looks for a usable local environment and attempts to download a managed Runtime when needed. The first download requires network access; `dsh.installWhenMissing` controls automatic installation.
+**Do I need to install DSH manually?** Install the official [DeepSeek Desktop](https://www.deepseek.com/en/download/) app. It registers the `dsh` command used by the extension. If the command cannot be found, the extension offers the official download page. Standalone managed Runtime downloads are deprecated.
 
 **How is Laya/Jev integrated?** The extension package carries the IDE-neutral `dsh-jev-integration` Runtime package and mounts it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Laya is supported through the same System One contract by changing `dsh.jev.baseUrl` (HTTPS only). Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
@@ -172,11 +172,11 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 The implemented Runtime contract targets `dsh-v0.2.0-rc.2` (`639ed015397290b3745d163aafe02ffee4aa3f84`). The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records integration results and remaining checks. Runtime workspace files have a read-only browser, permission presets use the process catalog, and Settings shows plugin-manager bundle and entry metadata. Schedule requires the optional official bundle. Jobs output/control, Runtime terminals, and the Agent Teams panel remain pending; RC.2 Team data comes from the `agentTeam` Session projection. Desktop product analytics RPCs remain unused by the IDE.
 
-The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
+The default `dsh.command: "auto"` probes `dsh --version` on PATH and in the npm global prefix. A compatible command registered by DeepSeek Desktop is used directly. An incompatible local CLI gets an upgrade prompt; approval upgrades only a verified older npm global installation. When no compatible command is available, the extension guides you to install DeepSeek Desktop. Diagnostics never install or download a standalone Runtime. Explicit local paths follow the same compatibility check; explicit pnpm/npx remains available for advanced users.
 
-Default app arguments are `web --no-open`; pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved, and auto mode strips their package prefix when selecting a local CLI. Shared Runtime discovery still runs before choosing a new launcher, so fallback reuses a healthy Runtime instead of starting a second one.
+Default app arguments are `web --no-open`; explicit pnpm/npx gets its required prefix automatically when no argument override is saved. Existing package-manager argument overrides are preserved. Auto mode selects a compatible local or Desktop-registered `dsh` command and does not start a second standalone Runtime.
 
-The CNB standalone `0.2.0-rc.2` manifest and all five platform assets are published and pass the managed-runtime remote check. With npm available and default launch arguments, `dsh.command: "npx"` and `dsh.runtimeVersion: "0.2.0-rc.2"` pin a new launcher to that release. After compilation, `node scripts/verify-runtime-discovery.mjs` checks selection and actual startup arguments in an isolated POSIX CLI environment without model requests.
+Standalone CNB Runtime downloads are deprecated. Install the official Desktop app from the [DeepSeek download page](https://www.deepseek.com/en/download/) when `dsh` is unavailable. After compilation, `node scripts/verify-runtime-discovery.mjs` checks local command selection and startup arguments without model requests.
 
 **Does DSH support multi-root workspaces?** DSH supports multiple independent Workspaces, but each Session has one working directory (`cwd`). A VS Code multi-root workspace is therefore represented by the first workspace folder for Runtime startup; use separate DSH Workspaces or Sessions when roots need different working directories.
 
@@ -211,7 +211,7 @@ After `npm run compile`, run `node scripts/verify-runtime-discovery.mjs` and `no
 graph TD
     A[VS Code Extension Host] <-->|RC Remote RPC| B[Standalone Harness Runtime]
     A <-->|Typed Full-State Bridge| C[React Webview UI]
-    B <-->|CNB Distribution| D[Managed Local Engine]
+    B <-->|Official Desktop dsh command| D[DeepSeek Desktop]
     A <-->|Process Lock| E[Multi-Window Shared Runtime]
 ```
 
@@ -224,8 +224,8 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverUrl` | `""` | URL of an already running dsh web Runtime; when set, the extension connects directly. Include `?token=...` or set `dsh.serverToken`. |
 | `dsh.serverToken` | `""` | Launch token for `dsh.serverUrl`; use it when the address and token are configured separately. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
-| `dsh.installWhenMissing` | `true` | Automatically download and manage a standalone Runtime when no usable npm/dsh environment is available. |
-| `dsh.runtimeVersion` | `0.2.0-rc.2` | Approved CLI upgrade and plugin download target; accepts any valid SemVer at or above `0.1.5-rc.1`. |
+| `dsh.installWhenMissing` | `false` | Deprecated compatibility setting; standalone Runtime downloads are no longer used. Missing `dsh` opens the official Desktop download guidance. |
+| `dsh.runtimeVersion` | `0.2.0-rc.2` | Compatibility target for approved local CLI upgrades; standalone download behavior is deprecated. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
@@ -303,7 +303,7 @@ npm run package    # Compile + vsce package
 npm run release    # Test + version bump + CHANGELOG archive + tag
 ```
 
-The Remote smoke runner checks the launcher's actual version against the managed Runtime pin, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
+The Remote smoke runner checks the launcher's actual version, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
 
 To run the Remote integration smoke against an installed `0.2.0-rc.2` launcher:
 
@@ -317,7 +317,7 @@ node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-t
 
 This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopback Messages model stub. It does not use your sessions or external model credentials. Use a Node.js version supported by the selected Runtime (`^22.19.0 || >=24.0.0`). `--with-schedule-bundle` checks optional Schedule RPCs; `--timed-questions` checks timeout continuation and a late answer; `--expect-version <version>` explicitly selects another smoke target; `--keep` retains the temporary state.
 
-To verify the managed Runtime release logic:
+To verify local command discovery and startup arguments:
 
 ```bash
 node scripts/verify-managed-runtime.mjs              # remote contract only

@@ -682,6 +682,19 @@ type DshRuntimeSource =
     | { kind: "pnpm"; command: string; args: string[] }
     | { kind: "managed"; command: string; args: string[]; version: string; target: string };
 
+/** Official DeepSeek Harness Desktop installer page. The Desktop app registers `dsh` on PATH. */
+export const OFFICIAL_DESKTOP_DOWNLOAD_URL = "https://www.deepseek.com/en/download/";
+
+/** Startup cannot continue until the official Desktop app has installed its `dsh` command. */
+export class OfficialDesktopRequiredError extends Error {
+    public readonly downloadUrl = OFFICIAL_DESKTOP_DOWNLOAD_URL;
+
+    public constructor(reason: string) {
+        super(t("Install the official DeepSeek Desktop app to use DSH in VS Code. {reason}", { reason }));
+        this.name = "OfficialDesktopRequiredError";
+    }
+}
+
 interface DshLauncher {
     command: string;
     args: string[];
@@ -1106,11 +1119,10 @@ async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshL
 }
 
 /**
- * Auto resolves compatible PATH/npm-global dsh, then pinned pnpm/npx, then
- * managed Runtime. An incompatible local launcher gets an upgrade choice
- * before package-manager fallback. Explicit package-manager commands keep
- * their requested startup path. Every provider failure is aggregated so a
- * failed download is never masked as a generic "dsh not available".
+ * Auto resolves compatible PATH/npm-global dsh. Explicit package-manager
+ * commands remain available for users who selected them; automatic fallback
+ * stops at the official Desktop installation rather than downloading a
+ * standalone Runtime.
  */
 async function discoverDsh(command: string, options: DiscoverDshOptions): Promise<DshLauncher> {
     const failures: string[] = [];
@@ -1148,31 +1160,12 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
         } else {
             failures.push(t("{command}: not found or could not run --version", { command: alternateCommand }));
         }
-        if (options.allowManaged && options.storagePath && options.installWhenMissing) {
-            try {
-                return await discoverManagedRuntime(options);
-            } catch (error) {
-                if (error instanceof CanceledError) throw error;
-                const target = (() => {
-                    try {
-                        return resolveTarget();
-                    } catch {
-                        return "<unknown>";
-                    }
-                })();
-                failures.push(t("Managed Runtime {version} ({target}): {reason}", {
-                    version: options.runtimeVersion,
-                    target,
-                    reason: error instanceof Error ? error.message : String(error),
-                }));
-            }
-        } else if (options.allowManaged && !options.installWhenMissing) {
-            failures.push(t("Managed Runtime download is disabled by the dsh.installWhenMissing setting."));
-        }
-        throw new Error(t("Unable to start DSH Runtime.\n\n{reasons}", { reasons: failures.join("\n") }));
+        throw new OfficialDesktopRequiredError(failures.join("\n"));
     }
     if (command !== "auto") {
-        throw new Error(t("Start command “{command}” was not found. Configure an absolute dsh.command path or install the dsh CLI.", { command }));
+        throw new OfficialDesktopRequiredError(
+            t("Start command “{command}” was not found.", { command }),
+        );
     }
     // Accept old saved package-manager arguments in auto mode, but never pass
     // dlx/package/registry prefixes to the native CLI. An explicit different
@@ -1233,48 +1226,8 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
         failures.push(t("No dsh executable was found in the npm global prefix."));
     }
 
-    const pnpmExecutable = await findUsablePackageManager("pnpm", options);
-    if (pnpmExecutable) {
-        const pnpmArgs = alternatePackageManagerArgs("npx", "pnpm", npxArgsForDsh(options.configuredArgs));
-        if (pnpmArgs) return packageManagerLauncher("pnpm", pnpmArgs, false, pnpmExecutable);
-    }
-    failures.push(t("pnpm: not found or could not run --version"));
-
-    const npxExecutable = await findUsablePackageManager("npx", options);
-    if (npxExecutable) {
-        return packageManagerLauncher("npx", npxArgsForDsh(options.configuredArgs), false, npxExecutable);
-    }
-    failures.push(t("npx: not found or could not run --version"));
-
-    if (options.allowManaged && options.storagePath) {
-        if (options.installWhenMissing) {
-            try {
-                return await discoverManagedRuntime(options);
-            } catch (error) {
-                if (error instanceof CanceledError) {
-                    throw error;
-                }
-                let target = "<unknown>";
-                try {
-                    target = resolveTarget();
-                } catch {
-                    // the failure reason below already describes the platform
-                }
-                const reason = error instanceof Error ? error.message : String(error);
-                failures.push(
-                    t("Managed Runtime {version} ({target}): {reason}", {
-                        version: options.runtimeVersion,
-                        target,
-                        reason,
-                    }),
-                );
-            }
-        } else {
-            failures.push(t("Managed Runtime download is disabled by the dsh.installWhenMissing setting."));
-        }
-    }
-
-    throw new Error(t("Unable to start DSH Runtime.\n\n{reasons}", { reasons: failures.join("\n") }));
+    failures.push(t("No compatible dsh command was found."));
+    throw new OfficialDesktopRequiredError(failures.join("\n"));
 }
 
 export class DshRuntime implements vscode.Disposable {
@@ -1511,20 +1464,7 @@ export class DshRuntime implements vscode.Disposable {
             discovery = `error: ${error instanceof Error ? error.message : String(error)}`;
         }
 
-        let managedRuntime: string;
-        if (installWhenMissing) {
-            try {
-                const target = resolveTarget();
-                const cached = await checkInstalled(this.storagePath, target, runtimeVersion);
-                managedRuntime = cached
-                    ? `cached (${runtimeVersion}, ${target})`
-                    : `available, not cached (${runtimeVersion}, ${target})`;
-            } catch (error) {
-                managedRuntime = `unsupported: ${error instanceof Error ? error.message : String(error)}`;
-            }
-        } else {
-            managedRuntime = "disabled by dsh.installWhenMissing=false";
-        }
+        const managedRuntime = "deprecated; install the official DeepSeek Desktop app when dsh is unavailable";
 
         let health = "not running";
         if (this.baseUrl) {
@@ -3091,9 +3031,8 @@ export class DshRuntime implements vscode.Disposable {
         let args = [...configuredArgs];
         const enableCompaction = this.configuration().get<boolean>("enableCompaction", true);
 
-        // Discovery may trigger a managed Runtime download. This deliberately
-        // happens before the runtime start lock so one window can download or
-        // reuse the cache while another window keeps using an installed runtime.
+        // Discovery uses the Desktop-registered/local command before acquiring
+        // the runtime start lock. Standalone Runtime downloads are deprecated.
         let upgradeOffered = false;
         const onOutdatedLocal = async (path: string, actual: string | undefined): Promise<string | undefined> => {
             if (upgradeOffered) return undefined;
@@ -3690,14 +3629,6 @@ export class DshRuntime implements vscode.Disposable {
                     : t("The {manager} store resolved DSH but not its dependencies, so downloading it again cannot repair the layout. Clear it and retry, or set dsh.command to a different package manager.\n\n{message}", {
                         manager: launcher.source.kind, message,
                     });
-            }
-            if (launcher.source.kind === "managed") {
-                // Keep the freshly installed runtime in place for diagnosis.
-                message = t("Managed Runtime {version} ({target}) failed to become ready.\n\n{message}", {
-                    version: launcher.source.version,
-                    target: launcher.source.target,
-                    message,
-                });
             }
             this.setStatus({ state: "error", message });
             throw new Error(message);

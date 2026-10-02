@@ -19,6 +19,7 @@
 - 新增“浏览 Runtime 工作区文件”命令及 `/ide` 入口，支持只读 UTF-8 预览、文件变更刷新和手动刷新。
 - 修复文件 RPC 缺省参数和权限目录重复刷新；Agent Teams 改为读取 RC.2 的 Session projection，清理过期的 Team RPC。
 - 修复 RC.2 preset inventory 缺省 `trust` 导致 Settings 插件清单无法读取的问题。
+- 弃用独立托管 Runtime 下载；没有可用 `dsh` 命令时引导安装官方 DeepSeek Desktop。
 
 ## [0.10.1] - 2026-09-28
 

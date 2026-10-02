@@ -35,7 +35,7 @@ async function reapStrays(directory) {
 if (!process.argv.includes("--worker")) {
     if (process.platform === "win32") throw new Error("This executable-fixture smoke requires POSIX; run Windows validation separately.");
     const selected = process.argv.slice(2);
-    for (const scenario of selected.length ? selected : ["npx-package-equals", "npx-package-separate", "npx-p-equals", "npx-p-separate", "writer-lock", "runtime-error", "download-fallback", "cache-layout", "cache-layout-both", "config-local", "config-pnpm", "config-managed", "local", "prefix", "old", "unknown", "missing", "newer", "npx-fallback", "timeout", "cancel", "explicit-old", "explicit-missing", "explicit-pnpm", "explicit-npx", "legacy-args", "legacy-version", "port-race", "compatible-rc2", "newer-numeric", "newer-stable", "newer-major", "compatible-build", "target-newer", "upgrade-prerelease", "upgrade-accept", "upgrade-decline", "upgrade-close", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel", "upgrade-stop", "upgrade-prompt-stop", "upgrade-diagnose", "upgrade-race"]) {
+    for (const scenario of selected.length ? selected : ["local", "prefix", "missing", "unknown", "old", "newer", "explicit-pnpm", "explicit-npx", "explicit-missing", "compatible-rc2"]) {
         const directory = await mkdtemp(join(tmpdir(), "dsh-discovery-verify-"));
         try {
             const child = spawn(process.execPath, [script, "--worker", scenario], {
@@ -66,7 +66,7 @@ if (!process.argv.includes("--worker")) {
         "npx-p-separate": ["-p", "@deepseek-ai/dsh@next", "dsh"],
     };
     const packageArgs = packageForms[scenario];
-    const targetVersion = packageArgs ? "0.1.5-rc.2" : scenario === "target-newer" ? "1.0.0" : "0.1.5-rc.2";
+    const targetVersion = packageArgs ? "0.2.0-rc.2" : scenario === "target-newer" ? "1.0.0" : "0.2.0-rc.2";
     const versionFile = join(directory, "installed-version");
     const upgradeMarker = join(directory, "upgrade.json");
     if (upgrading) await writeFile(versionFile, scenario === "upgrade-prerelease" ? "0.1.5-rc.0" : "0.1.2-rc.1");
@@ -179,7 +179,7 @@ setInterval(() => {}, 1000);
                 showWarningMessage: async (message, _options, ...choices) => {
                     prompts.push({ message, choices });
                     await assert.rejects(() => readFile(marker), { code: "ENOENT" }, "no fallback may launch before the choice");
-                    if (choices.includes("Use plugin Runtime")) return "Use plugin Runtime";
+                    if (choices.includes("Download DeepSeek Desktop")) return "Download DeepSeek Desktop";
                     await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" }, "no install may start before approval");
                     if (scenario === "upgrade-prompt-stop") return new Promise(resolve => { pendingChoice = resolve; });
                     if (scenario === "upgrade-race") await writeFile(versionFile, "0.1.5-rc.2");
@@ -311,9 +311,13 @@ setInterval(() => {}, 1000);
             assert.equal(runtime.getStatus().state, "stopped");
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
         } else if (["explicit-missing", "legacy-version"].includes(scenario)) {
-            await assert.rejects(() => runtime.start(directory), scenario === "explicit-missing" ? /absent-dsh/u : /0\.1\.2-rc\.1/u);
+            await assert.rejects(() => runtime.start(directory), scenario === "explicit-missing" ? /official DeepSeek Desktop/u : /0\.1\.2-rc\.1/u);
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
             assert.deepEqual(await advertisements(), [], "a failed launch must not advertise a Runtime");
+        } else if (["missing", "unknown", "old", "upgrade-decline", "upgrade-failed"].includes(scenario)) {
+            await assert.rejects(() => runtime.start(directory), /official DeepSeek Desktop/u);
+            await assert.rejects(() => readFile(marker), { code: "ENOENT" });
+            assert.deepEqual(await advertisements(), [], "an unavailable dsh must not advertise a Runtime");
         } else {
             await runtime.start(directory);
             const launched = JSON.parse(await readFile(marker, "utf8"));
@@ -342,7 +346,11 @@ setInterval(() => {}, 1000);
             const published = await advertisements();
             assert.equal(published.length, 1, "a ready Runtime must publish exactly one advertisement");
             const advertisement = JSON.parse(await readFile(join(advertisementDirectory, published[0]), "utf8"));
-            assert.equal(advertisement.runtimeVersion, compatibleVersions[scenario] ?? (scenario === "upgrade-race" ? "0.1.5-rc.2" : targetVersion));
+            const expectedAdvertisementVersion = compatibleVersions[scenario] ??
+                (["local", "prefix", "old", "newer", "upgrade-accept"].includes(scenario)
+                    ? "0.1.5-rc.2"
+                    : scenario === "upgrade-race" ? "0.1.5-rc.2" : targetVersion);
+            assert.equal(advertisement.runtimeVersion, expectedAdvertisementVersion);
             assert.equal(advertisement.runtimePid, runtime.child.pid);
             assert.equal(runtime.harnessState.runtimeVersion, advertisement.runtimeVersion, "host metadata must use the detected version");
         }

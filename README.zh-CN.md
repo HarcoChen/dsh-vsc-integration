@@ -54,7 +54,7 @@
 需要 **VS Code 1.106.0 或更高版本**，以及已配置的 DSH 模型服务与凭据。
 
 1. **安装扩展**：选择上方 Marketplace 或 Open VSX 入口，也可以在扩展面板搜索 `harcochen.dsh-vsc-integration`。
-2. **打开聊天**：打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。扩展会自动启动或连接 Runtime；缺少可用环境时，默认尝试下载托管 Runtime。
+2. **打开聊天**：安装并启动官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)，打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。Desktop 会注册 `dsh`；命令不可用时，扩展会提供官方下载安装页。
 3. **完成首次配置**：通过 `DSH: 配置 API Key`（`DSH: Configure API Key`）设置 DeepSeek 凭据。其他 Provider 可在 `DSH: 在浏览器中打开 dsh Web UI` 中配置。选择或注册 DSH Workspace，再选择模型。
 4. **开始一个任务**：输入 `@` 引用文件，或右键选区选择 DSH 操作。查看执行过程，在需要审批时确认操作，并通过工具卡打开 Diff 审查结果。
 5. **（可选）启用 Laya/Jev**：打开 `dsh.jev.enabled` 及需要的功能开关，运行 `DSH: 配置 Jev API Key`，按提示重启 Runtime。详见 [内置 Laya / Jev System One 决策](#内置-laya--jev-system-one-决策)。
@@ -142,7 +142,7 @@
 
 ## 常见问题
 
-**需要手动安装 DSH 吗？** 通常不需要。扩展会寻找可用的本地环境，并在需要时尝试下载托管 Runtime。首次下载需要联网；`dsh.installWhenMissing` 可控制自动安装。
+**需要手动安装 DSH 吗？** 请安装官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)。Desktop 会注册扩展使用的 `dsh` 命令；命令不可用时，扩展会提供官方下载安装页。独立托管 Runtime 下载已弃用。
 
 **Laya/Jev 是怎么集成的？** 扩展安装包自带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Laya 走同一套 System One 接口，修改 `dsh.jev.baseUrl` 即可（仅限 HTTPS）。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
@@ -150,11 +150,11 @@
 
 本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.2`（`639ed015397290b3745d163aafe02ffee4aa3f84`）。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录联调结果及验证边界。Runtime 工作区文件已有只读浏览入口，权限预设通过独立目录获取，Settings 可显示插件管理器的 Bundle 和插件元数据。Schedule 需启用可选官方 bundle。Jobs 输出与控制、Runtime 终端和 Agent Teams 面板仍待接入；RC.2 的团队数据来自 `agentTeam` Session projection。IDE 不调用桌面遥测 RPC。
 
-默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
+默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。官方 Desktop 注册的兼容命令会直接使用；不兼容的本机 CLI 只对已确认的旧版 npm 全局安装提供升级确认。没有兼容命令时，扩展会引导安装官方 Desktop。诊断命令不会安装或下载独立 Runtime。显式本机路径遵循相同兼容性检查；高级用户仍可显式选择 pnpm/npx。
 
-默认应用参数为 `web --no-open`，没有保存参数覆盖时会自动为 pnpm/npx 补齐启动前缀。已有包管理器参数配置保留，auto 选中本机 CLI 时移除包管理器及包名前缀。共享 Runtime 的发现仍先于新启动器选择，回退会复用健康的 Runtime，而不是再起一个。
+默认应用参数为 `web --no-open`，没有保存参数覆盖时会为显式 pnpm/npx 补齐启动前缀。已有包管理器参数配置保留。auto 模式选择兼容的本机或 Desktop 注册的 `dsh`，不会再启动第二个独立 Runtime。
 
-CNB 已发布 `0.2.0-rc.2` 独立 Runtime manifest 和五个平台归档，并通过托管 Runtime 远端检查。有 npm 且使用默认启动参数时，将 `dsh.command` 设为 `"npx"`、`dsh.runtimeVersion` 设为 `"0.2.0-rc.2"` 可固定新启动器的版本。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证选择及实际启动参数，不请求模型。
+独立 CNB Runtime 下载已弃用。没有 `dsh` 命令时，请从 [DeepSeek 官方下载页](https://www.deepseek.com/zh/download/) 安装 Desktop。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证本机命令选择及启动参数，不请求模型。
 
 **支持多根工作区吗？** DSH 支持多个彼此独立的 Workspace，但每个 Session 只有一个工作目录（`cwd`）。VS Code 多根工作区启动 Runtime 时使用第一个 workspace folder；如果不同根目录需要不同工作目录，请分别建立 DSH Workspace 或 Session。
 
@@ -189,7 +189,7 @@ CNB 已发布 `0.2.0-rc.2` 独立 Runtime manifest 和五个平台归档，并�
 graph TD
     A[VS Code Extension Host] <-->|RC Remote RPC| B[Standalone Harness Runtime]
     A <-->|Typed Full-State Bridge| C[React Webview UI]
-    B <-->|CNB Distribution| D[Managed Local Engine]
+    B <-->|官方 Desktop dsh 命令| D[DeepSeek Desktop]
     A <-->|Process Lock| E[Multi-Window Shared Runtime]
 ```
 
@@ -202,8 +202,8 @@ graph TD
 | `dsh.serverUrl` | `""` | 已运行的 dsh web Runtime 地址，设置后扩展将直接连接；可在地址中附加 `?token=...`，或单独设置 `dsh.serverToken`。 |
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
-| `dsh.installWhenMissing` | `true` | 若无可用的 npm/dsh 环境，自动下载并托管独立 Runtime。 |
-| `dsh.runtimeVersion` | `0.2.0-rc.2` | 用户同意后的 CLI 升级及插件下载目标，接受不低于 `0.1.5-rc.1` 的合法 SemVer。 |
+| `dsh.installWhenMissing` | `false` | 已弃用的兼容设置；不再下载独立 Runtime。没有 `dsh` 时引导安装官方 Desktop。 |
+| `dsh.runtimeVersion` | `0.2.0-rc.2` | 用户同意后的本机 CLI 升级兼容目标；独立下载行为已弃用。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
@@ -295,7 +295,7 @@ node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-t
 
 脚本使用临时 DSH_HOME、独立 DSH Workspace 和回环地址上的 Messages 模拟模型，不使用现有 Session 或外部模型凭据。Node.js 版本须满足所选 Runtime 的要求（`^22.19.0 || >=24.0.0`）。`--with-schedule-bundle` 检查可选 Schedule RPC，`--timed-questions` 检查超时延续和延迟回答，`--expect-version <version>` 可显式指定其他验证目标，`--keep` 保留临时状态。
 
-验证托管 Runtime 的发布逻辑：
+验证本机命令发现和启动参数：
 
 ```bash
 node scripts/verify-managed-runtime.mjs              # 仅校验远端契约

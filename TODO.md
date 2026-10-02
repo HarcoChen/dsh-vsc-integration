@@ -1,6 +1,8 @@
 # TODO
 
 更新时间：2026-10-02（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.2`](./RPC_0.2.0_RC2_ADAPTATION.md)）。
+
+独立托管 Runtime 下载已弃用。启动优先发现官方 DeepSeek Desktop 注册的 `dsh`；没有兼容命令时显示官方 Desktop 下载引导。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
 
 ## RC.2 适配与验证（2026-10-02，`dsh-v0.2.0-rc.2`）

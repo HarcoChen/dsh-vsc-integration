@@ -672,7 +672,7 @@
                 },
                 "dsh.installWhenMissing": {
                     "type": "boolean",
-                    "default": true,
+                    "default": false,
                     "description": "%config.installWhenMissing.description%"
                 },
                 "dsh.runtimeVersion": {

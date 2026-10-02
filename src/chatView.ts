@@ -28,7 +28,7 @@ import { ChangeReviewStore } from "./changeReviewStore";
 import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
 import { manageSessions as runSessionManagement } from "./sessionActions";
-import { DshRuntime } from "./dshRuntime";
+import { DshRuntime, OFFICIAL_DESKTOP_DOWNLOAD_URL, OfficialDesktopRequiredError } from "./dshRuntime";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { GoalActivationController } from "./goalActivation";
 import { isImageMediaType, isRecord } from "./guards";
@@ -2989,7 +2989,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private reportError(error: unknown): void {
         const message = errorMessage(error);
         this.output.appendLine(`[dsh] ${message}`);
-        if (isCredentialIssue(error)) {
+        if (error instanceof OfficialDesktopRequiredError) {
+            const download = t("Download DeepSeek Desktop");
+            void vscode.window.showErrorMessage(`DSH: ${message}`, download).then((action) => {
+                if (action === download) void vscode.env.openExternal(vscode.Uri.parse(OFFICIAL_DESKTOP_DOWNLOAD_URL));
+            });
+        } else if (isCredentialIssue(error)) {
             const configureKeyAction = t("Configure API Key");
             const openWebUiAction = t("Open dsh Web UI");
             void vscode.window

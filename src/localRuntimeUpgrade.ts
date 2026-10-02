@@ -108,7 +108,7 @@ export async function offerLocalRuntimeUpgrade(options: LocalRuntimeUpgradeOptio
         const copy = t("Copy target version");
         const selected = await choose(vscode.window.showWarningMessage(
             t("Local dsh reports {actual} and is not compatible. Install the supported version {target} with its original installer: {path}", { actual: actual ?? t("unknown"), target, path: command }),
-            { modal: true, detail: t("Automatic upgrade requires an older, verified npm global installation. Unknown versions are not overwritten. Skip to use the plugin Runtime, or copy the target version and restart DSH after upgrading manually.") }, copy, skip,
+            { modal: true, detail: t("Automatic upgrade requires an older, verified npm global installation. Unknown versions are not overwritten. Skip to install the official DeepSeek Desktop app, or copy the target version and restart DSH after upgrading manually.") }, copy, skip,
         ), signal);
         signal.throwIfAborted();
         if (selected === copy) {
@@ -152,13 +152,16 @@ export async function offerLocalRuntimeUpgrade(options: LocalRuntimeUpgradeOptio
         signal.throwIfAborted();
         const reason = error instanceof Error ? error.message : String(error);
         options.log(`[dsh:upgrade] ${reason}`);
-        const fallback = t("Use plugin Runtime");
+        const fallback = t("Download DeepSeek Desktop");
         const selected = await choose(vscode.window.showWarningMessage(
-            t("Local dsh upgrade did not complete: {reason}. Use the plugin Runtime instead?", { reason }),
+            t("Local dsh upgrade did not complete: {reason}. Download the official DeepSeek Desktop app instead?", { reason }),
             { modal: true }, fallback, t("Cancel startup"),
         ), signal);
         signal.throwIfAborted();
-        if (selected !== fallback) throw new LocalRuntimeUpgradeCancelledError();
+    if (selected !== fallback) throw new LocalRuntimeUpgradeCancelledError();
+    // The official Desktop installer owns the replacement command. Returning
+    // control lets discovery raise its actionable Desktop-required error.
+    return undefined;
         return undefined;
     }
 }
