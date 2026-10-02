@@ -120,6 +120,7 @@ Everything is off by default. Enabled features may send the samples they need to
 
 - `DSH: Manage Sessions` pins sessions and restores archived ones. `DSH: Archive Session` asks whether to stop a running task before it archives the session. DSH Workspaces also work without an open VS Code folder.
 - `DSH: Manage DeepSeek Account` signs in through the browser, signs out, and shows the account profile and balance.
+- `DSH: Browse Runtime Workspace Files` (also under `/ide`) lists files in the current DSH Session's workspace and opens read-only UTF-8 previews up to 1 MiB. Open previews refresh on Runtime file changes; `DSH: Refresh Runtime File Preview` also works when watching is unavailable.
 - When the official Schedule bundle is enabled, the Schedule dock lists reminders across sessions. You can edit daily, weekly, or cron rules, view delivery history, and delete reminders. If the bundle is absent, the dock shows where to enable it.
 
 ### Slash commands enumerated live from the Runtime
@@ -169,7 +170,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.2.0-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
-The implemented Runtime contract targets `dsh-v0.2.0-rc.2` (`639ed015397290b3745d163aafe02ffee4aa3f84`). Both the standard Web profile and the profile with Schedule enabled passed isolated integration checks against the exact npm release; the [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records coverage and remaining checks. The new `productAnalytics` RPCs are Desktop-only and unused by the IDE. Schedule is an optional official bundle; enable `@deepseek-ai/dsh-experimental-schedule-bundle` in the Runtime Plugins page for Schedule RPC support. The Jev plugin hooks and pinned Git submodule were also checked against the release candidate. Remote Workspace Files, Jobs, plugin-manager, permission-preset, and terminal surfaces remain candidates and are not exposed in the IDE.
+The implemented Runtime contract targets `dsh-v0.2.0-rc.2` (`639ed015397290b3745d163aafe02ffee4aa3f84`). The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records integration results and remaining checks. Runtime workspace files have a read-only browser, permission presets use the process catalog, and Settings shows plugin-manager bundle and entry metadata. Schedule requires the optional official bundle. Jobs output/control, Runtime terminals, and the Agent Teams panel remain pending; RC.2 Team data comes from the `agentTeam` Session projection. Desktop product analytics RPCs remain unused by the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH, then in the npm global prefix. A compatible local CLI is used directly. An incompatible CLI gets an upgrade prompt before any plugin download: it shows the current version, target and installation path. Approval upgrades a verified older npm global installation to `dsh.runtimeVersion`, then probes that same CLI again. Declining or closing the prompt uses pinned pnpm, then npx, then the managed CNB Runtime; missing CLIs also use this fallback. Upgrade failure offers fallback or cancellation. Unknown versions and older installations outside the active npm prefix get manual guidance. Diagnostics never prompt or install. Explicit local paths follow the same upgrade flow; explicit pnpm/npx keeps package-manager startup. If you previously saved `dsh.command: "pnpm"`, reset it or select `auto` to enable local-first discovery.
 
@@ -311,6 +312,7 @@ npm run compile
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --timed-questions
+node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-team-bundle
 ```
 
 This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopback Messages model stub. It does not use your sessions or external model credentials. Use a Node.js version supported by the selected Runtime (`^22.19.0 || >=24.0.0`). `--with-schedule-bundle` checks optional Schedule RPCs; `--timed-questions` checks timeout continuation and a late answer; `--expect-version <version>` explicitly selects another smoke target; `--keep` retains the temporary state.

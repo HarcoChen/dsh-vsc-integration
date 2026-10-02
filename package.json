@@ -87,6 +87,8 @@
         "onCommand:dsh.gitDiffTask.review",
         "onCommand:dsh.gitDiffTask.docs",
         "onCommand:dsh.openIdeContextPicker",
+        "onCommand:dsh.browseRuntimeFiles",
+        "onCommand:dsh.refreshRuntimeFile",
         "onCommand:dsh.captureAppShot",
         "onCommand:dsh.configureApiKey",
         "onCommand:dsh.configureJevApiKey",
@@ -335,6 +337,18 @@
                 "command": "dsh.insertPromptTemplate",
                 "title": "%command.insertPromptTemplate.title%",
                 "category": "DSH"
+            },
+            {
+                "command": "dsh.browseRuntimeFiles",
+                "title": "%command.browseRuntimeFiles.title%",
+                "category": "DSH",
+                "icon": "$(remote)"
+            },
+            {
+                "command": "dsh.refreshRuntimeFile",
+                "title": "%command.refreshRuntimeFile.title%",
+                "category": "DSH",
+                "icon": "$(refresh)"
             },
             {
                 "command": "dsh.captureAppShot",

@@ -12,10 +12,22 @@
 - [x] Remote smoke 校验 RC.2 版本、unknown question answer、timed timeout projection 和 late answer settlement；标准 Web、Schedule bundle profile 均通过。
 - [x] CNB `0.2.0-rc.2` manifest 和五个平台资产通过 `verify-managed-runtime.mjs` 远端检查（9/9）。
 - [ ] 仍需真实账号登录、Schedule 到期投递、Jev 和 VS Code UI 人工验收；覆盖边界见 [RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md)。
-- [x] Agent Teams 增加 composition capability probe：通过 `pluginInventory/list` 检查 `agent-team` Host row 是否 active；不再直接对标准 Web Runtime 发送必然 404 的 `agentTeams/*` 请求。完整 Team UI 仍需启用实验性 profile 后再接入。
+- [x] Agent Teams 通过 `pluginInventory/list` 探测 Host service，通过 `session/projections` 读取 `agentTeam`。RC.2 已删除旧 `agentTeams/view|createTask|updateTask` Remote，IDE 已清理这些过期调用。Team 面板仍待接入。
 - [x] RC.2 `permissionPresets/catalog` 接入权限面板；兼容 RC.1 projection 自带 options 与 RC.2 projection 只返回 currentValue 的两种格式。
 - [x] Plugin Manager `listBundles|listPlugins` 接入 Settings 插件清单，只读展示 Runtime Bundle、patch row 和只读原因；变更操作仍由 Harness Web UI 负责。
-- [x] `workspaceFiles/list|stat|read|readBytes|changes` 接入 Runtime facade 并完成 RC.2 远程工作区 smoke；远程文件引用 UI 仍待完成。
+- [x] `workspaceFiles/list|stat|read|readBytes|changes` 使用统一的类型化 client；修复默认根路径及 range/options 缺失。新增命令和 `/ide` 浏览入口、1 MiB UTF-8 只读预览、变更刷新、重连与关闭清理。RC.2 smoke 验证真实文件变化及预览限制。
+- [x] 权限目录缓存完成值与 404 结果，避免 `postState` 反复拉取；重连及 catalog-changed 刷新，支持 `custom` 当前值。
+- [x] 插件清单兼容 RC.2 preset composition 中缺省的 `trust`，不再拒绝有效 inventory。
+
+### 当前仍值得集成的功能
+
+- [ ] `job/list|follow|kill`：现有 Jobs 面板只读；需要真实 roster、流式输出、取消与重连游标。
+- [ ] timed 问答完整生命周期：前台等待 claim、超时切换、跨客户端结算、重连恢复和草稿。
+- [ ] Agent Teams：以 Lead 的 `agentTeam` 投影展示成员与任务，成员历史沿用 addressed-subagent；RC.2 没有 Team 任务变更 Remote。
+- [ ] 插件启停与 Bundle 选择：已有只读 metadata；变更应保留上游保存/生效/需重启结果，安装与删除另行处理。
+- [ ] Runtime Terminal：补终端保留、输出恢复与输入；已有 VS Code 本地终端捕获不等价。
+
+`fileUploads/upload` 是现有官方裸字节上传路径的 JSON 替代入口，不属于文件上传功能缺口；桌面遥测和 Client half 执行不记为 IDE 待集成项。
 
 ## RC.1 适配与验证（2026-10-02，`dsh-v0.2.0-rc.1`）
 

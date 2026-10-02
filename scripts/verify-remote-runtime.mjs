@@ -2,7 +2,7 @@
 /** Integration smoke against a real DSH launcher, using the extension's compiled Remote clients.
  * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
  * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle,
- * --timed-questions, --keep.
+ * --timed-questions, --with-team-bundle, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
@@ -21,6 +21,9 @@ const { RemoteConnectionController } = require(join(root, "dist/remote/connectio
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
 const { RUNTIME_DEFAULT_VERSION } = require(join(root, "dist/managedRuntime/types"));
+const { WorkspaceFilesClient, readRuntimeTextPreview, RUNTIME_TEXT_PREVIEW_MAX_BYTES } = require(join(root, "dist/workspaceFiles"));
+const { detectAgentTeamsCapability, normalizeAgentTeamProjection } = require(join(root, "dist/agentTeamTypes"));
+const { normalizePluginInventory } = require(join(root, "dist/pluginInventory"));
 const {
     normalizeMessageFeedbackPutResult,
     normalizeMessageFeedbackListResult,
@@ -32,6 +35,7 @@ if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launc
 const launcher = resolve(argv[launcherIndex + 1]);
 const keep = argv.includes("--keep");
 const withScheduleBundle = argv.includes("--with-schedule-bundle");
+const withTeamBundle = argv.includes("--with-team-bundle");
 const timedQuestions = argv.includes("--timed-questions");
 const versionIndex = argv.indexOf("--expect-version");
 if (versionIndex >= 0 && !argv[versionIndex + 1]) throw new Error("--expect-version requires a version");
@@ -52,13 +56,15 @@ const workspacePath = join(storage, "workspace");
 await Promise.all([mkdir(dshHome), mkdir(workspacePath)]);
 await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
 await writeFile(join(workspacePath, "remote-smoke.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
-if (withScheduleBundle) {
+await writeFile(join(workspacePath, "remote-large.txt"), Buffer.alloc(RUNTIME_TEXT_PREVIEW_MAX_BYTES + 1, 65));
+if (withScheduleBundle || withTeamBundle) {
     const profileDirectory = join(dshHome, "profiles", "web");
     await mkdir(profileDirectory, { recursive: true });
     await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
         private: true, type: "module",
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
-            "@deepseek-ai/dsh-experimental-schedule-bundle"] } },
+            ...(withScheduleBundle ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
+            ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : [])] } },
     }, null, 2) + "\n");
 }
 if (timedQuestions) {
@@ -266,41 +272,56 @@ try {
     const managedPlugins = await connection.unary.call("pluginManager/listPlugins", {});
     assert.ok(Array.isArray(managedPlugins));
     pass("pluginManager/listPlugins supplies read-only plugin patch metadata");
-    const remoteFiles = await connection.unary.call("workspaceFiles/list", {
-        workspaceFileScopeId: seededSessionId,
-        path: ".",
-    });
+    const rawInventory = await connection.unary.call("pluginInventory/list", {});
+    const inventory = normalizePluginInventory(rawInventory);
+    assert.ok(inventory);
+    assert.equal(detectAgentTeamsCapability(inventory).available, withTeamBundle);
+    const projectionBlock = await connection.unary.call("session/projections", { request: { sessionId: seededSessionId } });
+    if (withTeamBundle) {
+        const team = normalizeAgentTeamProjection(projectionBlock.values.agentTeam);
+        assert.ok(team);
+        assert.ok(team.members.some(member => member.id === seededSessionId && member.role === "lead"));
+        await assert.rejects(() => connection.unary.call("agentTeams/view", { agentId: seededSessionId }), error => error.status === 404);
+        pass("Active Agent Teams publishes a Session projection; it exposes no legacy agentTeams/view RPC");
+    } else {
+        assert.equal(projectionBlock.values.agentTeam, undefined);
+        pass("Standard composition has no Agent Teams service or projection");
+    }
+    const files = new WorkspaceFilesClient(connection.unary, connection);
+    const remoteFiles = await files.list(seededSessionId);
     assert.ok(Array.isArray(remoteFiles.entries));
     assert.ok(remoteFiles.entries.some((entry) => entry.name === "remote-smoke.txt"));
-    const remoteStat = await connection.unary.call("workspaceFiles/stat", {
-        workspaceFileScopeId: seededSessionId,
-        path: join(workspacePath, "remote-smoke.txt"),
-    });
+    const remoteStat = await files.stat(seededSessionId, "remote-smoke.txt");
     assert.equal(typeof remoteStat.version, "string");
-    const remoteText = await connection.unary.call("workspaceFiles/read", {
-        workspaceFileScopeId: seededSessionId,
-        path: join(workspacePath, "remote-smoke.txt"),
-        range: { offset: 2, limit: 1 },
-    });
+    const remoteText = await files.read(seededSessionId, "remote-smoke.txt", { offset: 2, limit: 1 });
     assert.equal(remoteText.text, "second line");
-    const remoteBytes = await connection.unary.call("workspaceFiles/readBytes", {
-        workspaceFileScopeId: seededSessionId,
-        path: join(workspacePath, "remote-smoke.bin"),
-        options: { range: { offset: 2, length: 2 } },
-    });
+    assert.equal((await files.read(seededSessionId, "remote-smoke.txt")).lines, 2);
+    assert.deepEqual([...(await files.readBytes(seededSessionId, "remote-smoke.bin")).data], [0, 1, 2, 3, 4, 5]);
+    const remoteBytes = await files.readBytes(seededSessionId, "remote-smoke.bin", { range: { offset: 2, length: 2 } });
     assert.deepEqual([...remoteBytes.data], [2, 3]);
     const changesAbort = new AbortController();
-    let watchReady;
-    for await (const frame of connection.open("workspaceFiles/changes", {
-        workspaceFileScopeId: seededSessionId,
-        path: join(workspacePath, "remote-smoke.txt"),
-    }, changesAbort.signal)) {
-        watchReady = frame;
-        break;
+    const changesTimer = setTimeout(() => changesAbort.abort(new Error("workspaceFiles watch timed out")), 8000);
+    const watch = files.changes(seededSessionId, "remote-smoke.txt", changesAbort.signal)[Symbol.asyncIterator]();
+    try {
+        const opening = await watch.next();
+        assert.equal(opening.done, false);
+        assert.equal(opening.value.kind, "ready");
+        await writeFile(join(workspacePath, "remote-smoke.txt"), "updated Runtime file\n");
+        const update = await watch.next();
+        assert.equal(update.done, false);
+        assert.equal(update.value.kind, "change");
+        assert.equal(typeof update.value.change.version, "string");
+    } finally {
+        clearTimeout(changesTimer);
+        changesAbort.abort();
+        await watch.return();
     }
-    changesAbort.abort();
-    assert.equal(watchReady.kind, "ready");
-    pass("workspaceFiles/list, stat, paged read, binary window, and changes ready frame work");
+    const preview = await readRuntimeTextPreview(files, seededSessionId, "remote-smoke.txt");
+    assert.equal(preview.text, "updated Runtime file\n");
+    await assert.rejects(() => readRuntimeTextPreview(files, seededSessionId, "remote-smoke.bin"), /not UTF-8 text/u);
+    await assert.rejects(() => readRuntimeTextPreview(files, seededSessionId, "remote-large.txt"), /limited to 1 MiB/u);
+    await assert.rejects(() => files.stat(seededSessionId, "missing-smoke.txt"), error => error.code === "workspace-file/not-found");
+    pass("Workspace file client validates defaults, pagination, multipart bytes, live changes, and bounded text previews");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
@@ -325,7 +346,7 @@ try {
     assert.equal(feedbackConflict.error.code, "version-conflict");
     assert.equal(feedbackConflict.error.current.category, "task-result");
     const feedbackDeleted = normalizeMessageFeedbackDeleteResult(await connection.unary.call("messageFeedback/delete", {
-        request: { sessionId: seededSessionId, messageId: "assistant-1", ifVersion: feedbackEdit.value.version },
+        request: { sessionId: seededSessionId, messageId, ifVersion: feedbackEdit.value.version },
     }));
     assert.equal(feedbackDeleted?.ok, true);
     assert.equal(feedbackDeleted.value.absent, true);
@@ -417,7 +438,7 @@ try {
         }, "continued timed question settlement", 20_000);
         pass("timed ask_user_question continues after timeout and accepts a late Remote answer");
     }
-    const streamTypes = [...new Set(wireFrames.map(({ endpoint, frame }) => `${endpoint}:${frame.type}`))];
+    const streamTypes = [...new Set(wireFrames.map(({ endpoint, frame }) => `${endpoint}:${frame.type ?? frame.kind}`))];
     console.log(`Observed frames: ${streamTypes.join(", ")}`);
     assert.equal(diagnostics.length, 0, diagnostics.join("\n"));
     console.log(`OK: real Runtime integration smoke passed; ${modelRequests} local mock model request(s), no external model calls.`);

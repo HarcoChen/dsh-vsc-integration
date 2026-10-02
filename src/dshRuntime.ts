@@ -12,15 +12,13 @@ import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts
 import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
+import { WorkspaceFilesClient } from "./workspaceFiles";
 import { workspaceView } from "./remote/workspaceState";
 import type {
     DshAgentTeamsCapability,
-    DshTeamView,
-    DshCreateTeamTaskRequest,
-    DshUpdateTeamTaskRequest,
-    DshTeamTaskMutationResult,
+    DshTeamProjection,
 } from "./agentTeamTypes";
-import { detectAgentTeamsCapability } from "./agentTeamTypes";
+import { detectAgentTeamsCapability, normalizeAgentTeamProjection } from "./agentTeamTypes";
 import {
     acquireRuntimeStartupMutex, advertisedEndpointRefused, publishRuntimeAdvertisement,
     readRuntimeAdvertisements, removeRuntimeAdvertisement, type RuntimeAdvertisement,
@@ -1285,6 +1283,7 @@ export class DshRuntime implements vscode.Disposable {
     private readonly remoteEventListeners = new Set<RemoteEventListener>();
     private readonly apiClient: RemoteUnaryClient;
     private readonly remoteConnection: RemoteConnectionController;
+    public readonly workspaceFiles: WorkspaceFilesClient;
     private readonly harnessState: RemoteStateCoordinator;
     private readonly subagentHistoryCursors = new Map<string, number>();
     private child: ChildProcess | undefined;
@@ -1362,6 +1361,7 @@ export class DshRuntime implements vscode.Disposable {
                 this.output.appendLine(`[dsh:remote] ${message}${suffix}`);
             },
         });
+        this.workspaceFiles = new WorkspaceFilesClient(this.apiClient, this.remoteConnection);
         this.harnessState = new RemoteStateCoordinator(this.remoteConnection, {
             onConnectionState: (state) => this.output.appendLine(`[dsh:remote] connection ${state}`),
             onHostDescription: (description) => {
@@ -2305,18 +2305,10 @@ export class DshRuntime implements vscode.Disposable {
     /** List direct children in the Runtime's Session workspace; undefined means the optional Remote is absent. */
     public async workspaceFilesList(
         sessionId: string,
-        path = "",
+        path = ".",
         signal?: AbortSignal,
-    ): Promise<unknown | undefined> {
-        try {
-            return await this.apiClient.call("workspaceFiles/list", {
-                workspaceFileScopeId: sessionId,
-                path,
-            }, signal);
-        } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
-            throw error;
-        }
+    ) {
+        return this.workspaceFiles.list(sessionId, path, signal);
     }
 
     /** Read one bounded text page from the Runtime's Session workspace. */
@@ -2325,17 +2317,8 @@ export class DshRuntime implements vscode.Disposable {
         path: string,
         range?: { offset?: number; limit?: number },
         signal?: AbortSignal,
-    ): Promise<unknown | undefined> {
-        try {
-            return await this.apiClient.call("workspaceFiles/read", {
-                workspaceFileScopeId: sessionId,
-                path,
-                ...(range === undefined ? {} : { range }),
-            }, signal);
-        } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
-            throw error;
-        }
+    ) {
+        return this.workspaceFiles.read(sessionId, path, range, signal);
     }
 
     /** Read Runtime file metadata, preserving its opaque freshness token. */
@@ -2343,16 +2326,8 @@ export class DshRuntime implements vscode.Disposable {
         sessionId: string,
         path: string,
         signal?: AbortSignal,
-    ): Promise<unknown | undefined> {
-        try {
-            return await this.apiClient.call("workspaceFiles/stat", {
-                workspaceFileScopeId: sessionId,
-                path,
-            }, signal);
-        } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
-            throw error;
-        }
+    ) {
+        return this.workspaceFiles.stat(sessionId, path, signal);
     }
 
     /** Read a bounded binary window from the Runtime's Session workspace. */
@@ -2361,17 +2336,8 @@ export class DshRuntime implements vscode.Disposable {
         path: string,
         options?: { range?: { offset?: number; length?: number }; baseFile?: string },
         signal?: AbortSignal,
-    ): Promise<unknown | undefined> {
-        try {
-            return await this.apiClient.call("workspaceFiles/readBytes", {
-                workspaceFileScopeId: sessionId,
-                path,
-                ...(options === undefined ? {} : { options }),
-            }, signal);
-        } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
-            throw error;
-        }
+    ) {
+        return this.workspaceFiles.readBytes(sessionId, path, options, signal);
     }
 
     /** Watch one Runtime workspace file; old Runtimes end the optional stream cleanly. */
@@ -2379,16 +2345,8 @@ export class DshRuntime implements vscode.Disposable {
         sessionId: string,
         path: string,
         signal: AbortSignal,
-    ): AsyncGenerator<unknown> {
-        try {
-            yield* this.remoteConnection.open("workspaceFiles/changes", {
-                workspaceFileScopeId: sessionId,
-                path,
-            }, signal);
-        } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return;
-            throw error;
-        }
+    ) {
+        yield* this.workspaceFiles.changes(sessionId, path, signal);
     }
 
     /** Detects the optional Agent Teams profile without probing an unmounted RPC. */
@@ -2608,35 +2566,16 @@ export class DshRuntime implements vscode.Disposable {
         return { cleared: true };
     }
 
-    /** Internal opt-in Team API; no UI registration or background probing. */
-    public getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamView> {
-        return this.requireAgentTeams().then(() => this.apiClient.call("agentTeams/view", { agentId: sessionId }, signal));
-    }
-
-    public createAgentTeamTask(
-        sessionId: string,
-        request: DshCreateTeamTaskRequest,
-        signal?: AbortSignal,
-    ): Promise<DshTeamTaskMutationResult> {
-        return this.requireAgentTeams().then(() => this.apiClient.call("agentTeams/createTask", { agentId: sessionId, request }, signal));
-    }
-
-    /** Preserve expectedRevision and typed conflicts; never retry a stale mutation. */
-    public updateAgentTeamTask(
-        sessionId: string,
-        request: DshUpdateTeamTaskRequest,
-        signal?: AbortSignal,
-    ): Promise<DshTeamTaskMutationResult> {
-        return this.requireAgentTeams().then(() => this.apiClient.call("agentTeams/updateTask", { agentId: sessionId, request }, signal));
-    }
-
-    private async requireAgentTeams(): Promise<void> {
-        const capability = await this.agentTeamsCapability();
-        if (!capability.available) {
-            throw new RemoteProtocolError(
-                `Agent Teams is unavailable in the connected Runtime (${capability.status}); enable the optional Agent Teams profile bundle first`,
-            );
-        }
+    /** RC.2 exposes Team data through the Lead Session's projection, including cold persisted Sessions. */
+    public async getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamProjection | undefined> {
+        const value = await this.apiClient.call<unknown>("session/projections", { request: { sessionId } }, signal);
+        if (value === null) return undefined;
+        const block = remoteProjectionBlock(value);
+        if (!block) throw new RemoteProtocolError("Remote session/projections returned an invalid value");
+        if (block.values.agentTeam === undefined) return undefined;
+        const team = normalizeAgentTeamProjection(block.values.agentTeam);
+        if (!team) throw new RemoteProtocolError("Remote session/projections returned an invalid agentTeam value");
+        return team;
     }
 
     public listSubagents(

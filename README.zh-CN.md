@@ -106,6 +106,7 @@
 
 - `DSH: 管理会话` 可置顶会话、恢复已归档会话；`DSH: 归档会话` 遇到仍在运行的任务时，会先询问是否停止。没有打开 VS Code 文件夹时也能使用 DSH Workspace。
 - `DSH: 管理 DeepSeek 账号` 支持浏览器登录、登出，并查看账号资料和余额。
+- `DSH: 浏览 Runtime 工作区文件`（也可在 `/ide` 中选择）浏览当前 DSH 会话的工作区，在编辑器打开上限为 1 MiB 的 UTF-8 文本只读预览。文件变化会刷新已打开的预览；不支持监听时可运行 `DSH: 刷新 Runtime 文件预览`。
 - 启用官方 Schedule bundle 后，定时提醒面板可跨会话列出提醒、编辑规则、查看投递历史并删除提醒；未启用时面板会提示如何开启。
 
 ### 斜杠命令
@@ -147,7 +148,7 @@
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.2.0-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
-本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.2`（`639ed015397290b3745d163aafe02ffee4aa3f84`）。精确 npm 版本的标准 Web profile 与启用 Schedule bundle 的 profile 均已通过隔离联调，覆盖范围与剩余验证见 [RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md)。新增的 `productAnalytics` RPC 仅供桌面端使用，IDE 不调用。Schedule 位于可选官方 bundle；需要在 Runtime 插件管理页启用 `@deepseek-ai/dsh-experimental-schedule-bundle` 才会提供 Schedule RPC，未启用时 Activity Dock 会给出提示。Jev 插件所需钩子和固定的 Git 子模块也已检查。IDE 尚未接入 Remote Workspace Files、Jobs、插件管理、权限预设和终端接口。
+本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.2`（`639ed015397290b3745d163aafe02ffee4aa3f84`）。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录联调结果及验证边界。Runtime 工作区文件已有只读浏览入口，权限预设通过独立目录获取，Settings 可显示插件管理器的 Bundle 和插件元数据。Schedule 需启用可选官方 bundle。Jobs 输出与控制、Runtime 终端和 Agent Teams 面板仍待接入；RC.2 的团队数据来自 `agentTeam` Session projection。IDE 不调用桌面遥测 RPC。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。本机 CLI 兼容就直接调用；不兼容则先提示当前版本、目标版本和安装位置，用户同意后才将已确认的旧版 npm 全局安装升级到 `dsh.runtimeVersion`，随后重新探测同一 CLI。用户拒绝或关闭提示后，才依次回退固定版本的 pnpm、npx、CNB 托管 Runtime；没有本机 CLI 时也走这条回退路径。升级失败可选择回退或取消启动。版本未知或不属于当前 npm 全局目录的旧安装只提供手动升级指引。诊断命令只读，不提示或执行升级。显式本机路径遵循相同升级流程，显式 pnpm/npx 保留包管理器启动。若之前保存了 `dsh.command: "pnpm"`，需重置或改为 `auto` 才会启用本机优先。
 
@@ -289,7 +290,7 @@ npm run compile
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --timed-questions
-node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
+node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-team-bundle
 ```
 
 脚本使用临时 DSH_HOME、独立 DSH Workspace 和回环地址上的 Messages 模拟模型，不使用现有 Session 或外部模型凭据。Node.js 版本须满足所选 Runtime 的要求（`^22.19.0 || >=24.0.0`）。`--with-schedule-bundle` 检查可选 Schedule RPC，`--timed-questions` 检查超时延续和延迟回答，`--expect-version <version>` 可显式指定其他验证目标，`--keep` 保留临时状态。

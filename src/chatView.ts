@@ -117,6 +117,7 @@ import {
 } from "./types";
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
+import { RuntimeWorkspaceBrowser } from "./runtimeWorkspaceBrowser";
 import { errorMessage } from "./errors";
 import { normalizeModelSelectionProjection, sameModelSelection } from "./modelSelection";
 import {
@@ -336,6 +337,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private permissionCatalog: DshPermissionCatalog | undefined;
     private permissionCatalogRequest: Promise<void> | undefined;
     private permissionCatalogGeneration = 0;
+    private permissionCatalogLoaded = false;
     private agentPresetCatalog: DshAgentPresetEntry[] | undefined;
     private modeSelectionEnabled = true;
     private agentPresetCatalogRequest: Promise<void> | undefined;
@@ -352,6 +354,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private dynamicPluginsGeneration = 0;
     private readonly changeReviews: ChangeReviewStore;
     private readonly toolDiffs: ToolDiffStore;
+    private readonly runtimeWorkspaceBrowser: RuntimeWorkspaceBrowser;
     private agentStatusChoice: { sessionId: string; candidateKey: string; label: string } | undefined;
 
     public constructor(
@@ -370,6 +373,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             () => this.schedulePostState(),
         );
         this.toolDiffs = new ToolDiffStore(output);
+        this.runtimeWorkspaceBrowser = new RuntimeWorkspaceBrowser(runtime, output);
         this.subagents = new SubagentController({
             runtime,
             currentRootSession: () => this.sessionId,
@@ -431,6 +435,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 if (status.state === "stopped") {
                     ++this.dynamicPluginsGeneration;
                     this.dynamicPlugins = undefined;
+                    ++this.permissionCatalogGeneration;
+                    this.permissionCatalog = undefined;
+                    this.permissionCatalogLoaded = false;
                 }
                 this.schedulePostState();
             }),
@@ -873,8 +880,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     /** Refresh the process-level permission catalog used to complete RC.2 projections. */
     private async refreshPermissionCatalog(force = false): Promise<void> {
-        if (!force && this.permissionCatalogRequest !== undefined) return this.permissionCatalogRequest;
+        if (!this.runtime.getUrl()) return;
+        if (!force && (this.permissionCatalogLoaded || this.permissionCatalogRequest !== undefined)) return this.permissionCatalogRequest;
         const generation = ++this.permissionCatalogGeneration;
+        // Cache success, missing capability, and failure until an explicit invalidation or reconnect.
+        this.permissionCatalogLoaded = true;
         const request = this.runtime.permissionCatalog()
             .then((catalog) => {
                 if (generation !== this.permissionCatalogGeneration) return;
@@ -885,6 +895,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 if (generation !== this.permissionCatalogGeneration) return;
                 this.permissionCatalog = undefined;
                 this.output.appendLine(`[dsh:permissions] catalog refresh failed: ${errorMessage(error)}`);
+                this.postState();
             })
             .finally(() => {
                 if (this.permissionCatalogRequest === request) this.permissionCatalogRequest = undefined;
@@ -1035,6 +1046,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     ? [{ actionId: "selection" as const, label: `$(selection) ${t("Selection")}`, detail: t("Enable the current selection and read it again when sending") }]
                     : []),
                 { actionId: "workspace-file" as const, label: `$(search) ${t("Workspace file")}`, detail: t("Fuzzy-search and insert an @file reference") },
+                { actionId: "runtime-files" as const, label: `$(remote) ${t("Runtime workspace files")}`, detail: t("Browse the current DSH Session's files and open a read-only preview") },
                 { actionId: "current-file" as const, label: `$(file-code) ${t("Current file")}`, detail: t("Insert an @file reference without copying its contents") },
                 { actionId: "diagnostics" as const, label: `$(warning) ${t("Diagnostics")}`, detail: t("Attach once to this turn") },
                 ...(vscode.debug.activeStackItem
@@ -1060,6 +1072,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.selectionEnabled = true;
         } else if (choice.actionId === "workspace-file") {
             await this.openWorkspaceFileReferencePicker();
+            return;
+        } else if (choice.actionId === "runtime-files") {
+            await this.browseRuntimeFiles();
             return;
         } else if (choice.actionId === "current-file") {
             this.insertEditorReference();
@@ -1190,6 +1205,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.insertComposerText(`@${vscode.workspace.asRelativePath(selected.uri, false).replace(/\\/g, "/")}`);
     }
 
+    /** Explicitly select a DSH Session before browsing its Runtime-owned files. */
+    public async browseRuntimeFiles(): Promise<void> {
+        await this.runtime.start(this.workspaceRoot());
+        if (!this.sessionId) await this.chooseSession();
+        if (this.sessionId) await this.runtimeWorkspaceBrowser.browse(this.sessionId);
+    }
+
+    public refreshRuntimeFilePreview(): Promise<void> {
+        return this.runtimeWorkspaceBrowser.refreshActive();
+    }
+
     public reveal(): void {
         const target = this.activeSurface ?? Array.from(this.surfaces)[0];
         if (target) {
@@ -1296,6 +1322,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.fileReferenceQueryAbort?.abort();
         this.changeReviews.dispose();
         this.toolDiffs.dispose();
+        this.runtimeWorkspaceBrowser.dispose();
+        ++this.permissionCatalogGeneration;
         for (const disposable of this.disposables) {
             disposable.dispose();
         }

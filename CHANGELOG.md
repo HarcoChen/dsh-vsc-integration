@@ -16,6 +16,9 @@
 - 核对 Jev 插件所需钩子与上游兼容下限；保持现有 Jev Git 子模块 pin 不变。
 - Remote 集成冒烟检查实际 Runtime 版本，通过公开 RPC 生成历史并使用 Messages 模拟模型；真实 RC.1 的标准 Web 与 Schedule bundle profile 均通过。CNB RC.1 manifest 返回 404，托管下载归档待发布。
 - 适配 `dsh-v0.2.0-rc.2`：支持 timed `ask_user_question` 超时后的 Session projection 和延迟回答；RC.2 的 CNB manifest 与五个平台归档已通过托管检查。
+- 新增“浏览 Runtime 工作区文件”命令及 `/ide` 入口，支持只读 UTF-8 预览、文件变更刷新和手动刷新。
+- 修复文件 RPC 缺省参数和权限目录重复刷新；Agent Teams 改为读取 RC.2 的 Session projection，清理过期的 Team RPC。
+- 修复 RC.2 preset inventory 缺省 `trust` 导致 Settings 插件清单无法读取的问题。
 
 ## [0.10.1] - 2026-09-28
 

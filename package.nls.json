@@ -42,6 +42,8 @@
     "command.explainDebugState.title": "Explain Current Debug State",
     "command.openIdeContextPicker.title": "Manage IDE Context (/ide)",
     "command.insertPromptTemplate.title": "Insert Prompt Template (/template)",
+    "command.browseRuntimeFiles.title": "Browse Runtime Workspace Files",
+    "command.refreshRuntimeFile.title": "Refresh Runtime File Preview",
     "command.captureAppShot.title": "Capture AppShot",
     "command.configureApiKey.title": "Configure API Key",
     "command.configureJevApiKey.title": "Configure Jev API Key",

@@ -63,7 +63,7 @@ function inventoryPreset(value: unknown): DshPluginInventoryPreset | undefined {
     if (
         !isRecord(value) ||
         !nonEmptyString(value.id) ||
-        (value.trust !== "system" && value.trust !== "user") ||
+        (value.trust !== undefined && value.trust !== "system" && value.trust !== "user") ||
         typeof value.isDefault !== "boolean" ||
         !Array.isArray(value.rows) ||
         value.rows.length > MAX_PLUGIN_ROWS ||
@@ -74,7 +74,7 @@ function inventoryPreset(value: unknown): DshPluginInventoryPreset | undefined {
     if (rows.some((row) => row === undefined)) return undefined;
     return {
         id: value.id,
-        trust: value.trust,
+        ...(value.trust === undefined ? {} : { trust: value.trust }),
         isDefault: value.isDefault,
         ...(value.name === undefined ? {} : { name: value.name }),
         ...(value.broken === undefined ? {} : { broken: value.broken }),

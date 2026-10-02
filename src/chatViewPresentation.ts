@@ -250,7 +250,7 @@ export function permissionProjection(
         }];
     });
     const current = options.find((option) => option.value === value.currentValue);
-    return current ? { currentValue: value.currentValue, currentLabel: current.label, options } : undefined;
+    return { currentValue: value.currentValue, currentLabel: current?.label ?? value.currentValue, options };
 }
 
 /** Narrow the optional plan-mode projection without inventing a default. */

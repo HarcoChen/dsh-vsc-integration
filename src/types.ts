@@ -564,7 +564,8 @@ export interface DshPluginInventoryRow {
 
 export interface DshPluginInventoryPreset {
     id: string;
-    trust: "system" | "user";
+    /** Legacy provenance; RC.2 composition inventory omits it. */
+    trust?: "system" | "user";
     name?: string;
     isDefault: boolean;
     broken?: string;

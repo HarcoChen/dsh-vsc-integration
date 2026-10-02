@@ -42,6 +42,8 @@
     "command.explainDebugState.title": "解释当前调试状态",
     "command.openIdeContextPicker.title": "管理 IDE 上下文（/ide）",
     "command.insertPromptTemplate.title": "插入 Prompt 模板（/template）",
+    "command.browseRuntimeFiles.title": "浏览 Runtime 工作区文件",
+    "command.refreshRuntimeFile.title": "刷新 Runtime 文件预览",
     "command.captureAppShot.title": "截取 AppShot",
     "command.configureApiKey.title": "配置 API Key",
     "command.configureJevApiKey.title": "配置 Jev API Key",

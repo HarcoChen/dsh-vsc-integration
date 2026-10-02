@@ -232,6 +232,12 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.insertPromptTemplate", () =>
             runCommand(t("Insert prompt template"), () => chatView.insertPromptTemplate()),
         ),
+        vscode.commands.registerCommand("dsh.browseRuntimeFiles", () =>
+            runCommand(t("Runtime workspace files"), () => chatView.browseRuntimeFiles()),
+        ),
+        vscode.commands.registerCommand("dsh.refreshRuntimeFile", () =>
+            runCommand(t("Refresh Runtime file preview"), () => chatView.refreshRuntimeFilePreview()),
+        ),
         vscode.commands.registerCommand("dsh.captureAppShot", () =>
             runCommand(t("Capture AppShot"), () => chatView.captureAppShot()),
         ),
