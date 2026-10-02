@@ -2302,6 +2302,59 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
+    /** List direct children in the Runtime's Session workspace; undefined means the optional Remote is absent. */
+    public async workspaceFilesList(
+        sessionId: string,
+        path = "",
+        signal?: AbortSignal,
+    ): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call("workspaceFiles/list", {
+                workspaceFileScopeId: sessionId,
+                path,
+            }, signal);
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Read one bounded text page from the Runtime's Session workspace. */
+    public async workspaceFilesRead(
+        sessionId: string,
+        path: string,
+        range?: { offset?: number; limit?: number },
+        signal?: AbortSignal,
+    ): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call("workspaceFiles/read", {
+                workspaceFileScopeId: sessionId,
+                path,
+                ...(range === undefined ? {} : { range }),
+            }, signal);
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Read Runtime file metadata, preserving its opaque freshness token. */
+    public async workspaceFilesStat(
+        sessionId: string,
+        path: string,
+        signal?: AbortSignal,
+    ): Promise<unknown | undefined> {
+        try {
+            return await this.apiClient.call("workspaceFiles/stat", {
+                workspaceFileScopeId: sessionId,
+                path,
+            }, signal);
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     /** Detects the optional Agent Teams profile without probing an unmounted RPC. */
     public async agentTeamsCapability(): Promise<DshAgentTeamsCapability> {
         try {

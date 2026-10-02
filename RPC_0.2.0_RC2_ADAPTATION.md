@@ -15,6 +15,7 @@ IDE 已完成以下适配：
 - Agent Teams wrapper 增加 composition probe：通过 `pluginInventory/list` 检查 `agent-team` Host row 是否 active。标准 Web profile 不挂载 `agentTeams/*`，因此不会再把 404 当成普通业务失败；完整 Team roster/task-board UI 仍属于实验性 profile，尚未在 IDE 展示。
 - `permissionPresets/catalog` 接入权限面板；RC.2 的 `permissions` projection 只提供 `currentValue` 时，IDE 用独立 catalog 合并可选项，并兼容旧 Runtime 将 options 放在 projection 中的格式。
 - Plugin Manager 的只读 `listBundles` 与 `listPlugins` 已接入 Settings 插件清单，展示 Bundle 的安装、选择、版本、插件 patch 行和只读状态；安装、启停和删除仍留在 Harness Web UI。
+- `workspaceFiles/list|stat|read` 已接入 Runtime facade，并在 RC.2 smoke 中用独立 Session workspace 验证目录、opaque version 和分页文本读取；尚未替换本地 VS Code 文件引用，也未接入 `readBytes|changes` UI。
 
 上游 Desktop 命令管理、模型选择器搜索、Sidebar 本地应用打开和 PowerShell 修复属于 Harness Web/Desktop 自身能力，dsh-ide 不复制这些 UI。定时消息改为明确的用户定时消息也由 Runtime 记录和呈现，IDE 通过公开 Session history 原样读取。
 

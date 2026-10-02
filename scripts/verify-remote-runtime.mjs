@@ -50,6 +50,7 @@ const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
 const dshHome = join(storage, "home");
 const workspacePath = join(storage, "workspace");
 await Promise.all([mkdir(dshHome), mkdir(workspacePath)]);
+await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
 if (withScheduleBundle) {
     const profileDirectory = join(dshHome, "profiles", "web");
     await mkdir(profileDirectory, { recursive: true });
@@ -264,6 +265,24 @@ try {
     const managedPlugins = await connection.unary.call("pluginManager/listPlugins", {});
     assert.ok(Array.isArray(managedPlugins));
     pass("pluginManager/listPlugins supplies read-only plugin patch metadata");
+    const remoteFiles = await connection.unary.call("workspaceFiles/list", {
+        workspaceFileScopeId: seededSessionId,
+        path: ".",
+    });
+    assert.ok(Array.isArray(remoteFiles.entries));
+    assert.ok(remoteFiles.entries.some((entry) => entry.name === "remote-smoke.txt"));
+    const remoteStat = await connection.unary.call("workspaceFiles/stat", {
+        workspaceFileScopeId: seededSessionId,
+        path: join(workspacePath, "remote-smoke.txt"),
+    });
+    assert.equal(typeof remoteStat.version, "string");
+    const remoteText = await connection.unary.call("workspaceFiles/read", {
+        workspaceFileScopeId: seededSessionId,
+        path: join(workspacePath, "remote-smoke.txt"),
+        range: { offset: 2, limit: 1 },
+    });
+    assert.equal(remoteText.text, "second line");
+    pass("workspaceFiles/list, stat, and paged read access the Runtime workspace");
     await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "Runtime smoke renamed" } });
     await until(() => coordinator.catalog.snapshot().sessions.some(session => session.sessionId === seededSessionId && session.title === "Runtime smoke renamed"), "live title projection");
     pass("live session title projection reaches catalog");
