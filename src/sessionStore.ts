@@ -168,6 +168,11 @@ export interface SessionQuestionInteraction extends SessionInteractionBase {
     answers?: DshQuestionAnswerItem[];
 }
 
+interface QuestionReplay {
+    eventId: string;
+    request: Record<string, unknown>;
+}
+
 export type SessionInteractionSnapshot =
     | SessionApprovalInteraction
     | SessionQuestionInteraction;
@@ -776,6 +781,8 @@ class SessionState {
         source: "initial",
     };
     private readonly interactions = new Map<string, SessionInteractionSnapshot>();
+    /** Original waterfall request/event id, retained across a Session baseline clear. */
+    private readonly questionReplays = new Map<string, QuestionReplay>();
 
     public constructor(
         public readonly sessionId: string,
@@ -890,6 +897,15 @@ class SessionState {
         receivedAt: number,
     ): void {
         const key = frame.callId === undefined ? `q:${rpcId}` : `u:${frame.callId}`;
+        if (frame.callId !== undefined) {
+            this.questionReplays.set(frame.callId, {
+                eventId: rpcId,
+                request: {
+                    questions: frame.questions.map((question) => ({ ...question })),
+                    wait: { callId: frame.callId, ...(frame.timed === true ? { timed: true } : {}) },
+                },
+            });
+        }
         const current = this.interactions.get(key);
         this.interactions.set(key, {
             kind: "question",
@@ -906,6 +922,25 @@ class SessionState {
             ...(current?.error === undefined ? {} : { error: current.error }),
             receivedAt,
         });
+    }
+
+    public rememberQuestionRequest(eventId: string, request: Record<string, unknown>): void {
+        const wait = isRecord(request.wait) && typeof request.wait.callId === "string"
+            ? request.wait.callId
+            : typeof request.callId === "string" ? request.callId : undefined;
+        if (!wait || !normalizeQuestionItems(request.questions)) return;
+        this.questionReplays.set(wait, { eventId, request: { ...request } });
+    }
+
+    public replayableOpenQuestions(): QuestionReplay[] {
+        const projection = normalizeUserQuestionProjection(this.projections.get("userQuestions")?.value);
+        if (!projection) return [];
+        return projection.active
+            .filter((question) => question.state === "open")
+            .flatMap((question) => {
+                const replay = this.questionReplays.get(question.callId);
+                return replay === undefined ? [] : [{ eventId: replay.eventId, request: { ...replay.request } }];
+            });
     }
 
     public resolveQuestion(frame: DshQuestionResolved): void {
@@ -1039,7 +1074,7 @@ class SessionState {
             this.interactions.set(key, {
                 ...current,
                 key,
-                rpcId: current?.rpcId ?? question.callId,
+                rpcId: current?.rpcId ?? (continued ? question.callId : ""),
                 sessionId: this.sessionId,
                 status: continued && (current?.kind !== "question" || current.questionState !== "continued") && current?.status !== "submitting" && current?.status !== "resolved"
                     ? "pending" : current?.status ?? "unavailable",
@@ -1137,6 +1172,7 @@ export class HarnessSessionStore {
             state.projections.seed(history.projections);
         }
         state.reconcileUserQuestions();
+        this.replayOpenQuestions(sessionId);
         state.recoverContinuedQuestions();
         return this.publish(state);
     }
@@ -1153,6 +1189,7 @@ export class HarnessSessionStore {
         if (cursor !== undefined) state.events.followCursor(cursor, history.hasMore === true);
         if (history.projections) state.projections.seed(history.projections);
         state.reconcileUserQuestions();
+        this.replayOpenQuestions(sessionId);
         state.recoverContinuedQuestions();
         return this.publish(state);
     }
@@ -1225,6 +1262,7 @@ export class HarnessSessionStore {
         state.replaceJobs(jobs as unknown as DshJobView[], this.now(), "remote-control");
         if (projections) state.projections.seed(projections);
         state.reconcileUserQuestions();
+        this.replayOpenQuestions(sessionId);
         this.schedulePublish(state);
     }
 
@@ -1250,6 +1288,7 @@ export class HarnessSessionStore {
             ? request.wait.callId
             : undefined;
         const state = this.state(sessionId);
+        state.rememberQuestionRequest(eventId, request);
         state.requestQuestion({
             type: "question/requested",
             sessionId,
@@ -1259,6 +1298,15 @@ export class HarnessSessionStore {
         }, eventId, this.now());
         this.schedulePublish(state);
         return true;
+    }
+
+    /** Reinstall active open waterfall cards after a baseline/control restore. */
+    private replayOpenQuestions(sessionId: string): void {
+        const state = this.sessions.get(sessionId);
+        if (!state) return;
+        for (const replay of state.replayableOpenQuestions()) {
+            this.applyRemoteQuestion(sessionId, replay.eventId, replay.request);
+        }
     }
 
     public cancelRemoteInteraction(eventId: string): void {
