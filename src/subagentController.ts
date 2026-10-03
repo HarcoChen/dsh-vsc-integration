@@ -185,7 +185,8 @@ export class SubagentController {
                 if (member.role !== "teammate" || member.phase !== "active") return [];
                 const snapshot = this.deps.runtime.getSessionStore().get(member.id);
                 const timing = normalizeSubagentTiming(projectionValue(snapshot, "subagentTiming"));
-                const running = sessions.find(session => session.sessionId === member.id)?.running === true || timing?.active !== undefined;
+                const session = sessions.find(candidate => candidate.sessionId === member.id);
+                const running = session === undefined ? timing?.active !== undefined : session.running;
                 return [{ kind: "child" as const, id: member.id, label: member.name, mode: "continuable" as const,
                     activity: running ? "running" as const : "inactive" as const, hasChildren: false }];
             }),

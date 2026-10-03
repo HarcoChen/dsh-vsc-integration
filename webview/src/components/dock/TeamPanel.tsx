@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { DshTeamProjection } from "../../../../src/agentTeamTypes";
 import type { SubagentHistoryPreview, SubagentTreeView } from "../../../../src/types";
 import { SubagentPreviewCard } from "./SubagentsPanel";
@@ -9,6 +9,13 @@ export function TeamPanel({ team, currentSessionId, preview, subagents, autoOpen
     team: DshTeamProjection; currentSessionId?: string; preview?: SubagentHistoryPreview; subagents?: SubagentTreeView; autoOpenReasoning?: boolean;
 }): React.JSX.Element {
     const [filter, setFilter] = useState("all");
+    const [now, setNow] = useState(() => Date.now());
+    const hasRunningTimer = preview?.activity === "running" && preview.timing?.active !== undefined;
+    useEffect(() => {
+        if (!hasRunningTimer) return;
+        const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+        return () => window.clearInterval(timer);
+    }, [hasRunningTimer]);
     const tasks = team.tasks.filter(task => filter === "all" || task.status === filter);
     return (
         <div className="dsh-team-panel">
@@ -54,7 +61,7 @@ export function TeamPanel({ team, currentSessionId, preview, subagents, autoOpen
                     </ul>
                 )}
             </section>
-            {preview ? <SubagentPreviewCard preview={preview} now={Date.now()} autoOpenReasoning={autoOpenReasoning} /> : null}
+            {preview ? <SubagentPreviewCard key={preview.childSessionId} preview={preview} now={now} autoOpenReasoning={autoOpenReasoning} /> : null}
         </div>
     );
 }

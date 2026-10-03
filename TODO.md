@@ -412,7 +412,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 
 ## 历史待重审：上游暂无契约（截至 `0.1.5-rc.2`）
 
-以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；较新的 RC.2 实现和 RC.1 清单增量分别见 [RC.2 报告](./RPC_0.1.7_ADAPTATION.md) 与 [RC.1 增量清单](./RPC_0.2.0_ADAPTATION.md)，再逐项更新候选状态。
+以下清单结论仅代表 2026-09-18 的 `0.1.5-rc.2` 审计；较新的 RC.2 实现和 RC.1 清单增量分别见 [RC.2 报告](./RPC_0.2.0_RC2_ADAPTATION.md) 与 [RC.1 增量清单](./RPC_0.2.0_ADAPTATION.md)，再逐项更新候选状态。
 
 `packages/hooks`、`packages/session-query`、`packages/session/session-title` 三处在
 `c291e7961a`（`0.1.5-rc.2` 同步进 master 的位置）的 `@Remote` 计数仍为 0，无新增公开契约。

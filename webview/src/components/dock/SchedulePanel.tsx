@@ -221,7 +221,7 @@ export function SchedulePanel({
             </div>
             {catalog?.status === "unavailable" ? (
                 <div className="dsh-card-detail" role="status">
-                    {t("The connected Runtime does not expose the Schedule catalog. On dsh 0.2.0-rc.1, enable the official bundle @deepseek-ai/dsh-experimental-schedule-bundle from the Runtime Plugins page, then restart the Runtime.")}
+                    {t("The connected Runtime does not expose the Schedule catalog. On dsh 0.2.0-rc.2, enable the official bundle @deepseek-ai/dsh-experimental-schedule-bundle from Settings → Runtime bundles, then restart the Runtime.")}
                 </div>
             ) : null}
             {schedule?.length === 0 ? (

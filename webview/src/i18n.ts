@@ -28,6 +28,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Restart Runtime": "重启 Runtime",
     "Enable or disable Runtime plugins and bundles": "启用或停用 Runtime 插件与组合包",
     "Choose the bundles used by this Runtime profile": "选择当前 Runtime 配置使用的组合包",
+    "The connected Runtime does not expose the Schedule catalog. On dsh 0.2.0-rc.2, enable the official bundle @deepseek-ai/dsh-experimental-schedule-bundle from Settings → Runtime bundles, then restart the Runtime.": "当前 Runtime 未提供 Schedule 目录。在 dsh 0.2.0-rc.2 中，请在 Settings → Runtime bundles 启用官方组合包 @deepseek-ai/dsh-experimental-schedule-bundle，然后重启 Runtime。",
     "Running": "运行中",
     "Starting": "启动中",
     "Recovering": "恢复中",

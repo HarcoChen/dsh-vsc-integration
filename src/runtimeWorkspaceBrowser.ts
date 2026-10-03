@@ -18,6 +18,7 @@ interface Preview {
     watch?: AbortController;
     read?: AbortController;
     timer?: ReturnType<typeof setTimeout>;
+    invalidated?: boolean;
 }
 
 interface FileChoice extends vscode.QuickPickItem {
@@ -44,18 +45,13 @@ export class RuntimeWorkspaceBrowser implements vscode.TextDocumentContentProvid
                 this.previews.delete(document.uri.toString());
             }),
             runtime.onDidChange(status => {
-                if (status.state === "stopped") for (const preview of this.previews.values()) this.stop(preview);
+                if (status.state === "stopped") {
+                    for (const preview of this.previews.values()) this.invalidate(preview);
+                }
             }),
             runtime.onDidHarnessConnect(() => {
                 for (const preview of this.previews.values()) {
-                    this.stop(preview);
-                    if (preview.endpoint !== runtime.getUrl()) {
-                        preview.content = t("The connected Runtime changed. Browse its files again to open a new preview.");
-                        this.changed.fire(preview.uri);
-                        continue;
-                    }
-                    this.watch(preview);
-                    void this.refreshPreview(preview).catch(error => this.showRefreshError(preview, error));
+                    this.invalidate(preview);
                 }
             }),
         ];
@@ -134,7 +130,7 @@ export class RuntimeWorkspaceBrowser implements vscode.TextDocumentContentProvid
         controller.signal.throwIfAborted();
         this.assertEndpoint(endpoint);
         const uri = vscode.Uri.from({ scheme: PREVIEW_SCHEME, path: `/${posix.basename(path)}`, query: randomUUID() });
-        const preview: Preview = { uri, sessionId, path: result.absolutePath, endpoint, content: result.text };
+        const preview: Preview = { uri, sessionId, path: result.absolutePath, endpoint, content: result.text, invalidated: false };
         this.previews.set(uri.toString(), preview);
         try {
             const document = await vscode.workspace.openTextDocument(uri);
@@ -166,6 +162,7 @@ export class RuntimeWorkspaceBrowser implements vscode.TextDocumentContentProvid
     }
 
     private async refreshPreview(preview: Preview): Promise<void> {
+        if (preview.invalidated) throw new Error(t("The connected Runtime changed. Browse its files again to open a new preview."));
         this.assertEndpoint(preview.endpoint);
         preview.read?.abort();
         const controller = new AbortController();
@@ -175,6 +172,9 @@ export class RuntimeWorkspaceBrowser implements vscode.TextDocumentContentProvid
             if (controller.signal.aborted || !this.previews.has(preview.uri.toString())) return;
             preview.content = result.text;
             this.changed.fire(preview.uri);
+        } catch (error) {
+            if (controller.signal.aborted) return;
+            throw error;
         } finally {
             if (preview.read === controller) preview.read = undefined;
         }
@@ -205,7 +205,7 @@ export class RuntimeWorkspaceBrowser implements vscode.TextDocumentContentProvid
     }
 
     private showRefreshError(preview: Preview, error: unknown): void {
-        if (isAbortError(error) || !this.previews.has(preview.uri.toString()) || preview.watch?.signal.aborted) return;
+        if (isAbortError(error) || preview.invalidated || !this.previews.has(preview.uri.toString()) || preview.watch?.signal.aborted) return;
         preview.content = t("Runtime file preview could not be refreshed: {message}", { message: errorMessage(error) });
         this.changed.fire(preview.uri);
     }
@@ -215,6 +215,13 @@ export class RuntimeWorkspaceBrowser implements vscode.TextDocumentContentProvid
         preview.read?.abort();
         if (preview.timer !== undefined) clearTimeout(preview.timer);
         preview.timer = undefined;
+    }
+
+    private invalidate(preview: Preview): void {
+        this.stop(preview);
+        preview.invalidated = true;
+        preview.content = t("The connected Runtime changed. Browse its files again to open a new preview.");
+        this.changed.fire(preview.uri);
     }
 
     public dispose(): void {

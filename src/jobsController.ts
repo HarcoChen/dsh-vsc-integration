@@ -153,6 +153,10 @@ export class JobsController {
                     watch.jobs.clear();
                     watch.ready = true;
                     this.publishJobWatch(watch);
+                    watch.abort.abort();
+                    if (this.jobWatches.get(watch.sessionId) === watch) {
+                        this.jobWatches.delete(watch.sessionId);
+                    }
                     return;
                 }
                 await delay(500);

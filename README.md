@@ -320,8 +320,7 @@ This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopb
 To verify local command discovery and startup arguments:
 
 ```bash
-node scripts/verify-managed-runtime.mjs              # remote contract only
-node scripts/verify-managed-runtime.mjs --full       # install and smoke-test
+node scripts/verify-runtime-discovery.mjs              # local command discovery
 ```
 
 ## More information

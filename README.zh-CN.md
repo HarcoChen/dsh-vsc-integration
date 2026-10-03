@@ -298,8 +298,7 @@ node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-t
 验证本机命令发现和启动参数：
 
 ```bash
-node scripts/verify-managed-runtime.mjs              # 仅校验远端契约
-node scripts/verify-managed-runtime.mjs --full       # 安装并冒烟测试
+node scripts/verify-runtime-discovery.mjs              # 本机命令发现
 ```
 
 ## 更多信息

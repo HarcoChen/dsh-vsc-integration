@@ -354,7 +354,11 @@ export function Interactions({
             (candidate) => candidate.status === "failed" || candidate.status === "unavailable",
         );
     const answered = interactions.filter(item => item.status === "resolved" && item.answers !== undefined);
-    useEffect(() => { for (const item of answered) saveQuestionDraft(item.draftKey ?? item.key); }, [interactions]);
+    useEffect(() => {
+        for (const item of answered) {
+            if (item.draftKey !== undefined) saveQuestionDraft(item.draftKey);
+        }
+    }, [answered]);
     if (!interaction && answered.length === 0) return null;
     return (
         <div className="dsh-interactions">

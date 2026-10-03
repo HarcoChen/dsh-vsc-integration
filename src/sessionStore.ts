@@ -1027,48 +1027,56 @@ class SessionState {
         return changed;
     }
 
-    public snapshot(): SessionStateSnapshot {
+    /** Reconcile durable user-question projection state into interaction state. */
+    public reconcileUserQuestions(): void {
         const projection = normalizeUserQuestionProjection(this.projections.get("userQuestions")?.value);
-        if (projection) {
-            const projectionSeq = this.projections.get("userQuestions")?.seq ?? 0;
-            for (const question of projection.active) {
-                const key = `u:${question.callId}`;
-                const current = this.interactions.get(key);
-                const continued = question.state === "continued";
-                this.interactions.set(key, {
-                    ...current,
-                    key,
-                    rpcId: current?.rpcId ?? question.callId,
-                    sessionId: this.sessionId,
-                    status: continued && (current?.kind !== "question" || current.questionState !== "continued") && current?.status !== "submitting" && current?.status !== "resolved"
-                        ? "pending" : current?.status ?? "unavailable",
-                    kind: "question",
-                    questions: question.questions.map((item) => ({ ...item })),
-                    continuedCallId: question.callId,
-                    questionState: question.state,
-                    timed: true,
-                    ...(continued ? { error: undefined } : {}),
-                    receivedAt: current?.receivedAt ?? projectionSeq,
-                });
-            }
-            for (const settled of projection.settled) {
-                const key = `u:${settled.callId}`;
-                const current = this.interactions.get(key);
-                if (current?.kind === "question") {
-                    this.interactions.set(key, { ...current, status: "resolved", outcome: "answered", error: undefined, answers: settled.answers });
-                    continue;
-                }
-                // Recovered Sessions have the durable answer but no live waterfall card.
-                const call = this.events.ordered().find(item => item.event.type === "tool/call" && isRecord(item.event.data) && item.event.data.callId === settled.callId);
-                const data = call && isRecord(call.event.data) ? call.event.data : undefined;
-                let args: unknown = data?.arguments;
-                if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = undefined; } }
-                const questions = isRecord(args) ? normalizeQuestionItems(args.questions) : undefined;
-                if (questions) this.interactions.set(key, { key, rpcId: settled.callId, sessionId: this.sessionId,
-                    kind: "question", status: "resolved", outcome: "answered", questions, continuedCallId: settled.callId,
-                    answers: settled.answers, receivedAt: call?.event.time ?? projectionSeq });
-            }
+        if (!projection) return;
+        const projectionSeq = this.projections.get("userQuestions")?.seq ?? 0;
+        for (const question of projection.active) {
+            const key = `u:${question.callId}`;
+            const current = this.interactions.get(key);
+            const continued = question.state === "continued";
+            this.interactions.set(key, {
+                ...current,
+                key,
+                rpcId: current?.rpcId ?? question.callId,
+                sessionId: this.sessionId,
+                status: continued && (current?.kind !== "question" || current.questionState !== "continued") && current?.status !== "submitting" && current?.status !== "resolved"
+                    ? "pending" : current?.status ?? "unavailable",
+                kind: "question",
+                questions: question.questions.map((item) => ({ ...item })),
+                continuedCallId: question.callId,
+                questionState: question.state,
+                timed: true,
+                ...(continued ? { error: undefined } : {}),
+                receivedAt: current?.receivedAt ?? projectionSeq,
+            });
         }
+        const toolCalls = new Map<string, StoredSessionEvent>();
+        for (const event of this.events.ordered()) {
+            if (event.event.type !== "tool/call" || !isRecord(event.event.data) || typeof event.event.data.callId !== "string") continue;
+            toolCalls.set(event.event.data.callId, event);
+        }
+        for (const settled of projection.settled) {
+            const key = `u:${settled.callId}`;
+            const current = this.interactions.get(key);
+            if (current?.kind === "question") {
+                this.interactions.set(key, { ...current, status: "resolved", outcome: "answered", error: undefined, answers: settled.answers });
+                continue;
+            }
+            // Recovered Sessions have the durable answer but no live waterfall card.
+            const call = toolCalls.get(settled.callId);
+            const data = call && isRecord(call.event.data) ? call.event.data : undefined;
+            let args: unknown = data?.arguments;
+            if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = undefined; } }
+            const questions = isRecord(args) ? normalizeQuestionItems(args.questions) : undefined;
+            if (questions) this.interactions.set(key, { key, rpcId: settled.callId, sessionId: this.sessionId,
+                kind: "question", status: "resolved", outcome: "answered", questions, continuedCallId: settled.callId,
+                answers: settled.answers, receivedAt: call?.event.time ?? projectionSeq });
+        }
+    }
+
+    public snapshot(): SessionStateSnapshot {
         const interactions = [...this.interactions.values()]
             .sort((left, right) => left.receivedAt - right.receivedAt)
             .map((interaction) => ({ ...interaction }));
@@ -1128,6 +1136,7 @@ export class HarnessSessionStore {
         if (history.projections) {
             state.projections.seed(history.projections);
         }
+        state.reconcileUserQuestions();
         state.recoverContinuedQuestions();
         return this.publish(state);
     }
@@ -1143,6 +1152,7 @@ export class HarnessSessionStore {
         state.rebuildAssistantSettlements();
         if (cursor !== undefined) state.events.followCursor(cursor, history.hasMore === true);
         if (history.projections) state.projections.seed(history.projections);
+        state.reconcileUserQuestions();
         state.recoverContinuedQuestions();
         return this.publish(state);
     }
@@ -1185,7 +1195,11 @@ export class HarnessSessionStore {
 
     public applyRemoteProjection(sessionId: string, key: string, value: unknown, seq: number): void {
         const state = this.state(sessionId);
-        if (state.projections.apply(key, value, seq)) this.schedulePublish(state);
+        const changed = state.projections.apply(key, value, seq);
+        state.reconcileUserQuestions();
+        if (changed || key === "userQuestions") {
+            this.schedulePublish(state);
+        }
     }
 
     public applyRemoteQueue(sessionId: string, items: unknown[]): void {
@@ -1210,6 +1224,7 @@ export class HarnessSessionStore {
         state.replaceQueue(queue as unknown as DshQueuedInboxItem[], this.now(), "remote-control");
         state.replaceJobs(jobs as unknown as DshJobView[], this.now(), "remote-control");
         if (projections) state.projections.seed(projections);
+        state.reconcileUserQuestions();
         this.schedulePublish(state);
     }
 
@@ -1319,7 +1334,9 @@ export class HarnessSessionStore {
                     return;
                 }
                 const state = this.state(sessionId);
-                if (state.projections.apply(frame.key, frame.value, frame.seq)) {
+                const changed = state.projections.apply(frame.key, frame.value, frame.seq);
+                state.reconcileUserQuestions();
+                if (changed || frame.key === "userQuestions") {
                     this.schedulePublish(state);
                 }
                 return;
@@ -1411,6 +1428,7 @@ export class HarnessSessionStore {
                         sessionId,
                         questions,
                         ...(typeof frame.callId === "string" ? { callId: frame.callId } : {}),
+                        ...(frame.timed === true ? { timed: true } : {}),
                     },
                     envelope.rpcId,
                     this.now(),
