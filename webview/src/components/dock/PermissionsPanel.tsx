@@ -29,7 +29,7 @@ export function PermissionsPanel({
                         {option.description ? <span className="dsh-card-detail">{option.description}</span> : null}
                     </>
                 );
-                if (!switchable || current) {
+                if (!switchable || current || option.value === "custom") {
                     return (
                         <div className={`dsh-permission-option${current ? " active" : ""}`} key={option.value}>
                             {body}

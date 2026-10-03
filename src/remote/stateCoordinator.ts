@@ -76,6 +76,8 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     private readonly desiredAddresses = new Map<string, RemoteSessionAddress>();
     /** Addresses with a live follow stream in the current physical generation. */
     private readonly followedAddresses = new Set<string>();
+    /** Per-address cancellation, so switching a Session to an addressed child cannot leave two follows alive. */
+    private readonly followAborts = new Map<string, AbortController>();
     private generationReady = false;
     private controlBaseline:
         { queues: Record<string, unknown>; jobs: Record<string, unknown>; projections: Record<string, unknown> }
@@ -138,6 +140,9 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     public async stop(): Promise<void> {
         this.stopped = true;
         this.generationAbort?.abort();
+        for (const abort of this.followAborts.values()) abort.abort();
+        this.followAborts.clear();
+        this.followedAddresses.clear();
         for (const abort of this.historyAborts) abort.abort();
         await this.connection.stop();
         await Promise.allSettled(this.syncing.values());
@@ -148,10 +153,13 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     }
 
     public syncHistory(sessionId: string): Promise<void> {
-        this.watchSession(sessionId);
+        // A selected Team member remains parent-addressed during history repair.
+        const address = [...this.desiredAddresses.values()].find((candidate) => candidate.kind === "subagent" && candidate.childSessionId === sessionId)
+            ?? { kind: "session" as const, sessionId };
+        if (address.kind === "session") this.watchSession(sessionId);
         const current = this.syncing.get(sessionId);
         if (current) return current;
-        const sync = this.readCompleteHistory(sessionId)
+        const sync = this.readCompleteHistory(address)
             .catch((error) => {
                 if (!this.stopped) this.diagnostic(`Failed to rebaseline session ${sessionId}`, error);
             })
@@ -166,6 +174,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     public watchSession(sessionId: string): void {
         if (!sessionId) return;
         const address: RemoteSessionAddress = { kind: "session", sessionId };
+        this.cancelAddressFollowsForSession(sessionId, addressKey(address));
         this.desiredAddresses.set(addressKey(address), address);
         this.startAddressFollow(address);
     }
@@ -173,7 +182,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     /** Keep one addressed subagent live while its trace/preview is visible. */
     public watchSubagent(address: Extract<RemoteSessionAddress, { kind: "subagent" }>): void {
         if (!address.parentSessionId || !address.childSessionId) return;
-        this.desiredAddresses.set(addressKey(address), { ...address });
+        const key = addressKey(address);
+        this.cancelAddressFollowsForSession(address.childSessionId, key);
+        this.desiredAddresses.delete(`session:${address.childSessionId}`);
+        this.desiredAddresses.set(key, { ...address });
         this.startAddressFollow(address);
     }
 
@@ -191,19 +203,20 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         this.applyControlBaseline();
     }
 
-    private async readCompleteHistory(sessionId: string): Promise<void> {
+    private async readCompleteHistory(address: RemoteSessionAddress): Promise<void> {
         const openingAbort = new AbortController();
         const historyAbort = new AbortController();
         this.historyAborts.add(historyAbort);
         try {
-            await this.readHistoryWindow(sessionId, historyAbort.signal, openingAbort);
+            await this.readHistoryWindow(address, historyAbort.signal, openingAbort);
         } finally {
             openingAbort.abort();
             this.historyAborts.delete(historyAbort);
         }
     }
 
-    private async readHistoryWindow(sessionId: string, lifetime: AbortSignal, openingAbort: AbortController): Promise<void> {
+    private async readHistoryWindow(address: RemoteSessionAddress, lifetime: AbortSignal, openingAbort: AbortController): Promise<void> {
+        const sessionId = address.kind === "session" ? address.sessionId : address.childSessionId;
         let generation = this.connection.currentGeneration;
         let signal = AbortSignal.any([lifetime, ...(this.generationAbort ? [this.generationAbort.signal] : [])]);
         const openingSignal = AbortSignal.any([openingAbort.signal, signal]);
@@ -211,7 +224,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         try {
             for await (const value of this.connection.open("session/follow", {
                 request: {
-                    address: { kind: "session", sessionId },
+                    address,
                     maxMessages: this.historyPageSize,
                 },
             }, openingSignal)) {
@@ -235,7 +248,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             }
             const page = toHistory(await this.unary.call<unknown>("session/page", {
                 request: {
-                    address: { kind: "session", sessionId },
+                    address,
                     throughSeq: tail.cursor,
                     beforeSeq,
                     maxMessages: this.historyPageSize,
@@ -261,6 +274,8 @@ export class RemoteStateCoordinator implements AsyncDisposable {
 
     private onConnected(ready: RemoteEventReadyFrame, generation: number): void {
         this.generationAbort?.abort();
+        for (const abort of this.followAborts.values()) abort.abort();
+        this.followAborts.clear();
         this.followedAddresses.clear();
         this.generationReady = false;
         this.controlBaseline = undefined;
@@ -434,12 +449,19 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         if (!signal || signal.aborted) return;
         const key = addressKey(address);
         if (this.followedAddresses.has(key)) return;
+        this.followAborts.get(key)?.abort();
+        const addressAbort = new AbortController();
+        this.followAborts.set(key, addressAbort);
         this.followedAddresses.add(key);
-        void this.consumeSession(address, signal).finally(() => {
+        const followSignal = AbortSignal.any([signal, addressAbort.signal]);
+        void this.consumeSession(address, followSignal).finally(() => {
             // An old follow can finish after the next generation already opened this address.
-            if (this.generationAbort?.signal === signal) this.followedAddresses.delete(key);
+            if (this.followAborts.get(key) === addressAbort) {
+                this.followAborts.delete(key);
+                this.followedAddresses.delete(key);
+            }
         }).catch((error) => {
-            if (!signal.aborted && !this.stopped) {
+            if (!followSignal.aborted && !this.stopped) {
                 this.diagnostic(`Remote session follow stopped for ${key}`, error);
                 // A typed RPC rejection belongs to this logical stream. Reconnecting
                 // the shared carrier cannot repair the session and would restart all
@@ -447,6 +469,27 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                 if (!isRemoteError(error)) this.connection.reconnect();
             }
         });
+    }
+
+    private cancelAddressFollowsForSession(sessionId: string, keepKey?: string): void {
+        for (const [key, address] of this.desiredAddresses) {
+            const matches = address.kind === "session"
+                ? address.sessionId === sessionId
+                : address.childSessionId === sessionId;
+            if (!matches || key === keepKey) continue;
+            this.desiredAddresses.delete(key);
+            this.followAborts.get(key)?.abort();
+            this.followAborts.delete(key);
+            this.followedAddresses.delete(key);
+        }
+        for (const [key] of this.followAborts) {
+            if (key === keepKey) continue;
+            if (key === `session:${sessionId}` || key.startsWith(`subagent:${sessionId}:`)) {
+                this.followAborts.get(key)?.abort();
+                this.followAborts.delete(key);
+                this.followedAddresses.delete(key);
+            }
+        }
     }
 
     private applyControl(value: unknown): void {

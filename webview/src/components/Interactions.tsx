@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { ChatViewState, DshQuestionAnswerItem } from "../../../src/types";
-import { postAction } from "../bridge";
+import { postAction, readQuestionDraft, saveQuestionDraft } from "../bridge";
 import { t } from "../i18n";
 import { interactionStatusText } from "../state";
 
@@ -14,7 +14,7 @@ function useSubmitted(interaction: Interaction): [boolean, () => void] {
     const [submitted, setSubmitted] = useState(false);
     useEffect(() => {
         if (interaction.status === "pending") setSubmitted(false);
-    }, [interaction.status, interaction.error]);
+    }, [interaction.status, interaction.error, interaction.questionState]);
     return [submitted, () => setSubmitted(true)];
 }
 
@@ -113,7 +113,12 @@ function ApprovalCard({ interaction }: CardProps): React.JSX.Element {
 
 function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
     const [submitted, markSubmitted] = useSubmitted(interaction);
-    const [feedback, setFeedback] = useState("");
+    const draftKey = interaction.draftKey ?? interaction.key;
+    const [feedback, setFeedback] = useState(() => readQuestionDraft(draftKey)[0]?.custom ?? "");
+    useEffect(() => {
+        if (interaction.status === "resolved") saveQuestionDraft(draftKey);
+        else if (interaction.review) saveQuestionDraft(draftKey, [{ id: interaction.review.id, selected: [], custom: feedback }]);
+    }, [draftKey, feedback, interaction.status, interaction.review?.id]);
     const disabled = submitted || interaction.status !== "pending";
     const review = interaction.review;
 
@@ -146,6 +151,7 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
     return (
         <div className="dsh-card dsh-interaction dsh-plan-review">
             <div className="dsh-card-title">{t("Plan review")}</div>
+            <QuestionWaitStatus interaction={interaction} />
             <div
                 className="dsh-plan-review-body dsh-message-body"
                 {...(typeof interaction.planHtml === "string"
@@ -182,13 +188,43 @@ function PlanReviewCard({ interaction }: CardProps): React.JSX.Element {
     );
 }
 
+function QuestionWaitStatus({ interaction }: CardProps): React.JSX.Element | null {
+    const [now, setNow] = useState(Date.now);
+    const deadline = interaction.questionWait?.deadline;
+    useEffect(() => {
+        if (deadline === undefined) return;
+        setNow(Date.now());
+        const timer = window.setInterval(() => setNow(Date.now()), 250);
+        return () => window.clearInterval(timer);
+    }, [deadline]);
+    if (interaction.questionState === undefined || (interaction.questionState === "open" && interaction.questionWait === undefined)) return null;
+    const seconds = deadline === undefined ? undefined : Math.ceil(Math.max(0, deadline - now) / 1000);
+    return <div className="dsh-card-detail" role="status">{
+        interaction.questionState === "continued" ? t("Answer will continue in the next turn")
+            : interaction.questionWait?.connected !== true ? t("Waiting to reconnect…")
+                : seconds !== undefined && seconds > 0 ? t("Waiting · {seconds}s", { seconds })
+                    : t("Waiting for the question to continue…")
+    }</div>;
+}
+
 function QuestionCard({ interaction }: CardProps): React.JSX.Element {
     const [submitted, markSubmitted] = useSubmitted(interaction);
-    const [selections, setSelections] = useState<Record<string, string[]>>({});
-    const [customs, setCustoms] = useState<Record<string, string>>({});
+    const draftKey = interaction.draftKey ?? interaction.key;
+    const initialAnswers = (): DshQuestionAnswerItem[] => interaction.answers ?? readQuestionDraft(draftKey);
+    const [selections, setSelections] = useState<Record<string, string[]>>(() => Object.fromEntries(initialAnswers().map(answer => [answer.id, answer.selected])));
+    const [customs, setCustoms] = useState<Record<string, string>>(() => Object.fromEntries(initialAnswers().map(answer => [answer.id, answer.custom ?? ""])));
     const [collapsed, setCollapsed] = useState(false);
-    const disabled = submitted || interaction.status !== "pending";
+    const disabled = submitted || interaction.status === "submitting" || interaction.status === "resolved";
+    const canSubmit = !disabled && interaction.status === "pending";
     const questions = interaction.questions ?? [];
+    useEffect(() => {
+        if (interaction.status === "resolved") {
+            saveQuestionDraft(draftKey);
+            return;
+        }
+        saveQuestionDraft(draftKey, questions.map(question => ({ id: question.id,
+            selected: selections[question.id] ?? [], custom: customs[question.id] ?? "" })));
+    }, [customs, draftKey, interaction.status, selections]);
 
     const toggle = (questionId: string, label: string, multi: boolean, checked: boolean): void => {
         setSelections((current) => {
@@ -221,6 +257,7 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
         <div className="dsh-card dsh-interaction">
             <div className="dsh-interaction-head">
                 <div className="dsh-card-title">{t("dsh needs your answer")}</div>
+                <QuestionWaitStatus interaction={interaction} />
                 <button
                     type="button"
                     className="dsh-button dsh-button-secondary dsh-interaction-toggle"
@@ -284,14 +321,15 @@ function QuestionCard({ interaction }: CardProps): React.JSX.Element {
                 );
             })}
             <StatusLines interaction={interaction} />
+            {interaction.questionWait?.error ? <div className="dsh-card-error">{interaction.questionWait.error}</div> : null}
             <div className="dsh-card-actions">
                 <button
                     type="button"
                     className="dsh-button"
-                    disabled={disabled}
+                    disabled={!canSubmit}
                     onClick={submit}
                 >
-                    {t("Submit answer")}
+                    {interaction.questionState === "continued" ? t("Send answer and continue") : t("Submit answer")}
                 </button>
             </div>
         </div>
@@ -315,16 +353,31 @@ export function Interactions({
         interactions.find(
             (candidate) => candidate.status === "failed" || candidate.status === "unavailable",
         );
-    if (!interaction) return null;
+    const answered = interactions.filter(item => item.status === "resolved" && item.answers !== undefined);
+    useEffect(() => {
+        for (const item of answered) {
+            if (item.draftKey !== undefined) saveQuestionDraft(item.draftKey);
+        }
+    }, [answered]);
+    if (!interaction && answered.length === 0) return null;
     return (
         <div className="dsh-interactions">
-            {interaction.kind === "approval" ? (
+            {interaction ? interaction.kind === "approval" ? (
                 <ApprovalCard key={interaction.key} interaction={interaction} />
             ) : interaction.kind === "plan-review" ? (
-                <PlanReviewCard key={interaction.key} interaction={interaction} />
+                <PlanReviewCard key={interaction.draftKey ?? interaction.key} interaction={interaction} />
             ) : (
-                <QuestionCard key={interaction.key} interaction={interaction} />
-            )}
+                <QuestionCard key={interaction.draftKey ?? interaction.key} interaction={interaction} />
+            ) : null}
+            {answered.length > 0 ? <details className="dsh-question-history">
+                <summary>{t("Recorded answers ({count})", { count: answered.length })}</summary>
+                {answered.map(item => <div key={item.draftKey ?? item.key} className="dsh-card-detail">
+                    {item.answers?.map(answer => <p key={answer.id}>
+                        <strong>{item.questions?.find(question => question.id === answer.id)?.question ?? answer.id}</strong>
+                        <br />{[...answer.selected, answer.custom].filter(Boolean).join(" · ")}
+                    </p>)}
+                </div>)}
+            </details> : null}
         </div>
     );
 }

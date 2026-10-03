@@ -1,20 +1,8 @@
 /**
-  * Internal Agent Team wire vocabulary for Harness v0.1.5-rc.2.
-  * Mirrors packages/experimental/agent-team/src/{client,types}.ts.
-  * Deliberately independent of the opt-in experimental package and webview protocol.
-  */
-
-export interface DshTeamMemberView {
-    readonly id: string;
-    readonly name: string;
-    readonly role: "lead" | "teammate";
-    readonly status: "running" | "idle" | "inactive" | "provisioning" | "failed";
-    readonly description?: string;
-    readonly provider?: string;
-    readonly context?: "fresh" | "fork";
-    readonly model?: string;
-    readonly diagnostics: string[];
-}
+ * Durable RC.2 Agent Team projection vocabulary, independent of the optional Host package.
+ */
+import { isRecord } from "./guards";
+import type { DshPluginInventorySnapshot } from "./types";
 
 export type DshTeamTaskStatus = "pending" | "in_progress" | "completed" | "deleted";
 
@@ -31,45 +19,72 @@ export interface DshTeamTaskView {
     readonly writeScopeWarnings: string[];
 }
 
-export interface DshTeamView {
-    readonly members: DshTeamMemberView[];
+export interface DshTeamProjection {
+    readonly members: Array<{
+        id: string;
+        name: string;
+        role: "lead" | "teammate";
+        phase: "provisioning" | "active" | "failed";
+        error?: string;
+    }>;
     readonly tasks: DshTeamTaskView[];
+    readonly failure?: string;
 }
 
-export interface DshCreateTeamTaskRequest {
-    readonly subject: string;
-    readonly description: string;
-    readonly blockedBy?: readonly string[];
-    readonly writeScopes?: readonly string[];
+/** Capability state for the opt-in Agent Teams profile bundle. */
+export interface DshAgentTeamsCapability {
+    /** True when the Host Team service is active; it publishes a projection, not agentTeams RPCs. */
+    readonly available: boolean;
+    /** Why the current Runtime cannot be used for Agent Teams. */
+    readonly status: "active" | "inactive" | "absent" | "unsupported";
 }
 
-export type DshTeamTaskAction =
-    | "claim"
-    | "release"
-    | "edit"
-    | "set_dependencies"
-    | "complete"
-    | "reopen"
-    | "reassign"
-    | "delete";
-
-export interface DshUpdateTeamTaskRequest {
-    readonly taskId: string;
-    readonly expectedRevision: number;
-    readonly action: DshTeamTaskAction;
-    readonly subject?: string;
-    readonly description?: string;
-    readonly blockedBy?: readonly string[];
-    readonly writeScopes?: readonly string[];
-    readonly owner?: string;
+/**
+ * Detect Agent Teams from the Runtime's composition inventory.
+ *
+ * The active Host row identifies the optional service. Team data is read from
+ * the Lead Session's `agentTeam` projection; no `agentTeams/*` Remote is published in RC.2.
+ *
+ * @param inventory - Host plugin inventory returned by the public Remote.
+ * @returns Capability state for the current composition.
+ */
+export function detectAgentTeamsCapability(
+    inventory: DshPluginInventorySnapshot,
+): DshAgentTeamsCapability {
+    const rows = inventory.entries.filter(row => row.moduleName === "@deepseek-ai/dsh-experimental-agent-team");
+    if (!rows.length) return { available: false, status: "absent" };
+    const available = rows.some(row => row.enabled && row.fiberPhase === "active");
+    return { available, status: available ? "active" : "inactive" };
 }
 
-export type DshTeamTaskMutationResult =
-    | { readonly ok: true; readonly value: DshTeamTaskView }
-    | {
-        readonly ok: false;
-        readonly error: {
-            readonly code: "team-task-conflict" | "team-rejected";
-            readonly message: string;
-        }
-    };
+function strings(value: unknown): value is string[] {
+    return Array.isArray(value) && value.every(item => typeof item === "string");
+}
+
+/** Validate the durable Team value read from the public Session projection. */
+export function normalizeAgentTeamProjection(value: unknown): DshTeamProjection | undefined {
+    if (!isRecord(value) || !Array.isArray(value.members) || !Array.isArray(value.tasks) ||
+        (value.failure !== undefined && typeof value.failure !== "string")) return undefined;
+    const members: DshTeamProjection["members"] = [];
+    for (const member of value.members) {
+        if (!isRecord(member) || typeof member.id !== "string" || typeof member.name !== "string" ||
+            (member.role !== "lead" && member.role !== "teammate") ||
+            (member.phase !== "provisioning" && member.phase !== "active" && member.phase !== "failed") ||
+            (member.error !== undefined && typeof member.error !== "string")) return undefined;
+        members.push({ id: member.id, name: member.name, role: member.role, phase: member.phase,
+            ...(member.error === undefined ? {} : { error: member.error }) });
+    }
+    const tasks: DshTeamTaskView[] = [];
+    for (const task of value.tasks) {
+        if (!isRecord(task) || typeof task.id !== "string" || typeof task.subject !== "string" ||
+            typeof task.description !== "string" || typeof task.revision !== "number" ||
+            !Number.isSafeInteger(task.revision) || task.revision < 1 ||
+            (task.status !== "pending" && task.status !== "in_progress" && task.status !== "completed" && task.status !== "deleted") ||
+            !strings(task.blockedBy) || !strings(task.writeScopes) || !strings(task.writeScopeWarnings) ||
+            typeof task.ready !== "boolean" || (task.ownerName !== undefined && typeof task.ownerName !== "string")) return undefined;
+        tasks.push({ id: task.id, revision: task.revision, subject: task.subject, description: task.description,
+            status: task.status, blockedBy: [...task.blockedBy], writeScopes: [...task.writeScopes], ready: task.ready,
+            writeScopeWarnings: [...task.writeScopeWarnings], ...(task.ownerName === undefined ? {} : { ownerName: task.ownerName }) });
+    }
+    return { members, tasks, ...(value.failure === undefined ? {} : { failure: value.failure }) };
+}

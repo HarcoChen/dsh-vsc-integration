@@ -219,6 +219,11 @@ export function SchedulePanel({
             <div className="dsh-card-detail" hidden={scope === "all"}>
                 {managementAvailable ? t("Active reminders · managed by this session") : t("Active reminders · read-only")}
             </div>
+            {catalog?.status === "unavailable" ? (
+                <div className="dsh-card-detail" role="status">
+                    {t("The connected Runtime does not expose the Schedule catalog. On dsh 0.2.0-rc.2, enable the official bundle @deepseek-ai/dsh-experimental-schedule-bundle from Settings → Runtime bundles, then restart the Runtime.")}
+                </div>
+            ) : null}
             {schedule?.length === 0 ? (
                 <div className="dsh-card-detail" hidden={scope === "all"}>{t("No active reminders for this session.")}</div>
             ) : null}
@@ -511,9 +516,6 @@ export function SchedulePanel({
                         </button>
                     </div>
                 ) : null}
-                {catalog?.status === "unavailable"
-                    ? <div className="dsh-card-detail">{t("The connected Runtime does not expose the cross-session Schedule catalog.")}</div>
-                    : null}
                 {catalog?.status === "ready" && catalog.records.length === 0
                     ? <div className="dsh-card-detail">{t("No reminders across sessions.")}</div>
                     : null}

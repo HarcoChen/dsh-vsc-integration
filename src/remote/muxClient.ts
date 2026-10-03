@@ -43,6 +43,7 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
     private keepAlive: Promise<void> | undefined;
     private readonly streams = new Map<string, StreamInbox>();
     private readonly terminalStreams = new Set<string>();
+    private readonly cancelledStreams = new Set<string>();
     private readonly waiters = new Set<SocketWaiter>();
     private running = false;
     private disposed = false;
@@ -177,8 +178,15 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
             signal.removeEventListener("abort", onAbort);
             stopUplink();
             this.streams.delete(streamId);
-            if (opened && !terminal && socket?.readyState === WEB_SOCKET_OPEN) {
-                this.send(socket, { type: "cancel", streamId });
+            if (opened && !terminal) {
+                // A business terminal item (Jobs status) or caller cancellation
+                // can release the iterator before the Host's end acknowledgement.
+                this.cancelledStreams.add(streamId);
+                if (this.cancelledStreams.size > 1024) {
+                    const oldest = this.cancelledStreams.values().next().value;
+                    if (oldest !== undefined) this.cancelledStreams.delete(oldest);
+                }
+                if (socket?.readyState === WEB_SOCKET_OPEN) this.send(socket, { type: "cancel", streamId });
             }
         }
     }
@@ -323,6 +331,7 @@ export class RemoteStreamMuxClient implements AsyncDisposable {
             const frame = parseRemoteStreamServerMessage(data);
             const inbox = this.streams.get(frame.streamId);
             if (!inbox) {
+                if (this.cancelledStreams.has(frame.streamId)) return;
                 this.options.onDiagnostic?.(
                     this.terminalStreams.has(frame.streamId)
                         ? "Ignoring a late frame for a terminated Remote stream"

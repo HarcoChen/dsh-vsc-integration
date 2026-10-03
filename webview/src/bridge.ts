@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChatViewState, DshImageUpload } from "../../src/types";
+import type { ChatViewState, DshImageUpload, DshQuestionAnswerItem } from "../../src/types";
 import type { ChatViewAction } from "../../src/chatViewProtocol";
 import { DEFAULT_STATE } from "./state";
 
@@ -53,6 +53,29 @@ export function getVsCodeApi(): VsCodeApi {
  */
 export function postAction(action: ChatViewAction): void {
     getVsCodeApi().postMessage(action);
+}
+
+/** Keep question drafts beside host state so each host push preserves them across webview recreation. */
+export function readQuestionDraft(key: string): DshQuestionAnswerItem[] {
+    const saved = getVsCodeApi().getState() as { questionDrafts?: Record<string, unknown> } | undefined;
+    const answers = saved?.questionDrafts?.[key];
+    if (!Array.isArray(answers)) return [];
+    return answers.filter((answer): answer is DshQuestionAnswerItem => answer !== null && typeof answer === "object" &&
+        typeof answer.id === "string" && Array.isArray(answer.selected) && answer.selected.every((item: unknown) => typeof item === "string") &&
+        (answer.custom === undefined || typeof answer.custom === "string"));
+}
+
+export function saveQuestionDraft(key: string, answers?: DshQuestionAnswerItem[]): void {
+    const api = getVsCodeApi();
+    const saved = api.getState();
+    const previous = saved && typeof saved === "object" ? saved as Record<string, unknown> : {};
+    const drafts = { ...(previous.questionDrafts as Record<string, DshQuestionAnswerItem[]> | undefined) };
+    if (answers === undefined) delete drafts[key];
+    else drafts[key] = answers;
+    // Bound abandoned drafts, preserving the most recently edited 100 calls.
+    const entries = Object.entries(drafts).filter(([id]) => id !== key);
+    if (answers !== undefined) entries.push([key, answers]);
+    api.setState({ ...previous, questionDrafts: Object.fromEntries(entries.slice(-100)) });
 }
 
 interface HostStateMessage {
@@ -169,7 +192,8 @@ export function useHostState(): ChatViewState {
             const data: unknown = event.data;
             if (isHostStateMessage(data)) {
                 setState(data.state);
-                vscode.setState(data.state);
+                const previous = vscode.getState() as { questionDrafts?: unknown } | undefined;
+                vscode.setState({ ...data.state, questionDrafts: previous?.questionDrafts });
                 return;
             }
             if (isInsertTextMessage(data)) {

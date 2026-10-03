@@ -10,15 +10,17 @@ import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
 import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
+import { JobsController } from "./jobsController";
+import { UserQuestionWaitController } from "./userQuestionWait";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
+import { WorkspaceFilesClient } from "./workspaceFiles";
 import { workspaceView } from "./remote/workspaceState";
 import type {
-    DshTeamView,
-    DshCreateTeamTaskRequest,
-    DshUpdateTeamTaskRequest,
-    DshTeamTaskMutationResult,
+    DshAgentTeamsCapability,
+    DshTeamProjection,
 } from "./agentTeamTypes";
+import { detectAgentTeamsCapability, normalizeAgentTeamProjection } from "./agentTeamTypes";
 import {
     acquireRuntimeStartupMutex, advertisedEndpointRefused, publishRuntimeAdvertisement,
     readRuntimeAdvertisements, removeRuntimeAdvertisement, type RuntimeAdvertisement,
@@ -72,6 +74,7 @@ import {
     DshDynamicPluginRow,
     DshDynamicPluginStopResult,
     DshPluginInventorySnapshot,
+    DshPluginChangeResult,
     DshSessionRenameResult,
     DshSessionSearchResult,
     DshFileReferenceCandidate,
@@ -99,8 +102,13 @@ import {
     DshMessageFeedbackPutResult,
     DshSessionFeedbackRecordRequest,
     DshSessionFeedbackRecordResult,
+    DshQuestionAnswerItem,
+    DshPermissionCatalog,
+    DshPluginBundleInfo,
+    DshManagedPluginInfo,
     DshWorkspaceCreateResult,
     DshWorkspaceView,
+    DshJobWatchItem,
     HarnessGoalEditChanges,
     HarnessHostDescription,
     HarnessQueueAction,
@@ -117,7 +125,7 @@ import {
     normalizeDynamicPluginResolveResult,
     normalizeDynamicPluginStopResult,
 } from "./dynamicPlugins";
-import { normalizePluginInventory } from "./pluginInventory";
+import { normalizePluginChange, normalizePluginInventory } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
@@ -678,6 +686,19 @@ type DshRuntimeSource =
     | { kind: "pnpm"; command: string; args: string[] }
     | { kind: "managed"; command: string; args: string[]; version: string; target: string };
 
+/** Official DeepSeek Harness Desktop installer page. The Desktop app registers `dsh` on PATH. */
+export const OFFICIAL_DESKTOP_DOWNLOAD_URL = "https://www.deepseek.com/en/download/";
+
+/** Startup cannot continue until the official Desktop app has installed its `dsh` command. */
+export class OfficialDesktopRequiredError extends Error {
+    public readonly downloadUrl = OFFICIAL_DESKTOP_DOWNLOAD_URL;
+
+    public constructor(reason: string) {
+        super(t("Install the official DeepSeek Desktop app to use DSH in VS Code. {reason}", { reason }));
+        this.name = "OfficialDesktopRequiredError";
+    }
+}
+
 interface DshLauncher {
     command: string;
     args: string[];
@@ -1102,11 +1123,10 @@ async function discoverManagedRuntime(options: DiscoverDshOptions): Promise<DshL
 }
 
 /**
- * Auto resolves compatible PATH/npm-global dsh, then pinned pnpm/npx, then
- * managed Runtime. An incompatible local launcher gets an upgrade choice
- * before package-manager fallback. Explicit package-manager commands keep
- * their requested startup path. Every provider failure is aggregated so a
- * failed download is never masked as a generic "dsh not available".
+ * Auto resolves compatible PATH/npm-global dsh. Explicit package-manager
+ * commands remain available for users who selected them; automatic fallback
+ * stops at the official Desktop installation rather than downloading a
+ * standalone Runtime.
  */
 async function discoverDsh(command: string, options: DiscoverDshOptions): Promise<DshLauncher> {
     const failures: string[] = [];
@@ -1144,31 +1164,12 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
         } else {
             failures.push(t("{command}: not found or could not run --version", { command: alternateCommand }));
         }
-        if (options.allowManaged && options.storagePath && options.installWhenMissing) {
-            try {
-                return await discoverManagedRuntime(options);
-            } catch (error) {
-                if (error instanceof CanceledError) throw error;
-                const target = (() => {
-                    try {
-                        return resolveTarget();
-                    } catch {
-                        return "<unknown>";
-                    }
-                })();
-                failures.push(t("Managed Runtime {version} ({target}): {reason}", {
-                    version: options.runtimeVersion,
-                    target,
-                    reason: error instanceof Error ? error.message : String(error),
-                }));
-            }
-        } else if (options.allowManaged && !options.installWhenMissing) {
-            failures.push(t("Managed Runtime download is disabled by the dsh.installWhenMissing setting."));
-        }
-        throw new Error(t("Unable to start DSH Runtime.\n\n{reasons}", { reasons: failures.join("\n") }));
+        throw new OfficialDesktopRequiredError(failures.join("\n"));
     }
     if (command !== "auto") {
-        throw new Error(t("Start command “{command}” was not found. Configure an absolute dsh.command path or install the dsh CLI.", { command }));
+        throw new OfficialDesktopRequiredError(
+            t("Start command “{command}” was not found.", { command }),
+        );
     }
     // Accept old saved package-manager arguments in auto mode, but never pass
     // dlx/package/registry prefixes to the native CLI. An explicit different
@@ -1229,56 +1230,19 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
         failures.push(t("No dsh executable was found in the npm global prefix."));
     }
 
-    const pnpmExecutable = await findUsablePackageManager("pnpm", options);
-    if (pnpmExecutable) {
-        const pnpmArgs = alternatePackageManagerArgs("npx", "pnpm", npxArgsForDsh(options.configuredArgs));
-        if (pnpmArgs) return packageManagerLauncher("pnpm", pnpmArgs, false, pnpmExecutable);
-    }
-    failures.push(t("pnpm: not found or could not run --version"));
-
-    const npxExecutable = await findUsablePackageManager("npx", options);
-    if (npxExecutable) {
-        return packageManagerLauncher("npx", npxArgsForDsh(options.configuredArgs), false, npxExecutable);
-    }
-    failures.push(t("npx: not found or could not run --version"));
-
-    if (options.allowManaged && options.storagePath) {
-        if (options.installWhenMissing) {
-            try {
-                return await discoverManagedRuntime(options);
-            } catch (error) {
-                if (error instanceof CanceledError) {
-                    throw error;
-                }
-                let target = "<unknown>";
-                try {
-                    target = resolveTarget();
-                } catch {
-                    // the failure reason below already describes the platform
-                }
-                const reason = error instanceof Error ? error.message : String(error);
-                failures.push(
-                    t("Managed Runtime {version} ({target}): {reason}", {
-                        version: options.runtimeVersion,
-                        target,
-                        reason,
-                    }),
-                );
-            }
-        } else {
-            failures.push(t("Managed Runtime download is disabled by the dsh.installWhenMissing setting."));
-        }
-    }
-
-    throw new Error(t("Unable to start DSH Runtime.\n\n{reasons}", { reasons: failures.join("\n") }));
+    failures.push(t("No compatible dsh command was found."));
+    throw new OfficialDesktopRequiredError(failures.join("\n"));
 }
 
 export class DshRuntime implements vscode.Disposable {
     private readonly listeners = new Set<RuntimeListener>();
     private readonly harnessConnectedListeners = new Set<HarnessConnectedListener>();
     private readonly remoteEventListeners = new Set<RemoteEventListener>();
+    private readonly jobs: JobsController;
+    private readonly userQuestionWait: UserQuestionWaitController;
     private readonly apiClient: RemoteUnaryClient;
     private readonly remoteConnection: RemoteConnectionController;
+    public readonly workspaceFiles: WorkspaceFilesClient;
     private readonly harnessState: RemoteStateCoordinator;
     private readonly subagentHistoryCursors = new Map<string, number>();
     private child: ChildProcess | undefined;
@@ -1356,6 +1320,9 @@ export class DshRuntime implements vscode.Disposable {
                 this.output.appendLine(`[dsh:remote] ${message}${suffix}`);
             },
         });
+        this.workspaceFiles = new WorkspaceFilesClient(this.apiClient, this.remoteConnection);
+        this.jobs = new JobsController(this.apiClient, this.remoteConnection, message => this.output.appendLine(message));
+        this.userQuestionWait = new UserQuestionWaitController(this.remoteConnection, message => this.output.appendLine(message));
         this.harnessState = new RemoteStateCoordinator(this.remoteConnection, {
             onConnectionState: (state) => this.output.appendLine(`[dsh:remote] connection ${state}`),
             onHostDescription: (description) => {
@@ -1505,20 +1472,7 @@ export class DshRuntime implements vscode.Disposable {
             discovery = `error: ${error instanceof Error ? error.message : String(error)}`;
         }
 
-        let managedRuntime: string;
-        if (installWhenMissing) {
-            try {
-                const target = resolveTarget();
-                const cached = await checkInstalled(this.storagePath, target, runtimeVersion);
-                managedRuntime = cached
-                    ? `cached (${runtimeVersion}, ${target})`
-                    : `available, not cached (${runtimeVersion}, ${target})`;
-            } catch (error) {
-                managedRuntime = `unsupported: ${error instanceof Error ? error.message : String(error)}`;
-            }
-        } else {
-            managedRuntime = "disabled by dsh.installWhenMissing=false";
-        }
+        const managedRuntime = "deprecated; install the official DeepSeek Desktop app when dsh is unavailable";
 
         let health = "not running";
         if (this.baseUrl) {
@@ -1705,6 +1659,7 @@ export class DshRuntime implements vscode.Disposable {
 
     private async stopResources(): Promise<void> {
         ++this.resourceCleanupDepth;
+        this.jobs.dispose();
         this.subagentHistoryCursors.clear();
         const child = this.child;
         this.baseUrl = undefined;
@@ -2240,6 +2195,189 @@ export class DshRuntime implements vscode.Disposable {
         return inventory;
     }
 
+    /** Reads plugin-manager bundle metadata without enabling or mutating anything. */
+    public async pluginManagerBundles(): Promise<DshPluginBundleInfo[] | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("pluginManager/listBundles", {});
+            if (!Array.isArray(value)) throw new RemoteProtocolError("Remote pluginManager/listBundles returned an invalid value");
+            return value.map((item) => {
+                if (!isRecord(item) || typeof item.name !== "string" ||
+                    typeof item.enabled !== "boolean" || typeof item.installed !== "boolean" ||
+                    typeof item.optional !== "boolean" || typeof item.removable !== "boolean") {
+                    throw new RemoteProtocolError("Remote pluginManager/listBundles returned an invalid bundle");
+                }
+                const error = isRecord(item.error) && typeof item.error.code === "string" ? item.error.code : undefined;
+                return {
+                    name: item.name,
+                    ...(typeof item.version === "string" ? { version: item.version } : {}),
+                    ...(typeof item.description === "string" ? { description: item.description } : {}),
+                    enabled: item.enabled,
+                    installed: item.installed,
+                    optional: item.optional,
+                    removable: item.removable,
+                    ...(typeof item.readOnlyReason === "string" ? { readOnlyReason: item.readOnlyReason } : {}),
+                    ...(error === undefined ? {} : { errorCode: error }),
+                };
+            });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Reads plugin-manager entry metadata without mutating the profile. */
+    public async pluginManagerPlugins(): Promise<DshManagedPluginInfo[] | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("pluginManager/listPlugins", {});
+            if (!Array.isArray(value)) throw new RemoteProtocolError("Remote pluginManager/listPlugins returned an invalid value");
+            return value.map((item) => {
+                if (!isRecord(item) || typeof item.entryId !== "string" || typeof item.moduleName !== "string" ||
+                    typeof item.enabled !== "boolean" ||
+                    (item.fiberPhase !== null && !["pending", "loading", "active", "failed", "unloading"].includes(String(item.fiberPhase)))) {
+                    throw new RemoteProtocolError("Remote pluginManager/listPlugins returned an invalid plugin");
+                }
+                return {
+                    entryId: item.entryId,
+                    moduleName: item.moduleName,
+                    enabled: item.enabled,
+                    fiberPhase: item.fiberPhase as DshManagedPluginInfo["fiberPhase"],
+                    ...(typeof item.patchId === "string" ? { patchId: item.patchId } : {}),
+                    ...(typeof item.readOnlyReason === "string" ? { readOnlyReason: item.readOnlyReason } : {}),
+                };
+            });
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
+    /** Toggle one Loader row through the RC.2 plugin manager. */
+    public async setPluginEnabled(entryId: string, enabled: boolean): Promise<DshPluginChangeResult> {
+        const value = await this.apiClient.call<unknown>("pluginManager/setPluginEnabled", { id: entryId, enabled });
+        return this.normalizePluginChange(value, "pluginManager/setPluginEnabled");
+    }
+
+    /** Select or deselect one bundle layer through the RC.2 plugin manager. */
+    public async setBundleEnabled(name: string, enabled: boolean): Promise<DshPluginChangeResult> {
+        const value = await this.apiClient.call<unknown>("pluginManager/setBundleEnabled", { name, enabled });
+        return this.normalizePluginChange(value, "pluginManager/setBundleEnabled");
+    }
+
+    private normalizePluginChange(value: unknown, endpoint: string): DshPluginChangeResult {
+        const result = normalizePluginChange(value);
+        if (!result) throw new RemoteProtocolError(`Remote ${endpoint} returned an invalid value`);
+        return result;
+    }
+
+    /** List direct children in the Runtime's Session workspace; undefined means the optional Remote is absent. */
+    public async workspaceFilesList(
+        sessionId: string,
+        path = ".",
+        signal?: AbortSignal,
+    ) {
+        return this.workspaceFiles.list(sessionId, path, signal);
+    }
+
+    /** Read one bounded text page from the Runtime's Session workspace. */
+    public async workspaceFilesRead(
+        sessionId: string,
+        path: string,
+        range?: { offset?: number; limit?: number },
+        signal?: AbortSignal,
+    ) {
+        return this.workspaceFiles.read(sessionId, path, range, signal);
+    }
+
+    /** Read Runtime file metadata, preserving its opaque freshness token. */
+    public async workspaceFilesStat(
+        sessionId: string,
+        path: string,
+        signal?: AbortSignal,
+    ) {
+        return this.workspaceFiles.stat(sessionId, path, signal);
+    }
+
+    /** Read a bounded binary window from the Runtime's Session workspace. */
+    public async workspaceFilesReadBytes(
+        sessionId: string,
+        path: string,
+        options?: { range?: { offset?: number; length?: number }; baseFile?: string },
+        signal?: AbortSignal,
+    ) {
+        return this.workspaceFiles.readBytes(sessionId, path, options, signal);
+    }
+
+    /** Watch one Runtime workspace file; old Runtimes end the optional stream cleanly. */
+    public async *workspaceFilesChanges(
+        sessionId: string,
+        path: string,
+        signal: AbortSignal,
+    ) {
+        yield* this.workspaceFiles.changes(sessionId, path, signal);
+    }
+
+    public watchJobs(sessionId: string, listener: (items: readonly DshJobWatchItem[]) => void): vscode.Disposable {
+        return new vscode.Disposable(this.jobs.watch(sessionId, listener));
+    }
+
+    public killJob(sessionId: string, jobId: string): Promise<"requested" | "already-finished"> {
+        return this.jobs.killJob(sessionId, jobId);
+    }
+
+    public watchUserQuestionWait(
+        sessionId: string,
+        callId: string,
+        onState: (state: { deadline?: number; connected: boolean; error?: string }) => void,
+        onTimeout: () => Promise<void>,
+    ): vscode.Disposable {
+        return new vscode.Disposable(this.userQuestionWait.watch(sessionId, callId, onState, onTimeout));
+    }
+
+    /** Detects the optional Agent Teams profile without probing an unmounted RPC. */
+    public async agentTeamsCapability(): Promise<DshAgentTeamsCapability> {
+        try {
+            return detectAgentTeamsCapability(await this.pluginInventory());
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) {
+                return { available: false, status: "unsupported" };
+            }
+            throw error;
+        }
+    }
+
+    /** Reads the RC.2 process-level permission preset catalog; older Runtimes return undefined. */
+    public async permissionCatalog(): Promise<DshPermissionCatalog | undefined> {
+        try {
+            const value = await this.apiClient.call<unknown>("permissionPresets/catalog", {});
+            if (!isRecord(value) || !Array.isArray(value.options) || !Array.isArray(value.defaultOptions) ||
+                typeof value.defaultPreset !== "string") {
+                throw new RemoteProtocolError("Remote permissionPresets/catalog returned an invalid value");
+            }
+            const parseOptions = (raw: unknown): DshPermissionCatalog["options"] => {
+                if (!Array.isArray(raw)) throw new RemoteProtocolError("Remote permissionPresets/catalog returned invalid options");
+                return raw.map((option) => {
+                    if (!isRecord(option) || typeof option.value !== "string" || typeof option.name !== "string" ||
+                        (option.description !== undefined && typeof option.description !== "string")) {
+                        throw new RemoteProtocolError("Remote permissionPresets/catalog returned an invalid option");
+                    }
+                    return {
+                        value: option.value,
+                        name: option.name,
+                        ...(option.description === undefined ? {} : { description: option.description }),
+                    };
+                });
+            };
+            return {
+                options: parseOptions(value.options),
+                defaultOptions: parseOptions(value.defaultOptions),
+                defaultPreset: value.defaultPreset,
+            };
+        } catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            throw error;
+        }
+    }
+
     /** Reads the optional frame-wide dynamic Cordis plugin registry. */
     public async dynamicPluginInventory(): Promise<DshDynamicPluginRow[] | undefined> {
         try {
@@ -2412,26 +2550,16 @@ export class DshRuntime implements vscode.Disposable {
         return { cleared: true };
     }
 
-    /** Internal opt-in Team API; no UI registration or background probing. */
-    public getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamView> {
-        return this.apiClient.call("agentTeams/view", { agentId: sessionId }, signal);
-    }
-
-    public createAgentTeamTask(
-        sessionId: string,
-        request: DshCreateTeamTaskRequest,
-        signal?: AbortSignal,
-    ): Promise<DshTeamTaskMutationResult> {
-        return this.apiClient.call("agentTeams/createTask", { agentId: sessionId, request }, signal);
-    }
-
-    /** Preserve expectedRevision and typed conflicts; never retry a stale mutation. */
-    public updateAgentTeamTask(
-        sessionId: string,
-        request: DshUpdateTeamTaskRequest,
-        signal?: AbortSignal,
-    ): Promise<DshTeamTaskMutationResult> {
-        return this.apiClient.call("agentTeams/updateTask", { agentId: sessionId, request }, signal);
+    /** RC.2 exposes Team data through the Lead Session's projection, including cold persisted Sessions. */
+    public async getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamProjection | undefined> {
+        const value = await this.apiClient.call<unknown>("session/projections", { request: { sessionId } }, signal);
+        if (value === null) return undefined;
+        const block = remoteProjectionBlock(value);
+        if (!block) throw new RemoteProtocolError("Remote session/projections returned an invalid value");
+        if (block.values.agentTeam === undefined) return undefined;
+        const team = normalizeAgentTeamProjection(block.values.agentTeam);
+        if (!team) throw new RemoteProtocolError("Remote session/projections returned an invalid agentTeam value");
+        return team;
     }
 
     public listSubagents(
@@ -2628,6 +2756,23 @@ export class DshRuntime implements vscode.Disposable {
         await this.remoteConnection.answerRemoteEvent(eventId, outcome);
     }
 
+    /** Answer a continued RC.2 timed user question through the Session-scoped Remote. */
+    public async answerUserQuestion(
+        sessionId: string,
+        callId: string,
+        answers: DshQuestionAnswerItem[],
+    ): Promise<boolean> {
+        const result = await this.apiClient.call<unknown>("userQuestions/answer", {
+            agentId: sessionId,
+            callId,
+            answer: { answers },
+        });
+        if (typeof result !== "boolean") {
+            throw new RemoteProtocolError("Remote userQuestions/answer returned an invalid value");
+        }
+        return result;
+    }
+
     /** Stores a credential in the runtime-owned credential provider. */
     public async setCredential(ref: string, value: string): Promise<void> {
         await this.apiClient.call("credentials/set", { ref, value });
@@ -2741,7 +2886,7 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    /** Lists active durable reminders for one session; undefined means an older Runtime has no Schedule RPC. */
+    /** Lists active durable reminders for one session; undefined means this Runtime composition has no Schedule service. */
     public async listSchedules(sessionId: string): Promise<unknown | undefined> {
         try {
             return await this.apiClient.call<unknown>("schedule/list", { request: { sessionId } });
@@ -2751,7 +2896,7 @@ export class DshRuntime implements vscode.Disposable {
         }
     }
 
-    /** Lists active and inactive reminders across all sessions; undefined means the Runtime lacks the RC.2 endpoint. */
+    /** Lists active and inactive reminders across all sessions; undefined means the optional Schedule bundle is absent. */
     public async scheduleCatalog(): Promise<unknown | undefined> {
         try {
             return await this.apiClient.call<unknown>("schedule/catalog", {});
@@ -2823,6 +2968,7 @@ export class DshRuntime implements vscode.Disposable {
     public dispose(): Promise<void> {
         if (this.disposePromise) return this.disposePromise;
         this.disposed = true;
+        this.jobs.dispose();
         this.disposePromise = this.stop();
         return this.disposePromise;
     }
@@ -2930,9 +3076,8 @@ export class DshRuntime implements vscode.Disposable {
         let args = [...configuredArgs];
         const enableCompaction = this.configuration().get<boolean>("enableCompaction", true);
 
-        // Discovery may trigger a managed Runtime download. This deliberately
-        // happens before the runtime start lock so one window can download or
-        // reuse the cache while another window keeps using an installed runtime.
+        // Discovery uses the Desktop-registered/local command before acquiring
+        // the runtime start lock. Standalone Runtime downloads are deprecated.
         let upgradeOffered = false;
         const onOutdatedLocal = async (path: string, actual: string | undefined): Promise<string | undefined> => {
             if (upgradeOffered) return undefined;
@@ -3529,14 +3674,6 @@ export class DshRuntime implements vscode.Disposable {
                     : t("The {manager} store resolved DSH but not its dependencies, so downloading it again cannot repair the layout. Clear it and retry, or set dsh.command to a different package manager.\n\n{message}", {
                         manager: launcher.source.kind, message,
                     });
-            }
-            if (launcher.source.kind === "managed") {
-                // Keep the freshly installed runtime in place for diagnosis.
-                message = t("Managed Runtime {version} ({target}) failed to become ready.\n\n{message}", {
-                    version: launcher.source.version,
-                    target: launcher.source.target,
-                    message,
-                });
             }
             this.setStatus({ state: "error", message });
             throw new Error(message);

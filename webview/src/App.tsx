@@ -43,6 +43,7 @@ export function App(): React.JSX.Element {
                     subagents={state.subagents}
                     subagentPreview={state.subagentPreview}
                     jobs={state.jobs}
+                    team={state.team}
                     todos={state.todos}
                     schedule={state.schedule}
                     scheduleCatalog={state.scheduleCatalog}

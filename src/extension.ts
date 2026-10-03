@@ -13,7 +13,7 @@ import {
 } from "./conversationNavigation";
 import { ContextStore } from "./contextStore";
 import { DebugContextTracker } from "./debugContext";
-import { DshRuntime } from "./dshRuntime";
+import { DshRuntime, OFFICIAL_DESKTOP_DOWNLOAD_URL, OfficialDesktopRequiredError } from "./dshRuntime";
 import { JEV_API_KEY_SECRET } from "./jevIntegration";
 import { configureLocalization, t } from "./localize";
 import { TracePanelManager } from "./tracePanel";
@@ -236,6 +236,12 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.insertPromptTemplate", () =>
             runCommand(t("Insert prompt template"), () => chatView.insertPromptTemplate()),
         ),
+        vscode.commands.registerCommand("dsh.browseRuntimeFiles", () =>
+            runCommand(t("Runtime workspace files"), () => chatView.browseRuntimeFiles()),
+        ),
+        vscode.commands.registerCommand("dsh.refreshRuntimeFile", () =>
+            runCommand(t("Refresh Runtime file preview"), () => chatView.refreshRuntimeFilePreview()),
+        ),
         vscode.commands.registerCommand("dsh.captureAppShot", () =>
             runCommand(t("Capture AppShot"), () => chatView.captureAppShot()),
         ),
@@ -384,7 +390,14 @@ async function runCommand(label: string, action: () => Promise<void>): Promise<v
         void vscode.window.showInformationMessage(t("DSH: {label} completed.", { label }));
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        void vscode.window.showErrorMessage(t("DSH: {label} failed: {message}", { label, message }));
+        if (error instanceof OfficialDesktopRequiredError) {
+            const download = t("Download DeepSeek Desktop");
+            void vscode.window.showErrorMessage(`DSH: ${message}`, download).then((action) => {
+                if (action === download) void vscode.env.openExternal(vscode.Uri.parse(OFFICIAL_DESKTOP_DOWNLOAD_URL));
+            });
+        } else {
+            void vscode.window.showErrorMessage(t("DSH: {label} failed: {message}", { label, message }));
+        }
     }
 }
 

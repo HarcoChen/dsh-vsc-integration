@@ -5,6 +5,8 @@ import type {
     DshPluginInventoryPanelView,
     DshPluginInventoryPreset,
     DshPluginInventoryRow,
+    DshPluginBundleInfo,
+    DshManagedPluginInfo,
 } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
@@ -19,6 +21,12 @@ const PHASE_LABELS: Readonly<Record<Exclude<DshPluginFiberPhase, null>, string>>
 
 function phaseLabel(phase: DshPluginFiberPhase): string {
     return phase === null ? t("Not running") : t(PHASE_LABELS[phase]);
+}
+
+function readOnlyLabel(reason: string): string {
+    if (reason === "management-required") return t("Required by plugin management");
+    if (reason === "unaddressable") return t("This row cannot be addressed by the profile patch");
+    return reason;
 }
 
 function moduleShortName(moduleName: string): string {
@@ -119,6 +127,8 @@ function presetRowCard(preset: DshPluginInventoryPreset, row: DshPluginInventory
 function globalEntryCard(
     entry: DshPluginInventoryEntry,
     enabledIn: readonly string[] | undefined,
+    managed: DshManagedPluginInfo | undefined,
+    mutation: DshPluginInventoryPanelView["mutation"],
 ): React.JSX.Element {
     const failed = entry.fiberPhase === "failed";
     const presetProvided = !entry.enabled && enabledIn !== undefined && enabledIn.length > 0;
@@ -139,6 +149,8 @@ function globalEntryCard(
     } else if (phase !== undefined) {
         facts.push([t("Status"), phaseLabel(phase)]);
     }
+    if (managed?.patchId !== undefined) facts.push([t("Patch row"), managed.patchId]);
+    if (managed?.readOnlyReason !== undefined) facts.push([t("Read-only"), readOnlyLabel(managed.readOnlyReason)]);
     return (
         <li key={entry.entryId}>
             <InventoryCard
@@ -148,6 +160,52 @@ function globalEntryCard(
                 phase={phase}
                 facts={facts}
             />
+            {managed ? <button
+                type="button"
+                className="dsh-button dsh-button-secondary"
+                title={managed.readOnlyReason === undefined ? undefined : readOnlyLabel(managed.readOnlyReason)}
+                disabled={managed.readOnlyReason !== undefined || mutation?.pending === true}
+                onClick={() => postAction({ type: "setPluginEnabled", entryId: managed.entryId, enabled: !managed.enabled })}
+            >
+                {managed.enabled ? t("Disable") : t("Enable")}
+            </button> : null}
+        </li>
+    );
+}
+
+function bundleCard(bundle: DshPluginBundleInfo, mutation: DshPluginInventoryPanelView["mutation"]): React.JSX.Element {
+    const status = bundle.errorCode
+        ? t("Error: {code}", { code: bundle.errorCode })
+        : bundle.enabled
+          ? t("Enabled")
+          : bundle.installed
+            ? t("Installed")
+            : bundle.optional
+              ? t("Available")
+              : t("Dependency");
+    return (
+        <li key={bundle.name}>
+            <InventoryCard
+                moduleName={bundle.name}
+                entryId={null}
+                status={status}
+                facts={[
+                    [t("Bundle"), bundle.name],
+                    ...(bundle.version === undefined ? [] : [[t("Version"), bundle.version] as const]),
+                    ...(bundle.description === undefined ? [] : [[t("Description"), bundle.description] as const]),
+                    [t("Activation"), bundle.enabled ? t("Selected in this profile") : t("Not selected")],
+                    ...(bundle.readOnlyReason === undefined ? [] : [[t("Read-only"), readOnlyLabel(bundle.readOnlyReason)] as const]),
+                ]}
+            />
+            <button
+                type="button"
+                className="dsh-button dsh-button-secondary"
+                title={bundle.readOnlyReason === undefined ? undefined : readOnlyLabel(bundle.readOnlyReason)}
+                disabled={bundle.readOnlyReason !== undefined || mutation?.pending === true || (!bundle.enabled && bundle.errorCode !== undefined)}
+                onClick={() => postAction({ type: "setBundleEnabled", name: bundle.name, enabled: !bundle.enabled })}
+            >
+                {bundle.enabled ? t("Deselect bundle") : t("Select bundle")}
+            </button>
         </li>
     );
 }
@@ -156,6 +214,10 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
     const [query, setQuery] = useState("");
     const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>();
     const presets = inventory.agentPresets ?? [];
+    const bundles = inventory.bundles ?? [];
+    const managedById = useMemo(() => new Map(
+        (inventory.managedPlugins ?? []).map((plugin) => [plugin.entryId, plugin]),
+    ), [inventory.managedPlugins]);
     const fallbackPreset = presets.find((preset) => preset.isDefault) ?? presets[0];
     const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? fallbackPreset;
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -187,7 +249,8 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
         (total, preset) => total + preset.rows.filter((row) => matches(row.moduleName, row.entryId, normalizedQuery)).length,
         0,
     );
-    const hasMatches = failedEntries.length > 0 || regularEntries.length > 0 || selectedRows.length > 0 || otherMatchCount > 0;
+    const matchingBundles = bundles.filter((bundle) => matches(bundle.name, null, normalizedQuery));
+    const hasMatches = failedEntries.length > 0 || regularEntries.length > 0 || selectedRows.length > 0 || otherMatchCount > 0 || matchingBundles.length > 0;
 
     if (inventory.loading) {
         return <section className="dsh-plugin-inventory"><div className="dsh-settings-loading">{t("Reading plugins...")}</div></section>;
@@ -206,7 +269,7 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
             <div className="dsh-plugin-inventory-head">
                 <div>
                     <strong>{t("Plugin inventory")}</strong>
-                    <small>{t("Read-only plugin inventory")}</small>
+                    <small>{t("Enable or disable Runtime plugins and bundles")}</small>
                 </div>
                 <button
                     type="button"
@@ -217,6 +280,9 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     {t("Refresh")}
                 </button>
             </div>
+            {inventory.mutation?.pending ? <div className="dsh-card-detail">{t("Applying plugin change...")}</div> : null}
+            {inventory.mutation?.message ? <div role="status" className={inventory.mutation.failed ? "dsh-settings-error" : "dsh-card-detail"}>{inventory.mutation.message}</div> : null}
+            {inventory.mutation?.restartRequired ? <button type="button" className="dsh-button" onClick={() => postAction({ type: "restartRuntime" })}>{t("Restart Runtime")}</button> : null}
             <label className="dsh-plugin-inventory-search">
                 <span>{t("Search plugins")}</span>
                 <input
@@ -226,8 +292,21 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     onChange={(event) => setQuery(event.target.value)}
                 />
             </label>
-            {inventory.entries.length === 0 && presets.length === 0 ? <div className="dsh-settings-empty">{t("No plugins are available.")}</div> : null}
+            {inventory.entries.length === 0 && presets.length === 0 && bundles.length === 0 ? <div className="dsh-settings-empty">{t("No plugins are available.")}</div> : null}
             {normalizedQuery && !hasMatches ? <div className="dsh-settings-empty">{t("No matching plugins.")}</div> : null}
+
+            {matchingBundles.length > 0 ? (
+                <details className="dsh-plugin-group" open>
+                    <summary>
+                        <strong>{t("Runtime bundles")}</strong>
+                        <span>{t("{count} bundles", { count: matchingBundles.length })}</span>
+                    </summary>
+                    <small>{t("Choose the bundles used by this Runtime profile")}</small>
+                    <ul className="dsh-plugin-cards">
+                        {matchingBundles.map((bundle) => bundleCard(bundle, inventory.mutation))}
+                    </ul>
+                </details>
+            ) : null}
 
             {selectedPreset ? (
                 <details className="dsh-plugin-group" open>
@@ -273,8 +352,8 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                     <small>{t("Shared by the system and every session")}</small>
                     {failedEntries.length + regularEntries.length > 0 ? (
                         <ul className="dsh-plugin-cards">
-                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName)))}
-                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName)))}
+                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
+                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
                         </ul>
                     ) : null}
                 </details>

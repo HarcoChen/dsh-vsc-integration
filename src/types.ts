@@ -1,4 +1,5 @@
 import type { RecoveryStatusView } from "./recovery/types";
+import type { DshTeamProjection } from "./agentTeamTypes";
 
 export type DshContextKind =
     | "selection"
@@ -564,7 +565,8 @@ export interface DshPluginInventoryRow {
 
 export interface DshPluginInventoryPreset {
     id: string;
-    trust: "system" | "user";
+    /** Legacy provenance; RC.2 composition inventory omits it. */
+    trust?: "system" | "user";
     name?: string;
     isDefault: boolean;
     broken?: string;
@@ -576,10 +578,51 @@ export interface DshPluginInventorySnapshot {
     agentPresets?: DshPluginInventoryPreset[];
 }
 
-/** Settings-owned state for the read-only plugin inventory tab. */
+/** Bundle selection and availability returned by the RC.2 plugin manager. */
+export interface DshPluginBundleInfo {
+    name: string;
+    version?: string;
+    description?: string;
+    enabled: boolean;
+    installed: boolean;
+    optional: boolean;
+    removable: boolean;
+    readOnlyReason?: string;
+    errorCode?: string;
+}
+
+/** Enablement and management availability for one Loader row. */
+export interface DshManagedPluginInfo {
+    entryId: string;
+    moduleName: string;
+    enabled: boolean;
+    fiberPhase: DshPluginFiberPhase;
+    patchId?: string;
+    readOnlyReason?: string;
+}
+
+export interface DshPluginChangeResult {
+    changed: boolean;
+    application: "applied" | "restart-required" | "overridden" | "failed" | "cancelled";
+    target: string;
+    warnings?: string[];
+    error?: { code: string; diagnostic?: string };
+}
+
+/** Settings-owned plugin inventory and mutation feedback. */
 export interface DshPluginInventoryPanelView extends DshPluginInventorySnapshot {
+    bundles?: DshPluginBundleInfo[];
+    managedPlugins?: DshManagedPluginInfo[];
     loading?: boolean;
     error?: string;
+    mutation?: {
+        target: string;
+        kind: "plugin" | "bundle";
+        pending: boolean;
+        failed?: boolean;
+        message?: string;
+        restartRequired?: boolean;
+    };
 }
 
 export type DshDynamicPluginRunMode = "run" | "update";
@@ -973,6 +1016,9 @@ export interface DshQuestionRequested {
     type: "question/requested";
     sessionId: string;
     questions: DshQuestionItem[];
+    /** RC.2 timed-tool call identity, present when the request can continue after timeout. */
+    callId?: string;
+    timed?: boolean;
 }
 
 export interface DshQuestionResolved {
@@ -993,6 +1039,21 @@ export interface DshQuestionResponse {
     answer: {
         answers: DshQuestionAnswerItem[];
     };
+}
+
+/** Durable RC.2 timed-question projection exposed by the Session Remote API. */
+export interface DshPendingUserQuestion {
+    callId: string;
+    questions: DshQuestionItem[];
+    state: "open" | "continued";
+}
+
+export interface DshUserQuestionProjection {
+    active: DshPendingUserQuestion[];
+    settled: Array<{
+        callId: string;
+        answers: DshQuestionAnswerItem[];
+    }>;
 }
 
 export interface DshSessionEventFrame {
@@ -1028,6 +1089,9 @@ export interface DshJobView {
     label: string;
     status: "running" | "stopping" | "completed" | "killed" | "failed";
     detail?: string;
+    owner?: string;
+    progress?: string;
+    output?: { total: number; earliest: number };
     startedAt: number;
     finishedAt?: number;
 }
@@ -1278,6 +1342,12 @@ export interface ChatViewState {
         /** What a pending approval would actually do; absent when unknown. */
         call?: ApprovalCallView;
         questions?: DshQuestionItem[];
+        /** RC.2 timed call identity, shared by the foreground waterfall and continued replies. */
+        continuedCallId?: string;
+        questionState?: "open" | "continued";
+        questionWait?: { deadline?: number; connected: boolean; error?: string };
+        draftKey?: string;
+        answers?: DshQuestionAnswerItem[];
         review?: {
             id: string;
             question: string;
@@ -1299,6 +1369,7 @@ export interface ChatViewState {
     subagents?: SubagentTreeView;
     subagentPreview?: SubagentHistoryPreview;
     jobs: JobCenterItem[];
+    team?: DshTeamProjection;
     changeReviews: ChangeReviewView[];
 }
 
@@ -1515,6 +1586,21 @@ export interface PermissionProjectionView {
     }>;
 }
 
+/** Process-level permission preset catalog returned by the RC.2 Remote. */
+export interface DshPermissionCatalog {
+    options: Array<{
+        value: string;
+        name: string;
+        description?: string;
+    }>;
+    defaultOptions: Array<{
+        value: string;
+        name: string;
+        description?: string;
+    }>;
+    defaultPreset: string;
+}
+
 export interface TurnStatusView {
     phase: "queued" | "running" | "waiting" | "completed" | "cancelled" | "failed";
     turn?: number;
@@ -1616,6 +1702,15 @@ export interface JobCenterItem {
     ownerSessionId: string;
     status: DshJobView["status"];
     outputSummary?: string;
+    outputText?: string;
+    outputGap?: boolean;
+    streaming?: boolean;
+    streamError?: string;
+    progress?: string;
+    canKill?: boolean;
     startedAt: number;
     finishedAt?: number;
 }
+
+/** Live observation state owned by the Runtime job controller. */
+export type DshJobWatchItem = JobCenterItem;

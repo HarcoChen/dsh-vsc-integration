@@ -9,6 +9,25 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+### 新功能
+
+- Jobs 接入实时列表、输出、取消和重连续读；输出尾部有界保留，并标记缺失内容。
+- 限时问答支持 Host 等待 claim、倒计时、前台/延迟回答、重连和回答草稿恢复；已结算的回答可只读查看。
+- Team 成员与任务面板支持任务筛选、依赖与写入范围展示，以及成员历史预览和现有 follow-up/interrupt 操作。
+- Settings 支持插件启停与 Bundle 选择，显示只读原因及应用/重启/覆盖/失败结果。
+
+### 变更
+
+- 默认 Runtime 与 Remote 契约 pin 更新至 `dsh-v0.2.0-rc.1`；该版本新增的 Desktop 遥测 RPC 不由 IDE 调用。
+- Schedule 位于可选官方 bundle；未启用时 Activity Dock 会提示如何启用。
+- 核对 Jev 插件所需钩子与上游兼容下限；保持现有 Jev Git 子模块 pin 不变。
+- Remote 集成冒烟检查实际 Runtime 版本，通过公开 RPC 生成历史并使用 Messages 模拟模型；真实 RC.1 的标准 Web 与 Schedule bundle profile 均通过。CNB RC.1 manifest 返回 404，托管下载归档待发布。
+- 适配 `dsh-v0.2.0-rc.2`：支持 timed `ask_user_question` 超时后的 Session projection 和延迟回答；RC.2 的 CNB manifest 与五个平台归档已通过托管检查。
+- 新增“浏览 Runtime 工作区文件”命令及 `/ide` 入口，支持只读 UTF-8 预览、文件变更刷新和手动刷新。
+- 修复文件 RPC 缺省参数和权限目录重复刷新；Agent Teams 改为读取 RC.2 的 Session projection，清理过期的 Team RPC。
+- 修复 RC.2 preset inventory 缺省 `trust` 导致 Settings 插件清单无法读取的问题。
+- 弃用独立托管 Runtime 下载；没有可用 `dsh` 命令时引导安装官方 DeepSeek Desktop。
+
 ## [0.10.1] - 2026-09-28
 
 ### 新功能

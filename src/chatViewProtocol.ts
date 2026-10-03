@@ -26,6 +26,9 @@ export type ChatViewAction =
     | { type: "manageProviders" }
     | { type: "manageSettings" }
     | { type: "refreshPluginInventory" }
+    | { type: "setPluginEnabled"; entryId: string; enabled: boolean }
+    | { type: "setBundleEnabled"; name: string; enabled: boolean }
+    | { type: "restartRuntime" }
     | { type: "refreshDynamicPlugins" }
     | { type: "stopDynamicPlugin"; sessionId: string; pluginId: string }
     | { type: "removeDynamicPlugin"; sessionId: string; pluginId: string }
@@ -111,6 +114,8 @@ export type ChatViewAction =
     | { type: "interruptSubagent"; childSessionId: string }
     | { type: "answerApproval"; key: string; outcome: DshApprovalOutcome }
     | { type: "answerQuestion"; key: string; answers: DshQuestionAnswerItem[] }
+    | { type: "killJob"; jobId: string }
+    | { type: "openTeamMember"; memberId: string }
     | {
           type: "updateQueue";
           itemId: string;
@@ -397,6 +402,18 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             return hasOnly(value, ["type", "protocol"])
                 ? { type: "refreshPluginInventory" }
                 : undefined;
+        case "setPluginEnabled":
+            return hasOnly(value, ["type", "entryId", "enabled", "protocol"]) &&
+                nonEmptyString(value.entryId) && typeof value.enabled === "boolean"
+                ? { type: "setPluginEnabled", entryId: value.entryId, enabled: value.enabled }
+                : undefined;
+        case "restartRuntime":
+            return hasOnly(value, ["type", "protocol"]) ? { type: "restartRuntime" } : undefined;
+        case "setBundleEnabled":
+            return hasOnly(value, ["type", "name", "enabled", "protocol"]) &&
+                nonEmptyString(value.name) && typeof value.enabled === "boolean"
+                ? { type: "setBundleEnabled", name: value.name, enabled: value.enabled }
+                : undefined;
         case "refreshDynamicPlugins":
             return hasOnly(value, ["type", "protocol"])
                 ? { type: "refreshDynamicPlugins" }
@@ -428,6 +445,14 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 requestId: value.requestId,
                 pluginId: value.pluginId,
             };
+        case "killJob":
+            return hasOnly(value, ["type", "jobId", "protocol"]) && nonEmptyString(value.jobId)
+                ? { type: "killJob", jobId: value.jobId }
+                : undefined;
+        case "openTeamMember":
+            return hasOnly(value, ["type", "memberId", "protocol"]) && nonEmptyString(value.memberId)
+                ? { type: "openTeamMember", memberId: value.memberId }
+                : undefined;
         case "selectReasoningEffort":
             return hasOnly(value, ["type", "effort"]) &&
                 nonEmptyString(value.effort) &&
