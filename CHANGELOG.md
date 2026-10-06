@@ -9,6 +9,8 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+## [0.10.3] - 2026-10-06
+
 ### 修复
 
 - 发布 CI 递归检出 Jev 子模块，修复市场安装包缺少内置 Jev 插件导致集成无法启用的问题；打包前和发布前校验插件必需文件，阻止再次发布缺失的包。
@@ -337,6 +339,7 @@ Agent Preset 菜单不再提供复制、打开位置和删除操作。
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.10.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.2...v0.10.3
 [0.10.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.9.6...v0.10.0
