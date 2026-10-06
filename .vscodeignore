@@ -18,6 +18,7 @@ test/**
 *.vsix
 .github/**
 .gitmodules
+vendor/dsh-jev-integration/node_modules/**
 vendor/dsh-jev-integration/runtime/**
 vendor/dsh-jev-integration/protocol/**
 vendor/dsh-jev-integration/examples/**

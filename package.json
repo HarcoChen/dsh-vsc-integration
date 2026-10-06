@@ -779,7 +779,9 @@
         "verify:recovery": "node ./scripts/verify-recovery.mjs",
         "verify:recovery-e2e": "node ./scripts/verify-e2e-recovery.mjs",
         "verify:adopt": "node ./scripts/verify-adopt.mjs",
-        "package": "npm run compile && vsce package",
+        "verify:package": "node ./scripts/verify-package.mjs",
+        "vscode:prepublish": "npm run verify:package && npm run compile",
+        "package": "vsce package",
         "release": "node ./scripts/release.mjs"
     },
     "dependencies": {
