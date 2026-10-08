@@ -3398,8 +3398,9 @@ export class DshRuntime implements vscode.Disposable {
             // PowerShell line, so values containing spaces (patch overlay paths in particular)
             // must be quoted. Native executables get each array element verbatim and must not
             // receive surrounding quotes, or they would look for a literal "path" on disk.
+            // Double trailing backslashes so they do not escape the closing quote.
             const attemptArgsForSpawn: string[] = launchThroughShell
-                ? attemptArgs.map((argument) => `"${argument.replace(/"/g, '""')}"`)
+                ? attemptArgs.map((argument) => `"${argument.replace(/"/g, '""').replace(/\\+$/u, (slashes) => slashes + slashes)}"`)
                 : attemptArgs;
             let child: ChildProcess;
             try { child = spawnOwnedRuntime(launcherShellCommand(launchCommand), attemptArgsForSpawn, {
