@@ -184,6 +184,8 @@ Standalone CNB Runtime downloads are deprecated. Install the official Desktop ap
 
 **What if startup fails?** Run `DSH: Diagnose Environment`, then `DSH: Show dsh Runtime Logs` from the Command Palette. Include your extension version, OS, and redacted error details when opening an [issue](https://github.com/HarcoChen/dsh-vsc-integration/issues).
 
+If startup reports `error: unknown option '--no-open'` even though `dsh web --help` lists that option, check `$DSH_HOME/profiles/web/package.json` (by default, `~/.dsh/profiles/web/package.json`). A `dsh.profile.bundles` list containing both `@deepseek-ai/dsh-web-app` and `@deepseek-ai/dsh-headless` mounts two app parsers: Web accepts the flag, then headless rejects it. Back up the file, remove the headless bundle from the Web profile, and restart the Runtime. Use a separate headless profile for one-shot CLI tasks.
+
 **Does it support Chinese?** Yes. Commands, chat, Activity, and Trace follow VS Code's display language, with English and Simplified Chinese available.
 
 ## Architecture and runtime
