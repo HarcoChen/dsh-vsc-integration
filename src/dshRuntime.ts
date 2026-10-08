@@ -3393,8 +3393,19 @@ export class DshRuntime implements vscode.Disposable {
                     launchEnv.npm_config_fetch_retries = "0";
                 }
             }
+            const launchThroughShell = launcherNeedsShell(launchCommand);
+            // When running through the shell, every argument is joined onto one cmd.exe/
+            // PowerShell line, so values containing spaces (patch overlay paths in particular)
+            // must be quoted. Native executables get each array element verbatim and must not
+            // receive surrounding quotes, or they would look for a literal "path" on disk.
+            // Double backslashes before embedded and closing quotes so Windows preserves them.
+            const attemptArgsForSpawn: string[] = launchThroughShell
+                ? attemptArgs.map((argument) => `"${argument
+                    .replace(/(\\*)"/gu, (_match, slashes: string) => `${slashes}${slashes}""`)
+                    .replace(/\\+$/u, (slashes) => slashes + slashes)}"`)
+                : attemptArgs;
             let child: ChildProcess;
-            try { child = spawnOwnedRuntime(launcherShellCommand(launchCommand), attemptArgs, {
+            try { child = spawnOwnedRuntime(launcherShellCommand(launchCommand), attemptArgsForSpawn, {
                 cwd: workspaceRoot,
                 env: launchEnv,
                 // Windows batch and PowerShell launchers fail with EINVAL unless
