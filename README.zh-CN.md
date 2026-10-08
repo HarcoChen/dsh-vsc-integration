@@ -162,6 +162,8 @@
 
 **启动失败怎么办？** 在命令面板运行 `DSH: Diagnose Environment` 查看诊断，再用 `DSH: Show dsh Runtime Logs` 查看日志。提交 [issue](https://github.com/HarcoChen/dsh-vsc-integration/issues) 时请附上扩展版本、操作系统和脱敏后的错误信息。
 
+如果启动报 `error: unknown option '--no-open'`，但 `dsh web --help` 列出了这个参数，请检查 `$DSH_HOME/profiles/web/package.json`（默认为 `~/.dsh/profiles/web/package.json`）。当 `dsh.profile.bundles` 同时包含 `@deepseek-ai/dsh-web-app` 和 `@deepseek-ai/dsh-headless` 时，两个应用都会解析同一组参数：Web 接受该参数，headless 随后拒绝它。备份文件，从 Web profile 中移除 headless bundle，再重启 Runtime。一次性 CLI 任务使用独立的 headless profile。
+
 **支持中文吗？** 支持。命令、聊天、活动面板和 Trace 界面会跟随 VS Code 显示语言，提供英文与简体中文。
 
 ## 架构与运行机制
