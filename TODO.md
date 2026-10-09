@@ -1,5 +1,7 @@
 # TODO
 
+最新产品调研：[2026-10-09 上游 alpha.2 与竞品比较](./UPSTREAM_COMPETITIVE_REVIEW_2026-10-09.md)。建议先做新版协议/工作目录兼容审计，再补 Runtime 终端、插件安装和 Problems 上下文；Worktree 与跨会话工作流作为后续方向。此条是调研入口，不表示默认 Runtime 或 contract pin 已升级。
+
 更新时间：2026-10-03（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.2`](./RPC_0.2.0_RC2_ADAPTATION.md)）。
 
 独立托管 Runtime 下载已弃用。启动优先发现官方 DeepSeek Desktop 注册的 `dsh`；没有兼容命令时显示官方 Desktop 下载引导。
