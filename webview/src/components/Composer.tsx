@@ -19,6 +19,7 @@ const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 180;
 
 interface ComposerProps {
+    visible?: boolean;
     context: ComposerState["context"];
     selection: ComposerState["selection"];
     selectionEnabled: ComposerState["selectionEnabled"];
@@ -39,6 +40,7 @@ interface ComposerProps {
 }
 
 export const Composer = React.memo(function Composer({
+    visible = true,
     context,
     selection,
     selectionEnabled,
@@ -145,8 +147,8 @@ export const Composer = React.memo(function Composer({
     }, [reasoningEffort]);
 
     useEffect(() => {
-        autoGrow();
-    }, [text, autoGrow]);
+        if (visible) autoGrow();
+    }, [text, autoGrow, visible]);
 
     // Host-initiated insertion (dsh.insertEditorReference): insert at the caret,
     // separated by a space when the preceding char is not whitespace, then focus.
@@ -355,6 +357,7 @@ export const Composer = React.memo(function Composer({
                         type="button"
                         className="dsh-icon-button dsh-add-context"
                         title={t("Add attachment")}
+                        aria-label={t("Add attachment")}
                         aria-expanded={attachmentMenuVisible}
                         disabled={submitting}
                         onClick={() => setAttachmentMenuVisible((visible) => !visible)}
@@ -536,6 +539,7 @@ export const Composer = React.memo(function Composer({
                         ? cancelling ? t("Stopping...") : t("Stop")
                         : sendLabel}
                 </button>
+                <span className="dsh-composer-shortcut" aria-hidden="true">{t("Ctrl / ⌘ + Enter to send")}</span>
             </div>
             <div className="dsh-composer-footer">
                 {/* Rendered in both states so the toggle stays reachable by
