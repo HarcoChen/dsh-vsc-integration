@@ -327,6 +327,16 @@ button {
 
 /* ---------- header ---------- */
 
+.dsh-directory-bar {
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 .dsh-header {
     display: flex;
     align-items: center;

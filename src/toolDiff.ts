@@ -18,6 +18,8 @@
 
 import { isRecord } from "./guards";
 import { SessionStateSnapshot, StoredSessionEvent, toolResultCallId } from "./sessionStore";
+import { workingDirectoryAt } from "./workingDirectory";
+import { isAbsolute, resolve } from "node:path";
 
 /** One applied hunk: content after the change, and what it replaced. */
 export interface ToolFileDiff {
@@ -164,6 +166,19 @@ function toolPresentation(
     return event.view.view;
 }
 
+/** Built-in filesystem call schema, persisted by Remote even when Client presentation plugins are absent. */
+function filesystemCall(call: StoredSessionEvent | undefined): { name: "write" | "edit"; args: Record<string, unknown> } | undefined {
+    if (!call || !isRecord(call.event.data)) return undefined;
+    const { name, arguments: raw } = call.event.data;
+    if (name !== "write" && name !== "edit") return undefined;
+    let args: unknown = raw;
+    if (typeof raw === "string") {
+        try { args = JSON.parse(raw); } catch { return undefined; }
+    }
+    if (!isRecord(args) || typeof args.file_path !== "string" || !args.file_path) return undefined;
+    return { name, args };
+}
+
 /**
  * The diff card for one stored tool event pair. The result view wins: its
  * hunks are the change that was actually applied, while the call view is only
@@ -174,8 +189,32 @@ export function storedDiffView(
     call: StoredSessionEvent | undefined,
     result: StoredSessionEvent | undefined,
 ): ToolDiffView | undefined {
-    return parseToolDiffView(toolPresentation(result, "result"))
-        ?? parseToolDiffView(toolPresentation(call, "call"));
+    if (result) {
+        const data = isRecord(result.event.data) ? result.event.data : undefined;
+        if (isRecord(data?.message) && data.message.isError === true) return undefined;
+        const presented = parseToolDiffView(toolPresentation(result, "result"));
+        if (presented) return presented;
+        const meta = isRecord(data?.meta) ? data.meta : undefined;
+        const applied = parseToolDiffView({ card: "diff", diffs: meta?.diffs });
+        if (applied) return applied;
+        const builtin = filesystemCall(call);
+        if (builtin?.name === "write" && meta?.operation === "create" &&
+            typeof meta.path === "string" && typeof builtin.args.content === "string") {
+            return { diffs: [{ path: meta.path, oldText: null, newText: builtin.args.content }] };
+        }
+        // An executed edit must have applied metadata; the proposed snippet cannot stand in for it.
+        return undefined;
+    }
+    const presented = parseToolDiffView(toolPresentation(call, "call"));
+    if (presented) return presented;
+    const builtin = filesystemCall(call);
+    if (builtin?.name === "write" && typeof builtin.args.content === "string") {
+        return { diffs: [{ path: builtin.args.file_path as string, oldText: null, newText: builtin.args.content }] };
+    }
+    if (builtin?.name === "edit" && typeof builtin.args.old_string === "string" && typeof builtin.args.new_string === "string") {
+        return { diffs: [{ path: builtin.args.file_path as string, oldText: builtin.args.old_string || null, newText: builtin.args.new_string }] };
+    }
+    return undefined;
 }
 
 /**
@@ -186,6 +225,8 @@ export function storedDiffView(
 export function collectCallHunks(
     snapshot: SessionStateSnapshot,
     path: string,
+    originalDirectory?: string,
+    targetCallId?: string,
 ): CallHunks[] {
     const calls = new Map<string, StoredSessionEvent>();
     for (const stored of snapshot.events) {
@@ -195,13 +236,22 @@ export function collectCallHunks(
         }
     }
 
+    const target = targetCallId ? calls.get(targetCallId) ?? snapshot.events.find(stored =>
+        stored.event.type === "tool/result" && toolResultCallId(stored) === targetCallId) : undefined;
+    const targetDirectory = target ? workingDirectoryAt(snapshot, target.event.seq, originalDirectory) : originalDirectory;
+    const absolute = (value: string, cwd: string | undefined): string => isAbsolute(value) ? value : resolve(cwd ?? "", value);
+
     const history: CallHunks[] = [];
     for (const stored of snapshot.events) {
         if (stored.event.type !== "tool/result") continue;
         const callId = toolResultCallId(stored);
         if (callId === undefined) continue;
         const view = storedDiffView(calls.get(callId), stored);
-        const hunks = view?.diffs.filter((diff) => diff.path === path) ?? [];
+        const call = calls.get(callId);
+        const directory = workingDirectoryAt(snapshot, call?.event.seq ?? stored.event.seq, originalDirectory);
+        const hunks = view?.diffs.filter((diff) => targetCallId
+            ? absolute(diff.path, directory) === absolute(path, targetDirectory)
+            : diff.path === path) ?? [];
         if (hunks.length) history.push({ callId, hunks });
     }
     return history;
@@ -244,7 +294,7 @@ export function applyProposedHunks(
 export function callDiffState(
     snapshot: SessionStateSnapshot,
     callId: string,
-): { view: ToolDiffView; settled: boolean } | undefined {
+): { view: ToolDiffView; settled: boolean; seq: number } | undefined {
     let call: StoredSessionEvent | undefined;
     let result: StoredSessionEvent | undefined;
     for (const stored of snapshot.events) {
@@ -253,5 +303,5 @@ export function callDiffState(
         else if (stored.event.type === "tool/result" && toolResultCallId(stored) === callId) result = stored;
     }
     const view = storedDiffView(call, result);
-    return view ? { view, settled: result !== undefined } : undefined;
+    return view ? { view, settled: result !== undefined, seq: call?.event.seq ?? result!.event.seq } : undefined;
 }

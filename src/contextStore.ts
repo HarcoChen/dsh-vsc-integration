@@ -187,19 +187,22 @@ export class ContextStore {
 
     public async addDiagnostics(
         uri: vscode.Uri | undefined = vscode.window.activeTextEditor?.document.uri,
+        selected?: readonly vscode.Diagnostic[],
     ): Promise<DshContextItem> {
         if (!uri) {
             throw new Error(t("There is no current file with diagnostics to read."));
         }
 
         const pathLabel = this.displayPath(uri);
-        const diagnostics = vscode.languages.getDiagnostics(uri);
+        const diagnostics = selected ?? vscode.languages.getDiagnostics(uri);
         const content = diagnostics.length
             ? diagnostics
                   .map((diagnostic) => {
                       const startLine = diagnostic.range.start.line + 1;
                       const startColumn = diagnostic.range.start.character + 1;
-                      return `${pathLabel}:${startLine}:${startColumn} [${severityLabel(diagnostic.severity)}] ${diagnostic.message}`;
+                      const code = typeof diagnostic.code === "object" ? diagnostic.code.value : diagnostic.code;
+                      const details = [diagnostic.source, code].filter(value => value !== undefined).join(" ");
+                      return `${pathLabel}:${startLine}:${startColumn} [${severityLabel(diagnostic.severity)}${details ? ` · ${details}` : ""}] ${diagnostic.message}`;
                   })
                   .join("\n")
             : `${pathLabel}: no diagnostics reported by VS Code.`;
@@ -211,7 +214,7 @@ export class ContextStore {
         const item: DshContextItem = {
             id: randomUUID(),
             kind: "diagnostics",
-            label: `Diagnostics: ${pathLabel}`,
+            label: `Diagnostics: ${pathLabel} (${diagnostics.length})`,
             path: pathLabel,
             content: limited,
             byteLength: Buffer.byteLength(limited, "utf8"),

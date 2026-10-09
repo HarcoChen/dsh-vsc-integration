@@ -103,5 +103,9 @@
     "config.jev.toolPruner.enabled.description": "让 Jev 排序模型可见的工具 schema；不会改变 DSH 权限或工具注册。",
     "config.jev.skillRouter.enabled.description": "让 Jev 选择相关 skill，并向模型上下文追加有界的建议。",
     "config.jev.decisionTools.enabled.description": "向 Agent 暴露 Jev 提问、排序和检查工具；提交的状态与候选项可能会发送给 Jev。",
-    "config.jev.deterministicSafetyGuard.enabled.description": "在本地检查破坏性命令、权限提升和凭据泄漏；检查数据不会离开本机。"
+    "config.jev.deterministicSafetyGuard.enabled.description": "在本地检查破坏性命令、权限提升和凭据泄漏；检查数据不会离开本机。",
+    "command.openRuntimeTerminal.title": "打开 Runtime 终端",
+    "command.attachDiagnostics.title": "附加当前文件的问题",
+    "command.managePlugins.title": "安装或卸载 Runtime 插件",
+    "command.openSessionCenter.title": "打开会话中心"
 }

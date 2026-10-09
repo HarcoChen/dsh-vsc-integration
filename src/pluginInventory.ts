@@ -7,6 +7,7 @@ import type {
     DshPluginInventorySnapshot,
     DshPluginPresetEnablement,
     DshPluginChangeResult,
+    DshPluginInspection,
 } from "./types";
 
 const MAX_PLUGIN_ENTRIES = 1_000;
@@ -23,17 +24,45 @@ export function normalizePluginChange(value: unknown): DshPluginChangeResult | u
         typeof value.application !== "string" || !["applied", "restart-required", "overridden", "failed", "cancelled"].includes(value.application) ||
         (value.warnings !== undefined && (!Array.isArray(value.warnings) || !value.warnings.every(item => typeof item === "string"))) ||
         (value.error !== undefined && (!isRecord(value.error) || typeof value.error.code !== "string" ||
-            (value.error.diagnostic !== undefined && typeof value.error.diagnostic !== "string")))) return undefined;
+            (value.error.diagnostic !== undefined && typeof value.error.diagnostic !== "string"))) ||
+        (value.pendingBuilds !== undefined && (!Array.isArray(value.pendingBuilds) || !value.pendingBuilds.every(nonEmptyString))) ||
+        (value.packageResult !== undefined && (!isRecord(value.packageResult) || !Number.isSafeInteger(value.packageResult.exitCode) ||
+            typeof value.packageResult.output !== "string" || typeof value.packageResult.truncated !== "boolean" ||
+            typeof value.packageResult.logPath !== "string" || (value.packageResult.kind !== undefined && typeof value.packageResult.kind !== "string")))) return undefined;
     return {
         changed: value.changed,
         application: value.application as DshPluginChangeResult["application"],
         target: value.target,
+        ...(value.pendingBuilds === undefined ? {} : { pendingBuilds: [...value.pendingBuilds as string[]] }),
+        ...(isRecord(value.packageResult) ? { packageResult: {
+            exitCode: value.packageResult.exitCode as number,
+            output: value.packageResult.output as string,
+            truncated: value.packageResult.truncated as boolean,
+            logPath: value.packageResult.logPath as string,
+            ...(value.packageResult.kind === undefined ? {} : { kind: value.packageResult.kind as string }),
+        } } : {}),
         ...(value.warnings === undefined ? {} : { warnings: [...value.warnings as string[]] }),
         ...(isRecord(value.error) ? { error: {
             code: value.error.code as string,
             ...(typeof value.error.diagnostic === "string" ? { diagnostic: value.error.diagnostic } : {}),
         } } : {}),
     };
+}
+
+export function normalizePluginInspection(value: unknown): DshPluginInspection | undefined {
+    if (!isRecord(value)) return undefined;
+    if (value.status === "refused" && typeof value.problem === "string" && typeof value.reason === "string") {
+        return { status: "refused", problem: value.problem, reason: value.reason };
+    }
+    if (value.status !== "accepted" || typeof value.kind !== "string" ||
+        (value.bundle !== null && typeof value.bundle !== "boolean") ||
+        (value.registry !== null && typeof value.registry !== "string") ||
+        ["name", "version", "description", "host"].some(key => value[key] !== undefined && typeof value[key] !== "string")) return undefined;
+    return { status: "accepted", kind: value.kind, bundle: value.bundle, registry: value.registry,
+        ...(value.name === undefined ? {} : { name: value.name as string }),
+        ...(value.version === undefined ? {} : { version: value.version as string }),
+        ...(value.description === undefined ? {} : { description: value.description as string }),
+        ...(value.host === undefined ? {} : { host: value.host as string }) };
 }
 
 function fiberPhase(value: unknown): value is DshPluginFiberPhase {

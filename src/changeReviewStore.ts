@@ -11,6 +11,7 @@ import { ChangeReviewView } from "./types";
 import { isRecord } from "./guards";
 import { containsPath } from "./paths";
 import { errorMessage } from "./errors";
+import { workingDirectoryAt } from "./workingDirectory";
 
 const execFileAsync = promisify(execFile);
 const REGULAR_MODES = new Set(["100644", "100755"]);
@@ -38,6 +39,8 @@ interface ChangeFile {
 
 interface ChangeReview {
     turn: number;
+    cwd: string;
+    endSeq?: number;
     state: "capturing" | "ready" | "error";
     files: ChangeFile[];
     restored: boolean;
@@ -48,7 +51,6 @@ interface ChangeReview {
 }
 
 interface SessionReviews {
-    cwd: string;
     seen: Set<string>;
     reviews: Map<number, ChangeReview>;
     queue: Promise<void>;
@@ -152,22 +154,30 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         if (this.disposed || !cwd) return;
         let session = this.sessions.get(sessionId);
         if (!session) {
-            session = { cwd, seen: new Set(), reviews: new Map(), queue: Promise.resolve() };
+            session = { seen: new Set(), reviews: new Map(), queue: Promise.resolve() };
             this.sessions.set(sessionId, session);
         }
-        if (session.cwd !== cwd) return;
-
         for (const stored of snapshot.events) {
             if (stored.source !== "live" ||
-                (stored.event.type !== "turn/start" && stored.event.type !== "turn/end")) continue;
-            const turn = eventTurn(stored.event.data);
-            if (turn === undefined) continue;
+                !["turn/start", "turn/end", "working-directory/change"].includes(stored.event.type)) continue;
             const key = `${stored.event.seq}:${stored.event.type}`;
             if (session.seen.has(key)) continue;
             session.seen.add(key);
+            if (stored.event.type === "working-directory/change") {
+                const directory = workingDirectoryAt(snapshot, stored.event.seq, cwd);
+                for (const review of session.reviews.values()) {
+                    if (review.state === "capturing" && review.endSeq === undefined && directory !== review.cwd) {
+                        this.failReview(sessionId, review.turn, new Error(t("The working directory changed during this turn. Use individual tool diffs to review its changes.")));
+                    }
+                }
+                continue;
+            }
+            const turn = eventTurn(stored.event.data);
+            if (turn === undefined) continue;
             if (stored.event.type === "turn/start") {
                 session.reviews.set(turn, {
                     turn,
+                    cwd: workingDirectoryAt(snapshot, stored.event.seq, cwd) ?? cwd,
                     state: "capturing",
                     files: [],
                     restored: false,
@@ -175,6 +185,8 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
                 this.emit();
                 session.queue = session.queue.then(() => this.captureBefore(sessionId, turn));
             } else {
+                const review = session.reviews.get(turn);
+                if (review) review.endSeq = stored.event.seq;
                 session.queue = session.queue.then(() => this.captureAfter(sessionId, turn));
             }
             session.queue = session.queue.catch((error) => {
@@ -282,20 +294,24 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         const session = this.sessions.get(sessionId);
         const review = session?.reviews.get(turn);
         if (!session || !review || review.state !== "capturing") return;
-        const git = await this.createGitContext(session.cwd);
+        const git = await this.createGitContext(review.cwd);
         if (!git) {
             session.reviews.delete(turn);
             this.emit();
             return;
         }
+        const tree = await this.captureTree(git);
+        if (review.state !== "capturing") return;
         review.git = git;
-        review.beforeTree = await this.captureTree(git);
+        review.beforeTree = tree;
     }
 
     private async captureAfter(sessionId: string, turn: number): Promise<void> {
         const review = this.sessions.get(sessionId)?.reviews.get(turn);
         if (!review || review.state !== "capturing" || !review.git || !review.beforeTree) return;
-        review.afterTree = await this.captureTree(review.git);
+        const tree = await this.captureTree(review.git);
+        if (review.state !== "capturing") return;
+        review.afterTree = tree;
         const raw = await runGit(review.git, [
             "diff", "--raw", "-z", "-M", "--no-abbrev", review.beforeTree, review.afterTree, "--", ".",
         ], "buffer") as Buffer;

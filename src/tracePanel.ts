@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { DshRuntime } from "./dshRuntime";
 import { escapeHtml, renderFileLocationsHtml } from "./fileLocations";
 import { SessionStateSnapshot } from "./sessionStore";
+import { currentWorkingDirectory, workingDirectoryAt } from "./workingDirectory";
 import {
     ProjectedTraceRow,
     projectSessionTrace,
@@ -274,7 +275,11 @@ class TracePanelController implements vscode.Disposable {
                 .getSessionCatalog()
                 .snapshot()
                 .sessions.find((candidate) => candidate.sessionId === this.sessionId);
-            void openWorkspaceFileLocation(action, session?.cwd).catch((error: unknown) => {
+            const row = this.projection.rows.find(item => item.id === (action.rowId ?? this.selectedId));
+            if (action.rowId !== undefined && !row) return;
+            const directory = row && this.snapshot ? workingDirectoryAt(this.snapshot, row.seq, session?.cwd)
+                : currentWorkingDirectory(this.snapshot, session);
+            void openWorkspaceFileLocation(action, directory).catch((error: unknown) => {
                 const message = errorMessage(error);
                 this.output.appendLine(`[dsh:trace] file navigation failed: ${message}`);
                 void vscode.window.showWarningMessage(`DSH: ${message}`);

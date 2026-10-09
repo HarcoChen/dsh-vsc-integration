@@ -18,7 +18,7 @@ import {
 } from "./types";
 import { HarnessSessionStore, ProjectionCell, SessionStateSnapshot } from "./sessionStore";
 import { isRecord } from "./guards";
-import { diffViewPaths, parseToolDiffView } from "./toolDiff";
+import { diffViewPaths, parseToolDiffView, storedDiffView } from "./toolDiff";
 import { safeTraceJson } from "./traceProjector";
 
 export interface PlanReviewView {
@@ -57,7 +57,9 @@ function callPresentation(snapshot: SessionStateSnapshot, callId: string): Recor
         const data = isRecord(stored.event.data) ? stored.event.data : undefined;
         if (data?.callId !== callId) continue;
         const envelope = isRecord(stored.view) && stored.view.for === "call" ? stored.view.view : undefined;
-        return isRecord(envelope) ? envelope : undefined;
+        if (isRecord(envelope)) return envelope;
+        const diff = storedDiffView(stored, undefined);
+        return diff ? { card: "diff", ...diff } : undefined;
     }
     return undefined;
 }
