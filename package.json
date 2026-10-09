@@ -103,7 +103,11 @@
         "onCommand:dsh.recovery.cancel",
         "onCommand:dsh.recovery.openDiagnostics",
         "onCommand:dsh.recovery.exportDiagnostics",
-        "onCommand:dsh.recovery.restore"
+        "onCommand:dsh.recovery.restore",
+        "onCommand:dsh.openRuntimeTerminal",
+        "onCommand:dsh.attachDiagnostics",
+        "onCommand:dsh.managePlugins",
+        "onCommand:dsh.openSessionCenter"
     ],
     "contributes": {
         "chatParticipants": [
@@ -414,6 +418,26 @@
                 "command": "dsh.revealConversationMilestone",
                 "title": "%command.revealConversationMilestone.title%",
                 "category": "DSH"
+            },
+            {
+                "command": "dsh.openRuntimeTerminal",
+                "title": "%command.openRuntimeTerminal.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.attachDiagnostics",
+                "title": "%command.attachDiagnostics.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.managePlugins",
+                "title": "%command.managePlugins.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.openSessionCenter",
+                "title": "%command.openSessionCenter.title%",
+                "category": "DSH"
             }
         ],
         "submenus": [
@@ -487,6 +511,11 @@
                 {
                     "command": "dsh.editorTask.docs",
                     "group": "1_tasks@4"
+                },
+                {
+                    "command": "dsh.attachDiagnostics",
+                    "when": "editorIsOpen",
+                    "group": "context@5"
                 }
             ],
             "scm/resourceGroup/context": [

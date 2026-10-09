@@ -188,6 +188,9 @@ function openFileLocation(target: EventTarget | null): boolean {
         path,
         line,
         ...(column === undefined ? {} : { column }),
+        ...(link?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId === undefined ? {} : {
+            rowId: link.closest<HTMLElement>("[data-row-id]")!.dataset.rowId,
+        }),
     });
     return true;
 }

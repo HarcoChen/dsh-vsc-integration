@@ -16,6 +16,7 @@ import { t } from "./localize";
 import { SessionStateSnapshot } from "./sessionStore";
 import type { ToolDiffView } from "./toolDiff";
 import { applyProposedHunks, callDiffState, collectCallHunks, normalizeNewlines, rewindAround } from "./toolDiff";
+import { workingDirectoryAt } from "./workingDirectory";
 
 export const TOOL_DIFF_SCHEME = "dsh-tool-diff";
 
@@ -73,7 +74,8 @@ export class ToolDiffStore implements vscode.Disposable, vscode.TextDocumentCont
         if (!snapshot) throw new Error(t("This diff is no longer available."));
         const state = callDiffState(snapshot, callId);
         if (!state) throw new Error(t("This diff is no longer available."));
-        const absolute = isAbsolute(path) ? path : resolve(cwd ?? "", path);
+        const directory = workingDirectoryAt(snapshot, state.seq, cwd);
+        const absolute = isAbsolute(path) ? path : resolve(directory ?? "", path);
 
         let current: string;
         try {
@@ -94,7 +96,7 @@ export class ToolDiffStore implements vscode.Disposable, vscode.TextDocumentCont
             return;
         }
 
-        const history = collectCallHunks(snapshot, path);
+        const history = collectCallHunks(snapshot, path, cwd, callId);
         const rewound = rewindAround(current, history, callId);
         if (!rewound) {
             throw new Error(t(

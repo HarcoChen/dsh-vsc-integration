@@ -5,6 +5,7 @@ import { RemoteUnaryClient } from "./unaryClient";
 import {
     historyEntries as remoteHistoryEntries,
     projectionBlock as remoteProjectionBlock,
+    cachedProjectionValues,
     sessionCursor,
     type RemoteSessionAddress,
 } from "./sessionState";
@@ -683,11 +684,13 @@ function toSessionSummary(value: unknown): DshSessionSummary | undefined {
         typeof value.blank !== "boolean" ||
         (value.parentSessionId !== undefined && typeof value.parentSessionId !== "string") ||
         (value.origin !== undefined && value.origin !== "subagent") ||
-        (value.cwd !== undefined && typeof value.cwd !== "string")
+        (value.cwd !== undefined && typeof value.cwd !== "string") ||
+        (value.formatStatus !== undefined && value.formatStatus !== "current" && value.formatStatus !== "migration-required")
     ) return undefined;
     const projections = value.projections === undefined ? undefined : toProjection(value.projections);
-    if (value.projections !== undefined && projections === undefined) return undefined;
-    const projectedPreset = projections?.values.agentPreset;
+    const cached = cachedProjectionValues(value.projections);
+    if (value.projections !== undefined && projections === undefined && cached === undefined) return undefined;
+    const projectedPreset = projections?.values.agentPreset ?? cached?.agentPreset;
     const agentPreset = typeof projectedPreset === "string" && projectedPreset.length > 0
         ? projectedPreset
         : undefined;
@@ -699,6 +702,9 @@ function toSessionSummary(value: unknown): DshSessionSummary | undefined {
         ...(typeof value.parentSessionId === "string" ? { parentSessionId: value.parentSessionId } : {}),
         ...(value.origin === "subagent" ? { origin: "subagent" as const } : {}),
         ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+        ...(value.formatStatus === undefined ? {} : { formatStatus: value.formatStatus }),
+        ...(typeof cached?.title === "string" ? { title: cached.title } : {}),
+        ...(cached === undefined ? {} : { cachedProjectionValues: cached }),
         ...(agentPreset === undefined ? {} : { agentPreset }),
         ...(projections === undefined ? {} : { projections }),
     };

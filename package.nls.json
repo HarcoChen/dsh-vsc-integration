@@ -103,5 +103,9 @@
     "config.jev.toolPruner.enabled.description": "Ask Jev to rank model-visible tool schemas. This does not change DSH permissions or tool registration.",
     "config.jev.skillRouter.enabled.description": "Ask Jev to select relevant skills and add bounded advice to the model context.",
     "config.jev.decisionTools.enabled.description": "Expose Jev ask, rank and check tools; submitted state and candidates may be sent to Jev.",
-    "config.jev.deterministicSafetyGuard.enabled.description": "Run local checks for destructive commands, privilege escalation and credential exposure. Inspected data stays local."
+    "config.jev.deterministicSafetyGuard.enabled.description": "Run local checks for destructive commands, privilege escalation and credential exposure. Inspected data stays local.",
+    "command.openRuntimeTerminal.title": "Open Runtime Terminal",
+    "command.attachDiagnostics.title": "Attach Problems from Current File",
+    "command.managePlugins.title": "Install or Remove Runtime Plugins",
+    "command.openSessionCenter.title": "Open Session Center"
 }

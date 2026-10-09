@@ -2,13 +2,14 @@
 /** Integration smoke against a real DSH launcher, using the extension's compiled Remote clients.
  * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
  * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle,
- * --timed-questions, --with-team-bundle, --feature-controls, --keep.
+ * --timed-questions, --with-team-bundle, --feature-controls, --workflow-controls,
+ * --migration-home <isolated smoke home>, --seed-only, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, cp, readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -33,6 +34,11 @@ const { SubagentController } = require(join(root, "dist/subagentController"));
 const { historyEntries, projectionBlock: remoteProjectionBlock } = require(join(root, "dist/remote/sessionState"));
 const { JobsController } = require(join(root, "dist/jobsController"));
 const { UserQuestionWaitController } = require(join(root, "dist/userQuestionWait"));
+const { RuntimeTerminalClient } = require(join(root, "dist/runtimeTerminalClient"));
+const { currentWorkingDirectory, workingDirectoryAt } = require(join(root, "dist/workingDirectory"));
+const { collectCallHunks } = require(join(root, "dist/toolDiff"));
+const { cachedProjectionValues } = require(join(root, "dist/remote/sessionState"));
+const { normalizePluginInspection } = require(join(root, "dist/pluginInventory"));
 const argv = process.argv.slice(2);
 const launcherIndex = argv.indexOf("--launcher");
 if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launcher /absolute/path/to/dsh");
@@ -42,6 +48,10 @@ const withScheduleBundle = argv.includes("--with-schedule-bundle");
 const withTeamBundle = argv.includes("--with-team-bundle");
 const timedQuestions = argv.includes("--timed-questions");
 const featureControls = argv.includes("--feature-controls");
+const workflowControls = argv.includes("--workflow-controls");
+const seedOnly = argv.includes("--seed-only");
+const migrationIndex = argv.indexOf("--migration-home");
+if (migrationIndex >= 0 && !argv[migrationIndex + 1]) throw new Error("--migration-home requires an isolated smoke home");
 const versionIndex = argv.indexOf("--expect-version");
 if (versionIndex >= 0 && !argv[versionIndex + 1]) throw new Error("--expect-version requires a version");
 const expectedVersion = versionIndex >= 0 ? argv[versionIndex + 1] : RUNTIME_DEFAULT_VERSION;
@@ -59,6 +69,13 @@ const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
 const dshHome = join(storage, "home");
 const workspacePath = join(storage, "workspace");
 await Promise.all([mkdir(dshHome), mkdir(workspacePath)]);
+if (migrationIndex >= 0) {
+    const fixtureHome = resolve(argv[migrationIndex + 1]);
+    assert.equal(await readFile(join(fixtureHome, ".dsh-ide-smoke-fixture"), "utf8"), "isolated-runtime-smoke\n");
+    await cp(fixtureHome, dshHome, { recursive: true });
+}
+await writeFile(join(dshHome, ".dsh-ide-smoke-fixture"), "isolated-runtime-smoke\n");
+await mkdir(join(workspacePath, "nested"));
 await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
 await writeFile(join(workspacePath, "remote-smoke.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
 await writeFile(join(workspacePath, "remote-large.txt"), Buffer.alloc(RUNTIME_TEXT_PREVIEW_MAX_BYTES + 1, 65));
@@ -84,10 +101,34 @@ let jobToolServed = false;
 let teamTaskServed = false;
 let teammateServed = false;
 let modelRequests = 0;
+let directoryServed = false;
+let historicalEditStep = 0;
+let packageTarball;
+let packageDownloadStarted = false;
 const model = createServer(async (request, response) => {
+    if (request.url === "/workflow-plugin.tgz" && packageTarball) {
+        response.writeHead(200, { "content-type": "application/octet-stream", "content-length": packageTarball.length });
+        if (request.method === "HEAD") { response.end(); return; }
+        packageDownloadStarted = true;
+        // Keep the download in flight until the Host cancels its package-manager process.
+        response.write(packageTarball.subarray(0, 8));
+        return;
+    }
     if (request.url === "/models") {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ object: "list", data: [{ id: "deepseek-flash", object: "model" }] }));
+        return;
+    }
+    if (seedOnly && ["/chat/completions", "/v1/chat/completions"].includes(request.url)) {
+        let body = "";
+        for await (const part of request) body += part;
+        const payload = JSON.parse(body);
+        modelRequests += 1;
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        const chunk = value => response.write(`data: ${JSON.stringify({ id: randomUUID(), object: "chat.completion.chunk", model: payload.model, ...value })}\n\n`);
+        chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "Hello world" }, finish_reason: null }] });
+        chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
+        response.end("data: [DONE]\n\n");
         return;
     }
     if (request.url !== "/v1/messages") { response.writeHead(404); response.end(); return; }
@@ -107,13 +148,22 @@ const model = createServer(async (request, response) => {
             : messages.includes("TEAM_PANEL_SMOKE") && !teammateServed ? "spawn_teammate" : undefined
         : undefined;
     const jobCall = featureControls && messages.includes("JOBS_CONTROL_SMOKE") && !jobToolServed;
-    if (teamCall || jobCall || (timedQuestions && questionMarker)) {
+    const directoryCall = workflowControls && runtimeVersion.startsWith("0.2.1-") && messages.includes("WORKING_DIRECTORY_SMOKE") && !directoryServed;
+    const historicalCall = workflowControls && runtimeVersion.startsWith("0.2.1-") && messages.includes("HISTORICAL_EDIT_SMOKE") && historicalEditStep < 3
+        ? [
+            { id: "nested-write", name: "write", input: { file_path: "same.txt", content: "nested content\n" } },
+            { id: "return-directory", name: "working_directory", input: { cd: workspacePath } },
+            { id: "root-write", name: "write", input: { file_path: "same.txt", content: "root content\n" } },
+        ][historicalEditStep++] : undefined;
+    if (teamCall || jobCall || directoryCall || historicalCall || (timedQuestions && questionMarker)) {
+        if (directoryCall) directoryServed = true;
         if (teamCall === "spawn_teammate") teammateServed = true;
         else if (teamCall === "team_task_create") teamTaskServed = true;
         else if (jobCall) jobToolServed = true;
         else servedQuestions.add(questionMarker);
-        const name = teamCall ?? (jobCall ? "bash" : "ask_user_question");
-        const input = teamCall === "spawn_teammate" ? { name: "smoke-worker", description: "Isolated member for the panel smoke", prompt: "Return a short hello for TEAM_WORKER_REPLY", context: "fresh" }
+        const name = historicalCall?.name ?? (directoryCall ? "working_directory" : teamCall ?? (jobCall ? "bash" : "ask_user_question"));
+        const input = historicalCall?.input ?? (directoryCall ? { cd: join(workspacePath, "nested") }
+            : teamCall === "spawn_teammate" ? { name: "smoke-worker", description: "Isolated member for the panel smoke", prompt: "Return a short hello for TEAM_WORKER_REPLY", context: "fresh" }
             : teamCall === "team_task_create" ? { subject: "Smoke team task", description: "Verify the public task projection", write_scopes: ["src/"] }
             : jobCall ? {
             command: "for index in {1..80}; do echo job-stream-$index; sleep 0.15; done",
@@ -122,8 +172,8 @@ const model = createServer(async (request, response) => {
         } : {
             questions: [{ id: "scope", question: "Which scope should be used?", options: [{ label: "Tool only" }] }],
             timeout: questionMarker === "TIMED_QUESTION_SMOKE" ? 1 : 10,
-        };
-        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: teamCall ?? (jobCall ? "smoke-job" : questionMarker), name, input: {} } });
+        });
+        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: historicalCall?.id ?? (directoryCall ? "smoke-directory" : teamCall ?? (jobCall ? "smoke-job" : questionMarker)), name, input: {} } });
         event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } });
         event({ type: "content_block_stop", index: 0 });
         event({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } });
@@ -194,6 +244,7 @@ async function first(endpoint, args = {}) {
     } finally { clearTimeout(timeout); abort.abort(); }
 }
 try {
+  verification: {
     console.log(`Isolated DSH home: ${dshHome}`);
     const launchUrl = await until(() => output.match(/http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+/u)?.[0], "authenticated launch URL", 90000);
     const baseUrl = new URL(launchUrl).origin;
@@ -225,6 +276,23 @@ try {
     await until(() => descriptions > 0, "coordinator baseline");
     await connection.unary.probe();
     pass("authenticated unary, mux $events, workspace and control baselines");
+    if (migrationIndex >= 0) {
+        const cold = coordinator.catalog.snapshot().sessions.find(item => item.formatStatus === "migration-required");
+        assert.ok(cold, "fixture must contain an old-format Session");
+        const hints = await connection.unary.call("session/projections", { request: { sessionId: cold.sessionId } });
+        assert.equal(hints.kind, "migration-required");
+        assert.ok(cachedProjectionValues(hints));
+        assert.equal(remoteProjectionBlock(hints), undefined);
+        await assert.rejects(() => connection.unary.call("session/fork", { request: { sessionId: cold.sessionId, allowMigration: false } }),
+            error => error.code === "session/migration-required");
+        coordinator.watchSession(cold.sessionId);
+        await coordinator.syncHistory(cold.sessionId);
+        await until(async () => remoteProjectionBlock(await connection.unary.call("session/projections", { request: { sessionId: cold.sessionId } })), "migration promotion");
+        await coordinator.refreshCatalog();
+        assert.equal(coordinator.catalog.snapshot().sessions.find(item => item.sessionId === cold.sessionId).formatStatus, "current");
+        assert.ok(remoteProjectionBlock(await connection.unary.call("session/projections", { request: { sessionId: cold.sessionId } })));
+        pass("Old-format cache hints remain sequence-free; opening migrates history and restores sequenced projections");
+    }
     const workspace = await connection.unary.call("workspace/create", { request: { path: workspacePath } });
     const workspaceId = workspace.workspace?.workspaceId ?? workspace.workspaceId;
     assert.ok(workspaceId, JSON.stringify(workspace));
@@ -259,7 +327,11 @@ try {
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
     pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
-    if (withScheduleBundle) {
+    if (seedOnly) {
+        pass("Isolated legacy fixture generated only through public RPCs");
+        break verification;
+    }
+    if (withScheduleBundle || runtimeVersion === "0.2.1-alpha.2") {
         assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
         assert.deepEqual(await connection.unary.call("schedule/catalog", {}), []);
         const missingRequest = { sessionId: seededSessionId, id: randomUUID() };
@@ -267,7 +339,7 @@ try {
             "schedule_not_found");
         assert.deepEqual(await connection.unary.call("schedule/delete", { request: missingRequest }),
             { id: missingRequest.id, deleted: false, code: "schedule_not_found" });
-        pass("optional Schedule bundle exposes list/catalog/history/delete RPCs");
+        pass("Schedule composition exposes list/catalog/history/delete RPCs");
     } else {
         for (const [endpoint, args] of [["schedule/list", { request: { sessionId: seededSessionId } }], ["schedule/catalog", {}]]) {
             await assert.rejects(() => connection.unary.call(endpoint, args), error => error.status === 404);
@@ -314,7 +386,136 @@ try {
         pass("Active Agent Teams publishes a Session projection; it exposes no legacy agentTeams/view RPC");
     } else {
         assert.equal(projectionBlock.values.agentTeam, undefined);
-        pass("Standard composition has no Agent Teams service or projection");
+    pass("Standard composition has no Agent Teams service or projection");
+    }
+    if (workflowControls) {
+        const terminals = new RuntimeTerminalClient(connection.unary, connection);
+        const limits = await terminals.environment(seededSessionId);
+        const terminalId = randomUUID();
+        const terminal = await terminals.create(seededSessionId, terminalId, Math.min(80, limits.maxCols), Math.min(24, limits.maxRows));
+        assert.equal(terminal.id, terminalId);
+        assert.ok((await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+        const retainedAbort = new AbortController();
+        const hold = terminals.retain(seededSessionId, terminalId, retainedAbort.signal)[Symbol.asyncIterator]();
+        assert.equal((await hold.next()).done, false);
+        const outputAbort = new AbortController();
+        const attachmentId = randomUUID();
+        const frames = terminals.follow(seededSessionId, terminalId, attachmentId, outputAbort.signal)[Symbol.asyncIterator]();
+        try {
+            const first = await frames.next();
+            assert.equal(first.value.type, "snapshot");
+            assert.equal(first.value.info.controllerId, attachmentId);
+            await terminals.resize(seededSessionId, terminalId, attachmentId, 70, 20);
+            await terminals.write(seededSessionId, terminalId, attachmentId, "printf 'DSH_TERMINAL_SMOKE\\n'\r");
+            const timer = setTimeout(() => outputAbort.abort(new Error("terminal input smoke timed out")), 15000);
+            let text = "";
+            try {
+                while (!text.includes("DSH_TERMINAL_SMOKE")) {
+                    const item = await frames.next();
+                    assert.equal(item.done, false);
+                    if (item.value.type === "output") text += item.value.data;
+                }
+            } finally { clearTimeout(timer); }
+            outputAbort.abort();
+            await frames.return();
+            const recoveredAbort = new AbortController();
+            const recovered = terminals.follow(seededSessionId, terminalId, randomUUID(), recoveredAbort.signal)[Symbol.asyncIterator]();
+            try {
+                const screen = await recovered.next();
+                assert.equal(screen.value.type, "snapshot");
+                assert.ok(screen.value.screen.includes("DSH_TERMINAL_SMOKE"));
+                assert.equal(screen.value.info.cols, 70);
+                assert.equal(screen.value.info.rows, 20);
+            } finally { recoveredAbort.abort(); await recovered.return(); }
+            try { await terminals.close(seededSessionId, terminalId); }
+            catch (error) {
+                // Host cleanup can refuse while a process is still being reaped; its contract retains the identity for retry.
+                assert.ok((await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+                await new Promise(resolve => setTimeout(resolve, 250));
+                await terminals.close(seededSessionId, terminalId);
+                pass("A refused PTY cleanup retains its identity and accepts explicit retry");
+            }
+            assert.ok(!(await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+        } finally {
+            outputAbort.abort();
+            retainedAbort.abort();
+            await frames.return().catch(() => undefined);
+            await hold.return().catch(() => undefined);
+        }
+        pass("Host PTY retains identity, accepts input/resize, recovers its screen, and closes without creating a replacement");
+
+        const fixture = join(storage, "workflow-plugin");
+        await mkdir(fixture);
+        await writeFile(join(fixture, "package.json"), JSON.stringify({ name: "dsh-ide-workflow-smoke", version: "1.0.0", type: "module",
+            main: "index.js", engines: { dsh: runtimeVersion }, dsh: { manifestVersion: 1, bundle: { patch: "cordis.patch.yml" } } }));
+        await writeFile(join(fixture, "index.js"), "export const name = 'workflow-smoke'; export function apply() {}\n");
+        await writeFile(join(fixture, "cordis.patch.yml"), "- insert:\n    - id: workflow-smoke\n      name: dsh-ide-workflow-smoke\n");
+        const inspection = normalizePluginInspection(await connection.unary.call("pluginManager/inspect", { spec: fixture }));
+        assert.equal(inspection.status, "accepted");
+        assert.equal(inspection.bundle, true);
+        const installed = normalizePluginChange(await connection.unary.call("pluginManager/installBundle", {
+            spec: fixture, options: { requestId: randomUUID(), enabled: true, saveExact: true },
+        }));
+        assert.ok(installed && ["applied", "restart-required"].includes(installed.application), JSON.stringify(installed));
+        assert.ok((await connection.unary.call("pluginManager/listBundles", {})).some(item => item.name === "dsh-ide-workflow-smoke" && item.installed));
+        const removed = normalizePluginChange(await connection.unary.call("pluginManager/removeBundle", { name: "dsh-ide-workflow-smoke" }));
+        assert.ok(removed && removed.application !== "failed", JSON.stringify(removed));
+        assert.equal((await connection.unary.call("pluginManager/cancelInstall", { requestId: randomUUID() })).status, "not-running");
+        pass("Official manager inspects, installs and removes an isolated local bundle; unknown cancellation is explicit");
+
+        const archive = join(storage, "workflow-plugin.tgz");
+        const packed = spawnSync("tar", ["-czf", archive, "-C", storage, "workflow-plugin"], { env, encoding: "utf8" });
+        assert.equal(packed.status, 0, packed.stderr);
+        packageTarball = await readFile(archive);
+        const cancelId = randomUUID();
+        const pendingInstall = connection.unary.call("pluginManager/installBundle", {
+            spec: `http://127.0.0.1:${model.address().port}/workflow-plugin.tgz`, options: { requestId: cancelId, enabled: true },
+        });
+        let installationSettled = false;
+        let installationError;
+        const settlement = pendingInstall.then(normalizePluginChange, error => { installationError = error; }).finally(() => { installationSettled = true; });
+        await until(() => packageDownloadStarted || installationSettled, "in-flight plugin package download");
+        if (installationError) throw installationError;
+        assert.equal(packageDownloadStarted, true);
+        const waitingInstall = connection.unary.call("pluginManager/waitForInstall", { requestId: cancelId });
+        await new Promise(resolve => setTimeout(resolve, 100));
+        assert.equal((await connection.unary.call("pluginManager/cancelInstall", { requestId: cancelId })).status, "cancelled");
+        const cancelled = await settlement;
+        assert.equal(cancelled.application, "cancelled");
+        assert.equal((await waitingInstall).application, "cancelled");
+        assert.ok(!(await connection.unary.call("pluginManager/listBundles", {})).some(item => item.name === "dsh-ide-workflow-smoke" && item.installed));
+        pass("An in-flight package download cancels through the official manager, rolls back the profile, and settles attached waiters");
+
+        if (runtimeVersion.startsWith("0.2.1-")) {
+            const directorySession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "standard" } });
+            coordinator.watchSession(directorySession.sessionId);
+            await connection.unary.call("session/prompt", { request: { sessionId: directorySession.sessionId, requestId: randomUUID(), mode: "queue",
+                content: [{ type: "text", text: "WORKING_DIRECTORY_SMOKE" }] } });
+            const ended = await until(() => coordinator.sessions.get(directorySession.sessionId)?.events.find(({ event }) => event.type === "turn/end"), "working directory tool turn");
+            assert.equal(ended.event.data.reason.kind, "completed", JSON.stringify(ended.event));
+            await coordinator.refreshCatalog();
+            const summary = coordinator.catalog.snapshot().sessions.find(item => item.sessionId === directorySession.sessionId);
+            assert.equal(await realpath(summary.cwd), await realpath(workspacePath));
+            const directory = await realpath(join(workspacePath, "nested"));
+            await until(() => currentWorkingDirectory(coordinator.sessions.get(directorySession.sessionId), summary) === directory, "working directory projection");
+            assert.equal(currentWorkingDirectory(coordinator.sessions.get(directorySession.sessionId), summary), directory);
+            assert.equal((await terminals.environment(directorySession.sessionId)).cwd, await realpath(join(workspacePath, "nested")));
+            pass("Working-directory projection follows cd while Session identity retains the original project");
+            await connection.unary.call("session/prompt", { request: { sessionId: directorySession.sessionId, requestId: randomUUID(), mode: "queue",
+                content: [{ type: "text", text: "HISTORICAL_EDIT_SMOKE" }] } });
+            await until(() => coordinator.sessions.get(directorySession.sessionId)?.events.find(({ event }) => event.type === "turn/end" && event.data.turn === 2), "historical directory edits");
+            const editSnapshot = coordinator.sessions.get(directorySession.sessionId);
+            const nestedWrite = editSnapshot.events.find(({ event }) => event.type === "tool/call" && event.data.callId === "nested-write");
+            const rootWrite = editSnapshot.events.find(({ event }) => event.type === "tool/call" && event.data.callId === "root-write");
+            assert.ok(nestedWrite && rootWrite);
+            assert.equal(workingDirectoryAt(editSnapshot, nestedWrite.event.seq, summary.cwd), directory);
+            assert.equal(workingDirectoryAt(editSnapshot, rootWrite.event.seq, summary.cwd), await realpath(workspacePath));
+            assert.deepEqual(collectCallHunks(editSnapshot, "same.txt", summary.cwd, "nested-write").map(call => call.callId), ["nested-write"]);
+            assert.deepEqual(collectCallHunks(editSnapshot, "same.txt", summary.cwd, "root-write").map(call => call.callId), ["root-write"]);
+            assert.equal(await readFile(join(workspacePath, "nested", "same.txt"), "utf8"), "nested content\n");
+            assert.equal(await readFile(join(workspacePath, "same.txt"), "utf8"), "root content\n");
+            pass("Real file edits with identical relative names retain historical directories and separate diff-hunk histories");
+        }
     }
     const files = new WorkspaceFilesClient(connection.unary, connection);
     const remoteFiles = await files.list(seededSessionId);
@@ -382,11 +583,12 @@ try {
     pass("positive/negative feedback categories survive edits, list reads and CAS conflicts");
     const oldGeneration = connection.currentGeneration;
     const oldDescriptions = descriptions;
+    const workspaceIdsBeforeReconnect = coordinator.catalog.snapshot().workspaces.map(item => item.workspaceId).sort();
     connection.reconnect();
     await until(() => connection.currentGeneration > oldGeneration && descriptions > oldDescriptions, "reconnect baselines");
     await coordinator.syncHistory(seededSessionId);
     assert.equal(conversationMessages(coordinator.sessions.get(seededSessionId)).length, 16);
-    assert.equal(coordinator.catalog.snapshot().workspaces.length, 1);
+    assert.deepEqual(coordinator.catalog.snapshot().workspaces.map(item => item.workspaceId).sort(), workspaceIdsBeforeReconnect);
     pass("reconnect reopens event/control/workspace/session streams without duplicate surfaces");
     coordinator.watchSession(created.sessionId);
     await coordinator.syncHistory(created.sessionId);
@@ -615,9 +817,10 @@ try {
     console.log(`Observed frames: ${streamTypes.join(", ")}`);
     assert.equal(diagnostics.length, 0, diagnostics.join("\n"));
     console.log(`OK: real Runtime integration smoke passed; ${modelRequests} local mock model request(s), no external model calls.`);
+  }
 } catch (error) {
     console.error(error.stack ?? error);
-    if (featureControls) console.error(`Feature tool/job frames: ${JSON.stringify(wireFrames.filter(item => item.endpoint.startsWith("job/") || ["tool/call", "tool/result"].includes(item.frame.event?.type)).slice(-10))}`);
+    if (featureControls || workflowControls) console.error(`Feature tool/job frames: ${JSON.stringify(wireFrames.filter(item => item.endpoint.startsWith("job/") || ["tool/call", "tool/result"].includes(item.frame.event?.type)).slice(-10))}`);
     console.error(`Mock requests: ${modelRequests}; recent wire frames: ${JSON.stringify(wireFrames.slice(-8).map(item => ({ endpoint: item.endpoint, type: item.frame.type, event: item.frame.event?.type, generation: item.generation })))}`);
     process.exitCode = 1;
 } finally {

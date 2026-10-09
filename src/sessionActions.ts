@@ -12,6 +12,54 @@ export interface SessionActionsHost {
 
 type SessionAction = "open" | "pin" | "unpin" | "unarchive";
 
+/** Live navigation for observed requests and running Sessions, grouped by DSH Workspace. */
+export async function openSessionCenter(host: SessionActionsHost): Promise<void> {
+    await host.runtime.start(host.workspaceRoot());
+    await host.runtime.refreshSessions();
+    const picker = vscode.window.createQuickPick<vscode.QuickPickItem & { sessionId: string }>();
+    picker.title = t("DSH Session center");
+    picker.placeholder = t("Observed requests first, then running Sessions. Choose a Session to continue.");
+    picker.matchOnDescription = true;
+    picker.matchOnDetail = true;
+    const render = (): void => {
+        const catalog = host.runtime.getSessionCatalog().snapshot();
+        const archived = new Set(catalog.archivedSessionIds);
+        const workspaceBySession = new Map(catalog.workspaces.flatMap(workspace =>
+            workspace.sessionIds.map(id => [id, workspace.title] as const)));
+        const priority = (item: typeof catalog.sessions[number]): number => item.pendingInteraction ? 0 : item.lastAgentError ? 1 : item.running ? 2 : 3;
+        const activeId = picker.activeItems[0]?.sessionId;
+        picker.items = [...catalog.sessions].filter(item => !archived.has(item.sessionId) && item.origin !== "subagent")
+            .sort((a, b) => priority(a) - priority(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+            .map(item => ({
+                label: `${item.pendingInteraction ? "$(bell)" : item.lastAgentError ? "$(error)" : item.running ? "$(sync~spin)" : "$(comment-discussion)"} ${item.title || item.sessionId}`,
+                description: [workspaceBySession.get(item.sessionId) ?? t("Ungrouped sessions"),
+                    item.pendingInteraction === "approval" ? t("Waiting for approval") : item.pendingInteraction === "question" ? t("Waiting for answer")
+                        : item.lastAgentError ? t("Session error") : item.running ? t("Running") : undefined,
+                    item.formatStatus === "migration-required" ? t("Migration required") : undefined].filter(Boolean).join(" · "),
+                detail: item.lastAgentError ?? item.cwd,
+                sessionId: item.sessionId,
+            }));
+        if (activeId) picker.activeItems = picker.items.filter(item => item.sessionId === activeId);
+    };
+    render();
+    const unsubscribe = host.runtime.getSessionCatalog().onDidChange(render);
+    let selected: string | undefined;
+    try {
+        await new Promise<void>(resolve => {
+            const accept = picker.onDidAccept(() => {
+                selected = picker.selectedItems[0]?.sessionId;
+                if (selected) picker.hide();
+            });
+            const hide = picker.onDidHide(() => { accept.dispose(); hide.dispose(); resolve(); });
+            picker.show();
+        });
+    } finally {
+        unsubscribe();
+        picker.dispose();
+    }
+    if (selected) await host.openSession(selected);
+}
+
 /** Keeps the session picker open while the user pins, restores, or opens Sessions. */
 export async function manageSessions(host: SessionActionsHost): Promise<void> {
     await host.runtime.start(host.workspaceRoot());

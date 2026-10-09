@@ -27,12 +27,13 @@ import { AGENT_PRESET_DOCUMENT_SCHEME, manageAgentPresets } from "./agentPresetA
 import { ChangeReviewStore } from "./changeReviewStore";
 import { ToolDiffStore } from "./toolDiffStore";
 import { manageWorkspaces } from "./workspaceActions";
-import { manageSessions as runSessionManagement } from "./sessionActions";
+import { manageSessions as runSessionManagement, openSessionCenter } from "./sessionActions";
 import { DshRuntime, OFFICIAL_DESKTOP_DOWNLOAD_URL, OfficialDesktopRequiredError } from "./dshRuntime";
 import { normalizeAgentTeamProjection } from "./agentTeamTypes";
 import { goalActionAllowed, goalOperationFor } from "./goalActions";
 import { GoalActivationController } from "./goalActivation";
 import { isImageMediaType, isRecord } from "./guards";
+import { currentWorkingDirectory, workingDirectoryAt, resolveRuntimePath } from "./workingDirectory";
 import { manageProviders as runProviderManagement } from "./providerManagement";
 import {
     applyCodeBlock,
@@ -121,6 +122,8 @@ import {
 import { projectTokenUsage, SelectedModelSnapshot } from "./tokenUsage";
 import { openWorkspaceFileLocation } from "./workspaceNavigation";
 import { RuntimeWorkspaceBrowser } from "./runtimeWorkspaceBrowser";
+import { RuntimeTerminalManager } from "./runtimeTerminal";
+import { PluginManagementController } from "./pluginManagement";
 import { errorMessage } from "./errors";
 import { normalizeModelSelectionProjection, sameModelSelection } from "./modelSelection";
 import {
@@ -359,6 +362,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly changeReviews: ChangeReviewStore;
     private readonly toolDiffs: ToolDiffStore;
     private readonly runtimeWorkspaceBrowser: RuntimeWorkspaceBrowser;
+    private readonly runtimeTerminals: RuntimeTerminalManager;
+    private readonly pluginManagement: PluginManagementController;
     private agentStatusChoice: { sessionId: string; candidateKey: string; label: string } | undefined;
     private jobWatchDisposable: vscode.Disposable | undefined;
     private jobWatchSessionId: string | undefined;
@@ -385,6 +390,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         );
         this.toolDiffs = new ToolDiffStore(output);
         this.runtimeWorkspaceBrowser = new RuntimeWorkspaceBrowser(runtime, output);
+        this.runtimeTerminals = new RuntimeTerminalManager(runtime, output);
+        this.pluginManagement = new PluginManagementController(runtime, output, () => this.refreshPluginInventory());
         this.subagents = new SubagentController({
             runtime,
             currentRootSession: () => this.sessionId,
@@ -796,6 +803,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         });
     }
 
+    public openSessionCenter(): Promise<void> {
+        return openSessionCenter({ runtime: this.runtime, workspaceRoot: () => this.workspaceRoot(),
+            openSession: sessionId => this.switchSession(sessionId) });
+    }
+
     public manageAgentPresets(): Promise<void> {
         return manageAgentPresets({
             runtime: this.runtime,
@@ -1106,7 +1118,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.insertEditorReference();
             return;
         } else if (choice.actionId === "diagnostics") {
-            await this.runContextAction(() => this.contextStore.addDiagnostics());
+            await this.openDiagnosticsPicker();
             return;
         } else if (choice.actionId === "debug-context") {
             // The picker only attaches context, like its diagnostics and diff
@@ -1258,6 +1270,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return this.sessionId;
     }
 
+    public async openDiagnosticsPicker(): Promise<void> {
+        const uri = vscode.window.activeTextEditor?.document.uri;
+        if (!uri) throw new Error(t("There is no current file with diagnostics to read."));
+        const diagnostics = vscode.languages.getDiagnostics(uri);
+        if (diagnostics.length === 0) {
+            void vscode.window.showInformationMessage(t("No diagnostics reported for the current file."));
+            return;
+        }
+        const selected = await vscode.window.showQuickPick(diagnostics.map(diagnostic => ({
+            label: `${diagnostic.severity === vscode.DiagnosticSeverity.Error ? "$(error)" : "$(warning)"} ${diagnostic.message}`,
+            description: `${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}`,
+            detail: diagnostic.source,
+            diagnostic,
+        })), { canPickMany: true, title: t("Attach Problems from the current file"),
+            placeHolder: t("Choose the diagnostics to attach to your next message"), matchOnDescription: true });
+        if (!selected?.length) return;
+        await this.runContextAction(() => this.contextStore.addDiagnostics(uri, selected.map(item => item.diagnostic)));
+    }
+
+    public async openRuntimeTerminal(): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) throw new Error(t("There is no current session."));
+        await this.runtime.start(this.workspaceRoot());
+        await this.runtimeTerminals.open(sessionId);
+    }
+
+    public async managePlugins(): Promise<void> {
+        await this.runtime.start(this.workspaceRoot());
+        await this.pluginManagement.manage();
+    }
+
+    private effectiveDirectory(): string | undefined {
+        const summary = this.runtime.getSessionCatalog().snapshot().sessions.find(item => item.sessionId === this.sessionId);
+        return currentWorkingDirectory(this.sessionId ? this.runtime.getSessionStore().get(this.sessionId) : undefined, summary)
+            ?? this.sessionCwd;
+    }
+
     public async revealConversationMilestone(seq: number): Promise<void> {
         if (!Number.isSafeInteger(seq) || seq < 0) return;
         this.reveal();
@@ -1312,10 +1361,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async openFileLocation(
         location: Extract<ChatViewAction, { type: "openFileLocation" }>,
     ): Promise<void> {
+        const snapshot = this.sessionId ? this.runtime.getSessionStore().get(this.sessionId) : undefined;
+        const directory = snapshot && location.seq !== undefined
+            ? workingDirectoryAt(snapshot, location.seq, this.sessionCwd ?? this.workspaceRoot())
+            : this.effectiveDirectory() ?? this.workspaceRoot();
         try {
             await openWorkspaceFileLocation(
                 location,
-                this.sessionCwd ?? this.workspaceRoot(),
+                directory,
             );
             return;
         } catch (localError) {
@@ -1330,7 +1383,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
             if (!canOpen) throw localError;
             try {
-                await this.runtime.openWorkspacePath(location.path);
+                await this.runtime.openWorkspacePath(resolveRuntimePath(location.path, directory));
             } catch {
                 // Preserve the local diagnostic when the remote opener also
                 // rejects the path; its failure is only a fallback attempt.
@@ -1354,6 +1407,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.changeReviews.dispose();
         this.toolDiffs.dispose();
         this.runtimeWorkspaceBrowser.dispose();
+        this.runtimeTerminals.dispose();
         ++this.permissionCatalogGeneration;
         for (const disposable of this.disposables) {
             disposable.dispose();
@@ -1400,6 +1454,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "manageSettings":
                     await this.toggleSettingsPanel();
                     break;
+                case "managePlugins":
+                    await this.managePlugins();
+                    break;
                 case "refreshPluginInventory":
                     await this.refreshPluginInventory();
                     break;
@@ -1441,11 +1498,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "manageSessions":
                     await this.manageSessions();
                     break;
+                case "openSessionCenter":
+                    await this.openSessionCenter();
+                    break;
                 case "openIdeContextPicker":
                     await this.openIdeContextPicker();
                     break;
                 case "openTerminalCommandPicker":
                     await this.openTerminalCommandPicker();
+                    break;
+                case "openDiagnosticsPicker":
+                    await this.openDiagnosticsPicker();
+                    break;
+                case "openRuntimeTerminal":
+                    await this.openRuntimeTerminal();
                     break;
                 case "openPromptTemplatePicker":
                     await this.insertPromptTemplate();
@@ -1865,7 +1931,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     };
                 });
             const sessionCandidates = remoteSessionCandidates ?? localSessionCandidates;
-            this.fileReferenceCandidates = [...terminalCandidates, ...fileCandidates, ...sessionCandidates].slice(0, 40);
+            const diagnosticsCandidates: DshReferenceCandidate[] = !normalizedQuery || "diagnostics".includes(normalizedQuery)
+                ? [{ kind: "diagnostics", label: t("Problems from current file"), insertText: "@diagnostics",
+                    description: t("Choose diagnostics to attach once") }] : [];
+            this.fileReferenceCandidates = [...diagnosticsCandidates, ...terminalCandidates, ...fileCandidates, ...sessionCandidates].slice(0, 40);
             this.postState();
         } finally {
             if (this.fileReferenceQueryAbort === controller) this.fileReferenceQueryAbort = undefined;
@@ -1944,7 +2013,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             for (const command of terminalReferences.commands) {
                 this.contextStore.addTerminalCommand(command);
             }
-            const promptText = terminalReferences.text;
+            const diagnosticsPattern = /(^|\s)@diagnostics(?=\s|$)/gu;
+            if (diagnosticsPattern.test(terminalReferences.text)) await this.contextStore.addDiagnostics();
+            const promptText = terminalReferences.text.replace(diagnosticsPattern, "$1").trim();
             const explicitlyReferencesSelection = referencesSelection(text);
             const capture = this.contextStore.capturePromptContext({
                 includeCurrentSelection:
@@ -2928,7 +2999,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .filter((document) => document.isDirty && document.uri.scheme === "file")
             .map((document) => document.uri.fsPath);
         if (!unsaved.length) return [];
-        const root = this.sessionCwd ?? this.workspaceRoot();
+        const call = snapshot?.events.find(stored => stored.event.type === "tool/call" &&
+            isRecord(stored.event.data) && stored.event.data.callId === callId);
+        const root = snapshot && call ? workingDirectoryAt(snapshot, call.event.seq, this.sessionCwd ?? this.workspaceRoot())
+            : this.effectiveDirectory() ?? this.workspaceRoot();
         return diffPaths.filter((path) => {
             const absolute = isAbsolute(path) ? path : resolve(root ?? "", path);
             return unsaved.some((buffer) => samePath(buffer, absolute));
@@ -3917,6 +3991,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) ?? [];
         const subagentPreview = this.subagents.previewFor(this.sessionId);
         const state: ChatViewState = {
+            workingDirectory: this.effectiveDirectory(),
             messages: this.renderMessages(
                 feedbackMessages,
                 `session:${this.sessionId ?? "none"}`,

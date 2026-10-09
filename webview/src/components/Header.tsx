@@ -99,6 +99,7 @@ export const Header = React.memo(function Header({
         { key: "fork", label: t("Fork session"), action: { type: "forkSession" }, disabled: !hasSession },
         { key: "archive", label: t("Archive session"), action: { type: "archiveSession" }, disabled: !hasSession },
         { key: "trace", label: t("Open session trace"), action: { type: "openTrace" }, disabled: !hasSession },
+        { key: "terminal", label: t("Open Runtime terminal"), action: { type: "openRuntimeTerminal" }, disabled: !hasSession },
         { key: "feedback", label: t("Submit feedback"), action: { type: "openSessionFeedback" }, disabled: !hasSession },
         {
             key: "runtime",
@@ -110,10 +111,12 @@ export const Header = React.memo(function Header({
         { key: "logs", label: t("Open runtime logs"), action: { type: "openLogs" } },
         { key: "browser", label: t("Open in browser"), action: { type: "openBrowser" } },
         { key: "sessions", label: t("Manage sessions"), action: { type: "manageSessions" }, separatorBefore: true },
+        { key: "center", label: t("DSH Session center"), action: { type: "openSessionCenter" } },
         { key: "workspaces", label: t("Manage workspaces"), action: { type: "manageWorkspaces" } },
         { key: "presets", label: t("Manage agent presets"), action: { type: "manageAgentPresets" } },
         { key: "providers", label: t("Manage providers"), action: { type: "manageProviders" } },
         { key: "settings", label: t("Manage plugin settings"), action: { type: "manageSettings" } },
+        { key: "plugins", label: t("Install or remove plugins"), action: { type: "managePlugins" } },
         { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" } },
         {
             key: "focus",

@@ -229,6 +229,13 @@ export const Composer = React.memo(function Composer({
     const chooseFileReference = (candidate: DshReferenceCandidate): void => {
         const referenceStart = text.length - referenceQuery.length - (referenceQuoted ? 2 : 1);
         const prefix = text.slice(0, Math.max(0, referenceStart));
+        if (candidate.kind === "diagnostics") {
+            setText(prefix);
+            postAction({ type: "openDiagnosticsPicker" });
+            setDismissedReferenceKey(referenceContextKey);
+            window.requestAnimationFrame(focusTextarea);
+            return;
+        }
         const suffix = candidate.kind === "directory" ? "" : " ";
         setText(prefix + candidate.insertText + suffix);
         setReferenceIndex(0);
@@ -379,6 +386,10 @@ export const Composer = React.memo(function Composer({
                                 <TerminalIcon />
                                 {t("Recent terminal command")}
                             </button>
+                            <button type="button" className="dsh-menu-item" onClick={() => {
+                                setAttachmentMenuVisible(false);
+                                postAction({ type: "openDiagnosticsPicker" });
+                            }}>{t("Problems from current file")}</button>
                             <button
                                 type="button"
                                 className="dsh-menu-item"

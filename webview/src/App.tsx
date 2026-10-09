@@ -8,6 +8,7 @@ import { Composer } from "./components/Composer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { StatusBanner } from "./components/StatusBanner";
 import { SessionFeedbackDialog } from "./components/SessionFeedbackDialog";
+import { t } from "./i18n";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
@@ -25,6 +26,9 @@ export function App(): React.JSX.Element {
                 pendingRequestCount={state.interactions.filter((interaction) => interaction.status === "pending").length}
             />
             <StatusBanner status={state.status} sessionStatus={state.sessionStatus} />
+            {state.workingDirectory ? <div className="dsh-directory-bar" title={state.workingDirectory}>
+                {t("Current directory: {path}", { path: state.workingDirectory })}
+            </div> : null}
             <SessionFeedbackDialog feedback={state.sessionFeedback} />
             {!state.focusMode && state.settings ? <SettingsPanel settings={state.settings} /> : null}
             <MessageList

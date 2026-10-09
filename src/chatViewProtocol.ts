@@ -25,6 +25,7 @@ export type ChatViewAction =
     | { type: "configureApiKey" }
     | { type: "manageProviders" }
     | { type: "manageSettings" }
+    | { type: "managePlugins" }
     | { type: "refreshPluginInventory" }
     | { type: "setPluginEnabled"; entryId: string; enabled: boolean }
     | { type: "setBundleEnabled"; name: string; enabled: boolean }
@@ -43,8 +44,11 @@ export type ChatViewAction =
     | { type: "manageAgentPresets" }
     | { type: "manageWorkspaces" }
     | { type: "manageSessions" }
+    | { type: "openSessionCenter" }
     | { type: "openIdeContextPicker" }
     | { type: "openTerminalCommandPicker" }
+    | { type: "openDiagnosticsPicker" }
+    | { type: "openRuntimeTerminal" }
     | { type: "openPromptTemplatePicker" }
     | { type: "captureAppShot" }
     | { type: "removeContext"; id: string }
@@ -59,7 +63,7 @@ export type ChatViewAction =
     | { type: "restoreRecovery" }
     | { type: "openBrowser" }
     | { type: "openExternalLink"; url: string }
-    | { type: "openFileLocation"; path: string; line: number; column?: number }
+    | { type: "openFileLocation"; path: string; line: number; column?: number; seq?: number }
     | { type: "copyMessage"; messageId: string }
     | { type: "copyCode"; renderId: string; codeBlockId: string }
     | { type: "insertCode"; renderId: string; codeBlockId: string }
@@ -316,11 +320,15 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "configureApiKey":
         case "manageProviders":
         case "manageSettings":
+        case "managePlugins":
         case "openSettingsDocument":
         case "manageWorkspaces":
         case "manageSessions":
+        case "openSessionCenter":
         case "openIdeContextPicker":
         case "openTerminalCommandPicker":
+        case "openDiagnosticsPicker":
+        case "openRuntimeTerminal":
         case "captureAppShot":
         case "toggleSelection":
         case "toggleFocus":
@@ -566,12 +574,13 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         }
         case "openFileLocation":
             if (
-                !hasOnly(value, ["type", "path", "line", "column"]) ||
+                !hasOnly(value, ["type", "path", "line", "column", "seq"]) ||
                 !nonEmptyString(value.path) ||
                 value.path.length > MAX_FILE_LOCATION_PATH_CHARACTERS ||
                 value.path.includes("\0") ||
                 !positiveInteger(value.line) ||
                 value.line > MAX_FILE_LOCATION_INDEX ||
+                (value.seq !== undefined && !nonNegativeInteger(value.seq)) ||
                 (value.column !== undefined &&
                     (!positiveInteger(value.column) || value.column > MAX_FILE_LOCATION_INDEX))
             ) return undefined;
@@ -580,6 +589,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 path: value.path,
                 line: value.line,
                 ...(value.column === undefined ? {} : { column: value.column }),
+                ...(value.seq === undefined ? {} : { seq: value.seq as number }),
             };
         case "copyMessage":
             return hasOnly(value, ["type", "messageId"]) &&

@@ -144,6 +144,9 @@ export function SettingsPanel({ settings }: { settings: DshSettingsPanelView }):
             {settings.loading ? <div className="dsh-settings-loading">{t("Loading...")}</div> : null}
             {settings.error ? <div className="dsh-settings-error">{settings.error}</div> : null}
             {settings.pluginInventory ? <PluginInventoryPanel inventory={settings.pluginInventory} /> : null}
+            <button type="button" className="dsh-settings-document" onClick={() => postAction({ type: "managePlugins" })}>
+                {t("Install or remove plugins")}
+            </button>
             {!settings.loading && !settings.error && settings.cards.length === 0 ? (
                 <div className="dsh-settings-empty">{t("No plugin settings exposed")}</div>
             ) : null}

@@ -9,12 +9,13 @@ import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
-import { RemoteHttpError, RemoteProtocolError } from "./remote/errors";
+import { RemoteHttpError, RemoteProtocolError, isRemoteError } from "./remote/errors";
 import { JobsController } from "./jobsController";
 import { UserQuestionWaitController } from "./userQuestionWait";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
 import { RemoteUnaryClient } from "./remote/unaryClient";
 import { WorkspaceFilesClient } from "./workspaceFiles";
+import { RuntimeTerminalClient } from "./runtimeTerminalClient";
 import { workspaceView } from "./remote/workspaceState";
 import type {
     DshAgentTeamsCapability,
@@ -27,7 +28,7 @@ import {
 } from "./runtimeAdvertisement";
 import { compareRuntimeVersions } from "./runtimeVersion";
 
-import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock } from "./remote/sessionState";
+import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock, cachedProjectionValues } from "./remote/sessionState";
 import type { DebugContextTracker } from "./debugContext";
 import { DebugLaunchOverlay } from "./debugLaunch";
 import { t } from "./localize";
@@ -75,6 +76,7 @@ import {
     DshDynamicPluginStopResult,
     DshPluginInventorySnapshot,
     DshPluginChangeResult,
+    DshPluginInspection,
     DshSessionRenameResult,
     DshSessionSearchResult,
     DshFileReferenceCandidate,
@@ -125,7 +127,7 @@ import {
     normalizeDynamicPluginResolveResult,
     normalizeDynamicPluginStopResult,
 } from "./dynamicPlugins";
-import { normalizePluginChange, normalizePluginInventory } from "./pluginInventory";
+import { normalizePluginChange, normalizePluginInventory, normalizePluginInspection } from "./pluginInventory";
 import { normalizeSessionFeedbackRecordResult } from "./sessionFeedback";
 import { isRecord } from "./guards";
 import { samePath } from "./paths";
@@ -1243,6 +1245,7 @@ export class DshRuntime implements vscode.Disposable {
     private readonly apiClient: RemoteUnaryClient;
     private readonly remoteConnection: RemoteConnectionController;
     public readonly workspaceFiles: WorkspaceFilesClient;
+    public readonly terminals: RuntimeTerminalClient;
     private readonly harnessState: RemoteStateCoordinator;
     private readonly subagentHistoryCursors = new Map<string, number>();
     private child: ChildProcess | undefined;
@@ -1321,6 +1324,7 @@ export class DshRuntime implements vscode.Disposable {
             },
         });
         this.workspaceFiles = new WorkspaceFilesClient(this.apiClient, this.remoteConnection);
+        this.terminals = new RuntimeTerminalClient(this.apiClient, this.remoteConnection);
         this.jobs = new JobsController(this.apiClient, this.remoteConnection, message => this.output.appendLine(message));
         this.userQuestionWait = new UserQuestionWaitController(this.remoteConnection, message => this.output.appendLine(message));
         this.harnessState = new RemoteStateCoordinator(this.remoteConnection, {
@@ -1920,7 +1924,13 @@ export class DshRuntime implements vscode.Disposable {
             request: {
                 sessionId,
                 ...(atSeq === undefined ? {} : { atSeq }),
+                ...(source?.formatStatus === undefined ? {} : { allowMigration: false }),
             },
+        }).catch(error => {
+            if (isRemoteError(error) && error.code === "session/migration-required") {
+                throw new Error(t("Open the source Session to complete migration before forking."), { cause: error });
+            }
+            throw error;
         });
         // The fork response intentionally contains only the child id. Seed the
         // local catalog with the source metadata so switching immediately after
@@ -2269,6 +2279,37 @@ export class DshRuntime implements vscode.Disposable {
         return result;
     }
 
+    public async inspectPlugin(spec: string, signal?: AbortSignal): Promise<DshPluginInspection> {
+        const value = await this.apiClient.call("pluginManager/inspect", { spec }, signal);
+        const inspection = normalizePluginInspection(value);
+        if (!inspection) throw new RemoteProtocolError("Remote pluginManager/inspect returned an invalid value");
+        return inspection;
+    }
+
+    public async installPluginBundle(spec: string, requestId: string, approvedBuilds?: string[]): Promise<DshPluginChangeResult> {
+        const value = await this.apiClient.call("pluginManager/installBundle", {
+            spec, options: { requestId, enabled: true, saveExact: true, ...(approvedBuilds ? { approvedBuilds } : {}) },
+        });
+        return this.normalizePluginChange(value, "pluginManager/installBundle");
+    }
+
+    public async waitForPluginInstall(requestId: string): Promise<DshPluginChangeResult | undefined> {
+        const value = await this.apiClient.call("pluginManager/waitForInstall", { requestId });
+        return value === null ? undefined : this.normalizePluginChange(value, "pluginManager/waitForInstall");
+    }
+
+    public async cancelPluginInstall(requestId: string): Promise<"cancelled" | "too-late" | "not-running"> {
+        const value = await this.apiClient.call<unknown>("pluginManager/cancelInstall", { requestId });
+        if (!isRecord(value) || !["cancelled", "too-late", "not-running"].includes(String(value.status))) {
+            throw new RemoteProtocolError("Remote pluginManager/cancelInstall returned an invalid value");
+        }
+        return value.status as "cancelled" | "too-late" | "not-running";
+    }
+
+    public async removePluginBundle(name: string): Promise<DshPluginChangeResult> {
+        return this.normalizePluginChange(await this.apiClient.call("pluginManager/removeBundle", { name }), "pluginManager/removeBundle");
+    }
+
     /** List direct children in the Runtime's Session workspace; undefined means the optional Remote is absent. */
     public async workspaceFilesList(
         sessionId: string,
@@ -2554,6 +2595,9 @@ export class DshRuntime implements vscode.Disposable {
     public async getAgentTeam(sessionId: string, signal?: AbortSignal): Promise<DshTeamProjection | undefined> {
         const value = await this.apiClient.call<unknown>("session/projections", { request: { sessionId } }, signal);
         if (value === null) return undefined;
+        if (cachedProjectionValues(value) !== undefined) {
+            throw new Error(t("Open the source Session to complete migration before reading its live state."));
+        }
         const block = remoteProjectionBlock(value);
         if (!block) throw new RemoteProtocolError("Remote session/projections returned an invalid value");
         if (block.values.agentTeam === undefined) return undefined;
