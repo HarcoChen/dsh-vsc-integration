@@ -4,7 +4,7 @@ import { postAction } from "../bridge";
 import { t } from "../i18n";
 import type { HeaderState } from "../state";
 import { statusLabel, TURN_LABELS } from "../state";
-import { CheckIcon, MoreIcon, SearchIcon } from "./icons";
+import { CheckIcon, MoreIcon, PluginIcon, SearchIcon } from "./icons";
 
 interface HeaderProps {
     status: HeaderState["status"];
@@ -15,6 +15,7 @@ interface HeaderProps {
     draftWorkspaceId: HeaderState["draftWorkspaceId"];
     draftWorkspaceTitle: HeaderState["draftWorkspaceTitle"];
     focusMode: HeaderState["focusMode"];
+    settingsOpen: boolean;
     pendingRequestCount: number;
 }
 
@@ -38,6 +39,7 @@ export const Header = React.memo(function Header({
     draftWorkspaceId,
     draftWorkspaceTitle,
     focusMode,
+    settingsOpen,
     pendingRequestCount,
 }: HeaderProps): React.JSX.Element {
     const [menuOpen, setMenuOpen] = useState(false);
@@ -150,6 +152,7 @@ export const Header = React.memo(function Header({
             <select
                 className="dsh-session-select"
                 title={t("Switch session")}
+                aria-label={t("Switch session")}
                 value={sessionId ?? ""}
                 disabled={sessions.length === 0 && !currentWorkspace}
                 onChange={(event) => {
@@ -222,8 +225,19 @@ export const Header = React.memo(function Header({
             ) : null}
             <button
                 type="button"
+                className={`dsh-icon-button${settingsOpen ? " active" : ""}`}
+                title={t("Manage plugin settings")}
+                aria-label={t("Manage plugin settings")}
+                aria-pressed={settingsOpen}
+                onClick={() => postAction({ type: "manageSettings" })}
+            >
+                <PluginIcon />
+            </button>
+            <button
+                type="button"
                 className="dsh-icon-button"
                 title={t("Search sessions")}
+                aria-label={t("Search sessions")}
                 onClick={() => postAction({ type: "searchSession" })}
             >
                 <SearchIcon size={16} />

@@ -3,8 +3,8 @@
 /* ---------- composer ---------- */
 
 .dsh-composer {
+    flex: none;
     padding: var(--dsh-space-3) var(--dsh-space-4) var(--dsh-space-4);
-    border-top: 1px solid var(--dsh-border);
 }
 
 .dsh-image-drafts {
@@ -487,9 +487,33 @@
 
 .dsh-composer-row {
     position: relative;
-    display: flex;
-    gap: var(--dsh-space-2);
-    align-items: flex-end;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--dsh-space-1) var(--dsh-space-2);
+    align-items: center;
+    padding: var(--dsh-space-3);
+    border: 1px solid var(--dsh-border-subtle);
+    border-radius: 12px;
+    background: var(--vscode-input-background);
+    transition: border-color 120ms ease;
+}
+
+.dsh-composer-row:focus-within {
+    border-color: var(--vscode-focusBorder);
+}
+
+.dsh-composer-shortcut {
+    grid-row: 2;
+    grid-column: 2;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+    text-align: right;
+}
+
+@media (max-width: 320px) {
+    .dsh-composer-shortcut {
+        display: none;
+    }
 }
 
 /* Footer: persistent facts about the session, not actions on the draft. The
@@ -501,6 +525,10 @@
     flex-wrap: wrap;
     gap: var(--dsh-space-2);
     margin-top: var(--dsh-space-3);
+}
+
+.dsh-composer-footer:empty {
+    display: none;
 }
 
 /* Plan mode is a session state, but the close affordance is deliberately
@@ -650,12 +678,13 @@ button.dsh-permission-chip-danger:hover {
 
 .dsh-add-context {
     width: 30px;
-    height: 34px;
-    border: 1px solid var(--dsh-border);
+    height: 30px;
+    color: var(--vscode-descriptionForeground);
 }
 
 .dsh-attachment-anchor {
-    align-self: flex-end;
+    grid-row: 2;
+    grid-column: 1;
 }
 
 .dsh-attachment-menu {
@@ -663,6 +692,7 @@ button.dsh-permission-chip-danger:hover {
     right: auto;
     bottom: calc(100% + 4px);
     left: 0;
+    max-height: min(320px, 40vh);
 }
 
 .dsh-image-input {
@@ -670,30 +700,39 @@ button.dsh-permission-chip-danger:hover {
 }
 
 .dsh-prompt {
-    flex: 1;
+    grid-row: 1;
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
     min-height: 56px;
     max-height: 180px;
     resize: none;
-    padding: var(--dsh-space-4);
+    padding: var(--dsh-space-1);
     color: var(--vscode-input-foreground);
-    background: var(--vscode-input-background);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: var(--dsh-radius-sm);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     font: inherit;
     line-height: 1.45;
 }
 
 .dsh-prompt:focus {
-    outline: 1px solid var(--vscode-focusBorder);
+    outline: none;
+}
+
+.dsh-prompt::placeholder {
+    color: var(--vscode-input-placeholderForeground);
 }
 
 .dsh-send-button {
+    grid-row: 2;
+    grid-column: 3;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: var(--dsh-space-1);
     min-width: 54px;
-    min-height: 34px;
+    min-height: 30px;
     padding: var(--dsh-space-2) var(--dsh-space-3);
     border: 0;
     border-radius: var(--dsh-radius-sm);
