@@ -10,6 +10,7 @@ import type {
 } from "../../../src/types";
 import { postAction } from "../bridge";
 import { t } from "../i18n";
+import { PluginIcon, RefreshIcon, SearchIcon } from "./icons";
 
 const PHASE_LABELS: Readonly<Record<Exclude<DshPluginFiberPhase, null>, string>> = {
     pending: "Waiting for dependencies",
@@ -252,112 +253,121 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
     const matchingBundles = bundles.filter((bundle) => matches(bundle.name, null, normalizedQuery));
     const hasMatches = failedEntries.length > 0 || regularEntries.length > 0 || selectedRows.length > 0 || otherMatchCount > 0 || matchingBundles.length > 0;
 
-    if (inventory.loading) {
-        return <section className="dsh-plugin-inventory"><div className="dsh-settings-loading">{t("Reading plugins...")}</div></section>;
-    }
-    if (inventory.error) {
-        return (
-            <section className="dsh-plugin-inventory">
-                <div className="dsh-settings-error">{inventory.error}</div>
-                <button type="button" onClick={() => postAction({ type: "refreshPluginInventory" })}>{t("Retry")}</button>
-            </section>
-        );
-    }
-
     return (
         <section className="dsh-plugin-inventory" aria-label={t("Plugin inventory")}>
-            <div className="dsh-plugin-inventory-head">
-                <div>
-                    <strong>{t("Plugin inventory")}</strong>
-                    <small>{t("Enable or disable Runtime plugins and bundles")}</small>
-                </div>
+            <div className="dsh-plugin-inventory-toolbar">
+                <label className="dsh-plugin-inventory-search">
+                    <SearchIcon size={15} />
+                    <input
+                        type="search"
+                        value={query}
+                        aria-label={t("Search plugins")}
+                        placeholder={t("Search plugins")}
+                        onChange={(event) => setQuery(event.target.value)}
+                    />
+                </label>
                 <button
                     type="button"
+                    className="dsh-icon-button dsh-plugin-refresh"
                     disabled={inventory.loading}
                     title={t("Refresh plugin inventory")}
+                    aria-label={t("Refresh plugin inventory")}
                     onClick={() => postAction({ type: "refreshPluginInventory" })}
                 >
-                    {t("Refresh")}
+                    <RefreshIcon />
                 </button>
             </div>
             {inventory.mutation?.pending ? <div className="dsh-card-detail">{t("Applying plugin change...")}</div> : null}
             {inventory.mutation?.message ? <div role="status" className={inventory.mutation.failed ? "dsh-settings-error" : "dsh-card-detail"}>{inventory.mutation.message}</div> : null}
             {inventory.mutation?.restartRequired ? <button type="button" className="dsh-button" onClick={() => postAction({ type: "restartRuntime" })}>{t("Restart Runtime")}</button> : null}
-            <label className="dsh-plugin-inventory-search">
-                <span>{t("Search plugins")}</span>
-                <input
-                    type="search"
-                    value={query}
-                    placeholder={t("Search plugins")}
-                    onChange={(event) => setQuery(event.target.value)}
-                />
-            </label>
-            {inventory.entries.length === 0 && presets.length === 0 && bundles.length === 0 ? <div className="dsh-settings-empty">{t("No plugins are available.")}</div> : null}
-            {normalizedQuery && !hasMatches ? <div className="dsh-settings-empty">{t("No matching plugins.")}</div> : null}
-
-            {matchingBundles.length > 0 ? (
-                <details className="dsh-plugin-group" open>
-                    <summary>
-                        <strong>{t("Runtime bundles")}</strong>
-                        <span>{t("{count} bundles", { count: matchingBundles.length })}</span>
-                    </summary>
-                    <small>{t("Choose the bundles used by this Runtime profile")}</small>
-                    <ul className="dsh-plugin-cards">
-                        {matchingBundles.map((bundle) => bundleCard(bundle, inventory.mutation))}
-                    </ul>
-                </details>
+            {inventory.loading ? <div className="dsh-settings-loading" role="status">{t("Reading plugins...")}</div> : null}
+            {inventory.error ? (
+                <div className="dsh-settings-error" role="alert">
+                    <span>{inventory.error}</span>
+                    <button type="button" className="dsh-button dsh-button-secondary" disabled={inventory.loading} onClick={() => postAction({ type: "refreshPluginInventory" })}>{t("Retry")}</button>
+                </div>
             ) : null}
-
-            {selectedPreset ? (
-                <details className="dsh-plugin-group" open>
-                    <summary>
-                        <strong>{t("Session plugins")}</strong>
-                        <span>{t("{count} plugins", { count: selectedRows.length })}</span>
-                    </summary>
-                    <div className="dsh-plugin-group-head">
-                        <small>{t("Composed per session by agent presets")}</small>
-                        <select
-                            aria-label={t("Choose agent preset")}
-                            value={selectedPreset.id}
-                            onChange={(event) => setSelectedPresetId(event.target.value)}
-                        >
-                            {presets.map((preset) => <option key={preset.id} value={preset.id}>{presetLabel(preset)}</option>)}
-                        </select>
+            {!inventory.loading && !inventory.error ? <>
+                {!normalizedQuery && inventory.entries.length === 0 && presets.length === 0 && bundles.length === 0 ? (
+                    <div className="dsh-settings-empty-state">
+                        <span className="dsh-settings-empty-icon"><PluginIcon size={24} /></span>
+                        <strong>{t("No plugins are available.")}</strong>
+                        <p>{t("Add a plugin bundle to extend your Runtime.")}</p>
+                        <button type="button" className="dsh-button dsh-button-secondary" onClick={() => postAction({ type: "managePlugins" })}>{t("Install or remove plugins")}</button>
                     </div>
-                    {selectedPreset.broken !== undefined ? <div className="dsh-plugin-broken" role="alert">{selectedPreset.broken}</div> : null}
-                    {selectedRows.length > 0 ? (
-                        <ul className="dsh-plugin-cards">
-                            {selectedRows.map((row, index) => presetRowCard(selectedPreset, row, index))}
-                        </ul>
-                    ) : null}
-                    {otherMatchCount > 0 ? (
-                        <div className="dsh-plugin-hint">
-                            {t("{count} more matches in other presets", { count: otherMatchCount })}
-                            {otherPresetMatches.map((preset) => (
-                                <button type="button" key={preset.id} onClick={() => setSelectedPresetId(preset.id)}>
-                                    {presetName(preset)}
-                                </button>
-                            ))}
-                        </div>
-                    ) : null}
-                </details>
-            ) : null}
+                ) : null}
+                {normalizedQuery && !hasMatches ? (
+                    <div className="dsh-settings-empty-state" role="status">
+                        <span className="dsh-settings-empty-icon"><SearchIcon size={24} /></span>
+                        <strong>{t("No matching plugins.")}</strong>
+                        <button type="button" className="dsh-button dsh-button-secondary" onClick={() => setQuery("")}>{t("Clear search")}</button>
+                    </div>
+                ) : null}
 
-            {inventory.entries.length > 0 ? (
-                <details className="dsh-plugin-group" open={!selectedPreset}>
-                    <summary>
-                        <strong>{t("Global plugins")}</strong>
-                        <span>{t("{count} plugins", { count: failedEntries.length + regularEntries.length })}</span>
-                    </summary>
-                    <small>{t("Shared by the system and every session")}</small>
-                    {failedEntries.length + regularEntries.length > 0 ? (
+                {matchingBundles.length > 0 ? (
+                    <details className="dsh-plugin-group" open>
+                        <summary>
+                            <strong>{t("Runtime bundles")}</strong>
+                            <span>{t("{count} bundles", { count: matchingBundles.length })}</span>
+                        </summary>
+                        <small>{t("Choose the bundles used by this Runtime profile")}</small>
                         <ul className="dsh-plugin-cards">
-                            {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
-                            {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
+                            {matchingBundles.map((bundle) => bundleCard(bundle, inventory.mutation))}
                         </ul>
-                    ) : null}
-                </details>
-            ) : null}
+                    </details>
+                ) : null}
+
+                {selectedPreset ? (
+                    <details className="dsh-plugin-group" open>
+                        <summary>
+                            <strong>{t("Session plugins")}</strong>
+                            <span>{t("{count} plugins", { count: selectedRows.length })}</span>
+                        </summary>
+                        <div className="dsh-plugin-group-head">
+                            <small>{t("Composed per session by agent presets")}</small>
+                            <select
+                                aria-label={t("Choose agent preset")}
+                                value={selectedPreset.id}
+                                onChange={(event) => setSelectedPresetId(event.target.value)}
+                            >
+                                {presets.map((preset) => <option key={preset.id} value={preset.id}>{presetLabel(preset)}</option>)}
+                            </select>
+                        </div>
+                        {selectedPreset.broken !== undefined ? <div className="dsh-plugin-broken" role="alert">{selectedPreset.broken}</div> : null}
+                        {selectedRows.length > 0 ? (
+                            <ul className="dsh-plugin-cards">
+                                {selectedRows.map((row, index) => presetRowCard(selectedPreset, row, index))}
+                            </ul>
+                        ) : null}
+                        {otherMatchCount > 0 ? (
+                            <div className="dsh-plugin-hint">
+                                {t("{count} more matches in other presets", { count: otherMatchCount })}
+                                {otherPresetMatches.map((preset) => (
+                                    <button type="button" key={preset.id} onClick={() => setSelectedPresetId(preset.id)}>
+                                        {presetName(preset)}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : null}
+                    </details>
+                ) : null}
+
+                {inventory.entries.length > 0 ? (
+                    <details className="dsh-plugin-group" open={!selectedPreset}>
+                        <summary>
+                            <strong>{t("Global plugins")}</strong>
+                            <span>{t("{count} plugins", { count: failedEntries.length + regularEntries.length })}</span>
+                        </summary>
+                        <small>{t("Shared by the system and every session")}</small>
+                        {failedEntries.length + regularEntries.length > 0 ? (
+                            <ul className="dsh-plugin-cards">
+                                {failedEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
+                                {regularEntries.map((entry) => globalEntryCard(entry, enabledIn.get(entry.moduleName), managedById.get(entry.entryId), inventory.mutation))}
+                            </ul>
+                        ) : null}
+                    </details>
+                ) : null}
+            </> : null}
         </section>
     );
 }

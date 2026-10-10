@@ -1,5 +1,7 @@
 # DSH `0.2.0-rc.2` 适配报告
 
+2026-10-10 补充：[首批工作流实现与验收](./WORKFLOW_FEATURES_VALIDATION.md) 已接入 Runtime 终端、插件安装/卸载、Problems 选择与会话中心，并联调 alpha.2 的缓存投影、旧会话迁移和工作目录。下文保留此前 RC.2 审计记录；默认版本与完整 contract pin 保持 RC.2。
+
 审计目标是上游 tag [`dsh-v0.2.0-rc.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.0-rc.2)，commit `639ed015397290b3745d163aafe02ffee4aa3f84`。差异基线为 `dsh-v0.2.0-rc.1`。
 
 RC.2 对 dsh-ide 有实际影响的变化集中在异步用户问题：`@deepseek-ai/dsh-user-questions` 现在挂载 Remote contribution，新增 `userQuestions/answer` unary 和 `userQuestions/attachWait` stream。Timed `ask_user_question` 在前台等待结束后会继续 Agent，同时通过 `userQuestions` Session projection 保留可回答的问题；延迟回答会作为新的 `user-question-reply` 用户消息进入 Session。

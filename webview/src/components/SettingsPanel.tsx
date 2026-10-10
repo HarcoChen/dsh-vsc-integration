@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { DshSettingFieldView, DshSettingsCardView, DshSettingsPanelView } from "../../../src/types";
 import { postAction } from "../bridge";
 import { PluginInventoryPanel } from "./PluginInventoryPanel";
 import { t } from "../i18n";
+import { CloseIcon, ExternalLinkIcon, PluginIcon, PlusIcon } from "./icons";
 
 function fieldKey(field: DshSettingFieldView): string {
     return field.path.join("\u0000");
@@ -132,27 +133,77 @@ function SettingsCard({ card, writable }: { card: DshSettingsCardView; writable:
 }
 
 export function SettingsPanel({ settings }: { settings: DshSettingsPanelView }): React.JSX.Element {
+    const [view, setView] = useState<"plugins" | "configuration">("plugins");
+    const closeRef = useRef<HTMLButtonElement>(null);
+    useEffect(() => {
+        const previousFocus = document.activeElement;
+        closeRef.current?.focus();
+        return () => {
+            if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+        };
+    }, []);
     return (
         <section className="dsh-settings-panel" aria-label={t("Plugin settings")}>
             <div className="dsh-settings-panel-head">
-                <div>
-                    <strong>{t("Plugin settings")}</strong>
-                    <small>{t("Public Harness settings namespaces")}</small>
+                <span className="dsh-settings-heading-icon"><PluginIcon size={20} /></span>
+                <div className="dsh-settings-heading">
+                    <h2>{t("Plugins")}</h2>
+                    <small>{t("Manage plugins and their configuration")}</small>
                 </div>
-                <button type="button" onClick={() => postAction({ type: "manageSettings" })}>{t("Close")}</button>
+                <button ref={closeRef} type="button" className="dsh-icon-button" title={t("Back to conversation")} aria-label={t("Back to conversation")} onClick={() => postAction({ type: "manageSettings" })}>
+                    <CloseIcon size={16} />
+                </button>
             </div>
-            {settings.loading ? <div className="dsh-settings-loading">{t("Loading...")}</div> : null}
-            {settings.error ? <div className="dsh-settings-error">{settings.error}</div> : null}
-            {settings.pluginInventory ? <PluginInventoryPanel inventory={settings.pluginInventory} /> : null}
-            {!settings.loading && !settings.error && settings.cards.length === 0 ? (
-                <div className="dsh-settings-empty">{t("No plugin settings exposed")}</div>
-            ) : null}
-            <div className="dsh-settings-cards">
-                {settings.cards.map((card) => <SettingsCard key={card.ns} card={card} writable={settings.writable} />)}
+            <div className="dsh-settings-views" role="group" aria-label={t("Plugin views")}>
+                <button type="button" id="dsh-plugin-inventory-view" aria-pressed={view === "plugins"} aria-controls="dsh-plugin-inventory-content" onClick={() => setView("plugins")}>
+                    {t("Plugin inventory")}
+                </button>
+                <button type="button" id="dsh-plugin-configuration-view" aria-pressed={view === "configuration"} aria-controls="dsh-plugin-configuration-content" onClick={() => setView("configuration")}>
+                    {t("Plugin configuration")}
+                    {settings.cards.length > 0 ? <span className="dsh-settings-count">{settings.cards.length}</span> : null}
+                </button>
             </div>
-            <button type="button" className="dsh-settings-document" onClick={() => postAction({ type: "openBrowser" })}>
-                {t("Open advanced configuration in the dsh Web UI")}
-            </button>
+            <div className="dsh-settings-content">
+                <section id="dsh-plugin-inventory-content" aria-labelledby="dsh-plugin-inventory-view" hidden={view !== "plugins"}>
+                    <div className="dsh-settings-section-head">
+                        <div>
+                            <h3>{t("Runtime plugins")}</h3>
+                            <p>{t("Enable or disable Runtime plugins and bundles")}</p>
+                        </div>
+                        <button type="button" className="dsh-button dsh-settings-install" title={t("Install or remove plugins")} onClick={() => postAction({ type: "managePlugins" })}>
+                            <PlusIcon />{t("Manage")}
+                        </button>
+                    </div>
+                    {settings.pluginInventory ? <PluginInventoryPanel inventory={settings.pluginInventory} /> : (
+                        <div className={settings.loading ? "dsh-settings-loading" : "dsh-settings-empty"} role="status">
+                            {t(settings.loading ? "Reading plugins..." : "Plugins are temporarily unavailable.")}
+                        </div>
+                    )}
+                </section>
+                <section id="dsh-plugin-configuration-content" aria-labelledby="dsh-plugin-configuration-view" hidden={view !== "configuration"}>
+                    <div className="dsh-settings-section-head">
+                        <div><h3>{t("Plugin settings")}</h3><p>{t("Configure the plugins available in this Runtime")}</p></div>
+                    </div>
+                    {settings.loading ? <div className="dsh-settings-loading" role="status">{t("Loading...")}</div> : null}
+                    {!settings.loading && !settings.error && settings.cards.length === 0 ? (
+                        <div className="dsh-settings-empty-state">
+                            <span className="dsh-settings-empty-icon"><PluginIcon size={24} /></span>
+                            <strong>{t("No plugin settings exposed")}</strong>
+                            <p>{t("Plugin configuration will appear here when available.")}</p>
+                        </div>
+                    ) : null}
+                    <div className="dsh-settings-cards">
+                        {settings.cards.map((card) => <SettingsCard key={card.ns} card={card} writable={settings.writable} />)}
+                    </div>
+                </section>
+                {settings.error ? <div className="dsh-settings-error" role="alert">{settings.error}</div> : null}
+            </div>
+            <div className="dsh-settings-panel-footer">
+                <span>dsh Web UI</span>
+                <button type="button" className="dsh-settings-document" title={t("Open advanced configuration in the dsh Web UI")} onClick={() => postAction({ type: "openBrowser" })}>
+                    {t("Advanced configuration")}<ExternalLinkIcon />
+                </button>
+            </div>
         </section>
     );
 }

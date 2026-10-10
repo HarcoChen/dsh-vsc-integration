@@ -6,11 +6,14 @@ import { Interactions } from "./components/Interactions";
 import { ActivityDock } from "./components/dock/ActivityDock";
 import { Composer } from "./components/Composer";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { FolderIcon } from "./components/icons";
 import { StatusBanner } from "./components/StatusBanner";
 import { SessionFeedbackDialog } from "./components/SessionFeedbackDialog";
+import { t } from "./i18n";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
+    const settingsOpen = !state.focusMode && Boolean(state.settings?.open);
     return (
         <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}`}>
             <Header
@@ -22,64 +25,74 @@ export function App(): React.JSX.Element {
                 draftWorkspaceId={state.draftWorkspaceId}
                 draftWorkspaceTitle={state.draftWorkspaceTitle}
                 focusMode={state.focusMode}
+                settingsOpen={settingsOpen}
                 pendingRequestCount={state.interactions.filter((interaction) => interaction.status === "pending").length}
             />
             <StatusBanner status={state.status} sessionStatus={state.sessionStatus} />
+            {state.workingDirectory ? <div className="dsh-directory-bar" title={t("Current directory: {path}", { path: state.workingDirectory })}>
+                <FolderIcon />
+                <span>{state.workingDirectory}</span>
+            </div> : null}
             <SessionFeedbackDialog feedback={state.sessionFeedback} />
-            {!state.focusMode && state.settings ? <SettingsPanel settings={state.settings} /> : null}
-            <MessageList
-                messages={state.messages}
-                submitting={state.submitting}
-                agentStatusLabel={state.agentStatusLabel}
-                autoOpenReasoning={state.autoOpenReasoning}
-                messageFeedback={state.messageFeedback}
-            />
-            {!state.focusMode ? <Interactions interactions={state.interactions} /> : null}
-            {!state.focusMode ? (
-                <ActivityDock
-                    goal={state.goal}
-                    queue={state.queue}
-                    changeReviews={state.changeReviews}
-                    subagents={state.subagents}
-                    subagentPreview={state.subagentPreview}
-                    jobs={state.jobs}
-                    team={state.team}
-                    todos={state.todos}
-                    schedule={state.schedule}
-                    scheduleCatalog={state.scheduleCatalog}
-                    scheduleManagementAvailable={state.scheduleManagementAvailable}
-                    scheduleMutationPendingId={state.scheduleMutationPendingId}
-                    scheduleMutationResult={state.scheduleMutationResult}
-                    scheduleHistory={state.scheduleHistory}
-                    permissions={state.permissions}
-                    dynamicPlugins={state.dynamicPlugins}
-                    commands={state.commands}
-                    sessions={state.sessions}
-                    sessionId={state.sessionId}
-                    sessionRunning={state.sessionStatus?.running === true}
-                    agentPresetLabel={state.agentPresetLabel}
+            {/* Keep conversation state and attachment drafts mounted while settings are open. */}
+            <div className="dsh-conversation" hidden={settingsOpen}>
+                <MessageList
+                    visible={!settingsOpen}
+                    messages={state.messages}
+                    submitting={state.submitting}
+                    agentStatusLabel={state.agentStatusLabel}
                     autoOpenReasoning={state.autoOpenReasoning}
+                    messageFeedback={state.messageFeedback}
                 />
-            ) : null}
-            <Composer
-                context={state.context}
-                selection={state.selection}
-                selectionEnabled={state.selectionEnabled}
-                fileReferenceCandidates={state.fileReferenceCandidates}
-                skills={state.skills}
-                modeSelectionEnabled={state.modeSelectionEnabled}
-                commands={state.commands}
-                permissions={state.permissions}
-                tokenUsage={state.tokenUsage}
-                sessionStats={state.sessionStats}
-                reasoningEffort={state.reasoningEffort}
-                imageLimits={state.imageLimits}
-                plan={state.plan}
-                busy={state.busy}
-                submitting={state.submitting}
-                cancelling={state.cancelling}
-                sessionId={state.sessionId}
-            />
+                {!state.focusMode ? <Interactions interactions={state.interactions} /> : null}
+                {!state.focusMode ? (
+                    <ActivityDock
+                        goal={state.goal}
+                        queue={state.queue}
+                        changeReviews={state.changeReviews}
+                        subagents={state.subagents}
+                        subagentPreview={state.subagentPreview}
+                        jobs={state.jobs}
+                        team={state.team}
+                        todos={state.todos}
+                        schedule={state.schedule}
+                        scheduleCatalog={state.scheduleCatalog}
+                        scheduleManagementAvailable={state.scheduleManagementAvailable}
+                        scheduleMutationPendingId={state.scheduleMutationPendingId}
+                        scheduleMutationResult={state.scheduleMutationResult}
+                        scheduleHistory={state.scheduleHistory}
+                        permissions={state.permissions}
+                        dynamicPlugins={state.dynamicPlugins}
+                        commands={state.commands}
+                        sessions={state.sessions}
+                        sessionId={state.sessionId}
+                        sessionRunning={state.sessionStatus?.running === true}
+                        agentPresetLabel={state.agentPresetLabel}
+                        autoOpenReasoning={state.autoOpenReasoning}
+                    />
+                ) : null}
+                <Composer
+                    visible={!settingsOpen}
+                    context={state.context}
+                    selection={state.selection}
+                    selectionEnabled={state.selectionEnabled}
+                    fileReferenceCandidates={state.fileReferenceCandidates}
+                    skills={state.skills}
+                    modeSelectionEnabled={state.modeSelectionEnabled}
+                    commands={state.commands}
+                    permissions={state.permissions}
+                    tokenUsage={state.tokenUsage}
+                    sessionStats={state.sessionStats}
+                    reasoningEffort={state.reasoningEffort}
+                    imageLimits={state.imageLimits}
+                    plan={state.plan}
+                    busy={state.busy}
+                    submitting={state.submitting}
+                    cancelling={state.cancelling}
+                    sessionId={state.sessionId}
+                />
+            </div>
+            {settingsOpen && state.settings ? <SettingsPanel settings={state.settings} /> : null}
         </div>
     );
 }

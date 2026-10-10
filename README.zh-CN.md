@@ -109,6 +109,14 @@
 - `DSH: 浏览 Runtime 工作区文件`（也可在 `/ide` 中选择）浏览当前 DSH 会话的工作区，在编辑器打开上限为 1 MiB 的 UTF-8 文本只读预览。文件变化会刷新已打开的预览；不支持监听时可运行 `DSH: 刷新 Runtime 文件预览`。
 - 启用官方 Schedule bundle 后，定时提醒面板可跨会话列出提醒、编辑规则、查看投递历史并删除提醒；未启用时面板会提示如何开启。
 
+### Runtime 终端、插件安装与 Problems（开发分支）
+
+- `DSH: 打开 Runtime 终端` 连接当前 DSH 会话的 Host PTY，也可从聊天菜单打开。切换会话保留终端；重连恢复屏幕和输入控制权。关闭终端请求 Host 清理进程，失败时再次打开此入口重试。进程保留范围为 Host 生命周期；已有终端保留自己的工作目录。终端输入使用上游用户 Shell 权限。
+- `DSH: 安装或卸载 Runtime 插件` 使用官方插件管理器检查包来源、版本和 Bundle，安装时可取消，并查看日志和生效/需重启状态。包路径按 Runtime 主机解析；构建脚本需单独批准。Settings 和聊天菜单也提供入口。
+- 附件菜单或 `@` 候选中的“当前文件的问题”可选择诊断后附加到下一条消息。手写 `@diagnostics` 会附加当前文件诊断；附件包含位置、来源和代码，显示大小与截断状态，不自动发送。
+- `DSH: 打开会话中心` 标明会话所属 DSH Workspace，优先排列已观察到的审批、问题、错误和运行中任务，点击继续对应会话。
+- 聊天显示当前有效目录。连接 alpha.2 时，目录变更不改变原始项目归属；历史工具 Diff 和文件链接使用历史目录，同轮跨目录改动通过逐次工具 Diff 审查。
+
 ### 斜杠命令
 
 斜杠菜单会动态拉取当前会话 Runtime 注册的命令（`/plan`、`/compact`、`/goal` 等），并与扩展自有的 IDE 命令合并展示。
@@ -148,7 +156,7 @@
 
 **可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.2.0-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
-本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.2`（`639ed015397290b3745d163aafe02ffee4aa3f84`）。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录联调结果及验证边界。Runtime 工作区文件已有只读浏览入口，权限预设通过独立目录获取，Settings 支持插件启停与 Bundle 选择，显示只读原因、保存/生效状态和重启提示。Schedule 需启用可选官方 bundle。Jobs 可实时查看输出、按字节游标重连续读并取消任务；限时问答支持前台等待、重连和 webview 重建后的回答草稿恢复。Team 面板展示 `agentTeam` 投影中的成员与任务，支持成员历史预览和任务筛选。Runtime 终端输入与输出仍待接入。IDE 不调用桌面遥测 RPC。
+本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.2`（`639ed015397290b3745d163aafe02ffee4aa3f84`）。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录联调结果及验证边界。Runtime 工作区文件已有只读浏览入口，权限预设通过独立目录获取，Settings 支持插件启停与 Bundle 选择，显示只读原因、保存/生效状态和重启提示。Schedule 需启用可选官方 bundle。Jobs 可实时查看输出、按字节游标重连续读并取消任务；限时问答支持前台等待、重连和 webview 重建后的回答草稿恢复。Team 面板展示 `agentTeam` 投影中的成员与任务，支持成员历史预览和任务筛选。Runtime 终端输入、resize 和屏幕恢复，以及插件安装/卸载已在开发分支接入。IDE 不调用桌面遥测 RPC。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。官方 Desktop 注册的兼容命令会直接使用；不兼容的本机 CLI 只对已确认的旧版 npm 全局安装提供升级确认。没有兼容命令时，扩展会引导安装官方 Desktop。诊断命令不会安装或下载独立 Runtime。显式本机路径遵循相同兼容性检查；高级用户仍可显式选择 pnpm/npx。
 
@@ -161,6 +169,8 @@
 **会自动识别密钥或个人信息吗？** 不会。上下文目前只根据用户主动选择的文件、选区和附件计算大小与截断；不会把文件内容交给额外的秘密/个人信息分类器。
 
 **启动失败怎么办？** 在命令面板运行 `DSH: Diagnose Environment` 查看诊断，再用 `DSH: Show dsh Runtime Logs` 查看日志。提交 [issue](https://github.com/HarcoChen/dsh-vsc-integration/issues) 时请附上扩展版本、操作系统和脱敏后的错误信息。
+
+如果启动报 `error: unknown option '--no-open'`，但 `dsh web --help` 列出了这个参数，请检查 `$DSH_HOME/profiles/web/package.json`（默认为 `~/.dsh/profiles/web/package.json`）。当 `dsh.profile.bundles` 同时包含 `@deepseek-ai/dsh-web-app` 和 `@deepseek-ai/dsh-headless` 时，两个应用都会解析同一组参数：Web 接受该参数，headless 随后拒绝它。备份文件，从 Web profile 中移除 headless bundle，再重启 Runtime。一次性 CLI 任务使用独立的 headless profile。
 
 **支持中文吗？** 支持。命令、聊天、活动面板和 Trace 界面会跟随 VS Code 显示语言，提供英文与简体中文。
 

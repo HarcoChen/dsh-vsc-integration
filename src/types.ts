@@ -31,7 +31,7 @@ export interface DshContextItem {
 
 /** One host-resolved candidate shown by the composer `@` reference menu. */
 export interface DshReferenceCandidate {
-    kind: "file" | "directory" | "session" | "terminal";
+    kind: "file" | "directory" | "session" | "terminal" | "diagnostics";
     /** Readable label shown to the user. */
     label: string;
     /** Exact text inserted into the prompt when selected. */
@@ -435,6 +435,9 @@ export interface DshSessionSummary {
     origin?: "subagent";
     agentPreset?: string;
     projections?: DshSessionProjectionsBlock;
+    /** Sequence-free list hints; never seed the live projection store with these. */
+    cachedProjectionValues?: Record<string, unknown>;
+    formatStatus?: "current" | "migration-required";
     [key: string]: unknown;
 }
 
@@ -607,7 +610,13 @@ export interface DshPluginChangeResult {
     target: string;
     warnings?: string[];
     error?: { code: string; diagnostic?: string };
+    pendingBuilds?: string[];
+    packageResult?: { exitCode: number; output: string; truncated: boolean; logPath: string; kind?: string };
 }
+
+export type DshPluginInspection =
+    | { status: "accepted"; kind: string; bundle: boolean | null; name?: string; version?: string; description?: string; registry: string | null; host?: string }
+    | { status: "refused"; problem: string; reason: string };
 
 /** Settings-owned plugin inventory and mutation feedback. */
 export interface DshPluginInventoryPanelView extends DshPluginInventorySnapshot {
@@ -1281,6 +1290,7 @@ export interface ChatViewState {
     cancelling: boolean;
     focusMode: boolean;
     workspaceName?: string;
+    workingDirectory?: string;
     currentWorkspace?: {
         workspaceId?: string;
         title: string;

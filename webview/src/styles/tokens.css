@@ -35,9 +35,17 @@
     --dsh-surface: var(--vscode-editorWidget-background);
     --dsh-surface-hover: var(--vscode-toolbar-hoverBackground);
     --dsh-border: var(--vscode-panel-border);
+    --dsh-surface-subtle: color-mix(in srgb, var(--vscode-foreground) 4%, var(--vscode-sideBar-background));
+    --dsh-border-subtle: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
 
     /* Elevation — pop-ups above the composer share one menu shadow; the wider
        usage popover carries a slightly deeper one. */
     --dsh-shadow-menu: 0 4px 14px color-mix(in srgb, var(--vscode-editor-background) 28%, transparent);
     --dsh-shadow-popover: 0 8px 24px color-mix(in srgb, var(--vscode-editor-background) 32%, transparent);
+}
+
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+    --dsh-border-subtle: var(--vscode-contrastBorder, var(--vscode-panel-border));
+    --dsh-surface-subtle: var(--vscode-editorWidget-background);
 }
