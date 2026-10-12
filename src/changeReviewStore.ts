@@ -20,6 +20,7 @@ type ChangeStatus = "added" | "modified" | "deleted" | "renamed";
 
 interface GitContext {
     cwd: string;
+    pathPrefix: string;
     tempRoot: string;
     env: NodeJS.ProcessEnv;
 }
@@ -51,6 +52,7 @@ interface ChangeReview {
 }
 
 interface SessionReviews {
+    captureRoot: string;
     seen: Set<string>;
     reviews: Map<number, ChangeReview>;
     queue: Promise<void>;
@@ -126,7 +128,8 @@ async function readBlob(git: GitContext, hash: string): Promise<Buffer> {
 }
 
 async function readWorktreeBlob(git: GitContext, hash: string, filePath: string): Promise<Buffer> {
-    return await runGit(git, ["cat-file", "--filters", `--path=${filePath}`, hash], "buffer") as Buffer;
+    const repositoryPath = path.posix.join(git.pathPrefix, filePath);
+    return await runGit(git, ["cat-file", "--filters", `--path=${repositoryPath}`, hash], "buffer") as Buffer;
 }
 
 function workingHash(content: Buffer): string {
@@ -154,7 +157,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         if (this.disposed || !cwd) return;
         let session = this.sessions.get(sessionId);
         if (!session) {
-            session = { seen: new Set(), reviews: new Map(), queue: Promise.resolve() };
+            session = { captureRoot: cwd, seen: new Set(), reviews: new Map(), queue: Promise.resolve() };
             this.sessions.set(sessionId, session);
         }
         for (const stored of snapshot.events) {
@@ -294,7 +297,8 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         const session = this.sessions.get(sessionId);
         const review = session?.reviews.get(turn);
         if (!session || !review || review.state !== "capturing") return;
-        const git = await this.createGitContext(review.cwd);
+        // Capture the whole session workspace; cwd remains the event-time directory.
+        const git = await this.createGitContext(session.captureRoot);
         if (!git) {
             session.reviews.delete(turn);
             this.emit();
@@ -313,7 +317,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         if (review.state !== "capturing") return;
         review.afterTree = tree;
         const raw = await runGit(review.git, [
-            "diff", "--raw", "-z", "-M", "--no-abbrev", review.beforeTree, review.afterTree, "--", ".",
+            "diff", "--raw", "-z", "-M", "--no-abbrev", "--relative", review.beforeTree, review.afterTree, "--", ".",
         ], "buffer") as Buffer;
         review.files = parseRawDiff(raw);
         await this.captureWorkingHashes(review);
@@ -342,7 +346,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
                 encoding: "utf8",
             })).stdout.trim();
             objectPath = (await execFileAsync("git", ["rev-parse", "--git-path", "objects"], {
-                cwd: realCwd,
+                cwd: root,
                 encoding: "utf8",
             })).stdout.trim();
         } catch {
@@ -360,6 +364,7 @@ export class ChangeReviewStore implements vscode.Disposable, vscode.TextDocument
         await fs.mkdir(objectDirectory);
         return {
             cwd: realCwd,
+            pathPrefix: path.relative(root, realCwd).split(path.sep).join("/"),
             tempRoot,
             env: {
                 ...process.env,

@@ -683,13 +683,13 @@ function toSessionSummary(value: unknown): DshSessionSummary | undefined {
         typeof value.running !== "boolean" ||
         typeof value.blank !== "boolean" ||
         (value.parentSessionId !== undefined && typeof value.parentSessionId !== "string") ||
-        (value.origin !== undefined && value.origin !== "subagent") ||
-        (value.cwd !== undefined && typeof value.cwd !== "string") ||
-        (value.formatStatus !== undefined && value.formatStatus !== "current" && value.formatStatus !== "migration-required")
+        (value.origin !== undefined && value.origin !== "subagent")
     ) return undefined;
+    const formatStatus = value.formatStatus === "current" || value.formatStatus === "migration-required"
+        ? value.formatStatus
+        : undefined;
     const projections = value.projections === undefined ? undefined : toProjection(value.projections);
     const cached = cachedProjectionValues(value.projections);
-    if (value.projections !== undefined && projections === undefined && cached === undefined) return undefined;
     const projectedPreset = projections?.values.agentPreset ?? cached?.agentPreset;
     const agentPreset = typeof projectedPreset === "string" && projectedPreset.length > 0
         ? projectedPreset
@@ -702,7 +702,7 @@ function toSessionSummary(value: unknown): DshSessionSummary | undefined {
         ...(typeof value.parentSessionId === "string" ? { parentSessionId: value.parentSessionId } : {}),
         ...(value.origin === "subagent" ? { origin: "subagent" as const } : {}),
         ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
-        ...(value.formatStatus === undefined ? {} : { formatStatus: value.formatStatus }),
+        ...(formatStatus === undefined ? {} : { formatStatus }),
         ...(typeof cached?.title === "string" ? { title: cached.title } : {}),
         ...(cached === undefined ? {} : { cachedProjectionValues: cached }),
         ...(agentPreset === undefined ? {} : { agentPreset }),
