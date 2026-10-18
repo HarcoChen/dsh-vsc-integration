@@ -627,5 +627,15 @@
     "Change saved, but a higher priority layer overrides it.": "变更已保存，但被更高优先级的配置覆盖。",
     "Change saved, but the Runtime could not apply it.": "变更已保存，但 Runtime 未能应用。",
     "The Runtime rejected this change.": "Runtime 拒绝了此次变更。",
-    "Plugin change cancelled.": "插件变更已取消。"
+    "Plugin change cancelled.": "插件变更已取消。",
+    "The big fish is diving deep…": "大肥鱼正在深潜…",
+    "The big fish wags its tail and mulls it over…": "大肥鱼摆摆尾巴，想想办法…",
+    "The big fish rolls over and keeps thinking…": "大肥鱼翻了个身，继续思考…",
+    "The big fish is gulping context…": "大肥鱼正在吞吐上下文…",
+    "The big fish circles the tank…": "大肥鱼在鱼缸里转圈…",
+    "The big fish: I've got this one…": "大肥鱼：这题我会…",
+    "The original composition recovered in the sandbox; the fault looks like a transient startup failure.": "原始组合在沙箱中恢复健康，故障更接近瞬态启动失败。",
+    "The sandbox passed its health probe once the extension overlay was removed.": "移除扩展附加层后沙箱通过健康探针。",
+    "The sandbox passed its health probe after shrinking the bundle set: {targets}": "收缩 bundle 组合后沙箱通过健康探针：{targets}",
+    "bundle interaction": "组合交互"
 }

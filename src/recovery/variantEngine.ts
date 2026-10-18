@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { basename, resolve } from "node:path";
+import { t } from "../localize";
 import { recomputeComposition } from "./composition";
 import type {
     Attribution,
@@ -217,7 +218,7 @@ export class VariantEngine {
                 category: "transient",
                 confidence: "medium",
                 culpritIds: [],
-                humanSummary: "原始组合在沙箱中恢复健康，故障更接近瞬态启动失败。",
+                humanSummary: t("The original composition recovered in the sandbox; the fault looks like a transient startup failure."),
             };
         }
         if (variant.kind === "v4-extension-overlays-removed") {
@@ -225,14 +226,17 @@ export class VariantEngine {
                 category: "extension-overlay",
                 confidence: "high",
                 culpritIds: variant.removedOverlayPaths ?? [],
-                humanSummary: "移除扩展附加层后沙箱通过健康探针。",
+                humanSummary: t("The sandbox passed its health probe once the extension overlay was removed."),
             };
         }
         return {
             category: "bundle",
             confidence: variant.candidateFix?.targetIds.length === 1 ? "high" : "medium",
             culpritIds: variant.candidateFix?.targetIds ?? [],
-            humanSummary: `收缩 bundle 组合后沙箱通过健康探针：${variant.candidateFix?.targetIds.join(", ") || "组合交互"}`,
+            humanSummary: t(
+                    "The sandbox passed its health probe after shrinking the bundle set: {targets}",
+                    { targets: variant.candidateFix?.targetIds.join(", ") || t("bundle interaction") },
+                ),
         };
     }
 }

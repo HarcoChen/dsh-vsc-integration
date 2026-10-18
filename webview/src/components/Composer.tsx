@@ -447,7 +447,7 @@ export const Composer = React.memo(function Composer({
                         ? "Describe your task to generate a plan"
                         : "Describe a task; use @ for files, $ for skills...")}
                     value={text}
-                    disabled={submitting}
+                    readOnly={submitting}
                     rows={2}
                     aria-expanded={activeMenuId !== undefined}
                     aria-controls={activeMenuId}
@@ -487,7 +487,7 @@ export const Composer = React.memo(function Composer({
                         }
                         if (handleReferenceKeyDown(event)) return;
                         if (completion.handleCompletionKeyDown(event)) return;
-                        if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                             event.preventDefault();
                             send();
                         }
