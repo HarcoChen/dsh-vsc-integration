@@ -734,5 +734,9 @@
     "History · read-only": "历史记录 · 只读",
     "No live execution": "无实时执行状态",
     "Schedule is unavailable or access was denied. DSH 0.2.1 includes Schedule by default; check the connected profile and permissions. On 0.2.0, enable @deepseek-ai/dsh-experimental-schedule-bundle and restart the Runtime.": "Schedule 不可用或未获授权。DSH 0.2.1 默认内置 Schedule，请检查连接的配置与权限。使用 0.2.0 时，请启用 @deepseek-ai/dsh-experimental-schedule-bundle 并重启 Runtime。",
-    "Add custom models before editing their reasoning levels.": "请先添加自定义模型，再编辑其推理级别。"
+    "Add custom models before editing their reasoning levels.": "请先添加自定义模型，再编辑其推理级别。",
+    "DSH {version}: What's new": "DSH {version}：更新内容",
+    "View changelog": "查看完整更新日志",
+    "See the changelog for this version's changes.": "请查看更新日志，了解此版本的变更。",
+    "Later": "稍后"
 }

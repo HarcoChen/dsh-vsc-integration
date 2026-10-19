@@ -8,13 +8,13 @@ export async function showWhatsNewOnUpdate(context: vscode.ExtensionContext): Pr
     const version = extensionVersion(context);
     if (!version || context.globalState.get<string>(LAST_SHOWN_VERSION_KEY) === version) return;
 
-    await showWhatsNewMessage(version);
+    await showWhatsNewMessage(context, version);
     await context.globalState.update(LAST_SHOWN_VERSION_KEY, version);
 }
 
 /** Open the same notice from the command palette without changing its version marker. */
 export async function showWhatsNew(context: vscode.ExtensionContext): Promise<void> {
-    await showWhatsNewMessage(extensionVersion(context));
+    await showWhatsNewMessage(context, extensionVersion(context));
 }
 
 function extensionVersion(context: vscode.ExtensionContext): string {
@@ -22,21 +22,27 @@ function extensionVersion(context: vscode.ExtensionContext): string {
     return typeof version === "string" ? version : "";
 }
 
-async function showWhatsNewMessage(version: string): Promise<void> {
-    const configure = t("Open Jev settings");
-    const later = t("Later");
+async function showWhatsNewMessage(context: vscode.ExtensionContext, version: string): Promise<void> {
+    const changelog = vscode.Uri.joinPath(context.extensionUri, "CHANGELOG.md");
+    const contents = new TextDecoder().decode(await vscode.workspace.fs.readFile(changelog));
+    const sections = contents.split(/^## \[([^\]]+)\][^\n]*$/m);
+    const sectionIndex = sections.findIndex((section, index) => index % 2 === 1 && section === version);
+    const notes = sectionIndex < 0 ? "" : sections[sectionIndex + 1]
+        .replace(/<!--[^]*?-->/gu, "")
+        .replace(/^###\s+/gm, "")
+        .trim();
+    const viewChangelog = t("View changelog");
     const choice = await vscode.window.showInformationMessage(
-        [
-            t("DSH {version}: Jev can now use Laya.", { version }),
-            t("Run laya-serve, then set dsh.jev.baseUrl to http://127.0.0.1:8000/v1/systemone."),
-            t("Configure a non-empty Jev API key. If Laya has LAYA_API_KEY set, use the same value. Laya confidence scores differ from Jev's, so calibrate thresholds before relying on ask/block decisions."),
-        ].join("\n\n"),
-        { modal: true },
-        configure,
-        later,
+        t("DSH {version}: What's new", { version }),
+        {
+            modal: true,
+            detail: notes || t("See the changelog for this version's changes."),
+        },
+        viewChangelog,
+        t("Later"),
     );
 
-    if (choice === configure) {
-        await vscode.commands.executeCommand("workbench.action.openSettings", "dsh.jev");
+    if (choice === viewChangelog) {
+        await vscode.commands.executeCommand("markdown.showPreview", changelog);
     }
 }
