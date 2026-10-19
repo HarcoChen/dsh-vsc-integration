@@ -29,8 +29,7 @@ async function showWhatsNewMessage(context: vscode.ExtensionContext, version: st
     const sectionIndex = sections.findIndex((section, index) => index % 2 === 1 && section === version);
     const notes = sectionIndex < 0 ? "" : sections[sectionIndex + 1]
         .replace(/<!--[^]*?-->/gu, "")
-        .replace(/^###\s+/gm, "")
-        .trim();
+        .match(/^- .+/gm)?.slice(0, 3).join("\n\n") ?? "";
     const viewChangelog = t("View changelog");
     const choice = await vscode.window.showInformationMessage(
         t("DSH {version}: What's new", { version }),
