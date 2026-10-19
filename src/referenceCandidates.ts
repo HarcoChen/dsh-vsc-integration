@@ -67,15 +67,16 @@ export function normalizeSessionReferenceCandidates(
         ) return undefined;
         const sessionId = safeText(item.sessionId, MAX_SESSION_ID_LENGTH);
         const label = safeText(item.label, MAX_LABEL_LENGTH);
+        const displayTitle = item.displayTitle === undefined ? label : safeText(item.displayTitle, MAX_LABEL_LENGTH);
         const mention = safeText(item.mention, MAX_LABEL_LENGTH + MAX_SESSION_ID_LENGTH + 64);
         const cwd = item.cwd === undefined ? undefined : safeCwd(item.cwd);
-        if (!sessionId || !label || !mention || (item.cwd !== undefined && !cwd)) return undefined;
-        if (!isCanonicalSessionMention(mention, sessionId, label)) return undefined;
+        if (!sessionId || !label || !displayTitle || !mention || (item.cwd !== undefined && !cwd)) return undefined;
+        if (!isCanonicalSessionMention(mention, sessionId, displayTitle)) return undefined;
         if (seen.has(sessionId)) continue;
         seen.add(sessionId);
         candidates.push({
             sessionId,
-            label,
+            label: displayTitle,
             ...(cwd === undefined ? {} : { cwd }),
             sameWorkspace: item.sameWorkspace,
             createdAt: item.createdAt,

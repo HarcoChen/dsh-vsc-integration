@@ -50,7 +50,12 @@ export class RuntimeTerminalClient {
         private readonly connection: Pick<RemoteConnectionController, "open">) {}
 
     public async environment(sessionId: string): Promise<RuntimeTerminalEnvironment> {
-        const value = await this.unary.call<unknown>("terminal/environment", { agentId: sessionId });
+        const response = await this.unary.call<unknown>("terminal/environment", { agentId: sessionId });
+        // 0.2.0 RC.2 omits the queue limit. Bound our local queue by the
+        // advertised input limit rather than assuming an unbounded buffer.
+        const value = isRecord(response) && response.maxBufferedBytes === undefined
+            ? { ...response, maxBufferedBytes: response.maxInputBytes }
+            : response;
         if (!isRecord(value) || typeof value.cwd !== "string" ||
             ![value.maxInputBytes, value.maxBufferedBytes, value.maxCols, value.maxRows, value.scrollback].every(natural) ||
             Number(value.maxInputBytes) < 1 || Number(value.maxBufferedBytes) < 1 || Number(value.maxCols) < 1 || Number(value.maxRows) < 1) {
