@@ -71,7 +71,9 @@ export function App(): React.JSX.Element {
                         autoOpenReasoning={state.autoOpenReasoning}
                     />
                 ) : null}
+                {state.access && !state.access.owner ? <div className="dsh-card-detail" role="status">{t(state.access.available ? "Shared Runtime access · actions depend on your permissions" : "Runtime permissions unavailable · waiting for access")}</div> : null}
                 <Composer
+                    access={state.access}
                     visible={!settingsOpen}
                     context={state.context}
                     selection={state.selection}

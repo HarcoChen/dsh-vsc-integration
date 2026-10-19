@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
+import { canUseChatAction } from "./remoteActionAccess";
+import { mergeJobHistory } from "./jobHistory";
+import { configureWebSearch } from "./webSearchSettings";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
 import { captureAppShot as captureNativeAppShot } from "./appShot";
 import { DeepSeekBalanceService } from "./balanceService";
@@ -580,6 +583,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.schedulePostState();
                 }
             }),
+            new vscode.Disposable(runtime.onDidRemoteAccessChange(() => {
+                if (!runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId })) {
+                    this.liveJobs = [];
+                    this.subagents.discardSubagentPreview();
+                    this.settingsPanel = undefined;
+                }
+                this.schedulePostState();
+            })),
             new vscode.Disposable(unsubscribeSession),
             new vscode.Disposable(unsubscribeCatalog),
         );
@@ -865,7 +876,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             if (settingsResult.status === "fulfilled") {
                 this.settingsNamespaces.clear();
                 for (const namespace of settingsResult.value.namespaces) this.settingsNamespaces.set(namespace.ns, namespace);
-                this.settingsPanel = presentSettingsPanel(settingsResult.value);
+                this.settingsPanel = presentSettingsPanel({ ...settingsResult.value, writable: settingsResult.value.writable && this.runtime.remoteAccess.allows("settings/mutate") });
             } else {
                 this.settingsNamespaces.clear();
                 this.settingsPanel = {
@@ -1424,6 +1435,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         // Whatever just talked to us is the view the user is working in.
         this.activeSurface = surface;
         try {
+            if (!(message.type === "sendPrompt" && this.runtime.getStatus().state !== "running") && !canUseChatAction(this.runtime.remoteAccess, message, this.sessionId)) {
+                throw new Error(t("This action is unavailable with your Runtime permissions."));
+            }
             switch (message.type) {
                 case "ready":
                     surface.markReady();
@@ -1454,6 +1468,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "manageSettings":
                     await this.toggleSettingsPanel();
+                    break;
+                case "configureWebSearch":
+                    await configureWebSearch(this.runtime);
                     break;
                 case "managePlugins":
                     await this.managePlugins();
@@ -1983,6 +2000,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 throw new Error(t("dsh web is not running. Enable dsh.autoStart or run “DSH: Start dsh Web Runtime”."));
             }
 
+            if (!canUseChatAction(this.runtime.remoteAccess, { type: "sendPrompt", text, mode: requestedMode }, this.sessionId)) {
+                throw new Error(t("This action is unavailable with your Runtime permissions."));
+            }
             const session = await this.getOrCreateSession(sessionRoot);
             if (!hasAttachments && /^\/feedback$/u.test(text)) {
                 this.sessionFeedback.open(session);
@@ -3990,7 +4010,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 interaction.status === "unavailable" ||
                 interaction.status === "resolved",
         ) ?? [];
-        const subagentPreview = this.subagents.previewFor(this.sessionId);
+        const readableSession = !!this.sessionId && this.runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId });
+        const subagentPreview = readableSession ? this.subagents.previewFor(this.sessionId) : undefined;
         const state: ChatViewState = {
             workingDirectory: this.effectiveDirectory(),
             messages: this.renderMessages(
@@ -4002,8 +4023,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             fileReferenceCandidates: this.fileReferenceCandidates,
             ...(this.settingsPanel === undefined ? {} : { settings: {
                 ...this.settingsPanel,
+                canManagePlugins: this.runtime.remoteAccess.allows("pluginManager/installBundle"),
+                writable: this.settingsPanel.writable && this.runtime.remoteAccess.allows("settings/mutate"),
                 ...(this.settingsPanel.pluginInventory === undefined ? {} : { pluginInventory: {
                     ...this.settingsPanel.pluginInventory, mutation: this.pluginMutation,
+                    managedPlugins: this.settingsPanel.pluginInventory.managedPlugins?.map(item => ({ ...item,
+                        ...(!this.runtime.remoteAccess.allows("pluginManager/setPluginEnabled") ? { readOnlyReason: "permission-denied" } : {}) })),
+                    bundles: this.settingsPanel.pluginInventory.bundles?.map(item => ({ ...item,
+                        ...(!this.runtime.remoteAccess.allows("pluginManager/setBundleEnabled") ? { readOnlyReason: "permission-denied" } : {}) })),
                 } }),
             } }),
             ...(this.dynamicPlugins === undefined ? {} : { dynamicPlugins: this.dynamicPlugins }),
@@ -4037,6 +4064,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                   }),
             host,
             sessionId: this.sessionId,
+            access: { available: this.runtime.remoteAccess.snapshot.available, owner: this.runtime.remoteAccess.snapshot.owner,
+                canSend: this.runtime.getStatus().state !== "running" || (this.sessionId ? this.runtime.remoteAccess.allows("session/prompt", { kind: "session", id: this.sessionId }) : this.runtime.remoteAccess.allows("session/create")),
+                canCancel: !!this.sessionId && this.runtime.remoteAccess.allows("session/cancel", { kind: "session", id: this.sessionId }),
+                canConfigure: this.runtime.remoteAccess.allows("settings/mutate"),
+                canSelectModel: this.runtime.remoteAccess.snapshot.owner || !!this.sessionId && this.runtime.remoteAccess.allows("session/selectModel", { kind: "session", id: this.sessionId }),
+                canRunCommands: !!this.sessionId && this.runtime.remoteAccess.allows("commands/execute", { kind: "session", id: this.sessionId }) },
             modeSelectionEnabled: this.modeSelectionEnabled,
             ...(selectedAgentPreset === undefined ? {} : { agentPreset: selectedAgentPreset }),
             ...(selectedAgentPresetLabel === undefined ? {} : { agentPresetLabel: selectedAgentPresetLabel }),
@@ -4076,7 +4109,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(todos === undefined ? {} : { todos }),
             ...(schedule === undefined ? {} : { schedule }),
             ...(this.scheduleCatalogView === undefined ? {} : { scheduleCatalog: this.scheduleCatalogView }),
-            ...(this.sessionId && this.scheduleCatalogs.has(this.sessionId)
+            ...(this.sessionId && this.runtime.remoteAccess.allows("schedule/delete", { kind: "session", id: this.sessionId }) && this.scheduleCatalogs.has(this.sessionId)
                 ? { scheduleManagementAvailable: true }
                 : {}),
             ...(this.scheduleMutationPendingId === undefined
@@ -4092,7 +4125,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(plan === undefined ? {} : { plan }),
             ...(messageFeedback === undefined ? {} : { messageFeedback }),
             ...(sessionFeedback === undefined ? {} : { sessionFeedback }),
-            interactions: activeInteractions.map((interaction) =>
+            interactions: (this.runtime.remoteAccess.snapshot.owner ? activeInteractions : []).map((interaction) =>
                 interaction.kind === "approval"
                     ? {
                           key: interaction.key,
@@ -4165,7 +4198,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     activeGoal ? this.goalActivation.activationFor(this.sessionId, activeGoal) : undefined,
                 )
                 : undefined,
-            subagents: this.sessionId ? this.subagents.tree(this.sessionId) : undefined,
+            subagents: readableSession && this.sessionId ? this.subagents.tree(this.sessionId) : undefined,
             subagentPreview: subagentPreview
                 ? {
                       ...subagentPreview,
@@ -4176,15 +4209,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                       ),
                   }
                 : undefined,
-            jobs: this.sessionId
-                ? (this.jobWatchReady
-                    ? this.liveJobs.map((job) => ({ ...job, canKill: job.canKill === true && !this.jobKillPending.has(job.id) }))
-                    : presentJobCenter(this.sessionId, session?.jobs.items ?? []))
+            jobs: readableSession && this.sessionId
+                ? mergeJobHistory(this.sessionId, session?.events ?? [], (this.jobWatchReady
+                    ? this.liveJobs.map((job) => ({ ...job, canKill: job.canKill === true && this.runtime.remoteAccess.allows("job/kill", { kind: "session", id: this.sessionId }) && !this.jobKillPending.has(job.id) }))
+                    : presentJobCenter(this.sessionId, session?.jobs.items ?? [])))
                 : [],
             team: this.sessionId
                 ? normalizeAgentTeamProjection(projectionValue(session, "agentTeam"))
                 : undefined,
-            changeReviews: this.changeReviews.view(this.sessionId),
+            changeReviews: readableSession ? this.changeReviews.view(this.sessionId) : [],
         };
         for (const surface of this.surfaces) {
             surface.post({

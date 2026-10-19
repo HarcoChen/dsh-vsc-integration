@@ -27,12 +27,12 @@ export function JobsPanel({ jobs }: { jobs: ChatViewState["jobs"] }): React.JSX.
     }, [hasLiveJob]);
     return (
         <div>
-            <div className="dsh-card-detail">{t("Job Center · live output")}</div>
+            <div className="dsh-card-detail">{t("Job Center · live output and history")}</div>
             {jobs.map((job) => (
                 <div className="dsh-job-row" key={job.id}>
                     <div className="dsh-job-label">{job.label}</div>
                     <div className="dsh-job-meta">
-                        {job.kind} · {t(({ running: "Running", stopping: "Stopping...", completed: "Completed", killed: "Cancelled", failed: "Failed" })[job.status])} · {job.id} · {formatJobDuration((job.finishedAt ?? now) - job.startedAt)}
+                        {job.historical ? `${t("History · read-only")} · ` : ""}{job.kind} · {t(({ running: "Running", stopping: "Stopping...", completed: "Completed", killed: "Cancelled", failed: "Failed", unavailable: "No live execution" })[job.status])} · {job.id} · {formatJobDuration((job.finishedAt ?? (job.historical ? job.startedAt : now)) - job.startedAt)}
                         {job.progress ? ` · ${job.progress}` : ""}
                     </div>
                     <div className="dsh-job-owner">{job.ownerSessionId ? t("owner {owner}", { owner: job.ownerSessionId }) : t("Unowned job")}</div>

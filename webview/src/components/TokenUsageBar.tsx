@@ -4,6 +4,7 @@ import { numberFormatter, t } from "../i18n";
 import { postAction } from "../bridge";
 
 interface TokenUsageBarProps {
+    canSelectModel?: boolean;
     usage: TokenUsageView | undefined;
 }
 
@@ -81,7 +82,7 @@ function ChartRow({
     );
 }
 
-export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element | null {
+export function TokenUsageBar({ usage, canSelectModel }: TokenUsageBarProps): React.JSX.Element | null {
     const [hovered, setHovered] = useState(false);
     const [focused, setFocused] = useState(false);
     const anchorRef = useRef<HTMLDivElement>(null);
@@ -300,6 +301,7 @@ export function TokenUsageBar({ usage }: TokenUsageBarProps): React.JSX.Element 
             <button
                 type="button"
                 className="dsh-usage-model"
+                disabled={canSelectModel === false}
                 title={t("Select the current session model")}
                 onClick={() => postAction({ type: "selectModel" })}
             >

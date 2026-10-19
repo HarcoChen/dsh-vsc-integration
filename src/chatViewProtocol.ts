@@ -26,6 +26,7 @@ export type ChatViewAction =
     | { type: "manageProviders" }
     | { type: "manageSettings" }
     | { type: "managePlugins" }
+    | { type: "configureWebSearch" }
     | { type: "refreshPluginInventory" }
     | { type: "setPluginEnabled"; entryId: string; enabled: boolean }
     | { type: "setBundleEnabled"; name: string; enabled: boolean }
@@ -320,6 +321,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "configureApiKey":
         case "manageProviders":
         case "manageSettings":
+        case "configureWebSearch":
         case "managePlugins":
         case "openSettingsDocument":
         case "manageWorkspaces":

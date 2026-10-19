@@ -170,11 +170,11 @@ export function SettingsPanel({ settings }: { settings: DshSettingsPanelView }):
                             <h3>{t("Runtime plugins")}</h3>
                             <p>{t("Enable or disable Runtime plugins and bundles")}</p>
                         </div>
-                        <button type="button" className="dsh-button dsh-settings-install" title={t("Install or remove plugins")} onClick={() => postAction({ type: "managePlugins" })}>
+                        <button type="button" className="dsh-button dsh-settings-install" disabled={settings.canManagePlugins === false} title={t("Install or remove plugins")} onClick={() => postAction({ type: "managePlugins" })}>
                             <PlusIcon />{t("Manage")}
                         </button>
                     </div>
-                    {settings.pluginInventory ? <PluginInventoryPanel inventory={settings.pluginInventory} /> : (
+                    {settings.pluginInventory ? <PluginInventoryPanel inventory={settings.pluginInventory} canManagePackages={settings.canManagePlugins} /> : (
                         <div className={settings.loading ? "dsh-settings-loading" : "dsh-settings-empty"} role="status">
                             {t(settings.loading ? "Reading plugins..." : "Plugins are temporarily unavailable.")}
                         </div>
@@ -183,6 +183,7 @@ export function SettingsPanel({ settings }: { settings: DshSettingsPanelView }):
                 <section id="dsh-plugin-configuration-content" aria-labelledby="dsh-plugin-configuration-view" hidden={view !== "configuration"}>
                     <div className="dsh-settings-section-head">
                         <div><h3>{t("Plugin settings")}</h3><p>{t("Configure the plugins available in this Runtime")}</p></div>
+                        <button type="button" className="dsh-button" disabled={!settings.writable} onClick={() => postAction({ type: "configureWebSearch" })}>{t("Web search and fetch")}</button>
                     </div>
                     {settings.loading ? <div className="dsh-settings-loading" role="status">{t("Loading...")}</div> : null}
                     {!settings.loading && !settings.error && settings.cards.length === 0 ? (

@@ -94,6 +94,7 @@ export function canTogglePlan(
 
 export type ComposerState = Pick<
     ChatViewState,
+    | "access"
     | "context"
     | "selection"
     | "selectionEnabled"

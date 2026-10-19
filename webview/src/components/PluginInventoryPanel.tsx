@@ -26,6 +26,7 @@ function phaseLabel(phase: DshPluginFiberPhase): string {
 
 function readOnlyLabel(reason: string): string {
     if (reason === "management-required") return t("Required by plugin management");
+    if (reason === "permission-denied") return t("This action is unavailable with your Runtime permissions.");
     if (reason === "unaddressable") return t("This row cannot be addressed by the profile patch");
     return reason;
 }
@@ -211,7 +212,7 @@ function bundleCard(bundle: DshPluginBundleInfo, mutation: DshPluginInventoryPan
     );
 }
 
-export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInventoryPanelView }): React.JSX.Element {
+export function PluginInventoryPanel({ inventory, canManagePackages }: { inventory: DshPluginInventoryPanelView; canManagePackages?: boolean }): React.JSX.Element {
     const [query, setQuery] = useState("");
     const [selectedPresetId, setSelectedPresetId] = useState<string | undefined>();
     const presets = inventory.agentPresets ?? [];
@@ -293,7 +294,7 @@ export function PluginInventoryPanel({ inventory }: { inventory: DshPluginInvent
                         <span className="dsh-settings-empty-icon"><PluginIcon size={24} /></span>
                         <strong>{t("No plugins are available.")}</strong>
                         <p>{t("Add a plugin bundle to extend your Runtime.")}</p>
-                        <button type="button" className="dsh-button dsh-button-secondary" onClick={() => postAction({ type: "managePlugins" })}>{t("Install or remove plugins")}</button>
+                        <button type="button" className="dsh-button dsh-button-secondary" disabled={canManagePackages === false} onClick={() => postAction({ type: "managePlugins" })}>{t("Install or remove plugins")}</button>
                     </div>
                 ) : null}
                 {normalizedQuery && !hasMatches ? (

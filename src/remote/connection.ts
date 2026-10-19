@@ -1,9 +1,11 @@
+import { compareRuntimeVersions } from "../runtimeVersion";
+import { RemoteAccessState } from "./access";
 import {
     type RemoteEventFrame,
     type RemoteEventReadyFrame,
     type RemoteEventResultRequest,
 } from "./contracts";
-import { RemoteCarrierError } from "./errors";
+import { RemoteCarrierError, RemoteHttpError, isRemoteError } from "./errors";
 import { RemoteEventController } from "./events";
 import { RemoteStreamMuxClient, type RemoteStreamMuxClientOptions } from "./muxClient";
 import { RemoteUnaryClient } from "./unaryClient";
@@ -31,6 +33,14 @@ interface ReadyWaiter {
  * streams to callers.
  */
 export class RemoteConnectionController implements AsyncDisposable {
+    public readonly access = new RemoteAccessState();
+    private runtimeVersion?: string;
+    public setRuntimeVersion(version: string): void { this.runtimeVersion = version; }
+    private accessReady: Promise<void> = Promise.resolve();
+    private readonly accessListeners = new Set<() => void>();
+    public onAccessChange(listener: () => void): () => void { this.accessListeners.add(listener); return () => this.accessListeners.delete(listener); }
+    private publishAccess(): void { for (const listener of this.accessListeners) listener(); }
+
     public readonly mux: RemoteStreamMuxClient;
     public readonly unary: RemoteUnaryClient;
     private eventController: RemoteEventController | undefined;
@@ -103,6 +113,8 @@ export class RemoteConnectionController implements AsyncDisposable {
         this.stopped = true;
         this.readyGeneration = 0;
         this.eventAbort?.abort();
+        this.access.reset();
+        this.publishAccess();
         for (const waiter of [...this.readyWaiters]) {
             waiter.reject(new Error("DSH Remote connection stopped"));
             this.readyWaiters.delete(waiter);
@@ -134,6 +146,7 @@ export class RemoteConnectionController implements AsyncDisposable {
         outcome: RemoteEventResultRequest["outcome"],
         signal?: AbortSignal,
     ): Promise<void> {
+        if (!this.access.snapshot.owner) throw new Error("Only the Runtime owner can answer interactive requests");
         const controller = this.eventController;
         if (!controller) throw new Error("Remote event stream is not ready");
         await controller.answer(eventId, outcome, signal);
@@ -146,16 +159,55 @@ export class RemoteConnectionController implements AsyncDisposable {
         this.eventAbort?.abort();
         const eventAbort = new AbortController();
         this.eventAbort = eventAbort;
+        this.access.reset();
+        this.publishAccess();
+        let resolveAccess!: () => void;
+        this.accessReady = new Promise<void>(resolve => { resolveAccess = resolve; });
+        void (async () => {
+            let first = true;
+            try {
+                for await (const frame of this.mux.open("remoteAccess/follow", {}, eventAbort.signal)) {
+                    if (eventAbort.signal.aborted || generation !== this.generation) return;
+                    this.access.apply(frame, first);
+                    first = false;
+                    resolveAccess();
+                    this.publishAccess();
+                }
+                if (!eventAbort.signal.aborted) throw new Error("Remote access stream ended; refresh to reconnect");
+            } catch (error) {
+                if (eventAbort.signal.aborted || generation !== this.generation) return;
+                // Only a missing endpoint on legacy Hosts permits owner compatibility.
+                if (first && this.runtimeVersion && (compareRuntimeVersions(this.runtimeVersion, "0.2.1-alpha.3") ?? 1) < 0 &&
+                    ((error instanceof RemoteHttpError && error.status === 404) || (isRemoteError(error) && error.code === "gateway/invocation-unavailable"))) this.access.legacyOwner();
+                else if (!first && this.access.snapshot.owner) {
+                    // A fixed owner principal needs no grants; snapshot loss cannot revoke ownership.
+                    this.options.onDiagnostic?.("Owner access snapshot ended; owner permissions remain available", error);
+                } else {
+                    this.access.reset();
+                    this.options.onDiagnostic?.("Remote access unavailable; permissions disabled", error);
+                }
+                resolveAccess();
+                this.publishAccess();
+            }
+        })();
         const controller = new RemoteEventController(this.mux, this.unary, {
             onReady: (ready, currentGeneration) => this.onEventsReady(ready, currentGeneration),
             onEmit: (frame, currentGeneration) => this.emitEvent(frame, currentGeneration),
             onWaterfall: (frame, currentGeneration) => this.emitEvent(frame, currentGeneration),
             onCancel: (frame, currentGeneration) => this.emitEvent(frame, currentGeneration),
-            onDiagnostic: (message, cause) => this.options.onDiagnostic?.(message, cause),
+            onDiagnostic: (message, cause) => {
+                if (isRemoteError(cause) && (cause.code === "gateway/interactions-forbidden" || cause.code === "remote-access/denied")) return;
+                this.options.onDiagnostic?.(message, cause);
+            },
         });
         this.eventController = controller;
         this.eventPump = controller.consume(generation, eventAbort.signal).catch((error) => {
             if (eventAbort.signal.aborted || !this.running) return;
+            if (isRemoteError(error) && (error.code === "gateway/interactions-forbidden" || error.code === "remote-access/denied")) {
+                // Read-only Peers can follow Session state without joining the interactive event channel.
+                this.onEventsReady({ type: "ready", clientId: "", host: { home: "" } }, generation);
+                return;
+            }
             this.options.onDiagnostic?.("Remote event generation failed", error);
             this.readyGeneration = 0;
             this.emitState("reconnecting");
@@ -164,6 +216,10 @@ export class RemoteConnectionController implements AsyncDisposable {
     }
 
     private onEventsReady(ready: RemoteEventReadyFrame, generation: number): void {
+        void this.accessReady.then(() => this.finishEventsReady(ready, generation));
+    }
+
+    private finishEventsReady(ready: RemoteEventReadyFrame, generation: number): void {
         if (!this.running || generation !== this.generation) return;
         this.readyGeneration = generation;
         this.emitState("connected");
@@ -191,6 +247,8 @@ export class RemoteConnectionController implements AsyncDisposable {
         if (generation !== this.generation || !this.running) return;
         this.readyGeneration = 0;
         this.eventAbort?.abort(error);
+        this.access.reset();
+        this.publishAccess();
         // Do not let an answer race a dead generation while the event pump's
         // finally/catch path is still unwinding.  The next physical open
         // installs a fresh controller and client id.

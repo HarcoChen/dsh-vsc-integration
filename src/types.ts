@@ -965,6 +965,7 @@ export interface DshSettingsCardView {
 }
 
 export interface DshSettingsPanelView {
+    canManagePlugins?: boolean;
     open: boolean;
     loading?: boolean;
     writable: boolean;
@@ -1274,6 +1275,7 @@ export interface DshAssistantMessage {
 }
 
 export interface ChatViewState {
+    access?: { available: boolean; owner: boolean; canSend: boolean; canCancel: boolean; canConfigure: boolean; canSelectModel: boolean; canRunCommands: boolean };
     messages: ChatMessage[];
     context: DshContextItem[];
     fileReferenceCandidates?: DshReferenceCandidate[];
@@ -1711,7 +1713,8 @@ export interface JobCenterItem {
     kind: string;
     label: string;
     ownerSessionId: string;
-    status: DshJobView["status"];
+    status: DshJobView["status"] | "unavailable";
+    historical?: boolean;
     outputSummary?: string;
     outputText?: string;
     outputGap?: boolean;

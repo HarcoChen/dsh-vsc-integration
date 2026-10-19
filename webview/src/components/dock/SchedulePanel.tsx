@@ -221,7 +221,7 @@ export function SchedulePanel({
             </div>
             {catalog?.status === "unavailable" ? (
                 <div className="dsh-card-detail" role="status">
-                    {t("The connected Runtime does not expose the Schedule catalog. On dsh 0.2.0-rc.2, enable the official bundle @deepseek-ai/dsh-experimental-schedule-bundle from Settings → Runtime bundles, then restart the Runtime.")}
+                    {t("Schedule is unavailable or access was denied. DSH 0.2.1 includes Schedule by default; check the connected profile and permissions. On 0.2.0, enable @deepseek-ai/dsh-experimental-schedule-bundle and restart the Runtime.")}
                 </div>
             ) : null}
             {schedule?.length === 0 ? (

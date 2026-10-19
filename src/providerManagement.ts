@@ -1,3 +1,4 @@
+import { schemaNodeAtPath } from "./settingsSchema";
 import * as vscode from "vscode";
 import { hasPath, valueAtPath } from "./chatViewPresentation";
 import { DshRuntime } from "./dshRuntime";
@@ -149,7 +150,7 @@ async function loadRows(
     return { rows, settings, ...(catalog === undefined ? {} : { catalog }) };
 }
 
-type ProviderAction = "configure" | "discover" | "models" | "set-key" | "unset-key" | "document" | "remove";
+type ProviderAction = "configure" | "discover" | "reasoning" | "models" | "set-key" | "unset-key" | "document" | "remove";
 
 function profileObject(value: unknown): Record<string, unknown> | undefined {
     return value && typeof value === "object" && !Array.isArray(value)
@@ -164,30 +165,6 @@ function profileFor(row: ProviderManagementRow, source: unknown = row.namespace?
 function stringField(profile: Record<string, unknown>, key: string): string | undefined {
     const value = profile[key];
     return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function schemaNodeAtPath(schema: unknown, path: readonly string[]): Record<string, unknown> | undefined {
-    if (!schema || typeof schema !== "object" || Array.isArray(schema)) return undefined;
-    let node = schema as Record<string, unknown>;
-    if (typeof node.uid === "number" && node.refs && typeof node.refs === "object" && !Array.isArray(node.refs)) {
-        const root = (node.refs as Record<string, unknown>)[String(node.uid)];
-        if (!root || typeof root !== "object" || Array.isArray(root)) return undefined;
-        node = root as Record<string, unknown>;
-    }
-    for (const segment of path) {
-        const type = node.type;
-        if (type === "object" && node.dict && typeof node.dict === "object" && !Array.isArray(node.dict)) {
-            const child = (node.dict as Record<string, unknown>)[segment];
-            if (!child || typeof child !== "object" || Array.isArray(child)) return undefined;
-            node = child as Record<string, unknown>;
-        } else if ((type === "dict" || type === "array") && node.inner
-            && typeof node.inner === "object" && !Array.isArray(node.inner)) {
-            node = node.inner as Record<string, unknown>;
-        } else {
-            return undefined;
-        }
-    }
-    return node;
 }
 
 function protocolChoicesForNamespace(namespace: DshSettingsNamespaceView | undefined): string[] {
@@ -281,6 +258,10 @@ async function chooseProviderAction(
             label: `$(cloud-download) ${t("Discover models")}`,
             detail: t("Query this provider with the current endpoint and adopt models"),
         });
+    }
+    if (settingsWritable && row.namespace && row.entry.settingsNs === "llm-pi-ai") {
+        actions.push({ action: "reasoning", label: `$(settings) ${t("Edit model reasoning levels")}`,
+            detail: t("Configure offered levels and their protocol values for a custom model") });
     }
     if (row.modelGroup || row.modelFailure) {
         actions.push({
@@ -885,6 +866,10 @@ export async function manageProviders(deps: ProviderManagementDeps): Promise<voi
                 await discoverProviderModels(deps, choice.row);
                 continue;
             }
+            if (action === "reasoning") {
+                await editModelReasoning(deps, choice.row);
+                continue;
+            }
             if (action === "models") {
                 await viewProviderModels(choice.row);
                 continue;
@@ -904,4 +889,54 @@ export async function manageProviders(deps: ProviderManagementDeps): Promise<voi
             void vscode.window.showErrorMessage(t("DSH: Provider action failed: {message}", { message }));
         }
     }
+}
+
+async function editModelReasoning(deps: ProviderManagementDeps, row: ProviderManagementRow): Promise<void> {
+    const namespace = row.namespace;
+    if (!namespace) return;
+    const models = Array.isArray(profileFor(row).models) ? currentModels(row) : [];
+    if (!models.length) {
+        void vscode.window.showInformationMessage(t("Add custom models before editing their reasoning levels."));
+        return;
+    }
+    const picked = await vscode.window.showQuickPick(models.map((model, index) => ({ label: String(model.id), index })),
+        { title: t("Edit model reasoning levels") });
+    if (!picked) return;
+    const model = models[picked.index]!;
+    const mode = await vscode.window.showQuickPick([
+        { label: t("Inherit model reasoning levels"), mode: "inherit" },
+        { label: t("Disable model reasoning"), mode: "disable" },
+        { label: t("Configure model reasoning levels"), mode: "configure" },
+    ], { title: String(model.id) });
+    if (!mode) return;
+    if (mode.mode === "inherit") delete model.reasoningEfforts;
+    else if (mode.mode === "disable") model.reasoningEfforts = false;
+    else {
+        const schema = schemaNodeAtPath(namespace.schema, [...row.entry.settingsPath, "models", "0", "reasoningEfforts"]);
+        const union = Array.isArray(schema?.list) ? schema.list : [];
+        const dict = union.find((item: unknown) => !!item && typeof item === "object" && (item as Record<string, unknown>).type === "dict") as Record<string, unknown> | undefined;
+        const key = dict?.sKey as Record<string, unknown> | undefined;
+        const values = Array.isArray(key?.list) ? key.list.flatMap((item: unknown) => {
+            const value = item && typeof item === "object" ? (item as Record<string, unknown>).value : undefined;
+            return typeof value === "string" ? [value] : [];
+        }) : [];
+        // Do not invent levels when an older/reduced Host omits the schema.
+        if (!values.length) throw new Error(t("The Runtime does not expose editable reasoning levels."));
+        const current = model.reasoningEfforts && typeof model.reasoningEfforts === "object" ? model.reasoningEfforts as Record<string, unknown> : {};
+        const selected = await vscode.window.showQuickPick(values.map(label => ({ label, picked: Object.hasOwn(current, label) })),
+            { canPickMany: true, title: t("Select reasoning levels") });
+        if (!selected) return;
+        if (!selected.length) throw new Error(t("Select at least one reasoning level, or disable reasoning."));
+        const efforts: Record<string, string | null> = {};
+        for (const level of selected) {
+            const wire = await vscode.window.showInputBox({ title: `${model.id} · ${level.label}`,
+                prompt: t("Protocol value; leave empty only for the off level"),
+                value: typeof current[level.label] === "string" ? current[level.label] as string : level.label === "off" ? "" : level.label,
+                validateInput: value => level.label !== "off" && !value.trim() ? t("Enter a protocol value.") : undefined });
+            if (wire === undefined) return;
+            efforts[level.label] = wire.trim() || null;
+        }
+        model.reasoningEfforts = efforts;
+    }
+    await deps.runtime.mutateSettings(row.entry.settingsNs, profileFieldOps(row, { models }), namespace.revision);
 }

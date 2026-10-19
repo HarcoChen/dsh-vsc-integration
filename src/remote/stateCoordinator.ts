@@ -96,6 +96,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         this.unary = connection.unary;
         this.historyPageSize = Math.max(1, options.historyPageSize ?? 100);
         this.runtimeVersion = options.runtimeVersion ?? RUNTIME_DEFAULT_VERSION;
+        connection.setRuntimeVersion(this.runtimeVersion);
         this.catalog = new HarnessCatalogStore();
         this.sessions = new HarnessSessionStore((diagnostic) =>
             sinks.onDiagnostic?.(diagnostic.message, diagnostic.value),
@@ -113,7 +114,14 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                         : undefined,
             );
             sinks.onSessionChange?.(sessionId, snapshot);
-            if (snapshot.needsHistoryBaseline && !this.stopped) void this.syncHistory(sessionId);
+            if (snapshot.needsHistoryBaseline && !this.stopped && connection.access.allows("session/follow", { kind: "session", id: sessionId })) void this.syncHistory(sessionId);
+        });
+        connection.onAccessChange(() => {
+            const canRead = (id: string): boolean => connection.access.allows("session/follow", { kind: "session", id });
+            this.generationAbort?.abort();
+            this.sessions.clearUnreadSessions(canRead);
+            this.sessions.markRemoteInteractionsUnavailable();
+            if (!this.stopped && connection.isReady && this.latestReady) this.onConnected(this.latestReady, connection.currentGeneration);
         });
         connection.onConnected((ready, generation) => this.onConnected(ready, generation));
         connection.onEvent((frame) => this.onRemoteEvent(frame));
@@ -131,6 +139,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     /** Version verified from the selected CLI or shared lock, before starting its streams. */
     public setRuntimeVersion(version: string): void {
         this.runtimeVersion = version;
+        this.connection.setRuntimeVersion(version);
     }
 
     public start(): void {
@@ -154,6 +163,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     }
 
     public syncHistory(sessionId: string): Promise<void> {
+        if (!this.connection.access.allows("session/follow", { kind: "session", id: sessionId })) return Promise.resolve();
         // A selected Team member remains parent-addressed during history repair.
         const address = [...this.desiredAddresses.values()].find((candidate) => candidate.kind === "subagent" && candidate.childSessionId === sessionId)
             ?? { kind: "session" as const, sessionId };
@@ -193,6 +203,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     public async refreshCatalog(signal?: AbortSignal): Promise<void> {
         // The RC descriptor intentionally names this reserved parameter
         // `_request`; it is not the old `request` payload convention.
+        if (!this.connection.access.allows("session/list")) { this.catalog.replaceRemoteSessions({ items: [] }); return; }
         const value = await this.unary.call<unknown>("session/list", { _request: {} }, signal);
         if (signal?.aborted) return;
         const result = toSessionList(value);
@@ -264,7 +275,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             beforeSeq = next;
             hasMore = page.hasMore === true;
         }
-        if (signal.aborted || this.stopped || generation !== this.connection.currentGeneration) return;
+        if (signal.aborted || this.stopped || generation !== this.connection.currentGeneration || !this.connection.access.allows("session/follow", { kind: "session", id: sessionId })) return;
         this.catalog.applyProjectionBaseline(sessionId, tail.projections);
         this.sessions.replaceRemoteBaseline(sessionId, {
             events: pages.flat(),
@@ -273,7 +284,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         }, tail.cursor);
     }
 
+    private latestReady?: RemoteEventReadyFrame;
+
     private onConnected(ready: RemoteEventReadyFrame, generation: number): void {
+        this.latestReady = ready;
         this.generationAbort?.abort();
         for (const abort of this.followAborts.values()) abort.abort();
         this.followAborts.clear();
@@ -282,13 +296,14 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         this.controlBaseline = undefined;
         this.catalog.beginRemoteBaseline();
         this.catalog.resetRemoteGeneration();
+        if (!this.connection.access.allows("workspace/follow")) this.catalog.replaceRemoteWorkspaces({ items: [], archivedSessionIds: [], pinnedSessionIds: [] });
         const abort = new AbortController();
         this.generationAbort = abort;
         void this.openGenerationStreams(abort.signal, generation, ready)
             .catch((error) => {
                 if (abort.signal.aborted || this.stopped || generation !== this.connection.currentGeneration) return;
                 this.diagnostic("Remote generation baseline failed", error);
-                this.connection.reconnect();
+                if (!isRemoteError(error)) this.connection.reconnect();
             });
     }
 
@@ -301,8 +316,8 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         const controlReady = deferred();
         const workspaceReady = deferred();
         const tasks: Promise<void>[] = [
-            this.consumeControl(signal, controlReady),
-            this.consumeWorkspace(signal, workspaceReady),
+            this.connection.access.allows("session/control") ? this.consumeControl(signal, controlReady) : Promise.resolve(controlReady.resolve()),
+            this.connection.access.allows("workspace/follow") ? this.consumeWorkspace(signal, workspaceReady) : Promise.resolve(workspaceReady.resolve()),
         ];
         try {
             await Promise.all([controlReady.promise, workspaceReady.promise]);
@@ -445,7 +460,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     }
 
     private startAddressFollow(address: RemoteSessionAddress): void {
-        if (!this.generationReady || this.stopped) return;
+        if (!this.generationReady || this.stopped || !this.connection.access.allows("session/follow", { kind: "session", id: address.kind === "session" ? address.sessionId : address.childSessionId })) return;
         const signal = this.generationAbort?.signal;
         if (!signal || signal.aborted) return;
         const key = addressKey(address);

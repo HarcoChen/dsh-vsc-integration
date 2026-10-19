@@ -19,6 +19,7 @@ const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 180;
 
 interface ComposerProps {
+    access?: ComposerState["access"];
     visible?: boolean;
     context: ComposerState["context"];
     selection: ComposerState["selection"];
@@ -40,6 +41,7 @@ interface ComposerProps {
 }
 
 export const Composer = React.memo(function Composer({
+    access,
     visible = true,
     context,
     selection,
@@ -76,7 +78,7 @@ export const Composer = React.memo(function Composer({
     // pending. Fold it the same way as Harness UI: entering plan mode is
     // effective while pending, leaving it is effective immediately.
     const planActive = plan !== undefined && (plan.pending ? !plan.active : plan.active);
-    const planCommandAvailable = canTogglePlan(commands);
+    const planCommandAvailable = canTogglePlan(commands) && access?.canRunCommands !== false;
 
     const togglePlan = useCallback((): void => {
         if (!planCommandAvailable) return;
@@ -184,7 +186,7 @@ export const Composer = React.memo(function Composer({
     }, [completion.resetSlashIndex]);
 
     const send = useCallback((): void => {
-        if (submitting) return;
+        if (submitting || access?.canSend === false) return;
         const value = textareaRef.current?.value ?? text;
         const attached = imageDrafts.images.length > 0 || fileDrafts.files.length > 0;
         if (!value.trim() && !attached) return;
@@ -199,7 +201,7 @@ export const Composer = React.memo(function Composer({
         setText("");
         imageDrafts.clear();
         fileDrafts.clear();
-    }, [completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text]);
+    }, [access?.canSend, completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text]);
 
     const sendLabel = t("Send");
     const quotedReferenceMatch = text.match(/(?:^|\s)@"([^"]*)$/u);
@@ -300,7 +302,7 @@ export const Composer = React.memo(function Composer({
             {effortVisible ? (
                 <ReasoningEffortControl
                     control={reasoningEffort}
-                    submitting={submitting}
+                    submitting={submitting || access?.canSelectModel === false}
                     busy={busy}
                     onDismiss={() => setEffortVisible(false)}
                 />
@@ -522,10 +524,10 @@ export const Composer = React.memo(function Composer({
                 <button
                     type="button"
                     className={`dsh-send-button${busy ? " dsh-button-secondary" : ""}`}
-                    title={busy ? t("Stop") : sendLabel}
+                    title={access?.canSend === false && !busy ? t("Read-only Runtime access") : busy ? t("Stop") : sendLabel}
                     disabled={busy
-                        ? cancelling
-                        : submitting || (!text.trim() && imageDrafts.images.length === 0 && fileDrafts.files.length === 0)}
+                        ? cancelling || access?.canCancel === false
+                        : access?.canSend === false || submitting || (!text.trim() && imageDrafts.images.length === 0 && fileDrafts.files.length === 0)}
                     onClick={() => {
                         if (busy) {
                             postAction({ type: "cancel" });
@@ -565,9 +567,9 @@ export const Composer = React.memo(function Composer({
                 ) : null}
                 <PermissionModeChip
                     permissions={permissions}
-                    switchable={canSwitchPermissions(commands)}
+                    switchable={canSwitchPermissions(commands) && access?.canRunCommands !== false}
                 />
-                <TokenUsageBar usage={tokenUsage} />
+                <TokenUsageBar usage={tokenUsage} canSelectModel={access?.canSelectModel} />
                 <SessionStats stats={sessionStats} />
             </div>
         </div>

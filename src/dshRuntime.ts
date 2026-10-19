@@ -2872,6 +2872,9 @@ export class DshRuntime implements vscode.Disposable {
         }, signal).then((models) => ({ models }));
     }
 
+    public get remoteAccess() { return this.remoteConnection.access; }
+    public onDidRemoteAccessChange(listener: () => void): () => void { return this.remoteConnection.onAccessChange(listener); }
+
     public describeSettings(): Promise<DshSettingsDescribeResult> {
         return this.apiClient.call("settings/describe", {});
     }

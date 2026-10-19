@@ -201,6 +201,57 @@ await new Promise((resolveListen, rejectListen) => {
 await writeFile(join(dshHome, "settings.yaml"), `llm-deepseek:\n  apiKeyEnv: DSH_SMOKE_API_KEY\n  baseURL: http://127.0.0.1:${model.address().port}\n  thinking: disabled\n`);
 const patchPath = join(storage, "smoke.patch.yml");
 await writeFile(patchPath, "- id: goal-round-driver\n  name: '@deepseek-ai/dsh-goal-round-driver'\n  disabled: true\n");
+const accessArgs = [];
+if (featureControls && runtimeVersion.startsWith("0.2.1-")) {
+    const accessPlugin = join(storage, "access-smoke.mjs");
+    await writeFile(accessPlugin, `export const name = 'ide-access-smoke';
+export const inject = ['connection', 'remoteAccess', 'deepseekAccount'];
+export function apply(ctx) {
+  let allowed = [];
+  let workspaces = [];
+  const guest = ctx.connection.createPeer({ principal: { kind: 'ide-smoke-guest' }, interactions: 'none' });
+  ctx.remoteAccess.registerPolicy('ide-smoke-guest', { bindings() {
+    return [{ resource: { kind: 'global' }, role: { name: 'ide-read', resource: 'global', actions: ['remoteAccess/follow', 'session/list', 'session/control', 'workspace/follow', 'session/canOpenWorkspacePath'] } },
+      ...allowed.map(id => ({ resource: { kind: 'session', id }, role: { name: 'ide-session-read', resource: 'session', actions: ['session/list', 'session/control', 'workspace/follow', 'session/follow', 'session/page', 'session/projections'] } })),
+      ...workspaces.map(id => ({ resource: { kind: 'workspace', id }, role: { name: 'ide-workspace-read', resource: 'workspace', actions: ['workspace/follow'] } }))];
+  } });
+  const connection = ctx.connection;
+  const admit = connection.admit;
+  connection.admit = function(request) {
+    const result = admit.call(this, request);
+    const flag = request.headers instanceof Headers ? request.headers.get('x-ide-smoke-guest') : request.headers['x-ide-smoke-guest'];
+    return !('rejection' in result) && flag === '1' ? { peer: guest } : result;
+  };
+  ctx.effect(() => () => { connection.admit = admit; });
+  let notices;
+  let acknowledged = [];
+  const account = ctx.deepseekAccount;
+  const read = account.getUnnotifiedBonuses;
+  const ack = account.ackBonusNotified;
+  account.getUnnotifiedBonuses = async function(client) { return notices ? { accountId: notices.accountId, bonuses: notices.bonuses.filter(item => !acknowledged.includes(item.orderId)) } : read.call(this, client); };
+  account.ackBonusNotified = async function(accountId, orderId, client) {
+    if (!notices) return ack.call(this, accountId, orderId, client);
+    if (accountId !== notices.accountId) return false;
+    acknowledged.push(orderId);
+    return true;
+  };
+  ctx.effect(() => () => { account.getUnnotifiedBonuses = read; account.ackBonusNotified = ack; });
+  ctx.connection.fetch.register({ path: '/api/ide-smoke-notifications', methods: ['GET', 'POST'], requestBody: 'buffered', async fetch(request) {
+    if (request.method === 'POST') { notices = await request.json(); acknowledged = []; }
+    return Response.json({ acknowledged });
+  } });
+  ctx.connection.fetch.register({ path: '/api/ide-smoke-access', methods: ['POST'], requestBody: 'buffered', async fetch(request) {
+    const value = await request.json();
+    allowed = value.sessions;
+    workspaces = value.workspaces ?? [];
+    if (value.notify !== false) ctx.remoteAccess.invalidate();
+    return Response.json({ ok: true });
+  } });
+}`);
+    const accessPatch = join(storage, "access-smoke.patch.yml");
+    await writeFile(accessPatch, JSON.stringify([{ insert: [{ id: "ide-access-smoke", name: accessPlugin }] }]));
+    accessArgs.push("--patch", accessPatch);
+}
 const jevArgs = [];
 if (withJev) {
     const jev = require(join(root, "dist/jevIntegration"));
@@ -213,7 +264,7 @@ if (withJev) {
     assert.ok(jevPatch, "vendored Jev integration must be available");
     jevArgs.push("--patch", jevPatch);
 }
-const child = spawn(launcher, ["--profile", "web", "--patch", patchPath, ...jevArgs, "--no-open", "--host", "127.0.0.1", "--port", "0"], {
+const child = spawn(launcher, ["--profile", "web", "--patch", patchPath, ...jevArgs, ...accessArgs, "--no-open", "--host", "127.0.0.1", "--port", "0"], {
     cwd: workspacePath, env, stdio: ["ignore", "pipe", "pipe"],
 });
 let output = "";
@@ -365,6 +416,112 @@ try {
     if (seedOnly) {
         pass("Isolated legacy fixture generated only through public RPCs");
         break verification;
+    }
+    if (featureControls && runtimeVersion.startsWith("0.2.1-")) {
+        const { schemaNodeAtPath } = require(join(root, "dist/settingsSchema"));
+        let settings = await connection.unary.call("settings/describe", {});
+        const pi = settings.namespaces.find(item => item.ns === "llm-pi-ai");
+        const schema = schemaNodeAtPath(pi.schema, ["providers", "smoke-reasoning", "models", "0", "reasoningEfforts"]);
+        const dict = schema.list.find(item => item.type === "dict");
+        const levels = dict.sKey.list.map(item => item.value);
+        assert.ok(levels.includes("off") && levels.includes("high"), JSON.stringify(levels));
+        const customModel = { id: "smoke-reasoning", reasoningEfforts: { off: null, high: "high" } };
+        await connection.unary.call("settings/mutate", { ns: pi.ns, expectedRevision: pi.revision,
+            ops: [{ op: "set", path: ["providers", "smoke-reasoning"], value: { api: "openai-completions", baseURL: `http://127.0.0.1:${model.address().port}`, models: [customModel] } }] });
+        settings = await connection.unary.call("settings/describe", {});
+        const saved = settings.namespaces.find(item => item.ns === pi.ns);
+        assert.deepEqual(saved.value.providers["smoke-reasoning"].models[0].reasoningEfforts, customModel.reasoningEfforts);
+        await connection.unary.call("settings/mutate", { ns: pi.ns, expectedRevision: saved.revision,
+            ops: [{ op: "unset", path: ["providers", "smoke-reasoning"] }] });
+        const web = settings.namespaces.find(item => item.ns === "web");
+        const api = settings.namespaces.find(item => item.ns === "web-deepseek-api");
+        const originals = [web, api].map(item => ({ ns: item.ns, user: item.user }));
+        await connection.unary.call("settings/mutate", { ns: api.ns, expectedRevision: api.revision,
+            ops: [{ op: "set", path: ["count"], value: 7 }, { op: "set", path: ["sendOriginalQuestion"], value: false }] });
+        await connection.unary.call("settings/mutate", { ns: web.ns, expectedRevision: web.revision,
+            ops: [{ op: "set", path: ["searchProvider"], value: "deepseek-search-api" }, { op: "set", path: ["fetchProvider"], value: "deepseek-fetch-api" }] });
+        settings = await connection.unary.call("settings/describe", {});
+        assert.equal(settings.namespaces.find(item => item.ns === web.ns).value.fetchProvider, "deepseek-fetch-api");
+        assert.equal(settings.namespaces.find(item => item.ns === api.ns).value.count, 7);
+        for (const original of originals) {
+            const now = settings.namespaces.find(item => item.ns === original.ns);
+            const paths = original.ns === web.ns ? ["searchProvider", "fetchProvider"] : ["count", "sendOriginalQuestion"];
+            await connection.unary.call("settings/mutate", { ns: original.ns, expectedRevision: now.revision,
+                ops: paths.map(key => Object.hasOwn(original.user ?? {}, key) ? { op: "set", path: [key], value: original.user[key] } : { op: "unset", path: [key] }) });
+        }
+        pass("Host schema supplies editable reasoning levels; custom model mapping and atomic Search/Fetch selection persist and restore without external requests");
+    }
+    if (featureControls && runtimeVersion.startsWith("0.2.1-")) {
+        const { drainAccountNotifications, normalizeAccountNotifications } = require(join(root, "dist/accountNotifications"));
+        const setNotices = async value => {
+            const result = await fetch(`${baseUrl}/api/ide-smoke-notifications`, { method: "POST", headers: { ...requestHeaders(), "content-type": "application/json" }, body: JSON.stringify(value) });
+            assert.equal(result.status, 200);
+        };
+        const acknowledgedNotices = async () => (await (await fetch(`${baseUrl}/api/ide-smoke-notifications`, { headers: requestHeaders() })).json()).acknowledged;
+        const client = { version: "0.10.3", locale: "zh-cn", timezoneOffsetSeconds: 28800 };
+        const samples = [
+            { orderId: "n1", title: "Notice one", message: "first", expiresAt: "", currency: { opaque: true } },
+            { orderId: "expired", message: "expired", expiresAt: "2000-01-01T00:00:00Z" },
+            { orderId: "n2", message: "second", expiresAt: "" },
+            { orderId: "n1", message: "duplicate", expiresAt: "" },
+            { orderId: "n3", title: "Notice three", message: "third", expiresAt: "" },
+        ];
+        const queue = { read: async () => normalizeAccountNotifications(await connection.unary.call("account/getUnnotifiedBonuses", { client })),
+            acknowledge: (accountId, orderId) => connection.unary.call("account/ackBonusNotified", { accountId, orderId, client }), isCurrent: () => true };
+        await setNotices({ accountId: "notice-account", bonuses: samples });
+        const shown = [];
+        await drainAccountNotifications({ ...queue, show: async notice => { shown.push(notice.orderId); } });
+        assert.deepEqual(shown, ["n1", "n2", "n3"]);
+        assert.deepEqual(await acknowledgedNotices(), shown);
+        await setNotices({ accountId: "notice-account", bonuses: samples });
+        await drainAccountNotifications({ ...queue, show: async () => { await setNotices({ accountId: "another-account", bonuses: [] }); } });
+        assert.deepEqual(await acknowledgedNotices(), []);
+        await setNotices({ accountId: "notice-account", bonuses: samples });
+        let current = true;
+        await drainAccountNotifications({ ...queue, isCurrent: () => current, show: async () => { current = false; } });
+        assert.deepEqual(await acknowledgedNotices(), []);
+        pass("Account RPC notification batches display in order, ignore expiry and duplicates, and never acknowledge across account or Runtime changes");
+        const updateAccess = async (sessions, workspaces = [workspaceId], notify = true) => {
+            const result = await fetch(`${baseUrl}/api/ide-smoke-access`, { method: "POST", headers: { ...requestHeaders(), "content-type": "application/json" }, body: JSON.stringify({ sessions, workspaces, notify }) });
+            assert.equal(result.status, 200);
+        };
+        await updateAccess([seededSessionId]);
+        const guest = new RemoteConnectionController({ baseUrl, requestHeaders: () => ({ ...requestHeaders(), "x-ide-smoke-guest": "1" }),
+            onDiagnostic: (message, error) => diagnostics.push(`guest: ${message}: ${error?.message ?? ""}`) });
+        const guestFrames = [];
+        const guestOpen = guest.open.bind(guest);
+        guest.open = async function* (endpoint, args, signal, uplink) {
+            for await (const frame of guestOpen(endpoint, args, signal, uplink)) {
+                guestFrames.push({ endpoint, frame });
+                yield frame;
+            }
+        };
+        let guestReady = false;
+        const guestCoordinator = new RemoteStateCoordinator(guest, { onHostDescription: () => { guestReady = true; } }, { runtimeVersion });
+        guestCoordinator.start();
+        try {
+            await until(() => guestReady, "non-owner baseline");
+            assert.equal(guest.access.snapshot.owner, false);
+            assert.equal(guest.access.allows("session/follow", { kind: "session", id: seededSessionId }), true);
+            assert.equal(guest.access.allows("session/prompt", { kind: "session", id: seededSessionId }), false);
+            assert.deepEqual(guestCoordinator.catalog.snapshot().sessions.map(item => item.sessionId), [seededSessionId]);
+            guestCoordinator.watchSession(seededSessionId);
+            await until(() => guestCoordinator.sessions.get(seededSessionId)?.events.length > 0, "guest readable history");
+            await assert.rejects(() => guest.unary.call("session/prompt", { request: { sessionId: seededSessionId, requestId: randomUUID(), mode: "queue", content: [{ type: "text", text: "must be denied" }] } }), error => error.code === "remote-access/denied");
+            const generation = guest.currentGeneration;
+            await updateAccess([], [], false);
+            await connection.unary.call("workspace/rename", { request: { workspaceId, title: "Revoked workspace smoke" } });
+            await until(() => guestFrames.some(item => item.endpoint === "workspace/follow" && item.frame.type === "replace"), "filtered Workspace replace frame");
+            assert.equal(guestCoordinator.catalog.snapshot().workspaces.length, 0);
+            await updateAccess([], []);
+            await until(() => !guest.access.allows("session/follow", { kind: "session", id: seededSessionId }) && guestCoordinator.catalog.snapshot().sessions.length === 0, "guest revocation");
+            assert.equal(guestCoordinator.sessions.get(seededSessionId)?.events.length ?? 0, 0);
+            assert.equal(guest.currentGeneration, generation);
+            await assert.rejects(() => guest.answerRemoteEvent(randomUUID(), { kind: "next" }), /owner/u);
+            await updateAccess([seededSessionId]);
+            await until(() => guestCoordinator.sessions.get(seededSessionId)?.events.length > 0, "guest permission restoration");
+            pass("Non-owner grants filter history, reject mutations and answers, purge revoked data, and restore subscriptions without carrier reconnects");
+        } finally { await guestCoordinator.stop(); }
     }
     if (withScheduleBundle || runtimeVersion.startsWith("0.2.1-")) {
         assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
@@ -765,6 +922,16 @@ try {
         await until(() => jobRows.find(row => row.id === job.id)?.status === "killed" && jobRows.find(row => row.id === job.id)?.streaming === false, "Job cancellation and output drain");
         assert.match(jobRows.find(row => row.id === job.id).outputSummary, /cancelled by the user/);
         pass("JobsController consumes real list/follow streams, resumes without duplication, and kills a running job");
+        await coordinator.syncHistory(jobSession.sessionId);
+        const { mergeJobHistory } = require(join(root, "dist/jobHistory"));
+        const historicalJobs = mergeJobHistory(jobSession.sessionId, coordinator.sessions.get(jobSession.sessionId).events, []);
+        const historicalJob = historicalJobs.find(item => item.id === job.id);
+        assert.ok(historicalJob, "owned Job lifecycle must survive in Session history");
+        assert.equal(historicalJob.status, "killed");
+        assert.equal(historicalJob.canKill, false);
+        assert.equal(historicalJob.historical, true);
+        assert.equal(mergeJobHistory(jobSession.sessionId, coordinator.sessions.get(jobSession.sessionId).events, jobRows).filter(item => item.id === job.id).length, 1);
+        pass("Durable Job lifecycle restores a read-only history row and merges with the live roster without duplication");
 
         if (timedQuestions) {
             const waits = new UserQuestionWaitController(connection, message => console.log(message));
