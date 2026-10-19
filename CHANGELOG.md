@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+<!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
+
+## [0.11.0] - 2026-10-19
+
 ### 新增
 
 - 新增 Runtime 交互终端，支持输入、缩放和画面恢复。
@@ -369,6 +373,7 @@ Agent Preset 菜单不再提供复制、打开位置和删除操作。
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.11.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.4...v0.11.0
 [0.10.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.2...v0.10.3
 [0.10.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.0...v0.10.1
