@@ -601,7 +601,7 @@ try {
             const first = await frames.next();
             assert.equal(first.value.type, "snapshot");
             assert.equal(first.value.writable, true);
-            assert.ok(first.value.inputWindow.maxBytes > 0);
+            if (!limits.legacyTransport) assert.ok(first.value.inputWindow.maxBytes > 0);
             assert.equal(attachment.write("x".repeat(limits.maxInputBytes + 1)), false);
             assert.equal(attachment.write("\u0000".repeat(Math.min(limits.maxInputBytes, limits.maxBufferedBytes))), false);
             assert.equal(attachment.resize(70, 20), true);
@@ -610,7 +610,7 @@ try {
             let text = "";
             let acknowledged = 0;
             try {
-                while (!text.includes("DSH_TERMINAL_SMOKE") || acknowledged < 2) {
+                while (!text.includes("DSH_TERMINAL_SMOKE") || (!limits.legacyTransport && acknowledged < 2)) {
                     const item = await frames.next();
                     assert.equal(item.done, false);
                     if (item.value.type === "output") text += item.value.data;

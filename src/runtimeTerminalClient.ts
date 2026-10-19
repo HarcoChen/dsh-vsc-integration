@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { RemoteUnaryClient } from "./remote/unaryClient";
 import type { RemoteConnectionController } from "./remote/connection";
 import { RemoteProtocolError } from "./remote/errors";
@@ -21,6 +22,7 @@ export interface RuntimeTerminalEnvironment {
     maxCols: number;
     maxRows: number;
     scrollback: number;
+    legacyTransport?: boolean;
 }
 
 export type RuntimeTerminalFrame =
@@ -54,7 +56,7 @@ export class RuntimeTerminalClient {
         // 0.2.0 RC.2 omits the queue limit. Bound our local queue by the
         // advertised input limit rather than assuming an unbounded buffer.
         const value = isRecord(response) && response.maxBufferedBytes === undefined
-            ? { ...response, maxBufferedBytes: response.maxInputBytes }
+            ? { ...response, maxBufferedBytes: response.maxInputBytes, legacyTransport: true }
             : response;
         if (!isRecord(value) || typeof value.cwd !== "string" ||
             ![value.maxInputBytes, value.maxBufferedBytes, value.maxCols, value.maxRows, value.scrollback].every(natural) ||
@@ -82,7 +84,7 @@ export class RuntimeTerminalClient {
     }
 
     public attach(sessionId: string, id: string, limits: RuntimeTerminalEnvironment, signal: AbortSignal): RuntimeTerminalAttachment {
-        return new RuntimeTerminalAttachment(this.connection, sessionId, id, limits, signal);
+        return new RuntimeTerminalAttachment(this.connection, sessionId, id, limits, signal, this.unary);
     }
     public close(sessionId: string, id: string): Promise<void> {
         return this.unary.call("terminal/close", { agentId: sessionId, id });
@@ -108,7 +110,8 @@ export class RuntimeTerminalAttachment {
 
     public constructor(private readonly connection: Pick<RemoteConnectionController, "open">,
         private readonly sessionId: string, private readonly id: string,
-        private readonly limits: RuntimeTerminalEnvironment, private readonly signal: AbortSignal) {}
+        private readonly limits: RuntimeTerminalEnvironment, private readonly signal: AbortSignal,
+        private readonly unary: Pick<RemoteUnaryClient, "call">) {}
 
     public write(data: string): boolean {
         return this.send({ type: "write", sequence: this.sequence + 1, data }, Buffer.byteLength(data, "utf8"));
@@ -144,12 +147,65 @@ export class RuntimeTerminalAttachment {
         }
     }
 
+    /** Adapt the 0.2.0 follow stream and serialized unary input to attach frames. */
+    private async *legacyFrames(): AsyncGenerator<unknown> {
+        const attachmentId = randomUUID();
+        const controller = new AbortController();
+        const abort = (): void => { controller.abort(this.signal.reason); this.wake?.(); };
+        this.signal.addEventListener("abort", abort, { once: true });
+        if (this.signal.aborted) abort();
+        let inputError: unknown;
+        const sending = (async () => {
+            for await (const command of this.input()) {
+                if (controller.signal.aborted) return;
+                if (!this.writable) throw new RemoteProtocolError("Terminal input control was revoked");
+                const args = { agentId: this.sessionId, id: this.id, attachmentId };
+                if (command.type === "write") {
+                    await this.unary.call("terminal/write", { ...args, data: command.data }, controller.signal);
+                } else {
+                    await this.unary.call("terminal/resize", { ...args, cols: command.cols, rows: command.rows }, controller.signal);
+                }
+                const pending = this.pending.get(command.sequence)!;
+                this.pending.delete(command.sequence);
+                this.bytes -= pending.bytes;
+                this.bufferedBytes -= pending.cost;
+                this.inFlightBytes -= pending.cost;
+            }
+        })().catch(error => {
+            inputError = error;
+            controller.abort(error);
+            this.wake?.();
+        });
+        try {
+            for await (const value of this.connection.open("terminal/follow", {
+                agentId: this.sessionId, id: this.id, attachmentId,
+            }, controller.signal)) {
+                if (isRecord(value) && (value.type === "snapshot" || value.type === "state") && isRecord(value.info)) {
+                    yield { ...value, writable: value.info.controllerId === attachmentId };
+                } else yield value;
+            }
+            if (inputError !== undefined) throw inputError;
+        } catch (error) {
+            throw inputError ?? error;
+        } finally {
+            controller.abort();
+            this.ended = true;
+            this.writable = false;
+            this.wake?.();
+            await sending;
+            this.signal.removeEventListener("abort", abort);
+        }
+    }
+
     public async *[Symbol.asyncIterator](): AsyncGenerator<RuntimeTerminalFrame> {
         let outputSequence: number | undefined;
         const abort = (): void => { this.ended = true; this.writable = false; this.wake?.(); };
         this.signal.addEventListener("abort", abort, { once: true });
         try {
-            for await (const value of this.connection.open("terminal/attach", { agentId: this.sessionId, id: this.id }, this.signal, this.input())) {
+            const stream = this.limits.legacyTransport
+                ? this.legacyFrames()
+                : this.connection.open("terminal/attach", { agentId: this.sessionId, id: this.id }, this.signal, this.input());
+            for await (const value of stream) {
                 if (!isRecord(value)) throw new RemoteProtocolError("Invalid terminal frame");
                 if (outputSequence === undefined) {
                     if (value.type !== "snapshot" || !natural(value.sequence) || typeof value.screen !== "string" || typeof value.writable !== "boolean") {
