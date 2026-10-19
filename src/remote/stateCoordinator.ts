@@ -117,6 +117,8 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             if (snapshot.needsHistoryBaseline && !this.stopped && connection.access.allows("session/follow", { kind: "session", id: sessionId })) void this.syncHistory(sessionId);
         });
         connection.onAccessChange(() => {
+            // A missing snapshot during reconnect is not a permission revocation.
+            if (!connection.access.snapshot.available) return;
             const canRead = (id: string): boolean => connection.access.allows("session/follow", { kind: "session", id });
             this.generationAbort?.abort();
             this.sessions.clearUnreadSessions(canRead);

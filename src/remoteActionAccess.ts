@@ -6,7 +6,8 @@ export function canUseChatAction(access: RemoteAccessState, action: ChatViewActi
     if (access.snapshot.owner && access.snapshot.available) return true;
     const local = new Set(["ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
         "openIdeContextPicker", "openTerminalCommandPicker", "openDiagnosticsPicker", "openPromptTemplatePicker", "removeContext", "toggleSelection",
-        "fileReferenceQuery", "closeSubagent", "searchSession", "openSessionCenter", "dismissSessionFeedback"]);
+        "fileReferenceQuery", "closeSubagent", "searchSession", "openSessionCenter", "dismissSessionFeedback",
+        "stop", "cancelRecovery", "exportRecoveryDiagnostics", "restoreRecovery", "captureAppShot", "insertCode", "applyCode"]);
     if (local.has(action.type)) return true;
     if (action.type === "switchSession") return access.allows("session/follow", { kind: "session", id: action.sessionId });
     if (action.type === "openSubagent") return access.allows("session/follow", { kind: "session", id: action.childSessionId });

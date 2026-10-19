@@ -21,6 +21,7 @@ const require = createRequire(import.meta.url);
 const { RemoteConnectionController } = require(join(root, "dist/remote/connection"));
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
+const { compareRuntimeVersions } = require(join(root, "dist/runtimeVersion"));
 const { RUNTIME_DEFAULT_VERSION } = require(join(root, "dist/managedRuntime/types"));
 const { WorkspaceFilesClient, readRuntimeTextPreview, RUNTIME_TEXT_PREVIEW_MAX_BYTES } = require(join(root, "dist/workspaceFiles"));
 const { detectAgentTeamsCapability, normalizeAgentTeamProjection } = require(join(root, "dist/agentTeamTypes"));
@@ -65,6 +66,9 @@ if (versionProbe.error) throw versionProbe.error;
 assert.equal(versionProbe.status, 0, versionProbe.stderr);
 const runtimeVersion = versionProbe.stdout.trim();
 assert.equal(runtimeVersion, expectedVersion, "Launcher version must match the requested smoke target");
+const versionComparison = compareRuntimeVersions(runtimeVersion, "0.2.1-alpha.3");
+assert.notEqual(versionComparison, undefined, "Runtime version must be valid SemVer");
+const supports021 = versionComparison >= 0;
 console.log(`Verified Runtime version: ${runtimeVersion}; Schedule bundle: ${withScheduleBundle ? "enabled" : "disabled"}`);
 const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
 const dshHome = join(storage, "home");
@@ -86,7 +90,7 @@ if (withScheduleBundle || withTeamBundle) {
     await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
         private: true, type: "module",
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
-            ...(withScheduleBundle && !runtimeVersion.startsWith("0.2.1-") ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
+            ...(withScheduleBundle && !supports021 ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
             ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : [])] } },
     }, null, 2) + "\n");
 }
@@ -149,8 +153,8 @@ const model = createServer(async (request, response) => {
             : messages.includes("TEAM_PANEL_SMOKE") && !teammateServed ? "spawn_teammate" : undefined
         : undefined;
     const jobCall = featureControls && messages.includes("JOBS_CONTROL_SMOKE") && !jobToolServed;
-    const directoryCall = workflowControls && runtimeVersion.startsWith("0.2.1-") && messages.includes("WORKING_DIRECTORY_SMOKE") && !directoryServed;
-    const historicalCall = workflowControls && runtimeVersion.startsWith("0.2.1-") && messages.includes("HISTORICAL_EDIT_SMOKE") && historicalEditStep < 3
+    const directoryCall = workflowControls && supports021 && messages.includes("WORKING_DIRECTORY_SMOKE") && !directoryServed;
+    const historicalCall = workflowControls && supports021 && messages.includes("HISTORICAL_EDIT_SMOKE") && historicalEditStep < 3
         ? [
             { id: "nested-write", name: "write", input: { file_path: "same.txt", content: "nested content\n" } },
             { id: "return-directory", name: "working_directory", input: { cd: workspacePath } },
@@ -202,7 +206,7 @@ await writeFile(join(dshHome, "settings.yaml"), `llm-deepseek:\n  apiKeyEnv: DSH
 const patchPath = join(storage, "smoke.patch.yml");
 await writeFile(patchPath, "- id: goal-round-driver\n  name: '@deepseek-ai/dsh-goal-round-driver'\n  disabled: true\n");
 const accessArgs = [];
-if (featureControls && runtimeVersion.startsWith("0.2.1-")) {
+if (featureControls && supports021) {
     const accessPlugin = join(storage, "access-smoke.mjs");
     await writeFile(accessPlugin, `export const name = 'ide-access-smoke';
 export const inject = ['connection', 'remoteAccess', 'deepseekAccount'];
@@ -373,7 +377,7 @@ try {
     await coordinator.refreshCatalog();
     assert.ok(coordinator.catalog.snapshot().sessions.some(session => session.sessionId === created.sessionId));
     pass("workspace/create and session/create update the live catalog");
-    if (runtimeVersion.startsWith("0.2.1-")) {
+    if (supports021) {
         const reused = await connection.unary.call("session/create", {
             request: { workspaceId, sessionId: created.sessionId, agentPreset: "standard" },
         });
@@ -406,7 +410,7 @@ try {
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
     pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
-    if (runtimeVersion.startsWith("0.2.1-") && !seedOnly) {
+    if (supports021 && !seedOnly) {
         const replacement = await connection.unary.call("session/create", {
             request: { workspaceId, sessionId: seededSessionId, agentPreset: "minimal" },
         });
@@ -417,7 +421,7 @@ try {
         pass("Isolated legacy fixture generated only through public RPCs");
         break verification;
     }
-    if (featureControls && runtimeVersion.startsWith("0.2.1-")) {
+    if (featureControls && supports021) {
         const { schemaNodeAtPath } = require(join(root, "dist/settingsSchema"));
         let settings = await connection.unary.call("settings/describe", {});
         const pi = settings.namespaces.find(item => item.ns === "llm-pi-ai");
@@ -451,7 +455,7 @@ try {
         }
         pass("Host schema supplies editable reasoning levels; custom model mapping and atomic Search/Fetch selection persist and restore without external requests");
     }
-    if (featureControls && runtimeVersion.startsWith("0.2.1-")) {
+    if (featureControls && supports021) {
         const { drainAccountNotifications, normalizeAccountNotifications } = require(join(root, "dist/accountNotifications"));
         const setNotices = async value => {
             const result = await fetch(`${baseUrl}/api/ide-smoke-notifications`, { method: "POST", headers: { ...requestHeaders(), "content-type": "application/json" }, body: JSON.stringify(value) });
@@ -523,7 +527,7 @@ try {
             pass("Non-owner grants filter history, reject mutations and answers, purge revoked data, and restore subscriptions without carrier reconnects");
         } finally { await guestCoordinator.stop(); }
     }
-    if (withScheduleBundle || runtimeVersion.startsWith("0.2.1-")) {
+    if (withScheduleBundle || supports021) {
         assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
         assert.deepEqual(await connection.unary.call("schedule/catalog", {}), []);
         const missingRequest = { sessionId: seededSessionId, id: randomUUID() };
@@ -686,7 +690,7 @@ try {
         assert.ok(!(await connection.unary.call("pluginManager/listBundles", {})).some(item => item.name === "dsh-ide-workflow-smoke" && item.installed));
         pass("An in-flight package download cancels through the official manager, rolls back the profile, and settles attached waiters");
 
-        if (runtimeVersion.startsWith("0.2.1-")) {
+        if (supports021) {
             const directorySession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "standard" } });
             coordinator.watchSession(directorySession.sessionId);
             await connection.unary.call("session/prompt", { request: { sessionId: directorySession.sessionId, requestId: randomUUID(), mode: "queue",
@@ -870,7 +874,7 @@ try {
         pass("timed ask_user_question continues after timeout and accepts a late Remote answer");
     }
     if (featureControls) {
-        const optionalName = runtimeVersion.startsWith("0.2.1-")
+        const optionalName = supports021
             ? "@deepseek-ai/dsh-experimental-terminal-bundle" : "@deepseek-ai/dsh-experimental-schedule-bundle";
         const originalBundle = (await connection.unary.call("pluginManager/listBundles", {})).find(bundle => bundle.name === optionalName);
         assert.ok(originalBundle);

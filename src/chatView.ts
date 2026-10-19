@@ -584,7 +584,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }),
             new vscode.Disposable(runtime.onDidRemoteAccessChange(() => {
-                if (!runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId })) {
+                if (runtime.remoteAccess.snapshot.available && !runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId })) {
                     this.liveJobs = [];
                     this.subagents.discardSubagentPreview();
                     this.settingsPanel = undefined;
@@ -1435,7 +1435,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         // Whatever just talked to us is the view the user is working in.
         this.activeSurface = surface;
         try {
-            if (!(message.type === "sendPrompt" && this.runtime.getStatus().state !== "running") && !canUseChatAction(this.runtime.remoteAccess, message, this.sessionId)) {
+            const canStartRuntime = message.type === "sendPrompt" || message.type === "configureApiKey" || message.type === "manageProviders";
+            if (!(canStartRuntime && this.runtime.getStatus().state !== "running") && !canUseChatAction(this.runtime.remoteAccess, message, this.sessionId)) {
                 throw new Error(t("This action is unavailable with your Runtime permissions."));
             }
             switch (message.type) {
