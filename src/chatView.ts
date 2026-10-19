@@ -584,7 +584,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }),
             new vscode.Disposable(runtime.onDidRemoteAccessChange(() => {
-                if (runtime.remoteAccess.snapshot.available && !runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId })) {
+                if (runtime.remoteAccess.snapshot.available && this.sessionId !== undefined && !runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId })) {
                     this.liveJobs = [];
                     this.subagents.discardSubagentPreview();
                     this.settingsPanel = undefined;
