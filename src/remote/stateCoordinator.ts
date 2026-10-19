@@ -542,10 +542,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         if (!isRecord(value) || typeof value.type !== "string") {
             throw new Error("Remote workspace frame is malformed");
         }
-        if (value.type === "baseline" && isRecord(value.value)) {
+        if ((value.type === "baseline" || value.type === "replace") && isRecord(value.value)) {
             const baseline = workspaceBaseline(value.value);
             if (!baseline) throw new Error("Remote workspace baseline is malformed");
-            this.catalog.replaceRemoteWorkspaces(baseline, baselineRevision);
+            this.catalog.replaceRemoteWorkspaces(baseline, value.type === "replace" ? undefined : baselineRevision);
             return;
         }
         if (value.type === "upsert") {

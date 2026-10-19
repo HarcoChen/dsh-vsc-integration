@@ -4,6 +4,7 @@ import type { DshRuntime } from "./dshRuntime";
 import type { DshPluginChangeResult } from "./types";
 import { isRecord } from "./guards";
 import { errorMessage } from "./errors";
+import { pluginChangeDetails } from "./pluginInventory";
 import { t } from "./localize";
 import { RemoteHttpError } from "./remote/errors";
 
@@ -139,8 +140,7 @@ export class PluginManagementController {
     private async finish(result: DshPluginChangeResult, endpoint: string): Promise<void> {
         this.assertEndpoint(endpoint);
         await this.changed();
-        const details = [result.error?.diagnostic ?? result.error?.code,
-            result.packageResult?.kind, ...(result.warnings ?? [])].filter(Boolean).join("\n");
+        const details = [...pluginChangeDetails(result), result.packageResult?.kind].filter(Boolean).join("\n");
         if (result.packageResult) this.output.appendLine(`[dsh:plugins] ${result.packageResult.output}\n${result.packageResult.logPath}`);
         const states = { applied: "Applied", "restart-required": "Restart required", overridden: "Overridden", failed: "Failed", cancelled: "Cancelled" };
         const message = t("Plugin change: {target} · {state}", { target: result.target, state: t(states[result.application]) });
@@ -148,7 +148,7 @@ export class PluginManagementController {
             const logs = t("Open runtime logs");
             if (await vscode.window.showErrorMessage(`${message}${details ? `\n${details}` : ""}`, logs) === logs) this.output.show(true);
         } else if (result.application === "restart-required") {
-            void vscode.window.showInformationMessage(`${message}\n${t("Restart the owning Runtime to apply this change.")}`);
+            void vscode.window.showInformationMessage(`${message}\n${t("Restart the owning Runtime to apply this change.")}${details ? `\n${details}` : ""}`);
         } else void vscode.window.showInformationMessage(`${message}${details ? `\n${details}` : ""}`);
     }
 }

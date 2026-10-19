@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import * as vscode from "vscode";
 import type { DshRuntime } from "./dshRuntime";
-import type { RuntimeTerminalEnvironment, RuntimeTerminalInfo } from "./runtimeTerminalClient";
+import type { RuntimeTerminalAttachment, RuntimeTerminalEnvironment, RuntimeTerminalInfo } from "./runtimeTerminalClient";
 import { errorMessage } from "./errors";
 import { t } from "./localize";
 import { RemoteHttpError } from "./remote/errors";
@@ -13,14 +13,11 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
     private readonly names = new vscode.EventEmitter<string>();
     public readonly onDidChangeName = this.names.event;
     private controller?: AbortController;
-    private attachmentId?: string;
+    private attachment?: RuntimeTerminalAttachment;
     private writable = false;
     private disposed = false;
     private opened = false;
     private dimensions?: vscode.TerminalDimensions;
-    private writes = Promise.resolve();
-    private queuedBytes = 0;
-    private controls = Promise.resolve();
     private readonly subscriptions: vscode.Disposable[];
 
     public constructor(private readonly runtime: DshRuntime, readonly endpoint: string, readonly sessionId: string,
@@ -55,8 +52,6 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
         }
         const controller = new AbortController();
         this.controller = controller;
-        const attachmentId = randomUUID();
-        this.attachmentId = attachmentId;
         let acknowledge!: () => void;
         let reject!: (error: unknown) => void;
         const retained = new Promise<void>((resolve, fail) => { acknowledge = resolve; reject = fail; });
@@ -75,11 +70,14 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
         void (async () => {
             await retained;
             controller.signal.throwIfAborted();
-            for await (const frame of this.runtime.terminals.follow(this.sessionId, this.info.id, attachmentId, controller.signal)) {
+            const attachment = this.runtime.terminals.attach(this.sessionId, this.info.id, this.limits, controller.signal);
+            this.attachment = attachment;
+            for await (const frame of attachment) {
                 if (!this.available() || this.controller !== controller) return;
+                this.writable = attachment.writable;
+                if (frame.type === "ack") continue;
                 if (frame.type !== "output") {
                     if (frame.info.id !== this.info.id) throw new Error("Runtime terminal identity changed");
-                    this.writable = frame.info.state === "running" && frame.info.controllerId === attachmentId;
                     this.names.fire(`DSH · ${frame.info.title}${this.writable ? "" : ` (${t("Read only")})`}`);
                 }
                 if (frame.type === "snapshot") {
@@ -87,7 +85,7 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
                     if (this.dimensions) this.setDimensions(this.dimensions);
                 } else if (frame.type === "output") this.output.fire(frame.data);
             }
-            this.writable = false;
+            if (this.controller === controller) throw new Error(t("Runtime terminal attachment ended. Reopen the terminal to reconnect."));
         })().catch(error => this.fail(controller, error));
     }
 
@@ -99,34 +97,18 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
     }
 
     public handleInput(data: string): void {
-        const attachmentId = this.attachmentId;
-        if (!this.writable || !attachmentId || !this.available()) return;
-        const bytes = Buffer.byteLength(data, "utf8");
-        if (this.queuedBytes + bytes > this.limits.maxInputBytes) {
-            this.output.fire(`\r\n${t("Terminal input exceeds the Runtime limit. Send smaller chunks.")}\r\n`);
-            return;
-        }
-        this.queuedBytes += bytes;
-        this.writes = this.writes.then(async () => {
-            if (this.attachmentId !== attachmentId || !this.writable || !this.available()) return;
-            await this.runtime.terminals.write(this.sessionId, this.info.id, attachmentId, data);
-        }).catch(error => {
-            if (this.attachmentId === attachmentId && this.controller) this.fail(this.controller, error);
-        }).finally(() => { this.queuedBytes -= bytes; });
+        if (!data || !this.writable || !this.available()) return;
+        if (!this.attachment?.write(data)) this.inputFull();
     }
 
     public setDimensions(dimensions: vscode.TerminalDimensions): void {
         this.dimensions = dimensions;
-        const attachmentId = this.attachmentId;
-        const controller = this.controller;
-        if (!this.writable || !attachmentId || !controller || !this.available()) return;
-        this.controls = this.controls.then(async () => {
-            if (this.attachmentId !== attachmentId || !this.writable || !this.available()) return;
-            await this.runtime.terminals.resize(this.sessionId, this.info.id, attachmentId,
-                Math.max(1, Math.min(dimensions.columns, this.limits.maxCols)),
-                Math.max(1, Math.min(dimensions.rows, this.limits.maxRows)),
-            );
-        }).catch(error => this.fail(controller, error));
+        if (!this.writable || !this.available()) return;
+        if (!this.attachment?.resize(dimensions.columns, dimensions.rows)) this.inputFull();
+    }
+
+    private inputFull(): void {
+        if (this.controller) this.fail(this.controller, new Error(t("Terminal input exceeds the Runtime limit. Send smaller chunks.")));
     }
 
     public close(): void {
@@ -137,7 +119,7 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
 
     private detach(): void {
         this.writable = false;
-        this.attachmentId = undefined;
+        this.attachment = undefined;
         this.controller?.abort();
         this.controller = undefined;
     }

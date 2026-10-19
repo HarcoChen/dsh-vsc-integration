@@ -83,7 +83,7 @@
     "config.recovery.enabled.description": "Automatically diagnose and recover local DSH startup failures in an isolated sandbox.",
     "config.recovery.autoPersistBundleIsolation.description": "Persist a high-confidence profile bundle isolation after sandbox verification.",
     "config.installWhenMissing.description": "Deprecated. The extension no longer downloads a standalone Runtime; when dsh is unavailable it guides you to install the official DeepSeek Desktop app. Other custom commands are never replaced.",
-    "config.runtimeVersion.description": "Target compatibility version for approved local CLI upgrades. Standalone Runtime downloads are deprecated. Defaults to 0.2.0-rc.2; any valid SemVer at or above the minimum 0.1.5-rc.1 is accepted.",
+    "config.runtimeVersion.description": "Target compatibility version for approved local CLI upgrades. Standalone Runtime downloads are deprecated. Defaults to 0.2.1-rc.2; any valid SemVer at or above the minimum 0.1.5-rc.1 is accepted.",
     "config.startupTimeoutMs.description": "Maximum time to wait for the dsh web HTTP health check after starting or attaching.",
     "config.requestTimeoutMs.description": "Maximum time for one Harness RPC, including reconnect history rebaselines. Live assistant output is delivered over WebSocket and is not polled.",
     "config.maxContextBytes.description": "Maximum UTF-8 bytes of the assembled <ide_context> block included in one prompt.",

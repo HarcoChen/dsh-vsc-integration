@@ -293,7 +293,7 @@ npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 
 Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、分页、评价、重连、流式输出、Goal、命令、可选 Schedule 以及 RC.2 timed 问题延迟回答。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录运行结果及账号、Schedule 修改、Jev、UI 等剩余验证。
 
-对已安装的 `0.2.0-rc.2` 启动器运行 Remote 冒烟：
+对已安装的 `0.2.1-rc.2` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
 
 ```bash
 npm run compile
@@ -303,7 +303,7 @@ node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --timed-
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-team-bundle
 ```
 
-脚本使用临时 DSH_HOME、独立 DSH Workspace 和回环地址上的 Messages 模拟模型，不使用现有 Session 或外部模型凭据。Node.js 版本须满足所选 Runtime 的要求（`^22.19.0 || >=24.0.0`）。`--with-schedule-bundle` 检查可选 Schedule RPC，`--timed-questions` 检查超时延续和延迟回答，`--expect-version <version>` 可显式指定其他验证目标，`--keep` 保留临时状态。
+脚本使用临时 DSH_HOME、独立 DSH Workspace 和回环地址上的 Messages 模拟模型，不使用现有 Session 或外部模型凭据。Node.js 版本须满足所选 Runtime 的要求（`^22.19.0 || >=24.0.0`）。`--with-schedule-bundle` 检查 0.2.0 的可选 Schedule bundle（0.2.1 默认内置 Schedule）；`--workflow-controls` 检查终端输入确认、重连、插件操作与历史目录 Diff；`--with-jev` 加载内置 overlay 并检查能力端点；`--timed-questions` 检查超时延续和延迟回答，`--expect-version <version>` 可显式指定其他验证目标，`--keep` 保留临时状态。
 
 验证本机命令发现和启动参数：
 

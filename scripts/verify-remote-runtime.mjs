@@ -3,7 +3,7 @@
  * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
  * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle,
  * --timed-questions, --with-team-bundle, --feature-controls, --workflow-controls,
- * --migration-home <isolated smoke home>, --seed-only, --keep.
+ * --migration-home <isolated smoke home>, --with-jev, --seed-only, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
@@ -50,6 +50,7 @@ const timedQuestions = argv.includes("--timed-questions");
 const featureControls = argv.includes("--feature-controls");
 const workflowControls = argv.includes("--workflow-controls");
 const seedOnly = argv.includes("--seed-only");
+const withJev = argv.includes("--with-jev");
 const migrationIndex = argv.indexOf("--migration-home");
 if (migrationIndex >= 0 && !argv[migrationIndex + 1]) throw new Error("--migration-home requires an isolated smoke home");
 const versionIndex = argv.indexOf("--expect-version");
@@ -85,12 +86,12 @@ if (withScheduleBundle || withTeamBundle) {
     await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
         private: true, type: "module",
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
-            ...(withScheduleBundle ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
+            ...(withScheduleBundle && !runtimeVersion.startsWith("0.2.1-") ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
             ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : [])] } },
     }, null, 2) + "\n");
 }
 if (timedQuestions) {
-    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n      - id: tool-bash\n        name: '@deepseek-ai/dsh-tool-bash'\n      - id: tool-jobs\n        name: '@deepseek-ai/dsh-tool-jobs'\n");
+    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n      - id: tool-bash\n        name: '@deepseek-ai/dsh-tool-bash'\n      - id: tool-jobs\n        name: '@deepseek-ai/dsh-tool-jobs'\n      - id: tool-fs\n        name: '@deepseek-ai/dsh-tool-fs'\n");
 }
 env.DSH_HOME = dshHome;
 env.DSH_SMOKE_API_KEY = "local-smoke-only";
@@ -200,7 +201,19 @@ await new Promise((resolveListen, rejectListen) => {
 await writeFile(join(dshHome, "settings.yaml"), `llm-deepseek:\n  apiKeyEnv: DSH_SMOKE_API_KEY\n  baseURL: http://127.0.0.1:${model.address().port}\n  thinking: disabled\n`);
 const patchPath = join(storage, "smoke.patch.yml");
 await writeFile(patchPath, "- id: goal-round-driver\n  name: '@deepseek-ai/dsh-goal-round-driver'\n  disabled: true\n");
-const child = spawn(launcher, ["--profile", "web", "--patch", patchPath, "--no-open", "--host", "127.0.0.1", "--port", "0"], {
+const jevArgs = [];
+if (withJev) {
+    const jev = require(join(root, "dist/jevIntegration"));
+    const jevPatch = await jev.prepareJevIntegrationPatch({ extensionPath: root, outputDirectory: storage,
+        config: { enabled: false, baseUrl: jev.DEFAULT_JEV_BASE_URL, model: jev.DEFAULT_JEV_MODEL,
+            guardedTools: jev.DEFAULT_JEV_GUARDED_TOOLS, loopGuard: jev.DEFAULT_JEV_LOOP_GUARD,
+            resultShaper: jev.DEFAULT_JEV_RESULT_SHAPER, doneGate: jev.DEFAULT_JEV_DONE_GATE,
+            toolPruner: jev.DEFAULT_JEV_TOOL_PRUNER, skillRouter: jev.DEFAULT_JEV_SKILL_ROUTER,
+            decisionTools: jev.DEFAULT_JEV_DECISION_TOOLS, deterministicSafetyGuard: jev.DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD } });
+    assert.ok(jevPatch, "vendored Jev integration must be available");
+    jevArgs.push("--patch", jevPatch);
+}
+const child = spawn(launcher, ["--profile", "web", "--patch", patchPath, ...jevArgs, "--no-open", "--host", "127.0.0.1", "--port", "0"], {
     cwd: workspacePath, env, stdio: ["ignore", "pipe", "pipe"],
 });
 let output = "";
@@ -256,13 +269,20 @@ try {
     assert.ok(cookie);
     const requestHeaders = () => ({ cookie });
     pass("unauthenticated RPC rejected; launch token exchanged for cookie");
+    if (withJev) {
+        const response = await fetch(`${baseUrl}/api/dsh-jev/capabilities`, { headers: requestHeaders() });
+        assert.equal(response.status, 200);
+        const capabilities = await response.json();
+        assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
+        pass("Vendored Jev launch overlay loads and exposes authenticated capabilities");
+    }
     connection = new RemoteConnectionController({ baseUrl, requestHeaders,
         onEvent: frame => remoteEvents.push(frame),
         onDiagnostic: (message, cause) => diagnostics.push(`${message}: ${cause?.message ?? cause ?? ""}`) });
     // Observe decoded server frames while retaining the actual extension mux and state coordinator.
     const open = connection.open.bind(connection);
-    connection.open = async function* (endpoint, args, signal) {
-        for await (const frame of open(endpoint, args, signal)) {
+    connection.open = async function* (endpoint, args, signal, uplink) {
+        for await (const frame of open(endpoint, args, signal, uplink)) {
             wireFrames.push({ endpoint, frame, generation: connection.currentGeneration });
             yield frame;
         }
@@ -302,6 +322,14 @@ try {
     await coordinator.refreshCatalog();
     assert.ok(coordinator.catalog.snapshot().sessions.some(session => session.sessionId === created.sessionId));
     pass("workspace/create and session/create update the live catalog");
+    if (runtimeVersion.startsWith("0.2.1-")) {
+        const reused = await connection.unary.call("session/create", {
+            request: { workspaceId, sessionId: created.sessionId, agentPreset: "standard" },
+        });
+        assert.equal(reused.sessionId, created.sessionId);
+        assert.equal(reused.agentPreset, "standard");
+        pass("Session creation reuses a blank Session under the requested preset");
+    }
     // Let the selected Runtime persist its current format through public RPCs.
     const { sessionId: seededSessionId } = await connection.unary.call("session/create", {
         request: { workspaceId, agentPreset: "minimal" },
@@ -327,11 +355,18 @@ try {
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
     pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
+    if (runtimeVersion.startsWith("0.2.1-") && !seedOnly) {
+        const replacement = await connection.unary.call("session/create", {
+            request: { workspaceId, sessionId: seededSessionId, agentPreset: "minimal" },
+        });
+        assert.notEqual(replacement.sessionId, seededSessionId);
+        pass("Session creation returns a new identity when the requested Session has started");
+    }
     if (seedOnly) {
         pass("Isolated legacy fixture generated only through public RPCs");
         break verification;
     }
-    if (withScheduleBundle || runtimeVersion === "0.2.1-alpha.2") {
+    if (withScheduleBundle || runtimeVersion.startsWith("0.2.1-")) {
         assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
         assert.deepEqual(await connection.unary.call("schedule/catalog", {}), []);
         const missingRequest = { sessionId: seededSessionId, id: randomUUID() };
@@ -399,27 +434,35 @@ try {
         const hold = terminals.retain(seededSessionId, terminalId, retainedAbort.signal)[Symbol.asyncIterator]();
         assert.equal((await hold.next()).done, false);
         const outputAbort = new AbortController();
-        const attachmentId = randomUUID();
-        const frames = terminals.follow(seededSessionId, terminalId, attachmentId, outputAbort.signal)[Symbol.asyncIterator]();
+        const attachment = terminals.attach(seededSessionId, terminalId, limits, outputAbort.signal);
+        const frames = attachment[Symbol.asyncIterator]();
         try {
             const first = await frames.next();
             assert.equal(first.value.type, "snapshot");
-            assert.equal(first.value.info.controllerId, attachmentId);
-            await terminals.resize(seededSessionId, terminalId, attachmentId, 70, 20);
-            await terminals.write(seededSessionId, terminalId, attachmentId, "printf 'DSH_TERMINAL_SMOKE\\n'\r");
+            assert.equal(first.value.writable, true);
+            assert.ok(first.value.inputWindow.maxBytes > 0);
+            assert.equal(attachment.write("x".repeat(limits.maxInputBytes + 1)), false);
+            assert.equal(attachment.write("\u0000".repeat(Math.min(limits.maxInputBytes, limits.maxBufferedBytes))), false);
+            assert.equal(attachment.resize(70, 20), true);
+            assert.equal(attachment.write("printf 'DSH_TERMINAL_SMOKE\\n'\r"), true);
             const timer = setTimeout(() => outputAbort.abort(new Error("terminal input smoke timed out")), 15000);
             let text = "";
+            let acknowledged = 0;
             try {
-                while (!text.includes("DSH_TERMINAL_SMOKE")) {
+                while (!text.includes("DSH_TERMINAL_SMOKE") || acknowledged < 2) {
                     const item = await frames.next();
                     assert.equal(item.done, false);
                     if (item.value.type === "output") text += item.value.data;
+                    if (item.value.type === "ack") {
+                        assert.equal(item.value.refusal, undefined);
+                        assert.equal(item.value.sequence, ++acknowledged);
+                    }
                 }
             } finally { clearTimeout(timer); }
             outputAbort.abort();
             await frames.return();
             const recoveredAbort = new AbortController();
-            const recovered = terminals.follow(seededSessionId, terminalId, randomUUID(), recoveredAbort.signal)[Symbol.asyncIterator]();
+            const recovered = terminals.attach(seededSessionId, terminalId, limits, recoveredAbort.signal)[Symbol.asyncIterator]();
             try {
                 const screen = await recovered.next();
                 assert.equal(screen.value.type, "snapshot");
@@ -670,7 +713,8 @@ try {
         pass("timed ask_user_question continues after timeout and accepts a late Remote answer");
     }
     if (featureControls) {
-        const optionalName = "@deepseek-ai/dsh-experimental-schedule-bundle";
+        const optionalName = runtimeVersion.startsWith("0.2.1-")
+            ? "@deepseek-ai/dsh-experimental-terminal-bundle" : "@deepseek-ai/dsh-experimental-schedule-bundle";
         const originalBundle = (await connection.unary.call("pluginManager/listBundles", {})).find(bundle => bundle.name === optionalName);
         assert.ok(originalBundle);
         const selected = normalizePluginChange(await connection.unary.call("pluginManager/setBundleEnabled", { name: optionalName, enabled: !originalBundle.enabled }));

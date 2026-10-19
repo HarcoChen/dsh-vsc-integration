@@ -109,17 +109,13 @@ function normalizeBonuses(value: unknown): AccountBonusBatch | null {
     }
     const bonuses: AccountBonusBatch["bonuses"][number][] = [];
     for (const bonus of value.bonuses) {
-        if (!isRecord(bonus) || !isString(bonus.orderId) || !isString(bonus.campaign) ||
-            !isString(bonus.amount) || (bonus.currency !== "CNY" && bonus.currency !== "USD") ||
-            !isString(bonus.grantedAt) || !isString(bonus.expiresAt) || !isString(bonus.message)) {
+        if (!isRecord(bonus) || !isString(bonus.orderId) || !isString(bonus.expiresAt) || !isString(bonus.message) ||
+            (bonus.title !== undefined && typeof bonus.title !== "string")) {
             throw new Error(t("The DSH Runtime returned invalid account bonus notifications."));
         }
         bonuses.push({
             orderId: bonus.orderId,
-            campaign: bonus.campaign,
-            amount: bonus.amount,
-            currency: bonus.currency,
-            grantedAt: bonus.grantedAt,
+            ...(typeof bonus.title === "string" ? { title: bonus.title } : {}),
             expiresAt: bonus.expiresAt,
             message: bonus.message,
         });
@@ -278,7 +274,7 @@ export class AccountActions implements vscode.Disposable {
         });
         if (!bonus) return;
         // VS Code resolves this only after the notification has been presented and dismissed.
-        await vscode.window.showInformationMessage(bonus.message);
+        await vscode.window.showInformationMessage([bonus.title?.trim(), bonus.message].filter(Boolean).join("\n"));
         const acknowledged = await this.runtime.acknowledgeAccountBonus(batch.accountId, bonus.orderId, client);
         if (typeof acknowledged !== "boolean") {
             throw new Error(t("The DSH Runtime returned an invalid account bonus acknowledgement."));

@@ -609,7 +609,8 @@ export interface DshPluginChangeResult {
     application: "applied" | "restart-required" | "overridden" | "failed" | "cancelled";
     target: string;
     warnings?: string[];
-    error?: { code: string; diagnostic?: string };
+    error?: { code: string; diagnostic?: string; incompatible?: { name: string; version: string; runtimeVersion: string; requirements: Record<string, string> }[] };
+    restartReason?: "no-hmr" | "package-moved" | "host-module" | "unmanaged-plugin" | "module-comparison";
     pendingBuilds?: string[];
     packageResult?: { exitCode: number; output: string; truncated: boolean; logPath: string; kind?: string };
 }

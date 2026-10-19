@@ -692,5 +692,11 @@
     "Downloading plugin package": "正在下载插件包",
     "Cancelling plugin installation": "正在取消插件安装",
     "Applying plugin change...": "正在应用插件变更…",
-    "Overridden": "被覆盖"
+    "Overridden": "被覆盖",
+    "This Runtime profile applies plugin changes only at startup.": "此 Runtime 配置仅在启动时应用插件变更。",
+    "The plugin package location or installation changed.": "插件包位置或安装已发生变化。",
+    "The change affects modules loaded by the Runtime host.": "此变更影响 Runtime 主机已加载的模块。",
+    "The change affects a plugin outside the managed loader.": "此变更影响托管加载器之外的插件。",
+    "The Runtime could not compare loaded modules with files on disk.": "Runtime 无法比较已加载模块与磁盘文件。",
+    "Runtime terminal attachment ended. Reopen the terminal to reconnect.": "Runtime 终端连接已结束，请重新打开终端以重连。"
 }

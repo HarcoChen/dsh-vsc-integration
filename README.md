@@ -315,7 +315,7 @@ npm run release    # Test + version bump + CHANGELOG archive + tag
 
 The Remote smoke runner checks the launcher's actual version, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
 
-To run the Remote integration smoke against an installed `0.2.0-rc.2` launcher:
+To run the Remote integration smoke against an installed `0.2.1-rc.2` launcher (use `--expect-version 0.2.0-rc.2` for the previous release):
 
 ```bash
 npm run compile
@@ -325,7 +325,7 @@ node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --timed-
 node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-team-bundle
 ```
 
-This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopback Messages model stub. It does not use your sessions or external model credentials. Use a Node.js version supported by the selected Runtime (`^22.19.0 || >=24.0.0`). `--with-schedule-bundle` checks optional Schedule RPCs; `--timed-questions` checks timeout continuation and a late answer; `--expect-version <version>` explicitly selects another smoke target; `--keep` retains the temporary state.
+This smoke run uses a temporary DSH home, an isolated DSH Workspace, and a loopback Messages model stub. It does not use your sessions or external model credentials. Use a Node.js version supported by the selected Runtime (`^22.19.0 || >=24.0.0`). `--with-schedule-bundle` checks the optional Schedule bundle on 0.2.0 (0.2.1 includes Schedule by default); `--workflow-controls` checks terminal input acknowledgements, recovery, plugin operations and directory-aware diffs; `--with-jev` loads the vendored overlay and checks its capabilities endpoint; `--timed-questions` checks timeout continuation and a late answer; `--expect-version <version>` explicitly selects another smoke target; `--keep` retains the temporary state.
 
 To verify local command discovery and startup arguments:
 

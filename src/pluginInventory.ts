@@ -1,3 +1,4 @@
+import { t } from "./localize";
 import { isRecord } from "./guards";
 import type {
     DshPluginFiberPhase,
@@ -29,8 +30,22 @@ export function normalizePluginChange(value: unknown): DshPluginChangeResult | u
         (value.packageResult !== undefined && (!isRecord(value.packageResult) || !Number.isSafeInteger(value.packageResult.exitCode) ||
             typeof value.packageResult.output !== "string" || typeof value.packageResult.truncated !== "boolean" ||
             typeof value.packageResult.logPath !== "string" || (value.packageResult.kind !== undefined && typeof value.packageResult.kind !== "string")))) return undefined;
+    const reasons = ["no-hmr", "package-moved", "host-module", "unmanaged-plugin", "module-comparison"];
+    if (value.restartReason !== undefined && !reasons.includes(String(value.restartReason))) return undefined;
+    const incompatible: NonNullable<NonNullable<DshPluginChangeResult["error"]>["incompatible"]> = [];
+    if (isRecord(value.error) && value.error.incompatible !== undefined) {
+        if (!Array.isArray(value.error.incompatible)) return undefined;
+        for (const item of value.error.incompatible) {
+            if (!isRecord(item) || !nonEmptyString(item.name) || !nonEmptyString(item.version) || !nonEmptyString(item.runtimeVersion)) return undefined;
+            const requirements = item.requirements ?? item.peers;
+            if (!isRecord(requirements) || !Object.values(requirements).every(nonEmptyString)) return undefined;
+            incompatible.push({ name: item.name, version: item.version, runtimeVersion: item.runtimeVersion,
+                requirements: { ...requirements } as Record<string, string> });
+        }
+    }
     return {
         changed: value.changed,
+        ...(value.restartReason === undefined ? {} : { restartReason: value.restartReason as DshPluginChangeResult["restartReason"] }),
         application: value.application as DshPluginChangeResult["application"],
         target: value.target,
         ...(value.pendingBuilds === undefined ? {} : { pendingBuilds: [...value.pendingBuilds as string[]] }),
@@ -44,6 +59,7 @@ export function normalizePluginChange(value: unknown): DshPluginChangeResult | u
         ...(value.warnings === undefined ? {} : { warnings: [...value.warnings as string[]] }),
         ...(isRecord(value.error) ? { error: {
             code: value.error.code as string,
+            ...(incompatible.length ? { incompatible } : {}),
             ...(typeof value.error.diagnostic === "string" ? { diagnostic: value.error.diagnostic } : {}),
         } } : {}),
     };
@@ -163,4 +179,20 @@ export function normalizePluginInventory(value: unknown): DshPluginInventorySnap
         entries: entries as DshPluginInventoryEntry[],
         agentPresets: agentPresets as DshPluginInventoryPreset[],
     };
+}
+
+/** Human-readable Host diagnostics shared by command and Settings surfaces. */
+export function pluginChangeDetails(result: DshPluginChangeResult): string[] {
+    const reasons = {
+        "no-hmr": t("This Runtime profile applies plugin changes only at startup."),
+        "package-moved": t("The plugin package location or installation changed."),
+        "host-module": t("The change affects modules loaded by the Runtime host."),
+        "unmanaged-plugin": t("The change affects a plugin outside the managed loader."),
+        "module-comparison": t("The Runtime could not compare loaded modules with files on disk."),
+    };
+    return [result.restartReason ? reasons[result.restartReason] : undefined,
+        result.error?.diagnostic ?? result.error?.code,
+        ...(result.error?.incompatible ?? []).map(item =>
+            `${item.name}@${item.version} · DSH ${item.runtimeVersion}: ${Object.entries(item.requirements).map(([name, range]) => `${name}: ${range}`).join(", ")}`),
+        ...(result.warnings ?? [])].filter((value): value is string => Boolean(value));
 }

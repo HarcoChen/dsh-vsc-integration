@@ -53,6 +53,7 @@ import { SubagentController } from "./subagentController";
 import { projectionCell, projectionValue, type SessionStateSnapshot } from "./sessionStore";
 import { isRemoteError, RemoteProtocolError } from "./remote/errors";
 import { presentHostBaseline } from "./hostState";
+import { pluginChangeDetails } from "./pluginInventory";
 import { t } from "./localize";
 import { DshTerminalCommand, TerminalContextStore } from "./terminalContext";
 import {
@@ -3839,7 +3840,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.pluginMutation = { target, kind, pending: false,
                 failed: result.application === "failed",
                 restartRequired: result.application === "restart-required",
-                message: [messages[result.application], result.error?.code, result.error?.diagnostic, ...(result.warnings ?? [])].filter(Boolean).join("\n") };
+                message: [messages[result.application], ...pluginChangeDetails(result)].filter(Boolean).join("\n") };
             if (result.application === "applied" && this.sessionId) {
                 void this.runtime.syncSession(this.sessionId).catch(error => this.output.appendLine(`[dsh:plugins] session refresh failed: ${errorMessage(error)}`));
                 this.commandCatalogs.invalidate();
