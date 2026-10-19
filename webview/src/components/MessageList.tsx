@@ -7,6 +7,7 @@ import { MessageItem } from "./MessageItem";
 
 interface MessageListProps {
     messages: ChatMessage[];
+    visible?: boolean;
     submitting: boolean;
     agentStatusLabel?: string;
     autoOpenReasoning?: boolean;
@@ -64,6 +65,7 @@ function useStableMessages(messages: ChatMessage[]): ChatMessage[] {
 
 export const MessageList = React.memo(function MessageList({
     messages,
+    visible = true,
     submitting,
     agentStatusLabel,
     autoOpenReasoning,
@@ -72,11 +74,13 @@ export const MessageList = React.memo(function MessageList({
     const listRef = useRef<HTMLDivElement>(null);
     const stickToBottomRef = useRef(true);
     const pendingRevealRef = useRef<number[]>([]);
+    const visibleRef = useRef(visible);
+    visibleRef.current = visible;
     const stableMessages = useStableMessages(messages);
 
     useEffect(() => subscribeRevealMessage((seq) => {
         const target = listRef.current?.querySelector<HTMLElement>(`[data-message-seq="${seq}"]`);
-        if (target) {
+        if (target && visibleRef.current) {
             target.scrollIntoView({ behavior: "smooth", block: "center" });
         } else {
             pendingRevealRef.current.push(seq);
@@ -84,6 +88,7 @@ export const MessageList = React.memo(function MessageList({
     }), []);
 
     useLayoutEffect(() => {
+        if (!visible) return;
         const list = listRef.current;
         if (list && stickToBottomRef.current) {
             list.scrollTop = list.scrollHeight;
@@ -94,9 +99,10 @@ export const MessageList = React.memo(function MessageList({
                 ?.querySelector<HTMLElement>(`[data-message-seq="${seq}"]`)
                 ?.scrollIntoView({ behavior: "smooth", block: "center" });
         }
-    }, [stableMessages]);
+    }, [stableMessages, visible]);
 
     const onScroll = (): void => {
+        if (!visibleRef.current) return;
         const list = listRef.current;
         if (!list) return;
         stickToBottomRef.current =

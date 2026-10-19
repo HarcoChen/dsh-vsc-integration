@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
+import { drainAccountNotifications, normalizeAccountNotifications } from "./accountNotifications";
 import { isRecord } from "./guards";
 import { t } from "./localize";
 import { DshRuntime } from "./dshRuntime";
 import type {
     AccountBalanceResult,
-    AccountBonusBatch,
     AccountClientMetadata,
     AccountProfileResult,
     AccountView,
@@ -102,30 +102,6 @@ function normalizeBalance(value: unknown): AccountBalanceResult | null {
     return { status: "ready", value: wallets, bonusWallets };
 }
 
-function normalizeBonuses(value: unknown): AccountBonusBatch | null {
-    if (value === null) return null;
-    if (!isRecord(value) || !isString(value.accountId) || !Array.isArray(value.bonuses)) {
-        throw new Error(t("The DSH Runtime returned invalid account bonus notifications."));
-    }
-    const bonuses: AccountBonusBatch["bonuses"][number][] = [];
-    for (const bonus of value.bonuses) {
-        if (!isRecord(bonus) || !isString(bonus.orderId) || !isString(bonus.campaign) ||
-            !isString(bonus.amount) || (bonus.currency !== "CNY" && bonus.currency !== "USD") ||
-            !isString(bonus.grantedAt) || !isString(bonus.expiresAt) || !isString(bonus.message)) {
-            throw new Error(t("The DSH Runtime returned invalid account bonus notifications."));
-        }
-        bonuses.push({
-            orderId: bonus.orderId,
-            campaign: bonus.campaign,
-            amount: bonus.amount,
-            currency: bonus.currency,
-            grantedAt: bonus.grantedAt,
-            expiresAt: bonus.expiresAt,
-            message: bonus.message,
-        });
-    }
-    return { accountId: value.accountId, bonuses };
-}
 
 function parseCallbackOrigin(value: string | undefined): string | undefined {
     if (!value) return undefined;
@@ -168,6 +144,7 @@ export class AccountActions implements vscode.Disposable {
     private readonly disposables: vscode.Disposable[] = [];
     private expiryController: AbortController | undefined;
     private disposed = false;
+    private notices?: Promise<void>;
 
     public constructor(
         private readonly runtime: DshRuntime,
@@ -269,20 +246,20 @@ export class AccountActions implements vscode.Disposable {
         if (this.runtime.getStatus().state !== "running") await this.runtime.start(this.workspaceRoot());
     }
 
-    private async showUnnotifiedBonuses(client: AccountClientMetadata): Promise<void> {
-        const batch = normalizeBonuses(await this.runtime.getUnnotifiedAccountBonuses(client));
-        if (!batch) return;
-        const bonus = batch.bonuses.find((candidate) => {
-            const expiresAt = Date.parse(candidate.expiresAt);
-            return Number.isNaN(expiresAt) || expiresAt > Date.now();
+    private showUnnotifiedBonuses(client: AccountClientMetadata): Promise<void> {
+        if (this.notices) return this.notices;
+        this.notices = this.drainNotifications(client).finally(() => { this.notices = undefined; });
+        return this.notices;
+    }
+
+    private async drainNotifications(client: AccountClientMetadata): Promise<void> {
+        const endpoint = this.runtime.getUrl();
+        await drainAccountNotifications({
+            read: async () => normalizeAccountNotifications(await this.runtime.getUnnotifiedAccountBonuses(client)),
+            acknowledge: (accountId, orderId) => this.runtime.acknowledgeAccountBonus(accountId, orderId, client),
+            show: async notice => { await vscode.window.showInformationMessage([notice.title?.trim(), notice.message].filter(Boolean).join("\n")); },
+            isCurrent: () => !this.disposed && this.runtime.getUrl() === endpoint && this.runtime.getStatus().state === "running",
         });
-        if (!bonus) return;
-        // VS Code resolves this only after the notification has been presented and dismissed.
-        await vscode.window.showInformationMessage(bonus.message);
-        const acknowledged = await this.runtime.acknowledgeAccountBonus(batch.accountId, bonus.orderId, client);
-        if (typeof acknowledged !== "boolean") {
-            throw new Error(t("The DSH Runtime returned an invalid account bonus acknowledgement."));
-        }
     }
 
     private async signIn(): Promise<void> {

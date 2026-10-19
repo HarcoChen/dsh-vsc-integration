@@ -1510,6 +1510,16 @@ export class HarnessSessionStore {
         }
     }
 
+    public clearUnreadSessions(canRead: (id: string) => boolean): void {
+        for (const id of [...this.sessions.keys()]) {
+            if (canRead(id)) continue;
+            const previous = this.sessions.get(id);
+            if (previous) this.pendingPublishes.delete(previous);
+            this.sessions.delete(id);
+            this.publish(this.state(id));
+        }
+    }
+
     public get(sessionId: string): SessionStateSnapshot | undefined {
         return this.sessions.get(sessionId)?.snapshot();
     }

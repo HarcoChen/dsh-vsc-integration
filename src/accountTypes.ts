@@ -38,10 +38,7 @@ export interface AccountBonusBatch {
     readonly accountId: string;
     readonly bonuses: readonly {
         readonly orderId: string;
-        readonly campaign: string;
-        readonly amount: string;
-        readonly currency: "CNY" | "USD";
-        readonly grantedAt: string;
+        readonly title?: string;
         readonly expiresAt: string;
         readonly message: string;
     }[];

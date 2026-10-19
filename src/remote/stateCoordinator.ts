@@ -5,6 +5,7 @@ import { RemoteUnaryClient } from "./unaryClient";
 import {
     historyEntries as remoteHistoryEntries,
     projectionBlock as remoteProjectionBlock,
+    cachedProjectionValues,
     sessionCursor,
     type RemoteSessionAddress,
 } from "./sessionState";
@@ -95,6 +96,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         this.unary = connection.unary;
         this.historyPageSize = Math.max(1, options.historyPageSize ?? 100);
         this.runtimeVersion = options.runtimeVersion ?? RUNTIME_DEFAULT_VERSION;
+        connection.setRuntimeVersion(this.runtimeVersion);
         this.catalog = new HarnessCatalogStore();
         this.sessions = new HarnessSessionStore((diagnostic) =>
             sinks.onDiagnostic?.(diagnostic.message, diagnostic.value),
@@ -112,7 +114,16 @@ export class RemoteStateCoordinator implements AsyncDisposable {
                         : undefined,
             );
             sinks.onSessionChange?.(sessionId, snapshot);
-            if (snapshot.needsHistoryBaseline && !this.stopped) void this.syncHistory(sessionId);
+            if (snapshot.needsHistoryBaseline && !this.stopped && connection.access.allows("session/follow", { kind: "session", id: sessionId })) void this.syncHistory(sessionId);
+        });
+        connection.onAccessChange(() => {
+            // A missing snapshot during reconnect is not a permission revocation.
+            if (!connection.access.snapshot.available) return;
+            const canRead = (id: string): boolean => connection.access.allows("session/follow", { kind: "session", id });
+            this.generationAbort?.abort();
+            this.sessions.clearUnreadSessions(canRead);
+            this.sessions.markRemoteInteractionsUnavailable();
+            if (!this.stopped && connection.isReady && this.latestReady) this.onConnected(this.latestReady, connection.currentGeneration);
         });
         connection.onConnected((ready, generation) => this.onConnected(ready, generation));
         connection.onEvent((frame) => this.onRemoteEvent(frame));
@@ -130,6 +141,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     /** Version verified from the selected CLI or shared lock, before starting its streams. */
     public setRuntimeVersion(version: string): void {
         this.runtimeVersion = version;
+        this.connection.setRuntimeVersion(version);
     }
 
     public start(): void {
@@ -153,6 +165,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     }
 
     public syncHistory(sessionId: string): Promise<void> {
+        if (!this.connection.access.allows("session/follow", { kind: "session", id: sessionId })) return Promise.resolve();
         // A selected Team member remains parent-addressed during history repair.
         const address = [...this.desiredAddresses.values()].find((candidate) => candidate.kind === "subagent" && candidate.childSessionId === sessionId)
             ?? { kind: "session" as const, sessionId };
@@ -192,6 +205,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     public async refreshCatalog(signal?: AbortSignal): Promise<void> {
         // The RC descriptor intentionally names this reserved parameter
         // `_request`; it is not the old `request` payload convention.
+        if (!this.connection.access.allows("session/list")) { this.catalog.replaceRemoteSessions({ items: [] }); return; }
         const value = await this.unary.call<unknown>("session/list", { _request: {} }, signal);
         if (signal?.aborted) return;
         const result = toSessionList(value);
@@ -263,7 +277,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             beforeSeq = next;
             hasMore = page.hasMore === true;
         }
-        if (signal.aborted || this.stopped || generation !== this.connection.currentGeneration) return;
+        if (signal.aborted || this.stopped || generation !== this.connection.currentGeneration || !this.connection.access.allows("session/follow", { kind: "session", id: sessionId })) return;
         this.catalog.applyProjectionBaseline(sessionId, tail.projections);
         this.sessions.replaceRemoteBaseline(sessionId, {
             events: pages.flat(),
@@ -272,7 +286,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         }, tail.cursor);
     }
 
+    private latestReady?: RemoteEventReadyFrame;
+
     private onConnected(ready: RemoteEventReadyFrame, generation: number): void {
+        this.latestReady = ready;
         this.generationAbort?.abort();
         for (const abort of this.followAborts.values()) abort.abort();
         this.followAborts.clear();
@@ -281,13 +298,14 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         this.controlBaseline = undefined;
         this.catalog.beginRemoteBaseline();
         this.catalog.resetRemoteGeneration();
+        if (!this.connection.access.allows("workspace/follow")) this.catalog.replaceRemoteWorkspaces({ items: [], archivedSessionIds: [], pinnedSessionIds: [] });
         const abort = new AbortController();
         this.generationAbort = abort;
         void this.openGenerationStreams(abort.signal, generation, ready)
             .catch((error) => {
                 if (abort.signal.aborted || this.stopped || generation !== this.connection.currentGeneration) return;
                 this.diagnostic("Remote generation baseline failed", error);
-                this.connection.reconnect();
+                if (!isRemoteError(error)) this.connection.reconnect();
             });
     }
 
@@ -300,8 +318,8 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         const controlReady = deferred();
         const workspaceReady = deferred();
         const tasks: Promise<void>[] = [
-            this.consumeControl(signal, controlReady),
-            this.consumeWorkspace(signal, workspaceReady),
+            this.connection.access.allows("session/control") ? this.consumeControl(signal, controlReady) : Promise.resolve(controlReady.resolve()),
+            this.connection.access.allows("workspace/follow") ? this.consumeWorkspace(signal, workspaceReady) : Promise.resolve(workspaceReady.resolve()),
         ];
         try {
             await Promise.all([controlReady.promise, workspaceReady.promise]);
@@ -444,7 +462,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
     }
 
     private startAddressFollow(address: RemoteSessionAddress): void {
-        if (!this.generationReady || this.stopped) return;
+        if (!this.generationReady || this.stopped || !this.connection.access.allows("session/follow", { kind: "session", id: address.kind === "session" ? address.sessionId : address.childSessionId })) return;
         const signal = this.generationAbort?.signal;
         if (!signal || signal.aborted) return;
         const key = addressKey(address);
@@ -541,10 +559,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         if (!isRecord(value) || typeof value.type !== "string") {
             throw new Error("Remote workspace frame is malformed");
         }
-        if (value.type === "baseline" && isRecord(value.value)) {
+        if ((value.type === "baseline" || value.type === "replace") && isRecord(value.value)) {
             const baseline = workspaceBaseline(value.value);
             if (!baseline) throw new Error("Remote workspace baseline is malformed");
-            this.catalog.replaceRemoteWorkspaces(baseline, baselineRevision);
+            this.catalog.replaceRemoteWorkspaces(baseline, value.type === "replace" ? undefined : baselineRevision);
             return;
         }
         if (value.type === "upsert") {
@@ -682,12 +700,14 @@ function toSessionSummary(value: unknown): DshSessionSummary | undefined {
         typeof value.running !== "boolean" ||
         typeof value.blank !== "boolean" ||
         (value.parentSessionId !== undefined && typeof value.parentSessionId !== "string") ||
-        (value.origin !== undefined && value.origin !== "subagent") ||
-        (value.cwd !== undefined && typeof value.cwd !== "string")
+        (value.origin !== undefined && value.origin !== "subagent")
     ) return undefined;
+    const formatStatus = value.formatStatus === "current" || value.formatStatus === "migration-required"
+        ? value.formatStatus
+        : undefined;
     const projections = value.projections === undefined ? undefined : toProjection(value.projections);
-    if (value.projections !== undefined && projections === undefined) return undefined;
-    const projectedPreset = projections?.values.agentPreset;
+    const cached = cachedProjectionValues(value.projections);
+    const projectedPreset = projections?.values.agentPreset ?? cached?.agentPreset;
     const agentPreset = typeof projectedPreset === "string" && projectedPreset.length > 0
         ? projectedPreset
         : undefined;
@@ -699,6 +719,9 @@ function toSessionSummary(value: unknown): DshSessionSummary | undefined {
         ...(typeof value.parentSessionId === "string" ? { parentSessionId: value.parentSessionId } : {}),
         ...(value.origin === "subagent" ? { origin: "subagent" as const } : {}),
         ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+        ...(formatStatus === undefined ? {} : { formatStatus }),
+        ...(typeof cached?.title === "string" ? { title: cached.title } : {}),
+        ...(cached === undefined ? {} : { cachedProjectionValues: cached }),
         ...(agentPreset === undefined ? {} : { agentPreset }),
         ...(projections === undefined ? {} : { projections }),
     };

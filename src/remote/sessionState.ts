@@ -156,8 +156,16 @@ function expandChunkRow(value: unknown): DshSessionEvent[] {
 
 /** Decode the projection baseline carried by a Session opening snapshot. */
 export function projectionBlock(value: unknown): DshSessionProjectionsBlock | undefined {
-    if (!isPlainRecord(value) || !isSafeSeq(value.asOfSeq) || !isPlainRecord(value.values) || !isRemoteJsonValue(value.values)) return undefined;
+    if (!isPlainRecord(value) || (value.kind !== undefined && value.kind !== "sequenced") ||
+        !isSafeSeq(value.asOfSeq) || !isPlainRecord(value.values) || !isRemoteJsonValue(value.values)) return undefined;
     return { asOfSeq: value.asOfSeq, values: value.values };
+}
+
+/** Cache hints have no comparable sequence, including list hints carrying an old-format watermark. */
+export function cachedProjectionValues(value: unknown): Record<string, unknown> | undefined {
+    if (!isPlainRecord(value) || (value.kind !== "cached" && value.kind !== "migration-required") ||
+        !isPlainRecord(value.values) || !isRemoteJsonValue(value.values)) return undefined;
+    return { ...value.values };
 }
 
 /** Decode the opening cursor used as the fixed cut for backwards paging. */

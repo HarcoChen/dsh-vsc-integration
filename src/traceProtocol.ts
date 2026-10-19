@@ -19,7 +19,7 @@ export type TraceWebviewAction =
     | { type: "ready" }
     | { type: "selectRow"; rowId: string }
     | { type: "selectProjection"; key: string }
-    | { type: "openFileLocation"; path: string; line: number; column?: number }
+    | { type: "openFileLocation"; path: string; line: number; column?: number; rowId?: string }
     | { type: "setQuery"; query: string }
     | { type: "page"; direction: "older" | "newer" | "latest" }
     | { type: "setTimelineMode"; mode: TraceTimelineMode }
@@ -165,12 +165,13 @@ export function parseTraceWebviewAction(value: unknown): TraceWebviewAction | un
         case "openFileLocation":
             if (
                 Object.keys(value).some((key) =>
-                    key !== "type" && key !== "path" && key !== "line" && key !== "column"
+                    key !== "type" && key !== "path" && key !== "line" && key !== "column" && key !== "rowId"
                 ) ||
                 !boundedString(value.path, MAX_FILE_LOCATION_PATH_CHARACTERS) ||
                 !nonNegativeInteger(value.line) ||
                 value.line === 0 ||
                 value.line > MAX_FILE_LOCATION_INDEX ||
+                (value.rowId !== undefined && !boundedString(value.rowId, 2_048)) ||
                 (value.column !== undefined &&
                     (!nonNegativeInteger(value.column) ||
                         value.column === 0 ||
@@ -181,6 +182,7 @@ export function parseTraceWebviewAction(value: unknown): TraceWebviewAction | un
                 path: value.path,
                 line: value.line,
                 ...(value.column === undefined ? {} : { column: value.column }),
+                ...(value.rowId === undefined ? {} : { rowId: value.rowId as string }),
             };
         case "setQuery":
             return boundedString(value.query, 500, true)

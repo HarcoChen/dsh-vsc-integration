@@ -83,7 +83,7 @@
     "config.recovery.enabled.description": "在隔离沙箱中自动诊断并恢复本地 DSH 启动失败。",
     "config.recovery.autoPersistBundleIsolation.description": "沙箱验证达到高置信度后，持久化 profile bundle 隔离。",
     "config.installWhenMissing.description": "已弃用。扩展不再下载独立 Runtime；没有 dsh 命令时会引导安装官方 DeepSeek Desktop。不会替换其他自定义命令。",
-    "config.runtimeVersion.description": "用户同意后的本机 CLI 升级目标。独立 Runtime 下载已弃用。默认 0.2.0-rc.2，接受所有不低于最低版本 0.1.5-rc.1 的合法 SemVer。",
+    "config.runtimeVersion.description": "用户同意后的本机 CLI 升级目标。独立 Runtime 下载已弃用。默认 0.2.1-rc.2，接受所有不低于最低版本 0.1.5-rc.1 的合法 SemVer。",
     "config.startupTimeoutMs.description": "启动或连接后等待 dsh web HTTP 健康检查的最长时间。",
     "config.requestTimeoutMs.description": "单次 Harness RPC 的最长时间，包括重连后的历史基线同步。实时助手输出通过 WebSocket 推送，不使用轮询。",
     "config.maxContextBytes.description": "单次 prompt 中组装后的 <ide_context> 块允许使用的最大 UTF-8 字节数。",
@@ -103,5 +103,9 @@
     "config.jev.toolPruner.enabled.description": "让 Jev 排序模型可见的工具 schema；不会改变 DSH 权限或工具注册。",
     "config.jev.skillRouter.enabled.description": "让 Jev 选择相关 skill，并向模型上下文追加有界的建议。",
     "config.jev.decisionTools.enabled.description": "向 Agent 暴露 Jev 提问、排序和检查工具；提交的状态与候选项可能会发送给 Jev。",
-    "config.jev.deterministicSafetyGuard.enabled.description": "在本地检查破坏性命令、权限提升和凭据泄漏；检查数据不会离开本机。"
+    "config.jev.deterministicSafetyGuard.enabled.description": "在本地检查破坏性命令、权限提升和凭据泄漏；检查数据不会离开本机。",
+    "command.openRuntimeTerminal.title": "打开 Runtime 终端",
+    "command.attachDiagnostics.title": "附加当前文件的问题",
+    "command.managePlugins.title": "安装或卸载 Runtime 插件",
+    "command.openSessionCenter.title": "打开会话中心"
 }

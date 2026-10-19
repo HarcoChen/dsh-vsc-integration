@@ -2,13 +2,14 @@
 /** Integration smoke against a real DSH launcher, using the extension's compiled Remote clients.
  * Usage: npm run compile && node scripts/verify-remote-runtime.mjs --launcher /path/to/dsh
  * Options: --expect-version <version> (default: managed Runtime pin), --with-schedule-bundle,
- * --timed-questions, --with-team-bundle, --feature-controls, --keep.
+ * --timed-questions, --with-team-bundle, --feature-controls, --workflow-controls,
+ * --migration-home <isolated smoke home>, --with-jev, --seed-only, --keep.
  * All state is isolated; model requests go only to an in-process loopback mock server.
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, cp, readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -20,6 +21,7 @@ const require = createRequire(import.meta.url);
 const { RemoteConnectionController } = require(join(root, "dist/remote/connection"));
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
+const { compareRuntimeVersions } = require(join(root, "dist/runtimeVersion"));
 const { RUNTIME_DEFAULT_VERSION } = require(join(root, "dist/managedRuntime/types"));
 const { WorkspaceFilesClient, readRuntimeTextPreview, RUNTIME_TEXT_PREVIEW_MAX_BYTES } = require(join(root, "dist/workspaceFiles"));
 const { detectAgentTeamsCapability, normalizeAgentTeamProjection } = require(join(root, "dist/agentTeamTypes"));
@@ -33,6 +35,11 @@ const { SubagentController } = require(join(root, "dist/subagentController"));
 const { historyEntries, projectionBlock: remoteProjectionBlock } = require(join(root, "dist/remote/sessionState"));
 const { JobsController } = require(join(root, "dist/jobsController"));
 const { UserQuestionWaitController } = require(join(root, "dist/userQuestionWait"));
+const { RuntimeTerminalClient } = require(join(root, "dist/runtimeTerminalClient"));
+const { currentWorkingDirectory, workingDirectoryAt } = require(join(root, "dist/workingDirectory"));
+const { collectCallHunks } = require(join(root, "dist/toolDiff"));
+const { cachedProjectionValues } = require(join(root, "dist/remote/sessionState"));
+const { normalizePluginInspection } = require(join(root, "dist/pluginInventory"));
 const argv = process.argv.slice(2);
 const launcherIndex = argv.indexOf("--launcher");
 if (launcherIndex < 0 || !argv[launcherIndex + 1]) throw new Error("Pass --launcher /absolute/path/to/dsh");
@@ -42,6 +49,11 @@ const withScheduleBundle = argv.includes("--with-schedule-bundle");
 const withTeamBundle = argv.includes("--with-team-bundle");
 const timedQuestions = argv.includes("--timed-questions");
 const featureControls = argv.includes("--feature-controls");
+const workflowControls = argv.includes("--workflow-controls");
+const seedOnly = argv.includes("--seed-only");
+const withJev = argv.includes("--with-jev");
+const migrationIndex = argv.indexOf("--migration-home");
+if (migrationIndex >= 0 && !argv[migrationIndex + 1]) throw new Error("--migration-home requires an isolated smoke home");
 const versionIndex = argv.indexOf("--expect-version");
 if (versionIndex >= 0 && !argv[versionIndex + 1]) throw new Error("--expect-version requires a version");
 const expectedVersion = versionIndex >= 0 ? argv[versionIndex + 1] : RUNTIME_DEFAULT_VERSION;
@@ -54,11 +66,21 @@ if (versionProbe.error) throw versionProbe.error;
 assert.equal(versionProbe.status, 0, versionProbe.stderr);
 const runtimeVersion = versionProbe.stdout.trim();
 assert.equal(runtimeVersion, expectedVersion, "Launcher version must match the requested smoke target");
+const versionComparison = compareRuntimeVersions(runtimeVersion, "0.2.1-alpha.3");
+assert.notEqual(versionComparison, undefined, "Runtime version must be valid SemVer");
+const supports021 = versionComparison >= 0;
 console.log(`Verified Runtime version: ${runtimeVersion}; Schedule bundle: ${withScheduleBundle ? "enabled" : "disabled"}`);
 const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
 const dshHome = join(storage, "home");
 const workspacePath = join(storage, "workspace");
 await Promise.all([mkdir(dshHome), mkdir(workspacePath)]);
+if (migrationIndex >= 0) {
+    const fixtureHome = resolve(argv[migrationIndex + 1]);
+    assert.equal(await readFile(join(fixtureHome, ".dsh-ide-smoke-fixture"), "utf8"), "isolated-runtime-smoke\n");
+    await cp(fixtureHome, dshHome, { recursive: true });
+}
+await writeFile(join(dshHome, ".dsh-ide-smoke-fixture"), "isolated-runtime-smoke\n");
+await mkdir(join(workspacePath, "nested"));
 await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
 await writeFile(join(workspacePath, "remote-smoke.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
 await writeFile(join(workspacePath, "remote-large.txt"), Buffer.alloc(RUNTIME_TEXT_PREVIEW_MAX_BYTES + 1, 65));
@@ -68,12 +90,12 @@ if (withScheduleBundle || withTeamBundle) {
     await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
         private: true, type: "module",
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
-            ...(withScheduleBundle ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
+            ...(withScheduleBundle && !supports021 ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
             ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : [])] } },
     }, null, 2) + "\n");
 }
 if (timedQuestions) {
-    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n      - id: tool-bash\n        name: '@deepseek-ai/dsh-tool-bash'\n      - id: tool-jobs\n        name: '@deepseek-ai/dsh-tool-jobs'\n");
+    await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n      - id: tool-bash\n        name: '@deepseek-ai/dsh-tool-bash'\n      - id: tool-jobs\n        name: '@deepseek-ai/dsh-tool-jobs'\n      - id: tool-fs\n        name: '@deepseek-ai/dsh-tool-fs'\n");
 }
 env.DSH_HOME = dshHome;
 env.DSH_SMOKE_API_KEY = "local-smoke-only";
@@ -84,10 +106,34 @@ let jobToolServed = false;
 let teamTaskServed = false;
 let teammateServed = false;
 let modelRequests = 0;
+let directoryServed = false;
+let historicalEditStep = 0;
+let packageTarball;
+let packageDownloadStarted = false;
 const model = createServer(async (request, response) => {
+    if (request.url === "/workflow-plugin.tgz" && packageTarball) {
+        response.writeHead(200, { "content-type": "application/octet-stream", "content-length": packageTarball.length });
+        if (request.method === "HEAD") { response.end(); return; }
+        packageDownloadStarted = true;
+        // Keep the download in flight until the Host cancels its package-manager process.
+        response.write(packageTarball.subarray(0, 8));
+        return;
+    }
     if (request.url === "/models") {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ object: "list", data: [{ id: "deepseek-flash", object: "model" }] }));
+        return;
+    }
+    if (seedOnly && ["/chat/completions", "/v1/chat/completions"].includes(request.url)) {
+        let body = "";
+        for await (const part of request) body += part;
+        const payload = JSON.parse(body);
+        modelRequests += 1;
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        const chunk = value => response.write(`data: ${JSON.stringify({ id: randomUUID(), object: "chat.completion.chunk", model: payload.model, ...value })}\n\n`);
+        chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "Hello world" }, finish_reason: null }] });
+        chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
+        response.end("data: [DONE]\n\n");
         return;
     }
     if (request.url !== "/v1/messages") { response.writeHead(404); response.end(); return; }
@@ -107,13 +153,22 @@ const model = createServer(async (request, response) => {
             : messages.includes("TEAM_PANEL_SMOKE") && !teammateServed ? "spawn_teammate" : undefined
         : undefined;
     const jobCall = featureControls && messages.includes("JOBS_CONTROL_SMOKE") && !jobToolServed;
-    if (teamCall || jobCall || (timedQuestions && questionMarker)) {
+    const directoryCall = workflowControls && supports021 && messages.includes("WORKING_DIRECTORY_SMOKE") && !directoryServed;
+    const historicalCall = workflowControls && supports021 && messages.includes("HISTORICAL_EDIT_SMOKE") && historicalEditStep < 3
+        ? [
+            { id: "nested-write", name: "write", input: { file_path: "same.txt", content: "nested content\n" } },
+            { id: "return-directory", name: "working_directory", input: { cd: workspacePath } },
+            { id: "root-write", name: "write", input: { file_path: "same.txt", content: "root content\n" } },
+        ][historicalEditStep++] : undefined;
+    if (teamCall || jobCall || directoryCall || historicalCall || (timedQuestions && questionMarker)) {
+        if (directoryCall) directoryServed = true;
         if (teamCall === "spawn_teammate") teammateServed = true;
         else if (teamCall === "team_task_create") teamTaskServed = true;
         else if (jobCall) jobToolServed = true;
         else servedQuestions.add(questionMarker);
-        const name = teamCall ?? (jobCall ? "bash" : "ask_user_question");
-        const input = teamCall === "spawn_teammate" ? { name: "smoke-worker", description: "Isolated member for the panel smoke", prompt: "Return a short hello for TEAM_WORKER_REPLY", context: "fresh" }
+        const name = historicalCall?.name ?? (directoryCall ? "working_directory" : teamCall ?? (jobCall ? "bash" : "ask_user_question"));
+        const input = historicalCall?.input ?? (directoryCall ? { cd: join(workspacePath, "nested") }
+            : teamCall === "spawn_teammate" ? { name: "smoke-worker", description: "Isolated member for the panel smoke", prompt: "Return a short hello for TEAM_WORKER_REPLY", context: "fresh" }
             : teamCall === "team_task_create" ? { subject: "Smoke team task", description: "Verify the public task projection", write_scopes: ["src/"] }
             : jobCall ? {
             command: "for index in {1..80}; do echo job-stream-$index; sleep 0.15; done",
@@ -122,8 +177,8 @@ const model = createServer(async (request, response) => {
         } : {
             questions: [{ id: "scope", question: "Which scope should be used?", options: [{ label: "Tool only" }] }],
             timeout: questionMarker === "TIMED_QUESTION_SMOKE" ? 1 : 10,
-        };
-        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: teamCall ?? (jobCall ? "smoke-job" : questionMarker), name, input: {} } });
+        });
+        event({ type: "content_block_start", index: 0, content_block: { type: "tool_use", id: historicalCall?.id ?? (directoryCall ? "smoke-directory" : teamCall ?? (jobCall ? "smoke-job" : questionMarker)), name, input: {} } });
         event({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } });
         event({ type: "content_block_stop", index: 0 });
         event({ type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 4 } });
@@ -150,7 +205,70 @@ await new Promise((resolveListen, rejectListen) => {
 await writeFile(join(dshHome, "settings.yaml"), `llm-deepseek:\n  apiKeyEnv: DSH_SMOKE_API_KEY\n  baseURL: http://127.0.0.1:${model.address().port}\n  thinking: disabled\n`);
 const patchPath = join(storage, "smoke.patch.yml");
 await writeFile(patchPath, "- id: goal-round-driver\n  name: '@deepseek-ai/dsh-goal-round-driver'\n  disabled: true\n");
-const child = spawn(launcher, ["--profile", "web", "--patch", patchPath, "--no-open", "--host", "127.0.0.1", "--port", "0"], {
+const accessArgs = [];
+if (featureControls && supports021) {
+    const accessPlugin = join(storage, "access-smoke.mjs");
+    await writeFile(accessPlugin, `export const name = 'ide-access-smoke';
+export const inject = ['connection', 'remoteAccess', 'deepseekAccount'];
+export function apply(ctx) {
+  let allowed = [];
+  let workspaces = [];
+  const guest = ctx.connection.createPeer({ principal: { kind: 'ide-smoke-guest' }, interactions: 'none' });
+  ctx.remoteAccess.registerPolicy('ide-smoke-guest', { bindings() {
+    return [{ resource: { kind: 'global' }, role: { name: 'ide-read', resource: 'global', actions: ['remoteAccess/follow', 'session/list', 'session/control', 'workspace/follow', 'session/canOpenWorkspacePath'] } },
+      ...allowed.map(id => ({ resource: { kind: 'session', id }, role: { name: 'ide-session-read', resource: 'session', actions: ['session/list', 'session/control', 'workspace/follow', 'session/follow', 'session/page', 'session/projections'] } })),
+      ...workspaces.map(id => ({ resource: { kind: 'workspace', id }, role: { name: 'ide-workspace-read', resource: 'workspace', actions: ['workspace/follow'] } }))];
+  } });
+  const connection = ctx.connection;
+  const admit = connection.admit;
+  connection.admit = function(request) {
+    const result = admit.call(this, request);
+    const flag = request.headers instanceof Headers ? request.headers.get('x-ide-smoke-guest') : request.headers['x-ide-smoke-guest'];
+    return !('rejection' in result) && flag === '1' ? { peer: guest } : result;
+  };
+  ctx.effect(() => () => { connection.admit = admit; });
+  let notices;
+  let acknowledged = [];
+  const account = ctx.deepseekAccount;
+  const read = account.getUnnotifiedBonuses;
+  const ack = account.ackBonusNotified;
+  account.getUnnotifiedBonuses = async function(client) { return notices ? { accountId: notices.accountId, bonuses: notices.bonuses.filter(item => !acknowledged.includes(item.orderId)) } : read.call(this, client); };
+  account.ackBonusNotified = async function(accountId, orderId, client) {
+    if (!notices) return ack.call(this, accountId, orderId, client);
+    if (accountId !== notices.accountId) return false;
+    acknowledged.push(orderId);
+    return true;
+  };
+  ctx.effect(() => () => { account.getUnnotifiedBonuses = read; account.ackBonusNotified = ack; });
+  ctx.connection.fetch.register({ path: '/api/ide-smoke-notifications', methods: ['GET', 'POST'], requestBody: 'buffered', async fetch(request) {
+    if (request.method === 'POST') { notices = await request.json(); acknowledged = []; }
+    return Response.json({ acknowledged });
+  } });
+  ctx.connection.fetch.register({ path: '/api/ide-smoke-access', methods: ['POST'], requestBody: 'buffered', async fetch(request) {
+    const value = await request.json();
+    allowed = value.sessions;
+    workspaces = value.workspaces ?? [];
+    if (value.notify !== false) ctx.remoteAccess.invalidate();
+    return Response.json({ ok: true });
+  } });
+}`);
+    const accessPatch = join(storage, "access-smoke.patch.yml");
+    await writeFile(accessPatch, JSON.stringify([{ insert: [{ id: "ide-access-smoke", name: accessPlugin }] }]));
+    accessArgs.push("--patch", accessPatch);
+}
+const jevArgs = [];
+if (withJev) {
+    const jev = require(join(root, "dist/jevIntegration"));
+    const jevPatch = await jev.prepareJevIntegrationPatch({ extensionPath: root, outputDirectory: storage,
+        config: { enabled: false, baseUrl: jev.DEFAULT_JEV_BASE_URL, model: jev.DEFAULT_JEV_MODEL,
+            guardedTools: jev.DEFAULT_JEV_GUARDED_TOOLS, loopGuard: jev.DEFAULT_JEV_LOOP_GUARD,
+            resultShaper: jev.DEFAULT_JEV_RESULT_SHAPER, doneGate: jev.DEFAULT_JEV_DONE_GATE,
+            toolPruner: jev.DEFAULT_JEV_TOOL_PRUNER, skillRouter: jev.DEFAULT_JEV_SKILL_ROUTER,
+            decisionTools: jev.DEFAULT_JEV_DECISION_TOOLS, deterministicSafetyGuard: jev.DEFAULT_JEV_DETERMINISTIC_SAFETY_GUARD } });
+    assert.ok(jevPatch, "vendored Jev integration must be available");
+    jevArgs.push("--patch", jevPatch);
+}
+const child = spawn(launcher, ["--profile", "web", "--patch", patchPath, ...jevArgs, ...accessArgs, "--no-open", "--host", "127.0.0.1", "--port", "0"], {
     cwd: workspacePath, env, stdio: ["ignore", "pipe", "pipe"],
 });
 let output = "";
@@ -194,6 +312,7 @@ async function first(endpoint, args = {}) {
     } finally { clearTimeout(timeout); abort.abort(); }
 }
 try {
+  verification: {
     console.log(`Isolated DSH home: ${dshHome}`);
     const launchUrl = await until(() => output.match(/http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+/u)?.[0], "authenticated launch URL", 90000);
     const baseUrl = new URL(launchUrl).origin;
@@ -205,13 +324,20 @@ try {
     assert.ok(cookie);
     const requestHeaders = () => ({ cookie });
     pass("unauthenticated RPC rejected; launch token exchanged for cookie");
+    if (withJev) {
+        const response = await fetch(`${baseUrl}/api/dsh-jev/capabilities`, { headers: requestHeaders() });
+        assert.equal(response.status, 200);
+        const capabilities = await response.json();
+        assert.equal(capabilities.ok, true, JSON.stringify(capabilities));
+        pass("Vendored Jev launch overlay loads and exposes authenticated capabilities");
+    }
     connection = new RemoteConnectionController({ baseUrl, requestHeaders,
         onEvent: frame => remoteEvents.push(frame),
         onDiagnostic: (message, cause) => diagnostics.push(`${message}: ${cause?.message ?? cause ?? ""}`) });
     // Observe decoded server frames while retaining the actual extension mux and state coordinator.
     const open = connection.open.bind(connection);
-    connection.open = async function* (endpoint, args, signal) {
-        for await (const frame of open(endpoint, args, signal)) {
+    connection.open = async function* (endpoint, args, signal, uplink) {
+        for await (const frame of open(endpoint, args, signal, uplink)) {
             wireFrames.push({ endpoint, frame, generation: connection.currentGeneration });
             yield frame;
         }
@@ -225,6 +351,23 @@ try {
     await until(() => descriptions > 0, "coordinator baseline");
     await connection.unary.probe();
     pass("authenticated unary, mux $events, workspace and control baselines");
+    if (migrationIndex >= 0) {
+        const cold = coordinator.catalog.snapshot().sessions.find(item => item.formatStatus === "migration-required");
+        assert.ok(cold, "fixture must contain an old-format Session");
+        const hints = await connection.unary.call("session/projections", { request: { sessionId: cold.sessionId } });
+        assert.equal(hints.kind, "migration-required");
+        assert.ok(cachedProjectionValues(hints));
+        assert.equal(remoteProjectionBlock(hints), undefined);
+        await assert.rejects(() => connection.unary.call("session/fork", { request: { sessionId: cold.sessionId, allowMigration: false } }),
+            error => error.code === "session/migration-required");
+        coordinator.watchSession(cold.sessionId);
+        await coordinator.syncHistory(cold.sessionId);
+        await until(async () => remoteProjectionBlock(await connection.unary.call("session/projections", { request: { sessionId: cold.sessionId } })), "migration promotion");
+        await coordinator.refreshCatalog();
+        assert.equal(coordinator.catalog.snapshot().sessions.find(item => item.sessionId === cold.sessionId).formatStatus, "current");
+        assert.ok(remoteProjectionBlock(await connection.unary.call("session/projections", { request: { sessionId: cold.sessionId } })));
+        pass("Old-format cache hints remain sequence-free; opening migrates history and restores sequenced projections");
+    }
     const workspace = await connection.unary.call("workspace/create", { request: { path: workspacePath } });
     const workspaceId = workspace.workspace?.workspaceId ?? workspace.workspaceId;
     assert.ok(workspaceId, JSON.stringify(workspace));
@@ -234,6 +377,14 @@ try {
     await coordinator.refreshCatalog();
     assert.ok(coordinator.catalog.snapshot().sessions.some(session => session.sessionId === created.sessionId));
     pass("workspace/create and session/create update the live catalog");
+    if (supports021) {
+        const reused = await connection.unary.call("session/create", {
+            request: { workspaceId, sessionId: created.sessionId, agentPreset: "standard" },
+        });
+        assert.equal(reused.sessionId, created.sessionId);
+        assert.equal(reused.agentPreset, "standard");
+        pass("Session creation reuses a blank Session under the requested preset");
+    }
     // Let the selected Runtime persist its current format through public RPCs.
     const { sessionId: seededSessionId } = await connection.unary.call("session/create", {
         request: { workspaceId, agentPreset: "minimal" },
@@ -259,7 +410,124 @@ try {
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
     pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
-    if (withScheduleBundle) {
+    if (supports021 && !seedOnly) {
+        const replacement = await connection.unary.call("session/create", {
+            request: { workspaceId, sessionId: seededSessionId, agentPreset: "minimal" },
+        });
+        assert.notEqual(replacement.sessionId, seededSessionId);
+        pass("Session creation returns a new identity when the requested Session has started");
+    }
+    if (seedOnly) {
+        pass("Isolated legacy fixture generated only through public RPCs");
+        break verification;
+    }
+    if (featureControls && supports021) {
+        const { schemaNodeAtPath } = require(join(root, "dist/settingsSchema"));
+        let settings = await connection.unary.call("settings/describe", {});
+        const pi = settings.namespaces.find(item => item.ns === "llm-pi-ai");
+        const schema = schemaNodeAtPath(pi.schema, ["providers", "smoke-reasoning", "models", "0", "reasoningEfforts"]);
+        const dict = schema.list.find(item => item.type === "dict");
+        const levels = dict.sKey.list.map(item => item.value);
+        assert.ok(levels.includes("off") && levels.includes("high"), JSON.stringify(levels));
+        const customModel = { id: "smoke-reasoning", reasoningEfforts: { off: null, high: "high" } };
+        await connection.unary.call("settings/mutate", { ns: pi.ns, expectedRevision: pi.revision,
+            ops: [{ op: "set", path: ["providers", "smoke-reasoning"], value: { api: "openai-completions", baseURL: `http://127.0.0.1:${model.address().port}`, models: [customModel] } }] });
+        settings = await connection.unary.call("settings/describe", {});
+        const saved = settings.namespaces.find(item => item.ns === pi.ns);
+        assert.deepEqual(saved.value.providers["smoke-reasoning"].models[0].reasoningEfforts, customModel.reasoningEfforts);
+        await connection.unary.call("settings/mutate", { ns: pi.ns, expectedRevision: saved.revision,
+            ops: [{ op: "unset", path: ["providers", "smoke-reasoning"] }] });
+        const web = settings.namespaces.find(item => item.ns === "web");
+        const api = settings.namespaces.find(item => item.ns === "web-deepseek-api");
+        const originals = [web, api].map(item => ({ ns: item.ns, user: item.user }));
+        await connection.unary.call("settings/mutate", { ns: api.ns, expectedRevision: api.revision,
+            ops: [{ op: "set", path: ["count"], value: 7 }, { op: "set", path: ["sendOriginalQuestion"], value: false }] });
+        await connection.unary.call("settings/mutate", { ns: web.ns, expectedRevision: web.revision,
+            ops: [{ op: "set", path: ["searchProvider"], value: "deepseek-search-api" }, { op: "set", path: ["fetchProvider"], value: "deepseek-fetch-api" }] });
+        settings = await connection.unary.call("settings/describe", {});
+        assert.equal(settings.namespaces.find(item => item.ns === web.ns).value.fetchProvider, "deepseek-fetch-api");
+        assert.equal(settings.namespaces.find(item => item.ns === api.ns).value.count, 7);
+        for (const original of originals) {
+            const now = settings.namespaces.find(item => item.ns === original.ns);
+            const paths = original.ns === web.ns ? ["searchProvider", "fetchProvider"] : ["count", "sendOriginalQuestion"];
+            await connection.unary.call("settings/mutate", { ns: original.ns, expectedRevision: now.revision,
+                ops: paths.map(key => Object.hasOwn(original.user ?? {}, key) ? { op: "set", path: [key], value: original.user[key] } : { op: "unset", path: [key] }) });
+        }
+        pass("Host schema supplies editable reasoning levels; custom model mapping and atomic Search/Fetch selection persist and restore without external requests");
+    }
+    if (featureControls && supports021) {
+        const { drainAccountNotifications, normalizeAccountNotifications } = require(join(root, "dist/accountNotifications"));
+        const setNotices = async value => {
+            const result = await fetch(`${baseUrl}/api/ide-smoke-notifications`, { method: "POST", headers: { ...requestHeaders(), "content-type": "application/json" }, body: JSON.stringify(value) });
+            assert.equal(result.status, 200);
+        };
+        const acknowledgedNotices = async () => (await (await fetch(`${baseUrl}/api/ide-smoke-notifications`, { headers: requestHeaders() })).json()).acknowledged;
+        const client = { version: "0.10.3", locale: "zh-cn", timezoneOffsetSeconds: 28800 };
+        const samples = [
+            { orderId: "n1", title: "Notice one", message: "first", expiresAt: "", currency: { opaque: true } },
+            { orderId: "expired", message: "expired", expiresAt: "2000-01-01T00:00:00Z" },
+            { orderId: "n2", message: "second", expiresAt: "" },
+            { orderId: "n1", message: "duplicate", expiresAt: "" },
+            { orderId: "n3", title: "Notice three", message: "third", expiresAt: "" },
+        ];
+        const queue = { read: async () => normalizeAccountNotifications(await connection.unary.call("account/getUnnotifiedBonuses", { client })),
+            acknowledge: (accountId, orderId) => connection.unary.call("account/ackBonusNotified", { accountId, orderId, client }), isCurrent: () => true };
+        await setNotices({ accountId: "notice-account", bonuses: samples });
+        const shown = [];
+        await drainAccountNotifications({ ...queue, show: async notice => { shown.push(notice.orderId); } });
+        assert.deepEqual(shown, ["n1", "n2", "n3"]);
+        assert.deepEqual(await acknowledgedNotices(), shown);
+        await setNotices({ accountId: "notice-account", bonuses: samples });
+        await drainAccountNotifications({ ...queue, show: async () => { await setNotices({ accountId: "another-account", bonuses: [] }); } });
+        assert.deepEqual(await acknowledgedNotices(), []);
+        await setNotices({ accountId: "notice-account", bonuses: samples });
+        let current = true;
+        await drainAccountNotifications({ ...queue, isCurrent: () => current, show: async () => { current = false; } });
+        assert.deepEqual(await acknowledgedNotices(), []);
+        pass("Account RPC notification batches display in order, ignore expiry and duplicates, and never acknowledge across account or Runtime changes");
+        const updateAccess = async (sessions, workspaces = [workspaceId], notify = true) => {
+            const result = await fetch(`${baseUrl}/api/ide-smoke-access`, { method: "POST", headers: { ...requestHeaders(), "content-type": "application/json" }, body: JSON.stringify({ sessions, workspaces, notify }) });
+            assert.equal(result.status, 200);
+        };
+        await updateAccess([seededSessionId]);
+        const guest = new RemoteConnectionController({ baseUrl, requestHeaders: () => ({ ...requestHeaders(), "x-ide-smoke-guest": "1" }),
+            onDiagnostic: (message, error) => diagnostics.push(`guest: ${message}: ${error?.message ?? ""}`) });
+        const guestFrames = [];
+        const guestOpen = guest.open.bind(guest);
+        guest.open = async function* (endpoint, args, signal, uplink) {
+            for await (const frame of guestOpen(endpoint, args, signal, uplink)) {
+                guestFrames.push({ endpoint, frame });
+                yield frame;
+            }
+        };
+        let guestReady = false;
+        const guestCoordinator = new RemoteStateCoordinator(guest, { onHostDescription: () => { guestReady = true; } }, { runtimeVersion });
+        guestCoordinator.start();
+        try {
+            await until(() => guestReady, "non-owner baseline");
+            assert.equal(guest.access.snapshot.owner, false);
+            assert.equal(guest.access.allows("session/follow", { kind: "session", id: seededSessionId }), true);
+            assert.equal(guest.access.allows("session/prompt", { kind: "session", id: seededSessionId }), false);
+            assert.deepEqual(guestCoordinator.catalog.snapshot().sessions.map(item => item.sessionId), [seededSessionId]);
+            guestCoordinator.watchSession(seededSessionId);
+            await until(() => guestCoordinator.sessions.get(seededSessionId)?.events.length > 0, "guest readable history");
+            await assert.rejects(() => guest.unary.call("session/prompt", { request: { sessionId: seededSessionId, requestId: randomUUID(), mode: "queue", content: [{ type: "text", text: "must be denied" }] } }), error => error.code === "remote-access/denied");
+            const generation = guest.currentGeneration;
+            await updateAccess([], [], false);
+            await connection.unary.call("workspace/rename", { request: { workspaceId, title: "Revoked workspace smoke" } });
+            await until(() => guestFrames.some(item => item.endpoint === "workspace/follow" && item.frame.type === "replace"), "filtered Workspace replace frame");
+            assert.equal(guestCoordinator.catalog.snapshot().workspaces.length, 0);
+            await updateAccess([], []);
+            await until(() => !guest.access.allows("session/follow", { kind: "session", id: seededSessionId }) && guestCoordinator.catalog.snapshot().sessions.length === 0, "guest revocation");
+            assert.equal(guestCoordinator.sessions.get(seededSessionId)?.events.length ?? 0, 0);
+            assert.equal(guest.currentGeneration, generation);
+            await assert.rejects(() => guest.answerRemoteEvent(randomUUID(), { kind: "next" }), /owner/u);
+            await updateAccess([seededSessionId]);
+            await until(() => guestCoordinator.sessions.get(seededSessionId)?.events.length > 0, "guest permission restoration");
+            pass("Non-owner grants filter history, reject mutations and answers, purge revoked data, and restore subscriptions without carrier reconnects");
+        } finally { await guestCoordinator.stop(); }
+    }
+    if (withScheduleBundle || supports021) {
         assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
         assert.deepEqual(await connection.unary.call("schedule/catalog", {}), []);
         const missingRequest = { sessionId: seededSessionId, id: randomUUID() };
@@ -267,7 +535,7 @@ try {
             "schedule_not_found");
         assert.deepEqual(await connection.unary.call("schedule/delete", { request: missingRequest }),
             { id: missingRequest.id, deleted: false, code: "schedule_not_found" });
-        pass("optional Schedule bundle exposes list/catalog/history/delete RPCs");
+        pass("Schedule composition exposes list/catalog/history/delete RPCs");
     } else {
         for (const [endpoint, args] of [["schedule/list", { request: { sessionId: seededSessionId } }], ["schedule/catalog", {}]]) {
             await assert.rejects(() => connection.unary.call(endpoint, args), error => error.status === 404);
@@ -314,7 +582,144 @@ try {
         pass("Active Agent Teams publishes a Session projection; it exposes no legacy agentTeams/view RPC");
     } else {
         assert.equal(projectionBlock.values.agentTeam, undefined);
-        pass("Standard composition has no Agent Teams service or projection");
+    pass("Standard composition has no Agent Teams service or projection");
+    }
+    if (workflowControls) {
+        const terminals = new RuntimeTerminalClient(connection.unary, connection);
+        const limits = await terminals.environment(seededSessionId);
+        const terminalId = randomUUID();
+        const terminal = await terminals.create(seededSessionId, terminalId, Math.min(80, limits.maxCols), Math.min(24, limits.maxRows));
+        assert.equal(terminal.id, terminalId);
+        assert.ok((await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+        const retainedAbort = new AbortController();
+        const hold = terminals.retain(seededSessionId, terminalId, retainedAbort.signal)[Symbol.asyncIterator]();
+        assert.equal((await hold.next()).done, false);
+        const outputAbort = new AbortController();
+        const attachment = terminals.attach(seededSessionId, terminalId, limits, outputAbort.signal);
+        const frames = attachment[Symbol.asyncIterator]();
+        try {
+            const first = await frames.next();
+            assert.equal(first.value.type, "snapshot");
+            assert.equal(first.value.writable, true);
+            if (!limits.legacyTransport) assert.ok(first.value.inputWindow.maxBytes > 0);
+            assert.equal(attachment.write("x".repeat(limits.maxInputBytes + 1)), false);
+            assert.equal(attachment.write("\u0000".repeat(Math.min(limits.maxInputBytes, limits.maxBufferedBytes))), false);
+            assert.equal(attachment.resize(70, 20), true);
+            assert.equal(attachment.write("printf 'DSH_TERMINAL_SMOKE\\n'\r"), true);
+            const timer = setTimeout(() => outputAbort.abort(new Error("terminal input smoke timed out")), 15000);
+            let text = "";
+            let acknowledged = 0;
+            try {
+                while (!text.includes("DSH_TERMINAL_SMOKE") || (!limits.legacyTransport && acknowledged < 2)) {
+                    const item = await frames.next();
+                    assert.equal(item.done, false);
+                    if (item.value.type === "output") text += item.value.data;
+                    if (item.value.type === "ack") {
+                        assert.equal(item.value.refusal, undefined);
+                        assert.equal(item.value.sequence, ++acknowledged);
+                    }
+                }
+            } finally { clearTimeout(timer); }
+            outputAbort.abort();
+            await frames.return();
+            const recoveredAbort = new AbortController();
+            const recovered = terminals.attach(seededSessionId, terminalId, limits, recoveredAbort.signal)[Symbol.asyncIterator]();
+            try {
+                const screen = await recovered.next();
+                assert.equal(screen.value.type, "snapshot");
+                assert.ok(screen.value.screen.includes("DSH_TERMINAL_SMOKE"));
+                assert.equal(screen.value.info.cols, 70);
+                assert.equal(screen.value.info.rows, 20);
+            } finally { recoveredAbort.abort(); await recovered.return(); }
+            try { await terminals.close(seededSessionId, terminalId); }
+            catch (error) {
+                // Host cleanup can refuse while a process is still being reaped; its contract retains the identity for retry.
+                assert.ok((await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+                await new Promise(resolve => setTimeout(resolve, 250));
+                await terminals.close(seededSessionId, terminalId);
+                pass("A refused PTY cleanup retains its identity and accepts explicit retry");
+            }
+            assert.ok(!(await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+        } finally {
+            outputAbort.abort();
+            retainedAbort.abort();
+            await frames.return().catch(() => undefined);
+            await hold.return().catch(() => undefined);
+        }
+        pass("Host PTY retains identity, accepts input/resize, recovers its screen, and closes without creating a replacement");
+
+        const fixture = join(storage, "workflow-plugin");
+        await mkdir(fixture);
+        await writeFile(join(fixture, "package.json"), JSON.stringify({ name: "dsh-ide-workflow-smoke", version: "1.0.0", type: "module",
+            main: "index.js", engines: { dsh: runtimeVersion }, dsh: { manifestVersion: 1, bundle: { patch: "cordis.patch.yml" } } }));
+        await writeFile(join(fixture, "index.js"), "export const name = 'workflow-smoke'; export function apply() {}\n");
+        await writeFile(join(fixture, "cordis.patch.yml"), "- insert:\n    - id: workflow-smoke\n      name: dsh-ide-workflow-smoke\n");
+        const inspection = normalizePluginInspection(await connection.unary.call("pluginManager/inspect", { spec: fixture }));
+        assert.equal(inspection.status, "accepted");
+        assert.equal(inspection.bundle, true);
+        const installed = normalizePluginChange(await connection.unary.call("pluginManager/installBundle", {
+            spec: fixture, options: { requestId: randomUUID(), enabled: true, saveExact: true },
+        }));
+        assert.ok(installed && ["applied", "restart-required"].includes(installed.application), JSON.stringify(installed));
+        assert.ok((await connection.unary.call("pluginManager/listBundles", {})).some(item => item.name === "dsh-ide-workflow-smoke" && item.installed));
+        const removed = normalizePluginChange(await connection.unary.call("pluginManager/removeBundle", { name: "dsh-ide-workflow-smoke" }));
+        assert.ok(removed && removed.application !== "failed", JSON.stringify(removed));
+        assert.equal((await connection.unary.call("pluginManager/cancelInstall", { requestId: randomUUID() })).status, "not-running");
+        pass("Official manager inspects, installs and removes an isolated local bundle; unknown cancellation is explicit");
+
+        const archive = join(storage, "workflow-plugin.tgz");
+        const packed = spawnSync("tar", ["-czf", archive, "-C", storage, "workflow-plugin"], { env, encoding: "utf8" });
+        assert.equal(packed.status, 0, packed.stderr);
+        packageTarball = await readFile(archive);
+        const cancelId = randomUUID();
+        const pendingInstall = connection.unary.call("pluginManager/installBundle", {
+            spec: `http://127.0.0.1:${model.address().port}/workflow-plugin.tgz`, options: { requestId: cancelId, enabled: true },
+        });
+        let installationSettled = false;
+        let installationError;
+        const settlement = pendingInstall.then(normalizePluginChange, error => { installationError = error; }).finally(() => { installationSettled = true; });
+        await until(() => packageDownloadStarted || installationSettled, "in-flight plugin package download");
+        if (installationError) throw installationError;
+        assert.equal(packageDownloadStarted, true);
+        const waitingInstall = connection.unary.call("pluginManager/waitForInstall", { requestId: cancelId });
+        await new Promise(resolve => setTimeout(resolve, 100));
+        assert.equal((await connection.unary.call("pluginManager/cancelInstall", { requestId: cancelId })).status, "cancelled");
+        const cancelled = await settlement;
+        assert.equal(cancelled.application, "cancelled");
+        assert.equal((await waitingInstall).application, "cancelled");
+        assert.ok(!(await connection.unary.call("pluginManager/listBundles", {})).some(item => item.name === "dsh-ide-workflow-smoke" && item.installed));
+        pass("An in-flight package download cancels through the official manager, rolls back the profile, and settles attached waiters");
+
+        if (supports021) {
+            const directorySession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "standard" } });
+            coordinator.watchSession(directorySession.sessionId);
+            await connection.unary.call("session/prompt", { request: { sessionId: directorySession.sessionId, requestId: randomUUID(), mode: "queue",
+                content: [{ type: "text", text: "WORKING_DIRECTORY_SMOKE" }] } });
+            const ended = await until(() => coordinator.sessions.get(directorySession.sessionId)?.events.find(({ event }) => event.type === "turn/end"), "working directory tool turn");
+            assert.equal(ended.event.data.reason.kind, "completed", JSON.stringify(ended.event));
+            await coordinator.refreshCatalog();
+            const summary = coordinator.catalog.snapshot().sessions.find(item => item.sessionId === directorySession.sessionId);
+            assert.equal(await realpath(summary.cwd), await realpath(workspacePath));
+            const directory = await realpath(join(workspacePath, "nested"));
+            await until(() => currentWorkingDirectory(coordinator.sessions.get(directorySession.sessionId), summary) === directory, "working directory projection");
+            assert.equal(currentWorkingDirectory(coordinator.sessions.get(directorySession.sessionId), summary), directory);
+            assert.equal((await terminals.environment(directorySession.sessionId)).cwd, await realpath(join(workspacePath, "nested")));
+            pass("Working-directory projection follows cd while Session identity retains the original project");
+            await connection.unary.call("session/prompt", { request: { sessionId: directorySession.sessionId, requestId: randomUUID(), mode: "queue",
+                content: [{ type: "text", text: "HISTORICAL_EDIT_SMOKE" }] } });
+            await until(() => coordinator.sessions.get(directorySession.sessionId)?.events.find(({ event }) => event.type === "turn/end" && event.data.turn === 2), "historical directory edits");
+            const editSnapshot = coordinator.sessions.get(directorySession.sessionId);
+            const nestedWrite = editSnapshot.events.find(({ event }) => event.type === "tool/call" && event.data.callId === "nested-write");
+            const rootWrite = editSnapshot.events.find(({ event }) => event.type === "tool/call" && event.data.callId === "root-write");
+            assert.ok(nestedWrite && rootWrite);
+            assert.equal(workingDirectoryAt(editSnapshot, nestedWrite.event.seq, summary.cwd), directory);
+            assert.equal(workingDirectoryAt(editSnapshot, rootWrite.event.seq, summary.cwd), await realpath(workspacePath));
+            assert.deepEqual(collectCallHunks(editSnapshot, "same.txt", summary.cwd, "nested-write").map(call => call.callId), ["nested-write"]);
+            assert.deepEqual(collectCallHunks(editSnapshot, "same.txt", summary.cwd, "root-write").map(call => call.callId), ["root-write"]);
+            assert.equal(await readFile(join(workspacePath, "nested", "same.txt"), "utf8"), "nested content\n");
+            assert.equal(await readFile(join(workspacePath, "same.txt"), "utf8"), "root content\n");
+            pass("Real file edits with identical relative names retain historical directories and separate diff-hunk histories");
+        }
     }
     const files = new WorkspaceFilesClient(connection.unary, connection);
     const remoteFiles = await files.list(seededSessionId);
@@ -382,11 +787,12 @@ try {
     pass("positive/negative feedback categories survive edits, list reads and CAS conflicts");
     const oldGeneration = connection.currentGeneration;
     const oldDescriptions = descriptions;
+    const workspaceIdsBeforeReconnect = coordinator.catalog.snapshot().workspaces.map(item => item.workspaceId).sort();
     connection.reconnect();
     await until(() => connection.currentGeneration > oldGeneration && descriptions > oldDescriptions, "reconnect baselines");
     await coordinator.syncHistory(seededSessionId);
     assert.equal(conversationMessages(coordinator.sessions.get(seededSessionId)).length, 16);
-    assert.equal(coordinator.catalog.snapshot().workspaces.length, 1);
+    assert.deepEqual(coordinator.catalog.snapshot().workspaces.map(item => item.workspaceId).sort(), workspaceIdsBeforeReconnect);
     pass("reconnect reopens event/control/workspace/session streams without duplicate surfaces");
     coordinator.watchSession(created.sessionId);
     await coordinator.syncHistory(created.sessionId);
@@ -468,7 +874,8 @@ try {
         pass("timed ask_user_question continues after timeout and accepts a late Remote answer");
     }
     if (featureControls) {
-        const optionalName = "@deepseek-ai/dsh-experimental-schedule-bundle";
+        const optionalName = supports021
+            ? "@deepseek-ai/dsh-experimental-terminal-bundle" : "@deepseek-ai/dsh-experimental-schedule-bundle";
         const originalBundle = (await connection.unary.call("pluginManager/listBundles", {})).find(bundle => bundle.name === optionalName);
         assert.ok(originalBundle);
         const selected = normalizePluginChange(await connection.unary.call("pluginManager/setBundleEnabled", { name: optionalName, enabled: !originalBundle.enabled }));
@@ -519,6 +926,16 @@ try {
         await until(() => jobRows.find(row => row.id === job.id)?.status === "killed" && jobRows.find(row => row.id === job.id)?.streaming === false, "Job cancellation and output drain");
         assert.match(jobRows.find(row => row.id === job.id).outputSummary, /cancelled by the user/);
         pass("JobsController consumes real list/follow streams, resumes without duplication, and kills a running job");
+        await coordinator.syncHistory(jobSession.sessionId);
+        const { mergeJobHistory } = require(join(root, "dist/jobHistory"));
+        const historicalJobs = mergeJobHistory(jobSession.sessionId, coordinator.sessions.get(jobSession.sessionId).events, []);
+        const historicalJob = historicalJobs.find(item => item.id === job.id);
+        assert.ok(historicalJob, "owned Job lifecycle must survive in Session history");
+        assert.equal(historicalJob.status, "killed");
+        assert.equal(historicalJob.canKill, false);
+        assert.equal(historicalJob.historical, true);
+        assert.equal(mergeJobHistory(jobSession.sessionId, coordinator.sessions.get(jobSession.sessionId).events, jobRows).filter(item => item.id === job.id).length, 1);
+        pass("Durable Job lifecycle restores a read-only history row and merges with the live roster without duplication");
 
         if (timedQuestions) {
             const waits = new UserQuestionWaitController(connection, message => console.log(message));
@@ -615,9 +1032,10 @@ try {
     console.log(`Observed frames: ${streamTypes.join(", ")}`);
     assert.equal(diagnostics.length, 0, diagnostics.join("\n"));
     console.log(`OK: real Runtime integration smoke passed; ${modelRequests} local mock model request(s), no external model calls.`);
+  }
 } catch (error) {
     console.error(error.stack ?? error);
-    if (featureControls) console.error(`Feature tool/job frames: ${JSON.stringify(wireFrames.filter(item => item.endpoint.startsWith("job/") || ["tool/call", "tool/result"].includes(item.frame.event?.type)).slice(-10))}`);
+    if (featureControls || workflowControls) console.error(`Feature tool/job frames: ${JSON.stringify(wireFrames.filter(item => item.endpoint.startsWith("job/") || ["tool/call", "tool/result"].includes(item.frame.event?.type)).slice(-10))}`);
     console.error(`Mock requests: ${modelRequests}; recent wire frames: ${JSON.stringify(wireFrames.slice(-8).map(item => ({ endpoint: item.endpoint, type: item.frame.type, event: item.frame.event?.type, generation: item.generation })))}`);
     process.exitCode = 1;
 } finally {

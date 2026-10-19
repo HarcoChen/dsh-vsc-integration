@@ -28,6 +28,9 @@ export function handleMarkdownClick(target: EventTarget | null): boolean {
             path: file.dataset.filePath,
             line,
             ...(column === undefined ? {} : { column }),
+            ...(file.closest<HTMLElement>("[data-message-seq]")?.dataset.messageSeq === undefined ? {} : {
+                seq: Number(file.closest<HTMLElement>("[data-message-seq]")!.dataset.messageSeq),
+            }),
         });
         return true;
     }

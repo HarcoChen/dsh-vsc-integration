@@ -73,6 +73,38 @@ export function SearchIcon({ size = 14 }: IconProps): React.JSX.Element {
     );
 }
 
+export function PluginIcon({ size = 16 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M6 2.5H2.5V6H4a2 2 0 1 1 0 4H2.5v3.5H6V12a2 2 0 1 1 4 0v1.5h3.5V10H12a2 2 0 1 1 0-4h1.5V2.5H10V4a2 2 0 1 1-4 0Z" />
+        </svg>
+    );
+}
+
+export function RefreshIcon({ size = 16 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M13.5 6A5.5 5.5 0 0 0 3.3 4L1.5 6M1.5 2.5V6H5M2.5 10a5.5 5.5 0 0 0 10.2 2l1.8-2M11 10h3.5v3.5" />
+        </svg>
+    );
+}
+
+export function ExternalLinkIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M9 2.5h4.5V7M13.5 2.5 7 9M6.5 2.5H4A1.5 1.5 0 0 0 2.5 4v8A1.5 1.5 0 0 0 4 13.5h8a1.5 1.5 0 0 0 1.5-1.5V9.5" />
+        </svg>
+    );
+}
+
+export function FolderIcon({ size = 14 }: IconProps): React.JSX.Element {
+    return (
+        <svg {...base(size)}>
+            <path d="M1.5 5V3.5A1 1 0 0 1 2.5 2.5H6L8 5h5.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1Z" />
+        </svg>
+    );
+}
+
 export function MoreIcon({ size = 14 }: IconProps): React.JSX.Element {
     return (
         <svg {...base(size)} fill="currentColor" stroke="none">

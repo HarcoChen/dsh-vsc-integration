@@ -31,7 +31,7 @@ export interface DshContextItem {
 
 /** One host-resolved candidate shown by the composer `@` reference menu. */
 export interface DshReferenceCandidate {
-    kind: "file" | "directory" | "session" | "terminal";
+    kind: "file" | "directory" | "session" | "terminal" | "diagnostics";
     /** Readable label shown to the user. */
     label: string;
     /** Exact text inserted into the prompt when selected. */
@@ -435,6 +435,9 @@ export interface DshSessionSummary {
     origin?: "subagent";
     agentPreset?: string;
     projections?: DshSessionProjectionsBlock;
+    /** Sequence-free list hints; never seed the live projection store with these. */
+    cachedProjectionValues?: Record<string, unknown>;
+    formatStatus?: "current" | "migration-required";
     [key: string]: unknown;
 }
 
@@ -606,8 +609,15 @@ export interface DshPluginChangeResult {
     application: "applied" | "restart-required" | "overridden" | "failed" | "cancelled";
     target: string;
     warnings?: string[];
-    error?: { code: string; diagnostic?: string };
+    error?: { code: string; diagnostic?: string; incompatible?: { name: string; version: string; runtimeVersion: string; requirements: Record<string, string> }[] };
+    restartReason?: "no-hmr" | "package-moved" | "host-module" | "unmanaged-plugin" | "module-comparison";
+    pendingBuilds?: string[];
+    packageResult?: { exitCode: number; output: string; truncated: boolean; logPath: string; kind?: string };
 }
+
+export type DshPluginInspection =
+    | { status: "accepted"; kind: string; bundle: boolean | null; name?: string; version?: string; description?: string; registry: string | null; host?: string }
+    | { status: "refused"; problem: string; reason: string };
 
 /** Settings-owned plugin inventory and mutation feedback. */
 export interface DshPluginInventoryPanelView extends DshPluginInventorySnapshot {
@@ -955,6 +965,7 @@ export interface DshSettingsCardView {
 }
 
 export interface DshSettingsPanelView {
+    canManagePlugins?: boolean;
     open: boolean;
     loading?: boolean;
     writable: boolean;
@@ -1264,6 +1275,7 @@ export interface DshAssistantMessage {
 }
 
 export interface ChatViewState {
+    access?: { available: boolean; owner: boolean; canSend: boolean; canCancel: boolean; canConfigure: boolean; canSelectModel: boolean; canRunCommands: boolean };
     messages: ChatMessage[];
     context: DshContextItem[];
     fileReferenceCandidates?: DshReferenceCandidate[];
@@ -1281,6 +1293,7 @@ export interface ChatViewState {
     cancelling: boolean;
     focusMode: boolean;
     workspaceName?: string;
+    workingDirectory?: string;
     currentWorkspace?: {
         workspaceId?: string;
         title: string;
@@ -1700,7 +1713,8 @@ export interface JobCenterItem {
     kind: string;
     label: string;
     ownerSessionId: string;
-    status: DshJobView["status"];
+    status: DshJobView["status"] | "unavailable";
+    historical?: boolean;
     outputSummary?: string;
     outputText?: string;
     outputGap?: boolean;

@@ -116,6 +116,18 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             runQuietCommand(t("View What's New"), () => showWhatsNew(context)),
         ),
         vscode.commands.registerCommand("dsh.openInEditor", () => chatView.openInEditor()),
+        vscode.commands.registerCommand("dsh.openRuntimeTerminal", () =>
+            runQuietCommand(t("Open Runtime terminal"), () => chatView.openRuntimeTerminal()),
+        ),
+        vscode.commands.registerCommand("dsh.attachDiagnostics", () =>
+            runQuietCommand(t("Attach Problems"), () => chatView.openDiagnosticsPicker()),
+        ),
+        vscode.commands.registerCommand("dsh.managePlugins", () =>
+            runQuietCommand(t("Manage Runtime plugins"), () => chatView.managePlugins()),
+        ),
+        vscode.commands.registerCommand("dsh.openSessionCenter", () =>
+            runQuietCommand(t("DSH Session center"), () => chatView.openSessionCenter()),
+        ),
         vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
             try {
                 const supplied = value === undefined ? undefined : parseTraceLocation(value);

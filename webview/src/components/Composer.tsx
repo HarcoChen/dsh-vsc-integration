@@ -19,6 +19,8 @@ const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 180;
 
 interface ComposerProps {
+    access?: ComposerState["access"];
+    visible?: boolean;
     context: ComposerState["context"];
     selection: ComposerState["selection"];
     selectionEnabled: ComposerState["selectionEnabled"];
@@ -39,6 +41,8 @@ interface ComposerProps {
 }
 
 export const Composer = React.memo(function Composer({
+    access,
+    visible = true,
     context,
     selection,
     selectionEnabled,
@@ -74,7 +78,7 @@ export const Composer = React.memo(function Composer({
     // pending. Fold it the same way as Harness UI: entering plan mode is
     // effective while pending, leaving it is effective immediately.
     const planActive = plan !== undefined && (plan.pending ? !plan.active : plan.active);
-    const planCommandAvailable = canTogglePlan(commands);
+    const planCommandAvailable = canTogglePlan(commands) && access?.canRunCommands !== false;
 
     const togglePlan = useCallback((): void => {
         if (!planCommandAvailable) return;
@@ -145,8 +149,8 @@ export const Composer = React.memo(function Composer({
     }, [reasoningEffort]);
 
     useEffect(() => {
-        autoGrow();
-    }, [text, autoGrow]);
+        if (visible) autoGrow();
+    }, [text, autoGrow, visible]);
 
     // Host-initiated insertion (dsh.insertEditorReference): insert at the caret,
     // separated by a space when the preceding char is not whitespace, then focus.
@@ -182,7 +186,7 @@ export const Composer = React.memo(function Composer({
     }, [completion.resetSlashIndex]);
 
     const send = useCallback((): void => {
-        if (submitting) return;
+        if (submitting || access?.canSend === false) return;
         const value = textareaRef.current?.value ?? text;
         const attached = imageDrafts.images.length > 0 || fileDrafts.files.length > 0;
         if (!value.trim() && !attached) return;
@@ -197,7 +201,7 @@ export const Composer = React.memo(function Composer({
         setText("");
         imageDrafts.clear();
         fileDrafts.clear();
-    }, [completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text]);
+    }, [access?.canSend, completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text]);
 
     const sendLabel = t("Send");
     const quotedReferenceMatch = text.match(/(?:^|\s)@"([^"]*)$/u);
@@ -229,6 +233,13 @@ export const Composer = React.memo(function Composer({
     const chooseFileReference = (candidate: DshReferenceCandidate): void => {
         const referenceStart = text.length - referenceQuery.length - (referenceQuoted ? 2 : 1);
         const prefix = text.slice(0, Math.max(0, referenceStart));
+        if (candidate.kind === "diagnostics") {
+            setText(prefix);
+            postAction({ type: "openDiagnosticsPicker" });
+            setDismissedReferenceKey(referenceContextKey);
+            window.requestAnimationFrame(focusTextarea);
+            return;
+        }
         const suffix = candidate.kind === "directory" ? "" : " ";
         setText(prefix + candidate.insertText + suffix);
         setReferenceIndex(0);
@@ -291,7 +302,7 @@ export const Composer = React.memo(function Composer({
             {effortVisible ? (
                 <ReasoningEffortControl
                     control={reasoningEffort}
-                    submitting={submitting}
+                    submitting={submitting || access?.canSelectModel === false}
                     busy={busy}
                     onDismiss={() => setEffortVisible(false)}
                 />
@@ -348,6 +359,7 @@ export const Composer = React.memo(function Composer({
                         type="button"
                         className="dsh-icon-button dsh-add-context"
                         title={t("Add attachment")}
+                        aria-label={t("Add attachment")}
                         aria-expanded={attachmentMenuVisible}
                         disabled={submitting}
                         onClick={() => setAttachmentMenuVisible((visible) => !visible)}
@@ -379,6 +391,10 @@ export const Composer = React.memo(function Composer({
                                 <TerminalIcon />
                                 {t("Recent terminal command")}
                             </button>
+                            <button type="button" className="dsh-menu-item" onClick={() => {
+                                setAttachmentMenuVisible(false);
+                                postAction({ type: "openDiagnosticsPicker" });
+                            }}>{t("Problems from current file")}</button>
                             <button
                                 type="button"
                                 className="dsh-menu-item"
@@ -508,10 +524,10 @@ export const Composer = React.memo(function Composer({
                 <button
                     type="button"
                     className={`dsh-send-button${busy ? " dsh-button-secondary" : ""}`}
-                    title={busy ? t("Stop") : sendLabel}
+                    title={access?.canSend === false && !busy ? t("Read-only Runtime access") : busy ? t("Stop") : sendLabel}
                     disabled={busy
-                        ? cancelling
-                        : submitting || (!text.trim() && imageDrafts.images.length === 0 && fileDrafts.files.length === 0)}
+                        ? cancelling || access?.canCancel === false
+                        : access?.canSend === false || submitting || (!text.trim() && imageDrafts.images.length === 0 && fileDrafts.files.length === 0)}
                     onClick={() => {
                         if (busy) {
                             postAction({ type: "cancel" });
@@ -525,6 +541,7 @@ export const Composer = React.memo(function Composer({
                         ? cancelling ? t("Stopping...") : t("Stop")
                         : sendLabel}
                 </button>
+                <span className="dsh-composer-shortcut" aria-hidden="true">{t("Ctrl / ⌘ + Enter to send")}</span>
             </div>
             <div className="dsh-composer-footer">
                 {/* Rendered in both states so the toggle stays reachable by
@@ -550,9 +567,9 @@ export const Composer = React.memo(function Composer({
                 ) : null}
                 <PermissionModeChip
                     permissions={permissions}
-                    switchable={canSwitchPermissions(commands)}
+                    switchable={canSwitchPermissions(commands) && access?.canRunCommands !== false}
                 />
-                <TokenUsageBar usage={tokenUsage} />
+                <TokenUsageBar usage={tokenUsage} canSelectModel={access?.canSelectModel} />
                 <SessionStats stats={sessionStats} />
             </div>
         </div>

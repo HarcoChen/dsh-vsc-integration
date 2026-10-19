@@ -1,6 +1,20 @@
 # TODO
 
-更新时间：2026-10-03（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.2`](./RPC_0.2.0_RC2_ADAPTATION.md)）。
+最新产品调研：[2026-10-09 上游 alpha.2 与竞品比较](./UPSTREAM_COMPETITIVE_REVIEW_2026-10-09.md)。建议先做新版协议/工作目录兼容审计，再补 Runtime 终端、插件安装和 Problems 上下文；Worktree 与跨会话工作流作为后续方向。此条是调研入口，不表示默认 Runtime 或 contract pin 已升级。
+
+## 首批工作流实现（2026-10-10，`codex/dsh-workflow-features`）
+
+- [x] 区分有序投影与无序缓存提示，保留 Host 的 `formatStatus`；fork 在新版 Host 上使用 `allowMigration: false`，需要迁移时引导打开原会话。读取历史快照不作为“迁移已完成”的依据。
+- [x] 显示 `workingDirectory`，新文件导航使用有效目录，历史工具 Diff、聊天和 Trace 链接使用执行时目录；同一轮中切目录时禁用整轮恢复，保留逐次工具 Diff。
+- [x] Runtime 终端使用公开 `terminal/*` 与 VS Code Pseudoterminal，支持输入/resize、保留连接、重附着、画面恢复、输入控制权、关闭清理和失败重试。
+- [x] 官方插件管理器 inspect/install/cancel/wait/remove 接入，提供来源/版本确认、构建脚本批准、进度/日志和应用/重启/失败反馈。社区目录搜索仍待实现。
+- [x] Problems 选择器、命令和 `@diagnostics`；按当前文件显式选择诊断，保留字节限制和一次性附件语义。
+- [x] 会话中心实时消费现有 catalog，标明 DSH Workspace 并优先排列已观察到的待处理请求、错误与运行中会话。独立多会话 Tab 仍待实现。
+- [ ] 后续：完整 alpha.2 Remote/Jev hooks 审计及默认版本升级、Worktree 创建/setup/审查/清理、持久化恢复、交付证据卡。
+- [x] RC.2 工作流 smoke、RC.2 既有 Team/Jobs/问答回归、alpha.2 旧会话迁移/目录/终端/插件 smoke、编译 Webview 的窄/宽布局和动作检查通过；详见 [验收报告](./WORKFLOW_FEATURES_VALIDATION.md)。
+- [ ] 真实 VS Code 窗口、Windows PTY、远端 Host、构建脚本批准与第三方插件人工验收。
+
+更新时间：2026-10-10（默认实现目标及 Remote contract pin 为 [`dsh-v0.2.0-rc.2`](./RPC_0.2.0_RC2_ADAPTATION.md)）。
 
 独立托管 Runtime 下载已弃用。启动优先发现官方 DeepSeek Desktop 注册的 `dsh`；没有兼容命令时显示官方 Desktop 下载引导。
 下方「本轮进展」各节是历史记录，保留当时的版本判断。
@@ -27,7 +41,7 @@
 - [x] timed 问答完整生命周期：Host claim/倒计时、前台与延迟回答分流、跨客户端投影结算、重连恢复、webview 草稿持久化和只读回答记录。
 - [x] Agent Teams：以 Lead 的 `agentTeam` 投影展示成员与任务、任务状态筛选、依赖与写入范围，成员历史沿用 addressed-subagent；RC.2 没有 Team 任务变更 Remote。
 - [x] 插件启停与 Bundle 选择：调用官方管理器，保留保存、生效、需重启、被覆盖与失败结果；只读与损坏目标禁用开关。安装与删除另行处理。
-- [ ] Runtime Terminal：补终端保留、输出恢复与输入；已有 VS Code 本地终端捕获不等价。
+- [x] Runtime Terminal：终端保留、画面恢复、输入和关闭已接入，见上方首批工作流实现记录。
 
 `fileUploads/upload` 是现有官方裸字节上传路径的 JSON 替代入口，不属于文件上传功能缺口；桌面遥测和 Client half 执行不记为 IDE 待集成项。
 
@@ -426,7 +440,7 @@ subagentTiming、modelSelection、turnOutline、schedule）；且
 以下候选优先复用现有 RC Remote 和 VS Code 稳定 API，不把未公开的实现
 当成 DSH 契约：
 
-- [ ] **`@diagnostics`**：附加用户主动选择的诊断项与范围，不默认把全工作区诊断送入 prompt。
+- [x] **`@diagnostics`**：附加当前文件中用户主动选择的诊断；手写 mention 则显式附加当前文件诊断，不附加其他文件。
 - [x] **Prompt 模板**：发现 `.dsh/prompts` 下的本地 Markdown，只做可见预填，发送前由用户确认。
       实现：`src/promptTemplates.ts` 只读发现（`.dsh/prompts/**/*.md`，限 100 个文件/4 层深/32 KiB，frontmatter `title` 或首个 `#` 标题作展示名，路径经 `..`/绝对路径校验）；入口为 Composer `/template` slash 命令与命令面板 `DSH: Insert Prompt Template`；选中后整篇成为输入框草稿（`setComposerText`），发送仍由用户手动完成。不做：自动注入、隐式记忆、规则文件作为上下文附件（后者见上方 P1 条目）。
 - [ ] **Runtime 连接模式与生命周期可见性**：补 `attach-only`/`auto` 等状态表达，不改变外部 Runtime 只复用、不接管的规则。
