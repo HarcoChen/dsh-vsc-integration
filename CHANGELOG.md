@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### 新增
+
+- 提供实验性的 CodeArts `.carts` 安装包，IDE 运行兼容性尚未验证。
+
 ### 修复
 
 - 支持发现本机 IPv4/IPv6 和 HTTPS Runtime，补充自定义地址连接说明。（#44）

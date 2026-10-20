@@ -16,6 +16,7 @@ test/**
 *.ts
 *.map
 *.vsix
+*.carts
 .github/**
 .gitmodules
 vendor/dsh-jev-integration/node_modules/**

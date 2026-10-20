@@ -45,6 +45,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           NAME="$(node -p "require('./package.json').name")"
+          PUBLISHER="$(node -p "require('./package.json').publisher.toLowerCase()")"
           TAG="${{ inputs.tag || github.ref_name }}"
 
           if [[ "${TAG}" != "v${VERSION}" ]]; then
@@ -77,6 +78,7 @@ jobs:
 
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "vsix=${NAME}-${VERSION}.vsix" >> "${GITHUB_OUTPUT}"
+          echo "carts=${PUBLISHER}.${NAME}-${VERSION}.carts" >> "${GITHUB_OUTPUT}"
           echo "prerelease=${PRERELEASE}" >> "${GITHUB_OUTPUT}"
 
       - name: Run checks
@@ -153,11 +155,27 @@ jobs:
         # step wrote into the manifest instead.
         run: npx --yes ovsx publish "${VSIX}" -p "${OVSX_PAT}"
 
+      - name: Package CodeArts archive
+        env:
+          VSIX: ${{ steps.metadata.outputs.vsix }}
+        run: python3 scripts/package-carts.py "${VSIX}"
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.metadata.outputs.vsix }}
+          files: |
+            ${{ steps.metadata.outputs.vsix }}
+            ${{ steps.metadata.outputs.carts }}
           body_path: release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true
           prerelease: ${{ steps.metadata.outputs.prerelease == 'true' }}
+
+      # Huawei's formal/gray release mechanism differs from VS Code's opt-in
+      # prereleases. Only stable versions are submitted for formal publication.
+      - name: Publish stable release to Huawei marketplace
+        if: steps.metadata.outputs.prerelease == 'false'
+        env:
+          CART_SECRET: ${{ secrets.CART_SECRET }}
+          CARTS: ${{ steps.metadata.outputs.carts }}
+        run: node scripts/publish-carts.mjs "${CARTS}"

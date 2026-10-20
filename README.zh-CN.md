@@ -302,6 +302,8 @@ npm run package    # 编译 + vsce 打包
 npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 ```
 
+日常改动记录在 `CHANGELOG.md` 的 `Unreleased` 中；临时打包不提升版本、不归档日志、不打 tag。准备发布下一版预览版时，在当前奇数 minor 上执行 `npm run release -- patch`，由脚本统一提升版本、归档日志、提交并创建 tag；确认后使用 `git push origin HEAD --follow-tags` 触发发布。预览版手动打包使用 `npm run package -- --pre-release`。
+
 Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、分页、评价、重连、流式输出、Goal、命令、可选 Schedule 以及 RC.2 timed 问题延迟回答。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录运行结果及账号、Schedule 修改、Jev、UI 等剩余验证。
 
 对已安装的 `0.2.1-rc.2` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
