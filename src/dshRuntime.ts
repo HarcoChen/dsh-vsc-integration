@@ -3,7 +3,8 @@ import { RuntimeDescendantOwnershipUnknownError, spawnOwnedRuntime, terminateOwn
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
+import { createConnection } from "node:net";
 import { delimiter, extname, isAbsolute, join, posix } from "node:path";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
@@ -228,23 +229,39 @@ interface RuntimeEndpoint {
 const AUTH_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/u;
 
 function isLoopbackHostname(hostname: string): boolean {
-    return hostname === "127.0.0.1" ||
-        hostname === "localhost" ||
-        hostname === "0.0.0.0" ||
-        hostname === "[::1]";
+    return hostname === "localhost" || hostname === "0.0.0.0" ||
+        hostname === "[::1]" || /^127\.\d+\.\d+\.\d+$/u.test(hostname);
+}
+
+/** Only literal addresses assigned to this machine qualify for local discovery. */
+function localRuntimeHostnames(): Set<string> {
+    const hosts = new Set(["127.0.0.1", "[::1]"]);
+    for (const addresses of Object.values(networkInterfaces())) {
+        for (const { address, family } of addresses ?? []) {
+            try {
+                const host = family === "IPv6" ? `[${address}]` : address;
+                hosts.add(new URL(`http://${host}`).hostname);
+            } catch { /* Scoped IPv6 addresses have no portable URL representation. */ }
+        }
+    }
+    return hosts;
+}
+
+function isLocalRuntimeHostname(hostname: string): boolean {
+    return isLoopbackHostname(hostname) || localRuntimeHostnames().has(hostname);
 }
 
 function isInsecureRemoteRuntimeUrl(value: string): boolean {
     try {
         const url = new URL(value.trim());
-        return url.protocol === "http:" && !isLoopbackHostname(url.hostname);
+        return url.protocol === "http:" && !isLocalRuntimeHostname(url.hostname);
     } catch {
         return false;
     }
 }
 
 /** Parse a Runtime URL while keeping the launch token separate from requests. */
-function parseRuntimeEndpoint(value: unknown, loopbackOnly = false): RuntimeEndpoint | undefined {
+function parseRuntimeEndpoint(value: unknown, localOnly = false): RuntimeEndpoint | undefined {
     if (typeof value !== "string") return undefined;
     try {
         const url = new URL(value.trim());
@@ -254,11 +271,7 @@ function parseRuntimeEndpoint(value: unknown, loopbackOnly = false): RuntimeEndp
             url.password ||
             url.hash ||
             (url.pathname !== "/" && url.pathname !== "") ||
-            (loopbackOnly && (
-                url.protocol !== "http:" ||
-                !url.port ||
-                !isLoopbackHostname(url.hostname)
-            ))
+            (localOnly && !isLocalRuntimeHostname(url.hostname))
         ) {
             return undefined;
         }
@@ -276,9 +289,7 @@ function parseRuntimeEndpoint(value: unknown, loopbackOnly = false): RuntimeEndp
         base.search = "";
         base.hash = "";
         base.pathname = "/";
-        if (loopbackOnly) {
-            base.hostname = base.hostname === "[::1]" ? "[::1]" : "127.0.0.1";
-        }
+        if (base.hostname === "0.0.0.0") base.hostname = "127.0.0.1";
         const baseUrl = base.toString().replace(/\/$/u, "");
         if (tokenValues.length === 0) return { baseUrl };
 
@@ -305,7 +316,7 @@ function applyRuntimeToken(endpoint: RuntimeEndpoint, token: unknown): RuntimeEn
     };
 }
 
-/** One lock file's advertised Runtime endpoint, or undefined when it has none. */
+/** A local advertisement's Runtime endpoint, preserving its TLS authority. */
 function advertisementEndpoint(record: { url?: unknown; launchUrl?: unknown }): RuntimeEndpoint | undefined {
     const advertised = parseRuntimeEndpoint(record.url, true);
     const launch = parseRuntimeEndpoint(record.launchUrl, true);
@@ -320,10 +331,12 @@ function advertisementEndpoint(record: { url?: unknown; launchUrl?: unknown }): 
 }
 
 function extractRuntimeEndpoint(value: string): RuntimeEndpoint | undefined {
-    const match = value.match(
-        /https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):\d+(?:\/\?token=[A-Za-z0-9_-]+)?/i,
-    );
-    return match ? parseRuntimeEndpoint(match[0], true) : undefined;
+    const matches = value.match(/https?:\/\/(?:\[[0-9a-f:.]+\]|localhost|(?:\d{1,3}\.){3}\d{1,3})(?::\d+)?(?:\/(?:\?token=[A-Za-z0-9_-]+)?)?(?=$|[\s\x1b'"<>),])/gi) ?? [];
+    for (const match of matches) {
+        const endpoint = parseRuntimeEndpoint(match, true);
+        if (endpoint) return endpoint;
+    }
+    return undefined;
 }
 
 function portFromArgs(args: string[]): number | undefined {
@@ -3902,15 +3915,33 @@ export class DshRuntime implements vscode.Disposable {
             }
         } catch { /* Discovery metadata never vetoes startup. */ }
         for (const port of new Set([configuredPort, DEFAULT_RUNTIME_PORT])) {
-            if (Number.isInteger(port) && port > 0 && port <= 65535 && !excludedOrigins.has(`http://127.0.0.1:${port}`)) candidates.push({ endpoint: { baseUrl: `http://127.0.0.1:${port}` } });
+            if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
+            for (const host of localRuntimeHostnames()) {
+                for (const protocol of ["http", "https"]) {
+                    const baseUrl = `${protocol}://${host}:${port}`;
+                    if (!excludedOrigins.has(baseUrl)) candidates.push({ endpoint: { baseUrl } });
+                }
+            }
         }
         // Keep a bounded discovery budget even after many crashed editors.
         const deadline = Date.now() + 2_000;
+        // Probe sockets together so an unreachable VPN interface cannot consume
+        // the entire discovery budget before a healthy local listener is tried.
+        const reachable = await Promise.all(candidates.map(({ endpoint }) => new Promise<boolean>(resolve => {
+            const url = new URL(endpoint.baseUrl);
+            const socket = createConnection({ host: url.hostname.replace(/^\[|\]$/gu, ""),
+                port: Number(url.port || (url.protocol === "https:" ? 443 : 80)) });
+            const finish = (connected: boolean): void => { socket.destroy(); resolve(connected); };
+            socket.setTimeout(200, () => finish(false));
+            socket.once("connect", () => finish(true));
+            socket.once("error", () => finish(false));
+        })));
         const seen = new Set<string>();
         let selected = false;
         try {
-            for (const candidate of candidates) {
+            for (const [index, candidate] of candidates.entries()) {
                 signal?.throwIfAborted();
+                if (!reachable[index]) continue;
                 if (Date.now() >= deadline) break;
                 const key = candidate.endpoint.launchUrl ?? candidate.endpoint.baseUrl;
                 if (seen.has(key)) continue;

@@ -178,6 +178,17 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.2.0-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
+**Custom bind addresses and HTTPS:** set `dsh.serverUrl` to an existing Runtime's address to connect directly and avoid starting a second process on the same port. For example:
+
+```json
+{
+  "dsh.serverUrl": "https://[::1]:3080",
+  "dsh.serverToken": "<token printed by the Runtime>"
+}
+```
+
+IPv4 also works, for example `http://100.64.0.1:3080` when that IP belongs to the extension host machine. Remote hosts require HTTPS. Certificates must be trusted by the extension host; certificate verification is never disabled. Bracket IPv6 addresses. Automatic discovery probes local IPv4/IPv6 interfaces, but authentication tokens for unregistered instances still need the settings above.
+
 The implemented Runtime contract targets `dsh-v0.2.0-rc.2` (`639ed015397290b3745d163aafe02ffee4aa3f84`). The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records integration results and remaining checks. Runtime workspace files have a read-only browser, permission presets use the process catalog, and Settings supports plugin enablement and Bundle selection, including read-only reasons and saved/applied/restart-required feedback. Schedule requires the optional official bundle. Jobs streams live output, resumes by byte cursor after reconnect, and supports cancellation. Timed questions claim foreground waits and restore answer drafts after reconnect or webview recreation. The Team panel shows members and tasks from the `agentTeam` projection, with addressed member history and task filtering. Runtime terminal input, resizing and screen recovery, plus plugin installation/removal, are available on the development branch. Desktop product analytics RPCs remain unused by the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH and in the npm global prefix. A compatible command registered by DeepSeek Desktop is used directly. An incompatible local CLI gets an upgrade prompt; approval upgrades only a verified older npm global installation. When no compatible command is available, the extension guides you to install DeepSeek Desktop. Diagnostics never install or download a standalone Runtime. Explicit local paths follow the same compatibility check; explicit pnpm/npx remains available for advanced users.
