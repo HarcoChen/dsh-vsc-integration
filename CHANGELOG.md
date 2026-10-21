@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+<!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
+
+## [0.11.1] - 2026-10-21
+
 ### 新增
 
 - 提供实验性的 CodeArts `.carts` 安装包，IDE 运行兼容性尚未验证。
@@ -14,8 +18,6 @@
 ### 修复
 
 - 支持发现本机 IPv4/IPv6 和 HTTPS Runtime，补充自定义地址连接说明。（#44）
-
-<!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
 ## [0.11.0] - 2026-10-19
 
@@ -381,6 +383,7 @@ Agent Preset 菜单不再提供复制、打开位置和删除操作。
 
 - 首个社区预览版本，提供 `dsh web` Runtime 集成、侧栏聊天和 IDE 上下文附加。
 
+[0.11.1]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.4...v0.11.0
 [0.10.3]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.2...v0.10.3
 [0.10.2]: https://github.com/HarcoChen/dsh-vsc-integration/compare/v0.10.1...v0.10.2
