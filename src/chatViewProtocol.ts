@@ -21,6 +21,12 @@ export type ChatViewAction =
     | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
     | { type: "retryPrompt"; id: string }
     | { type: "retryGeneration"; sessionId: string; failureSeq: number }
+    | { type: "manageHostTask"; id?: string }
+    | { type: "refreshHostTasks"; offset?: number; active?: boolean | null }
+    | { type: "exportSession" }
+    | { type: "copyConversation" }
+    | { type: "quoteMessage"; messageId: string; selection?: string }
+    | { type: "toggleSubagentBranch"; childSessionId: string }
     | { type: "toggleFocus" }
     | { type: "cancel" }
     | { type: "configureApiKey" }
@@ -318,6 +324,8 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
     }
     switch (value.type) {
         case "ready":
+        case "exportSession":
+        case "copyConversation":
         case "cancel":
         case "configureApiKey":
         case "manageProviders":
@@ -660,10 +668,25 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "retryPrompt", id: value.id }
                 : undefined;
+        case "quoteMessage":
+            return hasOnly(value, ["type", "messageId", "selection"]) && nonEmptyString(value.messageId) &&
+                (value.selection === undefined || typeof value.selection === "string" && value.selection.length <= 100_000)
+                ? { type: "quoteMessage", messageId: value.messageId, ...(value.selection === undefined ? {} : { selection: value.selection }) } : undefined;
+        case "toggleSubagentBranch":
+            return hasOnly(value, ["type", "childSessionId"]) && nonEmptyString(value.childSessionId)
+                ? { type: "toggleSubagentBranch", childSessionId: value.childSessionId } : undefined;
         case "retryGeneration":
             return hasOnly(value, ["type", "sessionId", "failureSeq"]) && nonEmptyString(value.sessionId) && nonNegativeInteger(value.failureSeq)
                 ? { type: "retryGeneration", sessionId: value.sessionId, failureSeq: value.failureSeq }
                 : undefined;
+        case "manageHostTask":
+            return hasOnly(value, ["type", "id"]) && (value.id === undefined || nonEmptyString(value.id))
+                ? { type: "manageHostTask", ...(value.id === undefined ? {} : { id: value.id }) } : undefined;
+        case "refreshHostTasks":
+            return hasOnly(value, ["type", "offset", "active"]) && (value.offset === undefined || nonNegativeInteger(value.offset)) &&
+                (value.active === undefined || value.active === null || typeof value.active === "boolean")
+                ? { type: "refreshHostTasks", ...(value.offset === undefined ? {} : { offset: value.offset }),
+                    ...(value.active === undefined ? {} : { active: value.active }) } : undefined;
         case "removeContext":
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "removeContext", id: value.id }

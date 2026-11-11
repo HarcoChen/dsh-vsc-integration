@@ -330,6 +330,12 @@ function normalizeSubagentEntry(value: unknown): DshSubagentListEntry | undefine
         ) return undefined;
         return { kind: "diagnostic", id: value.id, reason: value.reason };
     }
+    if (value.kind === "child" && value.mode === "external" && typeof value.hasChildren === "boolean" &&
+        (value.activity === "running" || value.activity === "inactive")) {
+        return { kind: "child", id: value.id, mode: "external", hasChildren: false, activity: value.activity,
+            ...(typeof value.label === "string" ? { label: value.label } : {}),
+            ...(typeof value.name === "string" ? { name: value.name } : {}) };
+    }
     if (
         value.kind !== "child" ||
         (value.activity !== "running" && value.activity !== "inactive") ||
@@ -347,6 +353,7 @@ function normalizeSubagentEntry(value: unknown): DshSubagentListEntry | undefine
             hasChildren: value.hasChildren,
             mode: "continuable",
             label: value.label,
+            ...(typeof value.name === "string" ? { name: value.name } : {}),
         };
     }
     return {
@@ -443,9 +450,11 @@ export function presentSubagentTree(
                 depth,
                 parentAvailable: catalog.parentAvailable,
                 label: entry.label ?? entry.id,
+                ...(entry.name === undefined ? {} : { name: entry.name }),
                 mode: entry.mode,
                 activity: entry.activity,
                 hasChildren: entry.hasChildren,
+                expanded: catalogs.has(entry.id),
                 ...(timing === undefined ? {} : { timing: cloneSubagentTiming(timing) }),
             });
             if (entry.hasChildren) walk(entry.id, depth + 1);

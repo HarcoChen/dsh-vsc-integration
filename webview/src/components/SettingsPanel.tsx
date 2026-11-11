@@ -170,7 +170,7 @@ export function SettingsPanel({ settings }: { settings: DshSettingsPanelView }):
                             <h3>{t("Runtime plugins")}</h3>
                             <p>{t("Enable or disable Runtime plugins and bundles")}</p>
                         </div>
-                        <button type="button" className="dsh-button dsh-settings-install" disabled={settings.canManagePlugins === false} title={t("Install or remove plugins")} onClick={() => postAction({ type: "managePlugins" })}>
+                        <button type="button" className="dsh-button dsh-settings-install" disabled={settings.canManagePlugins === false} title={t("Manage Runtime plugins")} onClick={() => postAction({ type: "managePlugins" })}>
                             <PlusIcon />{t("Manage")}
                         </button>
                     </div>

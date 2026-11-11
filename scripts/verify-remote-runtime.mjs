@@ -69,6 +69,7 @@ assert.equal(runtimeVersion, expectedVersion, "Launcher version must match the r
 const versionComparison = compareRuntimeVersions(runtimeVersion, "0.2.1-alpha.3");
 assert.notEqual(versionComparison, undefined, "Runtime version must be valid SemVer");
 const supports021 = versionComparison >= 0;
+const supports022 = (compareRuntimeVersions(runtimeVersion, "0.2.2-rc.1") ?? -1) >= 0;
 console.log(`Verified Runtime version: ${runtimeVersion}; Schedule bundle: ${withScheduleBundle ? "enabled" : "disabled"}`);
 const storage = await mkdtemp(join(tmpdir(), "dsh-remote-verify-"));
 const dshHome = join(storage, "home");
@@ -410,6 +411,14 @@ try {
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
     pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
+    const { readSessionArchive, sessionMarkdown } = require(join(root, "dist/sessionExport"));
+    const archive = await readSessionArchive(seededSessionId, connection, new AbortController().signal, 2);
+    assert.equal(archive.events.filter(({ event }) => event.type === "user/message" && event.data.source?.kind === "user").length, 8);
+    const markdown = sessionMarkdown(archive, "Export smoke");
+    assert.ok(markdown.includes("Smoke prompt 1") && markdown.includes("Smoke prompt 8"));
+    assert.equal(JSON.parse(JSON.stringify(archive)).cursor, archive.cursor);
+    pass("Passive complete-session export pins pagination to one cut and preserves all user prompts in Markdown and JSON");
+
     if (supports021 && !seedOnly) {
         const replacement = await connection.unary.call("session/create", {
             request: { workspaceId, sessionId: seededSessionId, agentPreset: "minimal" },
@@ -527,7 +536,37 @@ try {
             pass("Non-owner grants filter history, reject mutations and answers, purge revoked data, and restore subscriptions without carrier reconnects");
         } finally { await guestCoordinator.stop(); }
     }
-    if (withScheduleBundle || supports021) {
+    if (supports022) {
+        const { normalizeHostTask, normalizeHostTaskPage } = require(join(root, "dist/hostSchedule"));
+        const callTask = (action, request) => connection.unary.call(`schedule/${action}`, { request });
+        assert.equal(normalizeHostTaskPage(await callTask("list", { limit: 100, offset: 0 })).total, 0);
+        const taskSession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "minimal" } });
+        const createdTask = normalizeHostTask(await callTask("create", { title: "IDE integration task", prompt: "Scheduled smoke prompt",
+            timing: { kind: "every", every_seconds: 3600 }, target: { kind: "session", sessionId: taskSession.sessionId } }));
+        assert.ok(createdTask);
+        assert.equal(createdTask.status, "active");
+        const page = normalizeHostTaskPage(await callTask("list", { limit: 1, offset: 0 }));
+        assert.equal(page.items[0].id, createdTask.id);
+        assert.equal(page.limit, 1);
+        const pausedTask = normalizeHostTask(await callTask("edit", { id: createdTask.id, action: "update",
+            patch: { active: false, title: "Paused task" }, expectedUpdatedAt: createdTask.updatedAt ?? null }));
+        assert.equal(pausedTask.status, "paused");
+        assert.equal((await callTask("edit", { id: createdTask.id, action: "update", patch: { title: "Stale edit" },
+            expectedUpdatedAt: createdTask.updatedAt ?? null })).code, "schedule_conflict");
+        const resumedTask = normalizeHostTask(await callTask("edit", { id: createdTask.id, action: "update", patch: { active: true },
+            expectedUpdatedAt: pausedTask.updatedAt ?? null }));
+        assert.equal(resumedTask.status, "active");
+        assert.ok(normalizeHostTask(await callTask("run", { id: createdTask.id })));
+        const deliveries = await until(async () => {
+            const result = await callTask("history", { id: createdTask.id, limit: 20 });
+            return result.records?.length > 0 && result;
+        }, "scheduled task delivery history");
+        assert.equal(deliveries.records[0].targetSessionId, taskSession.sessionId);
+        const currentTask = normalizeHostTask(await callTask("view", { id: createdTask.id }));
+        assert.equal((await callTask("edit", { id: createdTask.id, action: "delete", expectedUpdatedAt: currentTask.updatedAt ?? null })).deleted, true);
+        assert.equal((await callTask("view", { id: createdTask.id })).code, "schedule_not_found");
+        pass("Host task pagination, target, create/edit, conflict protection, pause/resume, manual run, deliveries and delete");
+    } else if (withScheduleBundle || supports021) {
         assert.deepEqual(await connection.unary.call("schedule/list", { request: { sessionId: seededSessionId } }), []);
         assert.deepEqual(await connection.unary.call("schedule/catalog", {}), []);
         const missingRequest = { sessionId: seededSessionId, id: randomUUID() };
@@ -588,9 +627,22 @@ try {
         const terminals = new RuntimeTerminalClient(connection.unary, connection);
         const limits = await terminals.environment(seededSessionId);
         const terminalId = randomUUID();
-        const terminal = await terminals.create(seededSessionId, terminalId, Math.min(80, limits.maxCols), Math.min(24, limits.maxRows));
+        const shell = supports022 ? (await terminals.shells(seededSessionId))[0]?.id : undefined;
+        const terminal = await terminals.create(seededSessionId, terminalId, Math.min(80, limits.maxCols), Math.min(24, limits.maxRows), shell);
+        if (supports022) await terminals.rename(seededSessionId, terminalId, "IDE terminal smoke");
         assert.equal(terminal.id, terminalId);
         assert.ok((await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+        if ((compareRuntimeVersions(runtimeVersion, "0.2.2-rc.2") ?? -1) >= 0) {
+            const rosterAbort = new AbortController();
+            const roster = terminals.watch(seededSessionId, rosterAbort.signal)[Symbol.asyncIterator]();
+            assert.ok((await roster.next()).value.some(item => item.id === terminalId));
+            await terminals.rename(seededSessionId, terminalId, "Renamed IDE terminal");
+            assert.ok((await roster.next()).value.some(item => item.id === terminalId && item.title === "Renamed IDE terminal"));
+            rosterAbort.abort(); await roster.return?.();
+            const shells = await terminals.shells(seededSessionId);
+            assert.ok(shells.length > 0);
+            pass("Live terminal roster, rename and Host shell discovery");
+        }
         const retainedAbort = new AbortController();
         const hold = terminals.retain(seededSessionId, terminalId, retainedAbort.signal)[Symbol.asyncIterator]();
         assert.equal((await hold.next()).done, false);
@@ -635,6 +687,7 @@ try {
             catch (error) {
                 // Host cleanup can refuse while a process is still being reaped; its contract retains the identity for retry.
                 assert.ok((await terminals.list(seededSessionId)).some(item => item.id === terminalId));
+
                 await new Promise(resolve => setTimeout(resolve, 250));
                 await terminals.close(seededSessionId, terminalId);
                 pass("A refused PTY cleanup retains its identity and accepts explicit retry");
@@ -1000,9 +1053,10 @@ try {
         const panel = new SubagentController({
             runtime: {
                 getUrl: () => baseUrl,
+                supportsHostSchedules: () => supports022,
                 getSessionStore: () => coordinator.sessions,
                 getSessionCatalog: () => coordinator.catalog,
-                listSubagents: () => { throw new Error("Team navigation must use its projection, not subagents/list"); },
+                listSubagents: (id, signal) => require(join(root, "dist/subagentCatalog")).readSubagentCatalog(id, connection.unary, coordinator.sessions, signal),
                 subagentHistory: async (address, _beforeSeq, _maxMessages, signal) => {
                     const abort = new AbortController();
                     try {

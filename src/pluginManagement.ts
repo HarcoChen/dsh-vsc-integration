@@ -4,7 +4,7 @@ import type { DshRuntime } from "./dshRuntime";
 import type { DshPluginChangeResult } from "./types";
 import { isRecord } from "./guards";
 import { errorMessage } from "./errors";
-import { pluginChangeDetails } from "./pluginInventory";
+import { normalizePluginChange, pluginChangeDetails } from "./pluginInventory";
 import { t } from "./localize";
 import { RemoteHttpError } from "./remote/errors";
 
@@ -25,14 +25,18 @@ export class PluginManagementController {
             if (!bundles) throw new Error(t("This Runtime does not expose plugin management. Open its Web UI to manage plugins."));
             const selected = await vscode.window.showQuickPick([
                 { label: `$(add) ${t("Install a plugin bundle")}`, action: "install", name: "" },
+                ...bundles.filter(bundle => bundle.installed && bundle.update && !bundle.readOnlyReason).map(bundle => ({
+                    label: `$(arrow-up) ${bundle.name}`, description: bundle.version, detail: t("Update installed bundle"), action: "update", name: bundle.name,
+                })),
                 ...bundles.filter(bundle => bundle.installed && bundle.removable && !bundle.readOnlyReason).map(bundle => ({
                     label: `$(trash) ${bundle.name}`, description: bundle.version, detail: bundle.description,
                     action: "remove", name: bundle.name,
                 })),
-            ], { title: t("Manage Runtime plugins"), placeHolder: t("Install a package or remove an installed bundle") });
+            ], { title: t("Manage Runtime plugins"), placeHolder: t("Install, update or remove Runtime bundles") });
             if (!selected) return;
             this.assertEndpoint(endpoint);
             if (selected.action === "install") await this.install(endpoint);
+            else if (selected.action === "update") await this.update(endpoint, selected.name, bundles.find(bundle => bundle.name === selected.name)?.update);
             else {
                 const remove = t("Remove bundle");
                 const confirmation = await vscode.window.showWarningMessage(t("Remove {name} from the connected Runtime profile?", { name: selected.name }),
@@ -53,6 +57,68 @@ export class PluginManagementController {
 
     private assertEndpoint(endpoint: string): void {
         if (this.runtime.getUrl() !== endpoint) throw new Error(t("The connected Runtime changed. Reopen plugin management."));
+    }
+
+    private async update(endpoint: string, name: string, kind?: "registry" | "git"): Promise<void> {
+        let version: string | undefined;
+        let registry: string | undefined;
+        let spec: string | undefined;
+        if (kind === "git") {
+            spec = await vscode.window.showInputBox({ title: t("Git bundle update"), prompt: t("Enter the same repository spec pinned to a full commit"), ignoreFocusOut: true });
+            if (!spec?.trim()) return;
+            this.assertEndpoint(endpoint);
+            const inspection = await this.runtime.inspectPlugin(spec.trim());
+            if (inspection.status !== "accepted" || inspection.kind !== "git") throw new Error(t("Enter a valid Git package spec."));
+            version = await vscode.window.showInputBox({ title: t("Exact target package version"), ignoreFocusOut: true });
+        } else {
+            const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: t("Checking plugin versions") },
+                () => this.runtime.getApiClient().call<unknown>("pluginManager/listVersions", { name }));
+            this.assertEndpoint(endpoint);
+            if (!isRecord(result) || result.status !== "listed" || !Array.isArray(result.versions)) {
+                throw new Error(isRecord(result) && typeof result.reason === "string" ? result.reason : t("Could not read plugin versions."));
+            }
+            registry = typeof result.registry === "string" ? result.registry : undefined;
+            const versions = result.versions.filter(isRecord).filter(item => typeof item.version === "string" && item.bundle === true && !item.incompatible && !item.deprecated);
+            if (!versions.length) { void vscode.window.showInformationMessage(t("No compatible newer bundle versions are available.")); return; }
+            version = (await vscode.window.showQuickPick(versions.map(item => ({ label: String(item.version),
+                description: [item.prerelease ? t("Prerelease") : "", ...(Array.isArray(item.tags) ? item.tags.filter(tag => typeof tag === "string") : [])].filter(Boolean).join(" · "),
+                version: String(item.version) })), { title: t("Choose plugin version") }))?.version;
+        }
+        if (!version?.trim()) return;
+        const confirm = t("Update bundle");
+        if (await vscode.window.showWarningMessage(t("Update {name} to {version} on the connected Runtime?", { name, version }), { modal: true }, confirm) !== confirm) return;
+        this.assertEndpoint(endpoint);
+        const requestId = randomUUID();
+        const response = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: t("Updating {name}", { name }), cancellable: true }, async (progress, token) => {
+            let cancelled = token.isCancellationRequested;
+            let cancellation: Promise<unknown> | undefined;
+            const requestCancellation = (): void => {
+                cancellation = this.runtime.cancelPluginInstall(requestId)
+                    .catch(error => this.output.appendLine(`[dsh:plugins] ${errorMessage(error)}`));
+            };
+            const events = this.runtime.onDidRemoteEvent((event, args) => {
+                const frame = args[0];
+                if (!isRecord(frame) || frame.requestId !== requestId) return;
+                if (event === "plugin-manager/update-state" && typeof frame.step === "string") progress.report({ message: t(frame.step) });
+                if (event === "plugin-manager/install-log" && typeof frame.text === "string") this.output.append(frame.text);
+                if (cancelled && event === "plugin-manager/install-state" && frame.phase === "installing") requestCancellation();
+            });
+            const cancel = token.onCancellationRequested(() => { cancelled = true; requestCancellation(); });
+            try {
+                return await this.runtime.getApiClient().call<unknown>("pluginManager/updateBundle", { name, version: version!.trim(),
+                    options: { requestId, ...(registry ? { registry } : {}), ...(spec ? { spec: spec.trim() } : {}) } });
+            } finally { events.dispose(); cancel.dispose(); await cancellation; }
+        });
+        this.assertEndpoint(endpoint);
+        const result = isRecord(response) ? normalizePluginChange(response.result) : undefined;
+        if (!result) throw new Error(t("The Runtime returned an invalid plugin update result."));
+        if (isRecord(response) && response.restore !== undefined) {
+            const restored = normalizePluginChange(response.restore);
+            this.output.appendLine(`[dsh:plugins] update restore: ${JSON.stringify(restored)}`);
+            const restoredSuccessfully = restored && ["applied", "restart-required", "overridden"].includes(restored.application);
+            void vscode.window.showWarningMessage(t(restoredSuccessfully ? "The update failed; the previous bundle was restored." : "The update and rollback failed. Check Runtime logs."));
+        }
+        await this.finish(result, endpoint);
     }
 
     private async install(endpoint: string): Promise<void> {

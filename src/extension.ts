@@ -128,6 +128,8 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.openSessionCenter", () =>
             runQuietCommand(t("DSH Session center"), () => chatView.openSessionCenter()),
         ),
+        vscode.commands.registerCommand("dsh.exportSession", () => runQuietCommand(t("Export conversation"), () => chatView.exportSession())),
+        vscode.commands.registerCommand("dsh.copyConversation", () => runQuietCommand(t("Copy conversation as Markdown"), () => chatView.exportSession(true))),
         vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
             try {
                 const supplied = value === undefined ? undefined : parseTraceLocation(value);

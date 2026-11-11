@@ -65,7 +65,7 @@
 
 Requires **VS Code 1.106.0 or later** and a configured DSH model provider with credentials.
 
-The default Runtime target is `0.2.1-rc.2`. Adaptation to `0.2.2` is in progress: batched state updates and optional failed-generation continuation are supported, while Schedule and other changed APIs still need verification. Use the official Web UI for newer Schedule tasks; see the [maintenance report](MAINTENANCE.md) for scope and validation.
+The default Runtime target is `0.2.1-rc.2`. Integration with `0.2.2-rc.1` covers Host tasks, projection-based subagents, terminals and plugin updates. Optional RC.2 features include failed-generation continuation and Agent terminal takeover. Version-specific validation is recorded in the [maintenance report](MAINTENANCE.md).
 
 1. **Install the extension** from the Marketplace or Open VSX links above, or search for `harcochen.dsh-vsc-integration` in Extensions.
 2. **Open chat.** Install and launch the official [DeepSeek Desktop](https://www.deepseek.com/en/download/) app, then open and trust your project folder and run `DSH: Open Chat`. The Desktop app registers `dsh`; if the command is unavailable, the extension offers the official download page.
@@ -124,6 +124,10 @@ Everything is off by default. Enabled features may send the samples they need to
 - `DSH: Manage DeepSeek Account` signs in through the browser, signs out, and shows the account profile and balance.
 - `DSH: Browse Runtime Workspace Files` (also under `/ide`) lists files in the current DSH Session's workspace and opens read-only UTF-8 previews up to 1 MiB. Open previews refresh on Runtime file changes; `DSH: Refresh Runtime File Preview` also works when watching is unavailable.
 - When the official Schedule bundle is enabled, the Schedule dock lists reminders across sessions. You can edit daily, weekly, or cron rules, view delivery history, and delete reminders. If the bundle is absent, the dock shows where to enable it.
+
+On `0.2.2-rc.1` and newer, Schedule manages Host-wide tasks with pagination and activity filtering. Create delayed, dated, interval, daily, weekly, cron or RRULE tasks and choose their destination Session. Manage tasks to edit, pause, resume, run, delete or inspect delivery history. Edits detect concurrent changes.
+
+The chat menu provides **Export conversation** for Markdown or JSON and **Copy conversation as Markdown**. Exports read the complete paginated history at one fixed event cursor. Image references appear in Markdown, while binary attachment data needs a separate export. Each message also offers **Quote** for the message or selected text. With an empty composer, use ↑/↓ to recall sent prompts and return to your draft. Enable `dsh.completionNotification` for completion notifications while VS Code is unfocused.
 
 ### Runtime terminals, plugin installation, and Problems (development branch)
 
@@ -191,7 +195,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 IPv4 also works, for example `http://100.64.0.1:3080` when that IP belongs to the extension host machine. Remote hosts require HTTPS. Certificates must be trusted by the extension host; certificate verification is never disabled. Bracket IPv6 addresses. Automatic discovery probes local IPv4/IPv6 interfaces, but authentication tokens for unregistered instances still need the settings above.
 
-The implemented Runtime contract targets `dsh-v0.2.1-rc.2` (`687f282e8625c6b8d11ff58211a90524be2e4317`). The [maintenance report](MAINTENANCE.md) records integration results and remaining checks. Runtime workspace files have a read-only browser, permission presets use the process catalog, and Settings supports plugin enablement and Bundle selection, including read-only reasons and saved/applied/restart-required feedback. Schedule is included by default in 0.2.1; its 0.2.2 API still needs adaptation. Jobs streams live output, resumes by byte cursor after reconnect, and supports cancellation. Timed questions claim foreground waits and restore answer drafts after reconnect or webview recreation. The Team panel shows members and tasks from the `agentTeam` projection, with addressed member history and task filtering. Runtime terminal input, resizing and screen recovery, plus plugin installation/removal, are available on the development branch. Desktop product analytics RPCs remain unused by the IDE.
+The base Runtime contract targets `dsh-v0.2.1-rc.2` (`687f282e8625c6b8d11ff58211a90524be2e4317`), with versioned 0.2.2 integration. Runtime files have a read-only browser, permissions use the process catalog, and Settings supports plugin and Bundle enablement with application results. Jobs streams output, resumes by cursor and supports cancellation. Timed questions restore waits and answer drafts. Team and subagent panels provide member history, follow-up and task navigation. Runtime terminals support Shell selection, rename, input, resize and screen recovery. Plugin management supports installation, removal and compatible version updates. RC.2 adds terminal roster and takeover support. Integration results and remaining manual checks are in the [maintenance report](MAINTENANCE.md).
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH and in the npm global prefix. A compatible command registered by DeepSeek Desktop is used directly. An incompatible local CLI gets an upgrade prompt; approval upgrades only a verified older npm global installation. When no compatible command is available, the extension guides you to install DeepSeek Desktop. Diagnostics never install or download a standalone Runtime. Explicit local paths follow the same compatibility check; explicit pnpm/npx remains available for advanced users.
 
@@ -326,7 +330,7 @@ npm run package    # Compile + vsce package
 npm run release    # Test + version bump + CHANGELOG archive + tag
 ```
 
-The Remote smoke runner checks the launcher's actual version, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [maintenance report](MAINTENANCE.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
+The Remote smoke runner checks the launcher's actual version, creates history through public RPCs, and exercises authentication, complete-session export, pagination, feedback, reconnects, streaming, Goal, commands, Host task management and timed questions. The [maintenance report](MAINTENANCE.md) records Jev, Team and workflow results and remaining manual checks.
 
 To run the Remote integration smoke against an installed `0.2.1-rc.2` launcher (use `--expect-version 0.2.0-rc.2` for the previous release):
 

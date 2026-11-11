@@ -28,6 +28,8 @@ import {
     readRuntimeAdvertisements, removeRuntimeAdvertisement, type RuntimeAdvertisement,
 } from "./runtimeAdvertisement";
 import { compareRuntimeVersions } from "./runtimeVersion";
+import { readSubagentCatalog } from "./subagentCatalog";
+import { readSessionArchive as readArchive, type SessionArchive } from "./sessionExport";
 
 import { historyEntries as remoteHistoryEntries, projectionBlock as remoteProjectionBlock, cachedProjectionValues } from "./remote/sessionState";
 import type { DebugContextTracker } from "./debugContext";
@@ -1568,6 +1570,20 @@ export class DshRuntime implements vscode.Disposable {
         return this.harnessState.syncHistory(sessionId);
     }
 
+    /** Only an explicitly selected owner chat requests activation; previews and shared readers stay passive. */
+    public async activateSession(sessionId: string): Promise<void> {
+        if (!this.supportsHostSchedules() || !this.remoteAccess.snapshot.owner) return;
+        const abort = new AbortController();
+        try {
+            for await (const value of this.remoteConnection.open("session/follow", {
+                request: { address: { kind: "session", sessionId }, activate: true, maxMessages: 1 },
+            }, abort.signal)) {
+                if (!isRecord(value) || value.type !== "snapshot") throw new RemoteProtocolError("Session activation did not return a snapshot");
+                break;
+            }
+        } finally { abort.abort(); }
+    }
+
     public async start(workspaceRoot?: string): Promise<string> {
         return this.startWithRecovery(workspaceRoot, false);
     }
@@ -2075,6 +2091,13 @@ export class DshRuntime implements vscode.Disposable {
         return { events, hasMore: false, ...(projections === undefined ? {} : { projections }) };
     }
 
+    public async readSessionArchive(sessionId: string, signal: AbortSignal): Promise<SessionArchive> {
+        const endpoint = this.baseUrl;
+        const archive = await readArchive(sessionId, this.remoteConnection, signal);
+        if (this.baseUrl !== endpoint || !this.remoteAccess.allows("session/follow", { kind: "session", id: sessionId })) throw new Error(t("Session access changed while exporting. Try again."));
+        return archive;
+    }
+
     public async prompt(
         sessionId: string,
         text: string,
@@ -2234,6 +2257,7 @@ export class DshRuntime implements vscode.Disposable {
                     name: item.name,
                     ...(typeof item.version === "string" ? { version: item.version } : {}),
                     ...(typeof item.description === "string" ? { description: item.description } : {}),
+                    ...(item.update === "registry" || item.update === "git" ? { update: item.update } : {}),
                     enabled: item.enabled,
                     installed: item.installed,
                     optional: item.optional,
@@ -2619,11 +2643,12 @@ export class DshRuntime implements vscode.Disposable {
         return team;
     }
 
-    public listSubagents(
+    public async listSubagents(
         parentSessionId: string,
         signal?: AbortSignal,
     ): Promise<DshSubagentCatalog> {
-        return this.apiClient.call("subagents/list", { parentSessionId }, signal);
+        if (!this.supportsHostSchedules()) return this.apiClient.call("subagents/list", { parentSessionId }, signal);
+        return readSubagentCatalog(parentSessionId, this.apiClient, this.harnessState.sessions, signal);
     }
 
     public async subagentHistory(
@@ -2725,9 +2750,8 @@ export class DshRuntime implements vscode.Disposable {
         const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         return this.apiClient.call("subagents/prompt", {
             request: {
-                parentSessionId: address.parentSessionId,
+                ...(!this.isRuntimeAtLeast("0.2.2-rc.2") ? { parentSessionId: address.parentSessionId, mode: address.mode } : {}),
                 childSessionId: address.childSessionId,
-                mode: address.mode,
                 delivery: "queue",
                 requestId: randomUUID(),
                 content: [{ type: "text", text }],
@@ -2740,7 +2764,9 @@ export class DshRuntime implements vscode.Disposable {
         address: Extract<DshSubagentAddress, { mode: "continuable" }>,
         signal?: AbortSignal,
     ): Promise<{ accepted: true }> {
-        return this.apiClient.call("subagents/interruptByParent", address, signal);
+        return this.isRuntimeAtLeast("0.2.2-rc.2")
+            ? this.apiClient.call("subagents/interruptByUser", { childSessionId: address.childSessionId }, signal)
+            : this.apiClient.call("subagents/interruptByParent", address, signal);
     }
 
     /** Reads the Host projection of persisted per-message feedback for one Session. */
@@ -2954,6 +2980,17 @@ export class DshRuntime implements vscode.Disposable {
             if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;
         }
+    }
+
+    public isRuntimeAtLeast(version: string): boolean {
+        return (compareRuntimeVersions(this.hostDescription?.version, version) ?? -1) >= 0;
+    }
+
+    public supportsHostSchedules(): boolean { return this.isRuntimeAtLeast("0.2.2-rc.1"); }
+
+    /** Explicit Host-wide Schedule vocabulary; the Gateway authorizes each operation. */
+    public hostScheduleCall(action: "list" | "view" | "create" | "edit" | "run" | "history", request: Record<string, unknown>): Promise<unknown> {
+        return this.apiClient.call(`schedule/${action}`, { request });
     }
 
     /** Lists active and inactive reminders across all sessions; undefined means the optional Schedule bundle is absent. */

@@ -106,6 +106,9 @@
     "config.jev.deterministicSafetyGuard.enabled.description": "在本地检查破坏性命令、权限提升和凭据泄漏；检查数据不会离开本机。",
     "command.openRuntimeTerminal.title": "打开 Runtime 终端",
     "command.attachDiagnostics.title": "附加当前文件的问题",
-    "command.managePlugins.title": "安装或卸载 Runtime 插件",
-    "command.openSessionCenter.title": "打开会话中心"
+    "command.managePlugins.title": "管理 Runtime 插件",
+    "command.openSessionCenter.title": "打开会话中心",
+    "command.exportSession.title": "导出会话",
+    "command.copyConversation.title": "复制完整会话为 Markdown",
+    "config.completionNotification.description": "VS Code 不在前台时，在任务成功完成后显示通知。默认关闭。"
 }

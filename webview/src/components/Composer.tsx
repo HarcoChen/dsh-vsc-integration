@@ -19,6 +19,7 @@ const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 180;
 
 interface ComposerProps {
+    promptHistory: readonly string[];
     access?: ComposerState["access"];
     visible?: boolean;
     context: ComposerState["context"];
@@ -42,6 +43,7 @@ interface ComposerProps {
 }
 
 export const Composer = React.memo(function Composer({
+    promptHistory,
     access,
     visible = true,
     context,
@@ -70,6 +72,8 @@ export const Composer = React.memo(function Composer({
     const [referenceIndex, setReferenceIndex] = useState(0);
     const [dismissedReferenceKey, setDismissedReferenceKey] = useState<string>();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const historyWalk = useRef<{ index: number; draft: string }>();
+    useEffect(() => { historyWalk.current = undefined; }, [sessionId]);
     const attachmentMenuRef = useRef<HTMLDivElement>(null);
     const imageInputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -180,6 +184,7 @@ export const Composer = React.memo(function Composer({
     // separated by a space when the preceding char is not whitespace, then focus.
     useEffect(() => {
         return subscribeInsertText((insertion) => {
+            historyWalk.current = undefined;
             const textarea = textareaRef.current;
             if (!textarea) return;
             const start = textarea.selectionStart;
@@ -198,6 +203,7 @@ export const Composer = React.memo(function Composer({
 
     useEffect(() => {
         return subscribeSetText((draft) => {
+            historyWalk.current = undefined;
             setText(draft);
             completion.resetSlashIndex();
             window.requestAnimationFrame(() => {
@@ -227,6 +233,7 @@ export const Composer = React.memo(function Composer({
             images: imageDrafts.images.map((image) => image.upload),
             files: fileDrafts.files.map(({ name, data }) => ({ name, data })),
         });
+        historyWalk.current = undefined;
         setText("");
         imageDrafts.clear();
         fileDrafts.clear();
@@ -499,6 +506,7 @@ export const Composer = React.memo(function Composer({
                     aria-controls={activeMenuId}
                     aria-activedescendant={activeDescendant}
                     onChange={(event) => {
+                        historyWalk.current = undefined;
                         setText(event.target.value);
                         completion.resetSlashIndex();
                     }}
@@ -532,6 +540,18 @@ export const Composer = React.memo(function Composer({
                         }
                         if (handleReferenceKeyDown(event)) return;
                         if (completion.handleCompletionKeyDown(event)) return;
+                        if (!event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+                            (event.key === "ArrowUp" || event.key === "ArrowDown") && promptHistory.length &&
+                            (historyWalk.current || event.key === "ArrowUp" && !text.trim())) {
+                            event.preventDefault();
+                            const walk = historyWalk.current ?? { index: promptHistory.length, draft: text };
+                            const index = Math.max(0, Math.min(promptHistory.length, walk.index + (event.key === "ArrowUp" ? -1 : 1)));
+                            const value = index === promptHistory.length ? walk.draft : promptHistory[index];
+                            historyWalk.current = index === promptHistory.length ? undefined : { ...walk, index };
+                            setText(value);
+                            window.requestAnimationFrame(() => textareaRef.current?.setSelectionRange(value.length, value.length));
+                            return;
+                        }
                         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                             event.preventDefault();
                             send();

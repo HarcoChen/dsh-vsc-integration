@@ -107,7 +107,9 @@
         "onCommand:dsh.openRuntimeTerminal",
         "onCommand:dsh.attachDiagnostics",
         "onCommand:dsh.managePlugins",
-        "onCommand:dsh.openSessionCenter"
+        "onCommand:dsh.openSessionCenter",
+        "onCommand:dsh.exportSession",
+        "onCommand:dsh.copyConversation"
     ],
     "contributes": {
         "chatParticipants": [
@@ -437,6 +439,16 @@
             {
                 "command": "dsh.openSessionCenter",
                 "title": "%command.openSessionCenter.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.exportSession",
+                "title": "%command.exportSession.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.copyConversation",
+                "title": "%command.copyConversation.title%",
                 "category": "DSH"
             }
         ],
@@ -792,6 +804,11 @@
                     "type": "boolean",
                     "default": true,
                     "description": "%config.autoOpenReasoning.description%"
+                },
+                "dsh.completionNotification": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.completionNotification.description%"
                 }
             }
         }

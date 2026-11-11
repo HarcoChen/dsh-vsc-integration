@@ -53,7 +53,7 @@
 
 需要 **VS Code 1.106.0 或更高版本**，以及已配置的 DSH 模型服务与凭据。
 
-默认 Runtime 目标为 `0.2.1-rc.2`。新版 `0.2.2` 的接口仍在适配，已补充批量状态更新与可选的“继续生成”；Schedule 等功能请暂用官方 Web UI。调查与验证范围见 [维护记录](MAINTENANCE.md)。
+默认 Runtime 目标为 `0.2.1-rc.2`。`0.2.2-rc.1` 已接入 Host 任务管理、projection 子代理目录、终端和插件更新。RC.2 可选功能包含继续生成和 Agent 终端接管。各版本的验证范围见 [维护记录](MAINTENANCE.md)。
 
 1. **安装扩展**：选择上方 Marketplace 或 Open VSX 入口，也可以在扩展面板搜索 `harcochen.dsh-vsc-integration`。
 2. **打开聊天**：安装并启动官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)，打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。Desktop 会注册 `dsh`；命令不可用时，扩展会提供官方下载安装页。
@@ -110,6 +110,10 @@
 - `DSH: 管理 DeepSeek 账号` 支持浏览器登录、登出，并查看账号资料和余额。
 - `DSH: 浏览 Runtime 工作区文件`（也可在 `/ide` 中选择）浏览当前 DSH 会话的工作区，在编辑器打开上限为 1 MiB 的 UTF-8 文本只读预览。文件变化会刷新已打开的预览；不支持监听时可运行 `DSH: 刷新 Runtime 文件预览`。
 - 启用官方 Schedule bundle 后，定时提醒面板可跨会话列出提醒、编辑规则、查看投递历史并删除提醒；未启用时面板会提示如何开启。
+
+连接 `0.2.2-rc.1` 及以上版本时，Schedule 面板提供 Host 级任务分页及活动状态筛选。可创建延迟、指定日期、间隔、每日、每周、Cron 和 RRULE 任务，选择投递会话，并执行编辑、暂停/恢复、立即执行、删除和投递历史操作。编辑会检查其他客户端的并发修改。
+
+聊天菜单的“导出会话”可选择 Markdown 或 JSON，也可“复制完整会话为 Markdown”。导出固定事件切点后读取全部分页历史。Markdown 展示图片引用，二进制附件需单独导出。消息底部的“引用”可引用整条消息或其中选中文本。空输入框按 ↑/↓ 召回历史提示词并返回原草稿。开启 `dsh.completionNotification` 后，VS Code 失焦时会提示成功完成的任务。
 
 ### Runtime 终端、插件安装与 Problems（开发分支）
 
@@ -169,7 +173,7 @@
 
 IPv4 地址也可使用，例如 `http://100.64.0.1:3080`，前提是该 IP 属于运行扩展的机器。远程地址必须使用 HTTPS；TLS 证书须受扩展宿主信任，扩展不会跳过证书校验。IPv6 地址须加方括号。自动发现会探测本机 IPv4/IPv6 网卡地址，但未登记实例的认证 Token 仍需通过上述设置提供。
 
-本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.1-rc.2`（`687f282e8625c6b8d11ff58211a90524be2e4317`）。[维护记录](MAINTENANCE.md) 记录联调结果及验证边界。Runtime 工作区文件已有只读浏览入口，权限预设通过独立目录获取，Settings 支持插件启停与 Bundle 选择，显示只读原因、保存/生效状态和重启提示。0.2.1 默认包含 Schedule；0.2.2 的新接口仍待适配。Jobs 可实时查看输出、按字节游标重连续读并取消任务；限时问答支持前台等待、重连和 webview 重建后的回答草稿恢复。Team 面板展示 `agentTeam` 投影中的成员与任务，支持成员历史预览和任务筛选。Runtime 终端输入、resize 和屏幕恢复，以及插件安装/卸载已在开发分支接入。IDE 不调用桌面遥测 RPC。
+基础 Runtime 和 Remote 契约指向 `dsh-v0.2.1-rc.2`（`687f282e8625c6b8d11ff58211a90524be2e4317`），并按版本接入 0.2.2 功能。Runtime 文件支持只读浏览，Settings 支持插件启停、Bundle 选择与生效结果。Jobs 实时输出可按游标重连续读并取消。限时问答恢复等待和回答草稿。Team 与子代理面板支持成员历史、follow-up 和任务导航。Runtime 终端支持 Shell 选择、重命名、输入、resize 和画面恢复，插件管理支持安装、卸载与兼容版本更新。RC.2 增加终端实时目录和输入接管。联调与剩余人工验证范围见 [维护记录](MAINTENANCE.md)。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。官方 Desktop 注册的兼容命令会直接使用；不兼容的本机 CLI 只对已确认的旧版 npm 全局安装提供升级确认。没有兼容命令时，扩展会引导安装官方 Desktop。诊断命令不会安装或下载独立 Runtime。显式本机路径遵循相同兼容性检查；高级用户仍可显式选择 pnpm/npx。
 
@@ -306,7 +310,7 @@ npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 
 日常改动记录在 `CHANGELOG.md` 的 `Unreleased` 中；临时打包不提升版本、不归档日志、不打 tag。准备发布下一版预览版时，在当前奇数 minor 上执行 `npm run release -- patch`，由脚本统一提升版本、归档日志、提交并创建 tag；确认后使用 `git push origin HEAD --follow-tags` 触发发布。预览版手动打包使用 `npm run package -- --pre-release`。
 
-Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、分页、评价、重连、流式输出、Goal、命令、可选 Schedule 以及 RC.2 timed 问题延迟回答。[维护记录](MAINTENANCE.md) 记录运行结果及账号、Schedule 修改、Jev、UI 等剩余验证。
+Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、完整导出、分页、评价、重连、流式输出、Goal、命令、Host 任务与限时问答。Jev、Team 和工作流结果及人工验证范围见 [维护记录](MAINTENANCE.md)。
 
 对已安装的 `0.2.1-rc.2` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
 

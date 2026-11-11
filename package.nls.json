@@ -106,6 +106,9 @@
     "config.jev.deterministicSafetyGuard.enabled.description": "Run local checks for destructive commands, privilege escalation and credential exposure. Inspected data stays local.",
     "command.openRuntimeTerminal.title": "Open Runtime Terminal",
     "command.attachDiagnostics.title": "Attach Problems from Current File",
-    "command.managePlugins.title": "Install or Remove Runtime Plugins",
-    "command.openSessionCenter.title": "Open Session Center"
+    "command.managePlugins.title": "Manage Runtime Plugins",
+    "command.openSessionCenter.title": "Open Session Center",
+    "command.exportSession.title": "Export Conversation",
+    "command.copyConversation.title": "Copy Conversation as Markdown",
+    "config.completionNotification.description": "Show a notification when a live task completes successfully while VS Code is unfocused. Off by default."
 }

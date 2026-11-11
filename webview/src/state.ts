@@ -49,6 +49,7 @@ export type ActivityDockState = Pick<
     | "todos"
     | "schedule"
     | "scheduleCatalog"
+    | "hostSchedule"
     | "scheduleManagementAvailable"
     | "scheduleMutationPendingId"
     | "scheduleMutationResult"

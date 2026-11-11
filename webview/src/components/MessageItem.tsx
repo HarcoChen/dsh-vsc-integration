@@ -388,6 +388,15 @@ function MessageFooterActions({
                 </button>
             )}
             <MessageCopyButton message={message} />
+            {canCopyMessage(message) ? <button type="button" className="dsh-message-trace" title={t("Quote message or selected text")}
+                onMouseDown={event => event.preventDefault()}
+                onClick={event => {
+                    const selected = window.getSelection();
+                    const container = event.currentTarget.closest(".dsh-message");
+                    const selection = selected?.anchorNode && selected.focusNode && container?.contains(selected.anchorNode) && container.contains(selected.focusNode)
+                        ? selected.toString().slice(0, 100_000) : undefined;
+                    postAction({ type: "quoteMessage", messageId: message.id, selection: selection || message.text.slice(0, 100_000) });
+                }}>{t("Quote")}</button> : null}
         </div>
     );
 }

@@ -1,5 +1,6 @@
 import type { RecoveryStatusView } from "./recovery/types";
 import type { DshTeamProjection } from "./agentTeamTypes";
+import type { HostScheduleView } from "./hostSchedule";
 
 export type DshContextKind =
     | "selection"
@@ -590,6 +591,7 @@ export interface DshPluginBundleInfo {
     installed: boolean;
     optional: boolean;
     removable: boolean;
+    update?: "registry" | "git";
     readOnlyReason?: string;
     errorCode?: string;
 }
@@ -794,10 +796,12 @@ export type DshSubagentListEntry =
           id: string;
           activity: "running" | "inactive";
           hasChildren: boolean;
+          name?: string;
       } &
           (
               | { mode: "one-shot"; label?: string }
               | { mode: "continuable"; label: string }
+              | { mode: "external"; label?: string }
           ))
     | {
           kind: "diagnostic";
@@ -1336,6 +1340,7 @@ export interface ChatViewState {
     todos?: DshTodoItemView[];
     schedule?: DshScheduleItem[];
     scheduleCatalog?: DshScheduleCatalogState;
+    hostSchedule?: HostScheduleView;
     scheduleManagementAvailable?: boolean;
     scheduleMutationPendingId?: string;
     scheduleMutationResult?: {
@@ -1682,10 +1687,12 @@ export interface SubagentTreeNodeView {
     depth: number;
     parentAvailable: boolean;
     label?: string;
-    mode?: "one-shot" | "continuable";
+    name?: string;
+    mode?: "one-shot" | "continuable" | "external";
     activity?: "running" | "inactive";
     timing?: SubagentTimingView;
     hasChildren?: boolean;
+    expanded?: boolean;
     reason?: "corrupt" | "unsupported" | "unavailable";
 }
 

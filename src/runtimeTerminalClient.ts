@@ -13,6 +13,9 @@ export interface RuntimeTerminalInfo {
     state: "running" | "exited" | "failed";
     exitCode: number | null;
     error?: string;
+    origin?: "user" | "agent";
+    control?: "user" | "agent";
+    sandboxMode?: "read-only" | "workspace-write" | "danger-full-access";
 }
 
 export interface RuntimeTerminalEnvironment {
@@ -43,7 +46,10 @@ export function runtimeTerminalInfo(value: unknown): RuntimeTerminalInfo {
     }
     return { id: value.id, title: value.title, cwd: value.cwd, cols: value.cols, rows: value.rows,
         state: value.state as RuntimeTerminalInfo["state"], exitCode: value.exitCode as number | null,
-        ...(value.error === undefined ? {} : { error: value.error }) };
+        ...(value.error === undefined ? {} : { error: value.error }),
+        ...(value.origin === "agent" || value.origin === "user" ? { origin: value.origin } : {}),
+        ...(value.control === "agent" || value.control === "user" ? { control: value.control } : {}),
+        ...(value.sandboxMode === "read-only" || value.sandboxMode === "workspace-write" || value.sandboxMode === "danger-full-access" ? { sandboxMode: value.sandboxMode } : {}) };
 }
 
 /** User PTYs hosted by DSH, separate from Agent tools and background Jobs. */
@@ -72,8 +78,23 @@ export class RuntimeTerminalClient {
         return value.map(runtimeTerminalInfo);
     }
 
-    public async create(sessionId: string, id: string, cols: number, rows: number): Promise<RuntimeTerminalInfo> {
-        return runtimeTerminalInfo(await this.unary.call("terminal/create", { agentId: sessionId, request: { id, cols, rows } }));
+    public async create(sessionId: string, id: string, cols: number, rows: number, shell?: string): Promise<RuntimeTerminalInfo> {
+        return runtimeTerminalInfo(await this.unary.call("terminal/create", { agentId: sessionId, request: { id, cols, rows, ...(shell ? { shellPath: shell } : {}) } }));
+    }
+
+    public async *watch(sessionId: string, signal: AbortSignal): AsyncIterable<RuntimeTerminalInfo[]> {
+        for await (const value of this.connection.open("terminal/watch", { sessionId }, signal)) {
+            if (!Array.isArray(value)) throw new RemoteProtocolError("Invalid terminal roster");
+            yield value.map(runtimeTerminalInfo);
+        }
+    }
+    public async shells(sessionId: string): Promise<Array<{ id: string; label: string }>> {
+        const value = await this.unary.call<unknown>("terminal/shells", { agentId: sessionId });
+        if (!Array.isArray(value) || !value.every(item => isRecord(item) && typeof item.path === "string" && typeof item.name === "string")) throw new RemoteProtocolError("Invalid terminal shells");
+        return value.map(item => ({ id: String(item.path), label: String(item.name) }));
+    }
+    public rename(sessionId: string, id: string, title: string): Promise<void> {
+        return this.unary.call("terminal/rename", { agentId: sessionId, id, title });
     }
 
     public async *retain(sessionId: string, id: string, signal: AbortSignal): AsyncIterable<void> {
@@ -91,7 +112,7 @@ export class RuntimeTerminalClient {
     }
 }
 
-type TerminalInput = { type: "write"; sequence: number; data: string } |
+type TerminalInput = { type: "write"; sequence: number; data: string; typed?: true } |
     { type: "resize"; sequence: number; cols: number; rows: number };
 
 /** One attachment owns its input queue. Disconnection discards input, including unacknowledged commands. */
@@ -113,8 +134,8 @@ export class RuntimeTerminalAttachment {
         private readonly limits: RuntimeTerminalEnvironment, private readonly signal: AbortSignal,
         private readonly unary: Pick<RemoteUnaryClient, "call">) {}
 
-    public write(data: string): boolean {
-        return this.send({ type: "write", sequence: this.sequence + 1, data }, Buffer.byteLength(data, "utf8"));
+    public write(data: string, typed = false): boolean {
+        return this.send({ type: "write", sequence: this.sequence + 1, data, ...(typed ? { typed: true as const } : {}) }, Buffer.byteLength(data, "utf8"));
     }
 
     public resize(cols: number, rows: number): boolean {
