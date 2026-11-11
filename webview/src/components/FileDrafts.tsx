@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { DshFileDraft } from "../../../src/types";
 import { t } from "../i18n";
 import { CloseIcon } from "./icons";
@@ -59,27 +59,41 @@ export function useFileDrafts(): {
     const [error, setError] = useState<string>();
     // Read at add time so a batch is rejected as a whole rather than in part.
     const pending = useRef<DraftFile[]>([]);
+    const generation = useRef(0);
+    const reserved = useRef(0);
+    useEffect(
+        () => () => {
+            generation.current += 1;
+        },
+        []
+    );
 
     const addFiles = useCallback(async (incoming: readonly File[]): Promise<void> => {
         setError(undefined);
         if (incoming.length === 0) return;
-        const existing = pending.current;
-        if (existing.length + incoming.length > MAX_FILES_PER_MESSAGE) {
+        if (pending.current.length + reserved.current + incoming.length > MAX_FILES_PER_MESSAGE) {
             setError(t("A message can contain at most {count} files.", { count: MAX_FILES_PER_MESSAGE }));
             return;
         }
+        const currentGeneration = generation.current;
+        reserved.current += incoming.length;
         const additions: DraftFile[] = [];
-        for (const file of incoming) {
-            const bytes = new Uint8Array(await file.arrayBuffer());
-            additions.push({
-                id: crypto.randomUUID(),
-                name: file.name || t("file"),
-                bytes: bytes.byteLength,
-                data: toBase64(bytes),
-            });
+        try {
+            for (const file of incoming) {
+                const bytes = new Uint8Array(await file.arrayBuffer());
+                if (generation.current !== currentGeneration) return;
+                additions.push({
+                    id: crypto.randomUUID(),
+                    name: file.name || t("file"),
+                    bytes: bytes.byteLength,
+                    data: toBase64(bytes),
+                });
+            }
+            pending.current = [...pending.current, ...additions];
+            setFiles(pending.current);
+        } finally {
+            if (generation.current === currentGeneration) reserved.current -= incoming.length;
         }
-        pending.current = [...existing, ...additions];
-        setFiles(pending.current);
     }, []);
 
     const remove = useCallback((id: string): void => {
@@ -88,6 +102,8 @@ export function useFileDrafts(): {
     }, []);
 
     const clear = useCallback((): void => {
+        generation.current += 1;
+        reserved.current = 0;
         pending.current = [];
         setFiles([]);
         setError(undefined);

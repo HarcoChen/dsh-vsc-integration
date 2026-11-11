@@ -114,7 +114,12 @@
         "onCommand:dsh.connectDesktop",
         "onCommand:dsh.disconnectDesktop",
         "onCommand:dsh.completeInline",
-        "onCommand:dsh.reviewRepository"
+        "onCommand:dsh.reviewRepository",
+        "onCommand:dsh.configureAppearance",
+        "onCommand:dsh.configureBillingRates",
+        "onCommand:dsh.managePromptTemplates",
+        "onCommand:dsh.searchCodeContext",
+        "onCommand:dsh.attachProjectRules"
     ],
     "contributes": {
         "chatParticipants": [
@@ -475,6 +480,31 @@
                 "command": "dsh.reviewRepository",
                 "title": "%command.reviewRepository.title%",
                 "category": "DSH"
+            },
+            {
+                "command": "dsh.configureAppearance",
+                "title": "%command.configureAppearance.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.configureBillingRates",
+                "title": "%command.configureBillingRates.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.managePromptTemplates",
+                "title": "%command.managePromptTemplates.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.searchCodeContext",
+                "title": "%command.searchCodeContext.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.attachProjectRules",
+                "title": "%command.attachProjectRules.title%",
+                "category": "DSH"
             }
         ],
         "submenus": [
@@ -749,7 +779,7 @@
                 },
                 "dsh.runtimeVersion": {
                     "type": "string",
-                    "default": "0.2.1-rc.2",
+                    "default": "0.2.2-rc.1",
                     "pattern": "^[0-9A-Za-z.-]+$",
                     "description": "%config.runtimeVersion.description%"
                 },
@@ -869,6 +899,76 @@
                     "type": "string",
                     "default": "",
                     "description": "%config.serverRuntimeVersion.description%"
+                },
+                "dsh.chatFontSize": {
+                    "type": "number",
+                    "default": 13,
+                    "minimum": 11,
+                    "maximum": 24,
+                    "description": "%config.chatFontSize.description%"
+                },
+                "dsh.chatDensity": {
+                    "type": "string",
+                    "enum": [
+                        "comfortable",
+                        "compact"
+                    ],
+                    "default": "comfortable",
+                    "description": "%config.chatDensity.description%"
+                },
+                "dsh.connectionMode": {
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "attach-only"
+                    ],
+                    "default": "auto",
+                    "description": "%config.connectionMode.description%"
+                },
+                "dsh.billingRates": {
+                    "type": "array",
+                    "default": [],
+                    "description": "%config.billingRates.description%",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "provider",
+                            "model",
+                            "currency",
+                            "input",
+                            "output",
+                            "cacheRead",
+                            "cacheWrite"
+                        ],
+                        "properties": {
+                            "provider": {
+                                "type": "string"
+                            },
+                            "model": {
+                                "type": "string"
+                            },
+                            "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                            },
+                            "input": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "output": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "cacheRead": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "cacheWrite": {
+                                "type": "number",
+                                "minimum": 0
+                            }
+                        }
+                    }
                 }
             }
         }

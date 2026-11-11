@@ -6,6 +6,8 @@ import { mergeJobHistory } from "./jobHistory";
 import { HostScheduleController } from "./hostScheduleActions";
 import { sessionMarkdown } from "./sessionExport";
 import { exportSessionZip } from "./sessionZip";
+import { estimateSessionCost, modelRates } from "./sessionCost";
+import { attachProjectRules, searchEditorContext } from "./editorContextActions";
 import { configureWebSearch } from "./webSearchSettings";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
 import { captureAppShot as captureNativeAppShot } from "./appShot";
@@ -399,6 +401,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly agentStatusPresentations?: AgentStatusPresentationRegistry,
         private readonly editorContext?: { owner: ChatViewProvider; id: string; panel: vscode.WebviewPanel; sessionId?: string },
     ) {
+        this.focusMode = extensionContext.globalState.get<boolean>("focusMode", false);
         this.sessionId = editorContext?.sessionId;
         this.agentPresetDocuments = editorContext?.owner.agentPresetDocuments ?? new Map();
         this.changeReviews = editorContext?.owner.changeReviews ?? new ChangeReviewStore(output);
@@ -602,7 +605,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             vscode.workspace.onDidChangeConfiguration((event) => {
                 if (
                     event.affectsConfiguration("dsh.enableEffortKnob") ||
-                    event.affectsConfiguration("dsh.autoOpenReasoning")
+                    event.affectsConfiguration("dsh.autoOpenReasoning") ||
+                    event.affectsConfiguration("dsh.chatFontSize") || event.affectsConfiguration("dsh.chatDensity") ||
+                    event.affectsConfiguration("dsh.billingRates")
                 ) {
                     this.schedulePostState();
                 }
@@ -863,14 +868,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return runSessionManagement({
             runtime: this.runtime,
             workspaceRoot: () => this.workspaceRoot(),
-            openSession: (sessionId) => this.switchSession(sessionId),
+            openSession: (sessionId) => this.editorContext ? this.editorContext.owner.openInEditor(sessionId) : this.switchSession(sessionId),
         });
     }
 
     public openSessionCenter(): Promise<void> {
         return openSessionCenter({ runtime: this.runtime, workspaceRoot: () => this.workspaceRoot(),
-            openSession: sessionId => this.switchSession(sessionId) });
+            preferences: this.extensionContext.globalState,
+            openSession: sessionId => this.editorContext ? this.editorContext.owner.openInEditor(sessionId) : this.switchSession(sessionId) });
     }
+
+    public async searchCodeContext(): Promise<void> { await searchEditorContext(this.contextStore); this.reveal(); }
+    public async attachProjectRules(): Promise<void> { await attachProjectRules(this.contextStore); this.reveal(); }
 
     public manageAgentPresets(): Promise<void> {
         return manageAgentPresets({
@@ -1506,6 +1515,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             switch (message.type) {
                 case "activateChat":
                     break;
+                case "configureAppearance":
+                    await vscode.commands.executeCommand("dsh.configureAppearance");
+                    break;
+                case "searchCodeContext":
+                    await this.searchCodeContext();
+                    break;
+                case "attachProjectRules":
+                    await this.attachProjectRules();
+                    break;
+                case "managePromptTemplates":
+                    await vscode.commands.executeCommand("dsh.managePromptTemplates");
+                    break;
+                case "configureBillingRates":
+                    await vscode.commands.executeCommand("dsh.configureBillingRates");
+                    break;
                 case "ready":
                     surface.markReady();
                     this.postState();
@@ -1652,6 +1676,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "toggleFocus":
                     this.focusMode = !this.focusMode;
+                    await this.extensionContext.globalState.update("focusMode", this.focusMode);
                     this.postState();
                     break;
                 case "start":
@@ -2946,6 +2971,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     public async archiveSession(): Promise<void> {
         if (!this.sessionId) throw new Error(t("There is no current session."));
+        const archived = this.sessionId;
+        const endpoint = this.runtime.getUrl();
         const archiveAction = t("Archive");
         const confirmation = await vscode.window.showWarningMessage(
             t("Archive the current session and hide it from the DSH IDE session list? Restore it from Manage Sessions or review it in the official dsh Web UI."),
@@ -2953,7 +2980,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             archiveAction,
         );
         if (confirmation !== archiveAction) return;
-        const archived = this.sessionId;
+        if (this.sessionId !== archived || this.runtime.getUrl() !== endpoint) throw new Error(t("The selected session changed. Try again."));
         try {
             await this.runtime.archiveSession(archived);
         } catch (error) {
@@ -2965,6 +2992,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 stopAndArchive,
             );
             if (stopConfirmation !== stopAndArchive) return;
+            if (this.runtime.getUrl() !== endpoint) throw new Error(t("The selected session changed. Try again."));
             await this.runtime.archiveSession(archived, true);
         }
         const next = this.runtime
@@ -2973,14 +3001,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .sessions.find(
                 (item) =>
                     item.sessionId !== archived &&
+                    item.origin !== "subagent" && !this.runtime.isBackgroundSession(item.sessionId) &&
                     !this.runtime.getSessionCatalog().snapshot().archivedSessionIds.includes(item.sessionId),
             );
-        this.sessionId = undefined;
-        this.sessionCwd = undefined;
-        this.subagents.discardSubagentPreview();
-        await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
-        if (next) await this.switchSession(next.sessionId);
+        if (this.runtime.getUrl() !== endpoint) return;
+        if (this.sessionId === archived || !this.sessionId && !this.newSessionDraft) {
+            this.sessionId = undefined;
+            this.sessionCwd = undefined;
+            this.subagents.discardSubagentPreview();
+            await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
+            if (next) await this.switchSession(next.sessionId);
+        }
         this.postState();
+        const undo = t("Undo archive");
+        void vscode.window.showInformationMessage(t("Session archived."), undo).then(async choice => {
+            if (choice !== undo || this.runtime.getUrl() !== endpoint) return;
+            try { await this.runtime.unarchiveSession(archived); await this.runtime.refreshSessions(); }
+            catch (error) { this.reportError(error); }
+        });
     }
 
     private async switchSession(sessionId: string): Promise<void> {
@@ -4219,6 +4257,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             submitting: this.submitting,
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,
+            appearance: { fontSize: Math.max(11, Math.min(24, vscode.workspace.getConfiguration("dsh").get<number>("chatFontSize", 13))),
+                density: vscode.workspace.getConfiguration("dsh").get<string>("chatDensity", "comfortable") === "compact" ? "compact" : "comfortable" },
+            costEstimate: estimateSessionCost(session, modelRates(vscode.workspace.getConfiguration("dsh").get("billingRates"))),
             workspaceName: workspaceFolder?.name,
             skills: this.sessionId
                 ? [...(this.skillCatalogs.get(this.sessionId) ?? [])]

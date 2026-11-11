@@ -747,3 +747,16 @@ button {
     display: block;
     color: var(--vscode-descriptionForeground);
 }
+
+.dsh-cost-estimate {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 4px 12px;
+    color: var(--vscode-descriptionForeground);
+    font-size: var(--dsh-font-xs);
+}
+
+.dsh-compact .dsh-message { margin-bottom: 10px; }
+.dsh-message-body { font-size: var(--dsh-font-md); }
+.dsh-compact .dsh-message-body { line-height: 1.3; }

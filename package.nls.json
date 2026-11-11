@@ -121,5 +121,14 @@
     "config.inlineCompletion.provider.description": "Provider for inline completion. Empty uses the selected DSH chat route.",
     "config.inlineCompletion.model.description": "Model for inline completion. Empty uses the selected DSH chat route.",
     "config.imageFileFallback.description": "Attach images as files when the selected model explicitly refuses image input.",
-    "config.serverRuntimeVersion.description": "Exact Runtime version of a manually configured server. Empty uses the base contract."
+    "config.serverRuntimeVersion.description": "Exact Runtime version of a manually configured server. Empty uses the base contract.",
+    "command.configureAppearance.title": "Chat Appearance",
+    "command.configureBillingRates.title": "Configure Model Cost Rates",
+    "command.managePromptTemplates.title": "Manage Prompt Templates",
+    "command.searchCodeContext.title": "Search Code Context",
+    "command.attachProjectRules.title": "Attach Project Rule Documents",
+    "config.chatFontSize.description": "Chat text size in pixels.",
+    "config.chatDensity.description": "Chat spacing density.",
+    "config.connectionMode.description": "Auto attaches or launches; attach-only connects to existing Runtime processes.",
+    "config.billingRates.description": "Custom per-million-token rates by provider/model and currency. Estimates exclude non-token charges."
 }

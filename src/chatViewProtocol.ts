@@ -19,6 +19,11 @@ import { isImageMediaType, isRecord } from "./guards";
 export type ChatViewAction =
     | { type: "ready" }
     | { type: "activateChat" }
+    | { type: "configureAppearance" }
+    | { type: "configureBillingRates" }
+    | { type: "searchCodeContext" }
+    | { type: "attachProjectRules" }
+    | { type: "managePromptTemplates" }
     | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
     | { type: "retryPrompt"; id: string }
     | { type: "retryGeneration"; sessionId: string; failureSeq: number }
@@ -328,6 +333,11 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
     switch (value.type) {
         case "ready":
         case "activateChat":
+        case "configureAppearance":
+        case "configureBillingRates":
+        case "searchCodeContext":
+        case "attachProjectRules":
+        case "managePromptTemplates":
         case "exportSession":
         case "reviewRepository":
         case "openSessionEditor":

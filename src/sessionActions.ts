@@ -3,11 +3,13 @@
 import * as vscode from "vscode";
 import { DshRuntime } from "./dshRuntime";
 import { t } from "./localize";
+import { sessionCenterItems, sessionCenterPreferences, type SessionCenterPreferences } from "./sessionPreferences";
 
 export interface SessionActionsHost {
     readonly runtime: DshRuntime;
     workspaceRoot(): string | undefined;
     openSession(sessionId: string): Promise<void>;
+    preferences?: vscode.Memento;
 }
 
 type SessionAction = "open" | "pin" | "unpin" | "unarchive";
@@ -16,29 +18,54 @@ type SessionAction = "open" | "pin" | "unpin" | "unarchive";
 export async function openSessionCenter(host: SessionActionsHost): Promise<void> {
     await host.runtime.start(host.workspaceRoot());
     await host.runtime.refreshSessions();
-    const picker = vscode.window.createQuickPick<vscode.QuickPickItem & { sessionId: string }>();
+    const picker = vscode.window.createQuickPick<vscode.QuickPickItem & { sessionId?: string; value?: string }>();
     picker.title = t("DSH Session center");
     picker.placeholder = t("Observed requests first, then running Sessions. Choose a Session to continue.");
     picker.matchOnDescription = true;
     picker.matchOnDetail = true;
+    let preferences = sessionCenterPreferences(host.preferences?.get("sessionCenterPreferences"));
+    let mode: "sessions" | "filter" | "workspace" | "sort" = "sessions";
+    const filterButton = { iconPath: new vscode.ThemeIcon("filter"), tooltip: t("Filter sessions") };
+    const workspaceButton = { iconPath: new vscode.ThemeIcon("folder-library"), tooltip: t("Choose DSH Workspace") };
+    const sortButton = { iconPath: new vscode.ThemeIcon("sort-precedence"), tooltip: t("Sort sessions") };
+    const groupButton = { iconPath: new vscode.ThemeIcon("list-tree"), tooltip: t("Toggle Workspace grouping") };
     const render = (): void => {
         const catalog = host.runtime.getSessionCatalog().snapshot();
-        const archived = new Set(catalog.archivedSessionIds);
+        picker.buttons = mode === "sessions" ? [filterButton, workspaceButton, sortButton, groupButton] : [vscode.QuickInputButtons.Back];
+        if (mode !== "sessions") {
+            const choices = mode === "filter" ? [
+                { label: t("All sessions"), value: "all" }, { label: t("Needs attention"), value: "attention" },
+                { label: t("Running"), value: "running" }, { label: t("Pinned"), value: "pinned" },
+            ] : mode === "sort" ? [
+                { label: t("Recent activity first"), value: "recent" }, { label: t("Oldest activity first"), value: "oldest" }, { label: t("Title"), value: "title" },
+            ] : [{ label: t("All DSH Workspaces"), value: "" }, ...catalog.workspaces.map(workspace => ({ label: workspace.title, description: workspace.path, value: workspace.workspaceId }))];
+            picker.items = choices;
+            return;
+        }
         const workspaceBySession = new Map(catalog.workspaces.flatMap(workspace =>
             workspace.sessionIds.map(id => [id, workspace.title] as const)));
-        const priority = (item: typeof catalog.sessions[number]): number => item.pendingInteraction ? 0 : item.lastAgentError ? 1 : item.running ? 2 : 3;
         const activeId = picker.activeItems[0]?.sessionId;
-        picker.items = [...catalog.sessions].filter(item => !archived.has(item.sessionId) && item.origin !== "subagent")
-            .sort((a, b) => priority(a) - priority(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        picker.placeholder = [t({ all: "All sessions", attention: "Needs attention", running: "Running", pinned: "Pinned" }[preferences.filter]),
+            t({ recent: "Recent activity first", oldest: "Oldest activity first", title: "Title" }[preferences.sort]),
+            catalog.workspaces.find(item => item.workspaceId === preferences.workspaceId)?.title].filter(Boolean).join(" · ");
+        const rows = sessionCenterItems(catalog, preferences).filter(item => !host.runtime.isBackgroundSession(item.sessionId))
             .map(item => ({
                 label: `${item.pendingInteraction ? "$(bell)" : item.lastAgentError ? "$(error)" : item.running ? "$(sync~spin)" : "$(comment-discussion)"} ${item.title || item.sessionId}`,
                 description: [workspaceBySession.get(item.sessionId) ?? t("Ungrouped sessions"),
                     item.pendingInteraction === "approval" ? t("Waiting for approval") : item.pendingInteraction === "question" ? t("Waiting for answer")
                         : item.lastAgentError ? t("Session error") : item.running ? t("Running") : undefined,
                     item.formatStatus === "migration-required" ? t("Migration required") : undefined].filter(Boolean).join(" · "),
-                detail: item.lastAgentError ?? item.cwd,
+                detail: [item.sessionId, item.lastAgentError ?? item.cwd].filter(Boolean).join(" · "),
                 sessionId: item.sessionId,
             }));
+        if (preferences.grouped) {
+            const groups = new Map<string, typeof rows>();
+            for (const row of rows) {
+                const id = catalog.workspaces.find(workspace => workspace.sessionIds.includes(row.sessionId))?.workspaceId ?? "";
+                const group = groups.get(id) ?? []; group.push(row); groups.set(id, group);
+            }
+            picker.items = [...groups].flatMap(([id, group]) => [{ label: catalog.workspaces.find(item => item.workspaceId === id)?.title ?? t("Ungrouped sessions"), kind: vscode.QuickPickItemKind.Separator }, ...group]);
+        } else picker.items = rows;
         if (activeId) picker.activeItems = picker.items.filter(item => item.sessionId === activeId);
     };
     render();
@@ -47,10 +74,24 @@ export async function openSessionCenter(host: SessionActionsHost): Promise<void>
     try {
         await new Promise<void>(resolve => {
             const accept = picker.onDidAccept(() => {
+                if (mode !== "sessions") {
+                    const value = picker.selectedItems[0]?.value;
+                    if (value === undefined) return;
+                    if (mode === "filter") preferences.filter = value as SessionCenterPreferences["filter"];
+                    else if (mode === "sort") preferences.sort = value as SessionCenterPreferences["sort"];
+                    else preferences.workspaceId = value || undefined;
+                    void host.preferences?.update("sessionCenterPreferences", preferences);
+                    mode = "sessions"; picker.value = ""; render(); return;
+                }
                 selected = picker.selectedItems[0]?.sessionId;
                 if (selected) picker.hide();
             });
-            const hide = picker.onDidHide(() => { accept.dispose(); hide.dispose(); resolve(); });
+            const buttons = picker.onDidTriggerButton(button => {
+                if (button === groupButton) { preferences.grouped = !preferences.grouped; void host.preferences?.update("sessionCenterPreferences", preferences); }
+                else mode = button === filterButton ? "filter" : button === workspaceButton ? "workspace" : button === sortButton ? "sort" : "sessions";
+                picker.value = ""; render();
+            });
+            const hide = picker.onDidHide(() => { accept.dispose(); buttons.dispose(); hide.dispose(); resolve(); });
             picker.show();
         });
     } finally {

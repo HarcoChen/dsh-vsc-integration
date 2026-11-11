@@ -16,7 +16,7 @@
   <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
-  <img src="https://img.shields.io/badge/dsh目标-0.2.1--rc.2-2f6feb?style=flat-square" alt="dsh 目标 0.2.1-rc.2">
+  <img src="https://img.shields.io/badge/dsh目标-0.2.2--rc.1-2f6feb?style=flat-square" alt="dsh 目标 0.2.2-rc.1">
   <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-支持-8250df?style=flat-square" alt="支持 Laya / Jev">
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
 </p>
@@ -53,7 +53,7 @@
 
 需要 **VS Code 1.106.0 或更高版本**，以及已配置的 DSH 模型服务与凭据。
 
-默认 Runtime 目标为 `0.2.1-rc.2`。`0.2.2-rc.1` 已接入 Host 任务管理、projection 子代理目录、终端和插件更新。RC.2 可选功能包含继续生成和 Agent 终端接管。各版本的验证范围见 [维护记录](MAINTENANCE.md)。
+默认 Runtime 目标为 `0.2.2-rc.1`。`0.2.2-rc.1` 已接入 Host 任务管理、projection 子代理目录、终端和插件更新。RC.2 可选功能包含继续生成和 Agent 终端接管。各版本的验证范围见 [维护记录](MAINTENANCE.md)。
 
 1. **安装扩展**：选择上方 Marketplace 或 Open VSX 入口，也可以在扩展面板搜索 `harcochen.dsh-vsc-integration`。
 2. **打开聊天**：安装并启动官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)，打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。Desktop 会注册 `dsh`；命令不可用时，扩展会提供官方下载安装页。
@@ -158,6 +158,16 @@
 
 运行 `DSH: 行内代码补全` 可在当前文件请求 ghost text，按 VS Code 的 Tab 接受。补全使用独立的 minimal 会话，完成或取消后归档。开启 `dsh.inlineCompletion.automatic` 后可在输入停顿时自动请求，默认关闭。Provider 和模型可单独设置，也可继承当前 DSH 聊天选择。模型明确拒绝图片输入时，`dsh.imageFileFallback` 会改用文件附件。
 
+### 会话、外观和社区插件
+
+会话中心顶部按钮可筛选状态和 DSH Workspace、调整排序与分组，偏好会保存。归档成功后的通知可撤销归档。聊天菜单中的“聊天外观”可设置字号和紧凑布局，专注模式也会记住。
+
+启用官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle` 后，插件管理中的“搜索社区插件”可添加市场源、搜索、翻页、查看说明和安装兼容版本，安装或更新会使用市场返回的精确来源。
+
+“配置模型费用单价”接受所用 Provider/模型的每百万 Token 单价，会话中显示按请求路由计算的费用估算。多个币种分别汇总，缺少费率的请求会标明。估算使用当前自定义费率，不包含非 Token 收费。
+
+附件菜单提供模板创建/编辑、IDE 文件或符号搜索和显式规则文档附件。模板位于 IDE 项目的 `.dsh/prompts`，规则可从 `AGENTS.md`、`.dsh/rules` 和 `.agents/rules` 中选择。内容附加到下一条消息，发送由用户发起。`dsh.connectionMode=attach-only` 可限制为仅连接已运行的 Runtime。
+
 ![Trace 和活动面板](public/assets/Trace.png)
 
 ### 自主调试（默认关闭）
@@ -176,7 +186,7 @@
 
 **Laya/Jev 是怎么集成的？** 扩展安装包自带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Laya 走同一套 System One 接口，修改 `dsh.jev.baseUrl` 即可（仅限 HTTPS）。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；用户同意后的默认升级目标为 `0.2.1-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；用户同意后的默认升级目标为 `0.2.2-rc.1`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
 **指定监听地址或 HTTPS：** 已启动的 Runtime 使用自定义地址时，设置 `dsh.serverUrl` 即可直接连接，避免再次启动造成端口冲突。例如：
 
@@ -189,7 +199,7 @@
 
 IPv4 地址也可使用，例如 `http://100.64.0.1:3080`，前提是该 IP 属于运行扩展的机器。远程地址必须使用 HTTPS；TLS 证书须受扩展宿主信任，扩展不会跳过证书校验。IPv6 地址须加方括号。自动发现会探测本机 IPv4/IPv6 网卡地址，但未登记实例的认证 Token 仍需通过上述设置提供。
 
-基础 Runtime 和 Remote 契约指向 `dsh-v0.2.1-rc.2`（`687f282e8625c6b8d11ff58211a90524be2e4317`），并按版本接入 0.2.2 功能。Runtime 文件支持只读浏览，Settings 支持插件启停、Bundle 选择与生效结果。Jobs 实时输出可按游标重连续读并取消。限时问答恢复等待和回答草稿。Team 与子代理面板支持成员历史、follow-up 和任务导航。Runtime 终端支持 Shell 选择、重命名、输入、resize 和画面恢复，插件管理支持安装、卸载与兼容版本更新。RC.2 增加终端实时目录和输入接管。联调与剩余人工验证范围见 [维护记录](MAINTENANCE.md)。
+基础 Runtime 和 Remote 契约指向 `dsh-v0.2.2-rc.1`（`66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`），并按版本接入 0.2.2 功能。Runtime 文件支持只读浏览，Settings 支持插件启停、Bundle 选择与生效结果。Jobs 实时输出可按游标重连续读并取消。限时问答恢复等待和回答草稿。Team 与子代理面板支持成员历史、follow-up 和任务导航。Runtime 终端支持 Shell 选择、重命名、输入、resize 和画面恢复，插件管理支持安装、卸载与兼容版本更新。RC.2 增加终端实时目录和输入接管。联调与剩余人工验证范围见 [维护记录](MAINTENANCE.md)。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。官方 Desktop 注册的兼容命令会直接使用；不兼容的本机 CLI 只对已确认的旧版 npm 全局安装提供升级确认。没有兼容命令时，扩展会引导安装官方 Desktop。诊断命令不会安装或下载独立 Runtime。显式本机路径遵循相同兼容性检查；高级用户仍可显式选择 pnpm/npx。
 
@@ -246,7 +256,7 @@ graph TD
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `false` | 已弃用的兼容设置；不再下载独立 Runtime。没有 `dsh` 时引导安装官方 Desktop。 |
-| `dsh.runtimeVersion` | `0.2.1-rc.2` | 用户同意后的本机 CLI 升级兼容目标；独立下载行为已弃用。 |
+| `dsh.runtimeVersion` | `0.2.2-rc.1` | 用户同意后的本机 CLI 升级兼容目标；独立下载行为已弃用。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
@@ -328,7 +338,7 @@ npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 
 Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、完整导出、分页、评价、重连、流式输出、Goal、命令、Host 任务与限时问答。Jev、Team 和工作流结果及人工验证范围见 [维护记录](MAINTENANCE.md)。
 
-对已安装的 `0.2.1-rc.2` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
+对已安装的 `0.2.2-rc.1` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
 
 ```bash
 npm run compile

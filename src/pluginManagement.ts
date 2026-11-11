@@ -24,6 +24,7 @@ export class PluginManagementController {
             this.assertEndpoint(endpoint);
             if (!bundles) throw new Error(t("This Runtime does not expose plugin management. Open its Web UI to manage plugins."));
             const selected = await vscode.window.showQuickPick([
+                { label: `$(search) ${t("Search community plugins")}`, action: "search", name: "" },
                 { label: `$(add) ${t("Install a plugin bundle")}`, action: "install", name: "" },
                 ...bundles.filter(bundle => bundle.installed && bundle.update && !bundle.readOnlyReason).map(bundle => ({
                     label: `$(arrow-up) ${bundle.name}`, description: bundle.version, detail: t("Update installed bundle"), action: "update", name: bundle.name,
@@ -35,7 +36,8 @@ export class PluginManagementController {
             ], { title: t("Manage Runtime plugins"), placeHolder: t("Install, update or remove Runtime bundles") });
             if (!selected) return;
             this.assertEndpoint(endpoint);
-            if (selected.action === "install") await this.install(endpoint);
+            if (selected.action === "search") await this.search(endpoint);
+            else if (selected.action === "install") await this.install(endpoint);
             else if (selected.action === "update") await this.update(endpoint, selected.name, bundles.find(bundle => bundle.name === selected.name)?.update);
             else {
                 const remove = t("Remove bundle");
@@ -59,11 +61,104 @@ export class PluginManagementController {
         if (this.runtime.getUrl() !== endpoint) throw new Error(t("The connected Runtime changed. Reopen plugin management."));
     }
 
-    private async update(endpoint: string, name: string, kind?: "registry" | "git"): Promise<void> {
+    private localized(value: unknown): string {
+        if (typeof value === "string") return value;
+        if (!isRecord(value)) return "";
+        const language = vscode.env.language.toLowerCase();
+        const key = Object.keys(value).find(key => key.toLowerCase() === language)
+            ?? Object.keys(value).find(key => key.toLowerCase() === language.split("-")[0]) ?? "en";
+        return typeof value[key] === "string" ? value[key] : "";
+    }
+
+    private async search(endpoint: string): Promise<void> {
+        const api = this.runtime.getApiClient();
+        let indexes: unknown;
+        try { indexes = await api.call("pluginMarket/listIndexes", {}); }
+        catch (error) {
+            if (error instanceof RemoteHttpError && error.status === 404) throw new Error(t("Enable the official Plugin Market bundle in Runtime plugins to browse community plugins."));
+            throw error;
+        }
+        if (!Array.isArray(indexes)) throw new Error(t("The Runtime returned an invalid plugin market."));
+        const sources = indexes.filter(isRecord).filter(item => typeof item.url === "string");
+        const source = await vscode.window.showQuickPick([
+            { label: t("Add market index"), url: undefined as string | undefined },
+            ...sources.map(item => ({ label: this.localized(item.title) || String(item.url), description: String(item.url), url: String(item.url) })),
+        ], { title: t("Community plugin source") });
+        if (!source) return;
+        if (!source.url) {
+            const url = await vscode.window.showInputBox({ title: t("Market index URL"), ignoreFocusOut: true });
+            if (!url?.trim()) return;
+            this.assertEndpoint(endpoint);
+            const current = await api.call<unknown>("pluginMarket/listIndexes", {});
+            if (!Array.isArray(current)) throw new Error(t("The Runtime returned an invalid plugin market."));
+            await api.call("pluginMarket/setIndexes", { urls: [...current.filter(isRecord).map(item => item.url), url.trim()] });
+            return this.search(endpoint);
+        }
+        let text = await vscode.window.showInputBox({ title: t("Search community plugins"), ignoreFocusOut: true });
+        if (text === undefined) return;
+        let offset = 0, fetchedAt: number | undefined;
+        for (;;) {
+            this.assertEndpoint(endpoint);
+            const page = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+                title: t("Searching plugins") }, () => api.call<unknown>("pluginMarket/search", {
+                    url: source.url, query: { text, offset, limit: 50, sort: { kind: "relevance" }, ...(fetchedAt ? { fetchedAt } : {}) },
+                }));
+            this.assertEndpoint(endpoint);
+            if (!isRecord(page) || !Array.isArray(page.entries)) throw new Error(t("The Runtime returned an invalid plugin market."));
+            fetchedAt = typeof page.fetchedAt === "number" ? page.fetchedAt : undefined;
+            const entries = page.entries.filter(isRecord).filter(item => typeof item.name === "string");
+            const selected = await vscode.window.showQuickPick([
+                { label: t("Change search"), action: "query", entry: undefined as Record<string, unknown> | undefined },
+                ...(typeof page.nextOffset === "number" ? [{ label: t("Next page"), action: "next", entry: undefined }] : []),
+                ...(offset > 0 ? [{ label: t("Previous page"), action: "previous", entry: undefined }] : []),
+                ...entries.map(entry => ({ label: this.localized(entry.title) || String(entry.name), description: String(entry.name),
+                    detail: this.localized(entry.description), action: "entry", entry })),
+            ], { title: t("Community plugins · {count} results", { count: typeof page.total === "number" ? page.total : entries.length }), matchOnDescription: true, matchOnDetail: true });
+            if (!selected) return;
+            if (selected.action === "query") {
+                const query = await vscode.window.showInputBox({ title: t("Search community plugins"), value: text, ignoreFocusOut: true });
+                if (query === undefined) return;
+                text = query; offset = 0; fetchedAt = undefined; continue;
+            }
+            if (selected.action === "next") { offset = Number(page.nextOffset); continue; }
+            if (selected.action === "previous") { offset = Math.max(0, offset - 50); continue; }
+            const entry = selected.entry;
+            if (!entry || !Array.isArray(entry.versions)) continue;
+            const version = await vscode.window.showQuickPick(entry.versions.filter(isRecord).map(value => ({
+                label: String(value.version), description: isRecord(value.compatibility) && value.compatibility.compatible === false ? t("Incompatible with this Runtime") : "",
+                value,
+            })), { title: String(entry.name) });
+            if (!version) continue;
+            const detail = t("Read plugin details"), install = t("Install and enable");
+            const installed = isRecord(entry.installation) && entry.installation.status !== "not-installed";
+            const actionLabel = installed ? t("Update installed bundle") : install;
+            const choice = await vscode.window.showQuickPick([detail,
+                ...(isRecord(version.value.compatibility) && version.value.compatibility.compatible === true ? [actionLabel] : [])], { title: `${entry.name}@${version.value.version}` });
+            if (choice === detail) {
+                const document = await api.call<unknown>("pluginMarket/readEntryDetail", { url: source.url, name: entry.name, version: version.value.version, language: vscode.env.language });
+                this.assertEndpoint(endpoint);
+                if (isRecord(document) && document.status === "found" && typeof document.markdown === "string") {
+                    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: "markdown", content: document.markdown }), { preview: true });
+                } else void vscode.window.showInformationMessage(t("No plugin detail document is available."));
+            } else if (choice === actionLabel && isRecord(version.value.install) && typeof version.value.install.spec === "string") {
+                const registry = typeof version.value.install.registry === "string" ? version.value.install.registry : undefined;
+                if (installed) {
+                    const bundle = (await this.runtime.pluginManagerBundles())?.find(item => item.name === entry.name);
+                    if (!bundle?.update) { void vscode.window.showInformationMessage(t("This bundle cannot be updated through the market.")); continue; }
+                    await this.update(endpoint, String(entry.name), bundle.update, { version: String(version.value.version), registry,
+                        ...(bundle.update === "git" ? { spec: version.value.install.spec } : {}) });
+                } else await this.install(endpoint, version.value.install.spec, registry);
+                return;
+            }
+        }
+    }
+
+    private async update(endpoint: string, name: string, kind?: "registry" | "git", planned?: { version: string; registry?: string; spec?: string }): Promise<void> {
         let version: string | undefined;
         let registry: string | undefined;
         let spec: string | undefined;
-        if (kind === "git") {
+        if (planned) { version = planned.version; registry = planned.registry; spec = planned.spec; }
+        else if (kind === "git") {
             spec = await vscode.window.showInputBox({ title: t("Git bundle update"), prompt: t("Enter the same repository spec pinned to a full commit"), ignoreFocusOut: true });
             if (!spec?.trim()) return;
             this.assertEndpoint(endpoint);
@@ -121,15 +216,15 @@ export class PluginManagementController {
         await this.finish(result, endpoint);
     }
 
-    private async install(endpoint: string): Promise<void> {
+    private async install(endpoint: string, suggestedSpec?: string, registry?: string): Promise<void> {
         const spec = await vscode.window.showInputBox({ title: t("Install a plugin bundle"),
-            prompt: t("Enter an npm package spec, Git repository, tarball URL, or a path on the Runtime host"),
+            prompt: t("Enter an npm package spec, Git repository, tarball URL, or a path on the Runtime host"), value: suggestedSpec,
             ignoreFocusOut: true, validateInput: value => !value.trim() || value.trim().startsWith("-")
                 ? t("Enter a valid package spec") : undefined });
         if (spec === undefined) return;
         this.assertEndpoint(endpoint);
         const inspection = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-            title: t("Inspecting plugin package") }, () => this.runtime.inspectPlugin(spec.trim()));
+            title: t("Inspecting plugin package") }, () => this.runtime.inspectPlugin(spec.trim(), undefined, registry));
         this.assertEndpoint(endpoint);
         if (inspection.status === "refused") throw new Error(`${inspection.problem}: ${inspection.reason}`);
         if (inspection.bundle === false) throw new Error(t("This package does not declare a DSH bundle."));
@@ -143,7 +238,7 @@ export class PluginManagementController {
         let approvedBuilds: string[] | undefined;
         for (;;) {
             this.assertEndpoint(endpoint);
-            const result = await this.runInstall(endpoint, spec.trim(), approvedBuilds);
+            const result = await this.runInstall(endpoint, spec.trim(), approvedBuilds, registry);
             if (result.pendingBuilds?.length && result.application === "failed") {
                 const approve = t("Approve build scripts and retry");
                 const choice = await vscode.window.showWarningMessage(t("These packages require build script approval: {packages}",
@@ -155,7 +250,7 @@ export class PluginManagementController {
         }
     }
 
-    private async runInstall(endpoint: string, spec: string, approvedBuilds?: string[]): Promise<DshPluginChangeResult> {
+    private async runInstall(endpoint: string, spec: string, approvedBuilds?: string[], registry?: string): Promise<DshPluginChangeResult> {
         const requestId = randomUUID();
         return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
             title: t("Installing plugin bundle"), cancellable: true }, async (progress, token) => {
@@ -187,7 +282,7 @@ export class PluginManagementController {
                 })().catch(error => this.output.appendLine(`[dsh:plugins] cancellation failed: ${errorMessage(error)}`));
             });
             try {
-                try { return await this.runtime.installPluginBundle(spec, requestId, approvedBuilds); }
+                try { return await this.runtime.installPluginBundle(spec, requestId, approvedBuilds, registry); }
                 catch (error) {
                     this.assertEndpoint(endpoint);
                     const recovered = await this.runtime.waitForPluginInstall(requestId);

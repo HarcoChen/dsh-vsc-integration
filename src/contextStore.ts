@@ -128,6 +128,17 @@ export class ContextStore {
 
     public fork(): ContextStore { return new ContextStore(this.debugContextTracker); }
 
+    public addDocumentContext(document: vscode.TextDocument, range?: vscode.Range, label?: string): DshContextItem {
+        const text = document.getText(range);
+        const limited = truncateUtf8(text, this.maxContextBytes());
+        const item: DshContextItem = { id: randomUUID(), kind: range ? "selection" : "file",
+            label: label ?? this.displayPath(document.uri), path: this.displayPath(document.uri), language: document.languageId,
+            content: limited.text, byteLength: Buffer.byteLength(limited.text, "utf8"), truncated: limited.truncated,
+            ...(range ? { range: { startLine: range.start.line + 1, endLine: range.end.line + 1 } } : {}) };
+        this.upsertOneShot(item);
+        return cloneItem(item);
+    }
+
     public onDidChange(listener: () => void): vscode.Disposable {
         this.listeners.add(listener);
         return new vscode.Disposable(() => this.listeners.delete(listener));

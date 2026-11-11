@@ -53,6 +53,12 @@ exports.run = async () => {
         const uri = vscode.Uri.file(path.join(data.workspacePath, "completion.js"));
         await vscode.workspace.fs.writeFile(uri, Buffer.from("function example() {\n    "));
         const document = await vscode.workspace.openTextDocument(uri);
+        const { ContextStore } = require(path.join(root, "dist/contextStore"));
+        const contextStore = new ContextStore();
+        contextStore.addDocumentContext(document, new vscode.Range(0, 0, 0, document.lineAt(0).text.length), "Native symbol context");
+        const contextCapture = contextStore.capturePromptContext({ includeCurrentSelection: false });
+        assert.ok(contextCapture.text.includes("function example()"));
+        assert.equal(contextStore.snapshot()[0].label, "Native symbol context");
         const token = new vscode.CancellationTokenSource();
         const completions = await provider.provideInlineCompletionItems(
             document,

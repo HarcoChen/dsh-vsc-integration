@@ -51,7 +51,7 @@
 
 ## 上游契约与验证范围
 
-基础契约 pin 和默认升级目标为 `dsh-v0.2.1-rc.2`，本轮增加 `0.2.2-rc.1` 兼容分支。源码检查使用本地 `deepseek-harness/` 标签对象。
+基础契约 pin 和默认升级目标更新为已经过完整联调的 `dsh-v0.2.2-rc.1`，较旧 Runtime 保留版本兼容分支。源码检查使用本地 `deepseek-harness/` 标签对象。
 
 - `dsh-v0.2.2-rc.1` 对应 `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`。
 - `dsh-v0.2.2-rc.2` 对应 `ddac96760b6edf8fa0fe17cbdcf0b512f4c12b2c`。
@@ -66,6 +66,17 @@
 上游发布说明见 [RC.1](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.1) 和 [RC.2](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.2.2-rc.2)。调查时 npm 镜像及官方 registry 均未提供 `@deepseek-ai/dsh@0.2.2-rc.2`，GitHub RC.2 release assets 为空。实际联调使用已安装 RC.1。
 
 ## 验证
+
+### 产品缺口复查（2026-11-12）
+
+- 社区插件搜索使用 `pluginMarket/listIndexes|search|readEntryDetail|setIndexes`，可添加来源、翻页和选择兼容版本，安装/更新沿用市场返回的 registry 和精确 spec。需要启用官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle`。
+- 会话中心可按需要处理、运行、置顶及 DSH Workspace 筛选，保存排序与分组偏好。归档通知提供撤销入口。
+- 费用面板使用当前自定义费率，按每次请求实际路由计价，不把旧模型 Token 转给当前模型。币种分别汇总，未匹配请求单独计数，不含非 Token 费用。
+- 聊天字号、密度和专注模式可持久保存。`dsh.connectionMode=attach-only` 仅发现并附加已有实例。
+- 模板管理可显式创建/编辑 IDE 项目的 `.dsh/prompts` 文档。附件菜单提供 IDE 文件/符号搜索以及 `AGENTS.md`、`.dsh/rules`、`.agents/rules` 的显式一次性规则附件。
+- 附件读取预留数量与字节预算，完成时合并最新状态，清空或切换会话后丢弃过期批次。
+
+实际 RC.1 检查覆盖本机市场分页结果、兼容性和精确 registry/spec，自定义费率的请求计数与金额，以及会话目录排序。原生 VS Code 检查增加了基于 TextDocument 的一次性代码上下文捕获。
 
 遵循仓库规则，运行既有 50 项单元测试，扩展已有真实 Runtime 集成脚本。
 

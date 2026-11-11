@@ -122,6 +122,8 @@ export const Header = React.memo(function Header({
         { key: "presets", label: t("Manage agent presets"), action: { type: "manageAgentPresets" } },
         { key: "providers", label: t("Manage providers"), action: { type: "manageProviders" } },
         { key: "settings", label: t("Manage plugin settings"), action: { type: "manageSettings" } },
+        { key: "appearance", label: t("Chat appearance"), action: { type: "configureAppearance" } },
+        { key: "rates", label: t("Configure model cost rates"), action: { type: "configureBillingRates" } },
         { key: "plugins", label: t("Manage Runtime plugins"), action: { type: "managePlugins" } },
         { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" } },
         {

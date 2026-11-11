@@ -34,8 +34,10 @@ const FORWARDED_EMIT_EVENTS = new Set([
     "llm/adapters-updated",
     "permission-presets/catalog-changed",
     "plugin-manager/changed",
+    "plugin-market/changed",
     "plugin-manager/install-log",
     "plugin-manager/install-state",
+    "plugin-manager/update-state",
     "settings/document-updated",
     "schedule/changed",
 ]);

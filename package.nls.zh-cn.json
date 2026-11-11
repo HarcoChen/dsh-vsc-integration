@@ -121,5 +121,14 @@
     "config.inlineCompletion.provider.description": "行内补全 Provider，留空使用当前 DSH 会话选择。",
     "config.inlineCompletion.model.description": "行内补全模型，留空使用当前 DSH 会话选择。",
     "config.imageFileFallback.description": "模型明确拒绝图片输入时，将图片作为文件附加。",
-    "config.serverRuntimeVersion.description": "手动连接服务器的完整 Runtime 版本，留空使用基础契约。"
+    "config.serverRuntimeVersion.description": "手动连接服务器的完整 Runtime 版本，留空使用基础契约。",
+    "command.configureAppearance.title": "聊天外观",
+    "command.configureBillingRates.title": "配置模型费用单价",
+    "command.managePromptTemplates.title": "管理提示词模板",
+    "command.searchCodeContext.title": "搜索代码上下文",
+    "command.attachProjectRules.title": "附加项目规则文档",
+    "config.chatFontSize.description": "聊天文字字号（像素）。",
+    "config.chatDensity.description": "聊天布局间距。",
+    "config.connectionMode.description": "auto 可附加或启动 Runtime，attach-only 仅连接已运行的实例。",
+    "config.billingRates.description": "按 Provider/模型和币种设置每百万 Token 单价，估算不包含非 Token 费用。"
 }

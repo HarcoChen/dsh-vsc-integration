@@ -1666,6 +1666,7 @@ export class DshRuntime implements vscode.Disposable {
             return await this.startPromise;
         } catch (error) {
             if (abort.signal.aborted) throw error;
+            if (this.configuration().get<string>("connectionMode", "auto") === "attach-only") throw error;
             if (isDshWriterLockFailure(error)) {
                 this.lastRecoveryComposition = undefined;
                 this.output.appendLine("[dsh] startup blocked by a DSH writer lock; bundle isolation cannot repair this lock.");
@@ -2385,16 +2386,16 @@ export class DshRuntime implements vscode.Disposable {
         return result;
     }
 
-    public async inspectPlugin(spec: string, signal?: AbortSignal): Promise<DshPluginInspection> {
-        const value = await this.apiClient.call("pluginManager/inspect", { spec }, signal);
+    public async inspectPlugin(spec: string, signal?: AbortSignal, registry?: string): Promise<DshPluginInspection> {
+        const value = await this.apiClient.call("pluginManager/inspect", { spec, ...(registry ? { options: { registry } } : {}) }, signal);
         const inspection = normalizePluginInspection(value);
         if (!inspection) throw new RemoteProtocolError("Remote pluginManager/inspect returned an invalid value");
         return inspection;
     }
 
-    public async installPluginBundle(spec: string, requestId: string, approvedBuilds?: string[]): Promise<DshPluginChangeResult> {
+    public async installPluginBundle(spec: string, requestId: string, approvedBuilds?: string[], registry?: string): Promise<DshPluginChangeResult> {
         const value = await this.apiClient.call("pluginManager/installBundle", {
-            spec, options: { requestId, enabled: true, saveExact: true, ...(approvedBuilds ? { approvedBuilds } : {}) },
+            spec, options: { requestId, enabled: true, saveExact: true, ...(approvedBuilds ? { approvedBuilds } : {}), ...(registry ? { registry } : {}) },
         });
         return this.normalizePluginChange(value, "pluginManager/installBundle");
     }
@@ -3197,7 +3198,7 @@ export class DshRuntime implements vscode.Disposable {
             checkStarting();
             this.baseUrl = url;
             this.startedByExtension = false;
-            this.setStatus({ state: "running", url });
+            this.setStatus({ state: "running", url, message: t("Attached to an existing Runtime") });
             this.harnessState.start();
             return url;
         }
@@ -3228,9 +3229,15 @@ export class DshRuntime implements vscode.Disposable {
             }
             this.setRuntimeEndpoint(existingEndpoint);
             this.startedByExtension = false;
-            this.setStatus({ state: "running", url: existingEndpoint.baseUrl });
+            this.setStatus({ state: "running", url: existingEndpoint.baseUrl, message: t("Attached to an existing Runtime") });
             this.harnessState.start();
             return existingEndpoint.baseUrl;
+        }
+
+        if (configuration.get<string>("connectionMode", "auto") === "attach-only") {
+            const message = t("No running Runtime was found. Attach-only mode does not launch a new process.");
+            this.setStatus({ state: "error", message });
+            throw new Error(message);
         }
 
         if (!workspaceRoot) {

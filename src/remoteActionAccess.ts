@@ -4,7 +4,7 @@ import type { RemoteAccessState } from "./remote/access";
 /** Editor actions with no Host mutation remain usable by readers. Unmapped mutations require ownership. */
 export function canUseChatAction(access: RemoteAccessState, action: ChatViewAction, sessionId?: string, modernSubagents = false): boolean {
     if (access.snapshot.owner && access.snapshot.available) return true;
-    const local = new Set(["activateChat", "ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
+    const local = new Set(["searchCodeContext", "attachProjectRules", "managePromptTemplates", "configureAppearance", "configureBillingRates", "activateChat", "ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
         "openIdeContextPicker", "openTerminalCommandPicker", "openDiagnosticsPicker", "openPromptTemplatePicker", "removeContext", "toggleSelection",
         "fileReferenceQuery", "closeSubagent", "toggleSubagentBranch", "searchSession", "openSessionCenter", "dismissSessionFeedback",
         "stop", "cancelRecovery", "exportRecoveryDiagnostics", "restoreRecovery", "captureAppShot", "insertCode", "applyCode"]);

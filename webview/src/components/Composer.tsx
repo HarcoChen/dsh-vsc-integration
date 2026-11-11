@@ -408,6 +408,9 @@ export const Composer = React.memo(function Composer({
                     {attachmentMenuVisible ? (
                         // Disclosure, not the ARIA menu pattern — see the note in Header.tsx.
                         <div className="dsh-menu dsh-attachment-menu">
+                            <button type="button" className="dsh-menu-item" onClick={() => { setAttachmentMenuVisible(false); postAction({ type: "searchCodeContext" }); }}>{t("Search code context")}</button>
+                            <button type="button" className="dsh-menu-item" onClick={() => { setAttachmentMenuVisible(false); postAction({ type: "attachProjectRules" }); }}>{t("Attach project rule documents")}</button>
+                            <button type="button" className="dsh-menu-item" onClick={() => { setAttachmentMenuVisible(false); postAction({ type: "managePromptTemplates" }); }}>{t("Manage prompt templates")}</button>
                             <button
                                 type="button"
                                 className="dsh-menu-item"

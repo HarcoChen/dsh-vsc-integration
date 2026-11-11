@@ -120,7 +120,7 @@ await mkdir(join(workspacePath, "nested"));
 await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
 await writeFile(join(workspacePath, "remote-smoke.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
 await writeFile(join(workspacePath, "remote-large.txt"), Buffer.alloc(RUNTIME_TEXT_PREVIEW_MAX_BYTES + 1, 65));
-if (withScheduleBundle || withTeamBundle || withForge) {
+if (withScheduleBundle || withTeamBundle || withForge || supports022) {
     const profileDirectory = join(dshHome, "profiles", "web");
     await mkdir(profileDirectory, { recursive: true });
     await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
@@ -128,7 +128,8 @@ if (withScheduleBundle || withTeamBundle || withForge) {
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
             ...(withScheduleBundle && !supports021 ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
             ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : []),
-            ...(withForge ? ["@deepseek-ai/dsh-experimental-forge-bundle"] : [])] } },
+            ...(withForge ? ["@deepseek-ai/dsh-experimental-forge-bundle"] : []),
+            ...(supports022 ? ["@deepseek-ai/dsh-experimental-plugin-market-bundle"] : [])] } },
     }, null, 2) + "\n");
 }
 if (withForge) {
@@ -160,6 +161,15 @@ let historicalEditStep = 0;
 let packageTarball;
 let packageDownloadStarted = false;
 const model = createServer(async (request, response) => {
+    if (request.url === "/plugin-index.json") {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ format: 1, title: "Local smoke market", plugins: [
+            { name: "dsh-local-market-fixture", title: "Local fixture", versions: [{ version: "1.0.0", publishTimestamp: 1,
+                source: { type: "npm", registry: "https://registry.npmjs.org" }, engines: { dsh: ">=0.1.0" } }] },
+        ] }));
+        return;
+    }
+
     if (request.url === "/workflow-plugin.tgz" && packageTarball) {
         response.writeHead(200, { "content-type": "application/octet-stream", "content-length": packageTarball.length });
         if (request.method === "HEAD") { response.end(); return; }
@@ -459,6 +469,33 @@ try {
     assert.equal(tail.type, "snapshot");
     assert.equal(tail.hasMore, true);
     pass("RPC-created session/follow snapshot and backward session/page history (16 user/assistant messages)");
+    const { estimateSessionCost } = require(join(root, "dist/sessionCost"));
+    const header = history.events.find(({ event }) => event.type === "request/header").event.data.header.config;
+    const cost = estimateSessionCost(history, [{ provider: header.provider, model: header.model, currency: "USD", input: 2, output: 5, cacheRead: 1, cacheWrite: 3 }]);
+    assert.equal(cost.pricedRequests, 8);
+    assert.equal(cost.unpricedRequests, 0);
+    assert.ok(Math.abs(cost.totals[0].total - 0.000128) < 1e-12, JSON.stringify(cost));
+    const { sessionCenterItems } = require(join(root, "dist/sessionPreferences"));
+    const sorted = sessionCenterItems(coordinator.catalog.snapshot(), { filter: "all", sort: "title", grouped: false });
+    assert.ok(sorted.length >= 2);
+    pass("Per-request custom cost rates and Session center ordering consume actual Runtime history/catalog");
+    if (supports022) {
+        const sources = await connection.unary.call("pluginMarket/listIndexes", {});
+        const original = sources.map(item => item.url);
+        const index = `http://127.0.0.1:${model.address().port}/plugin-index.json`;
+        try {
+            await connection.unary.call("pluginMarket/setIndexes", { urls: [index] });
+            const page = await connection.unary.call("pluginMarket/search", { url: index,
+                query: { text: "fixture", offset: 0, limit: 10, sort: { kind: "relevance" } } });
+            assert.equal(page.total, 1);
+            const version = page.entries[0].versions[0];
+            assert.equal(version.compatibility.compatible, true);
+            assert.equal(version.install.spec, "dsh-local-market-fixture@1.0.0");
+            assert.equal(new URL(version.install.registry).origin, "https://registry.npmjs.org");
+        } finally { await connection.unary.call("pluginMarket/setIndexes", { urls: original }); }
+        pass("Community market search preserves compatible exact versions and registry sources");
+    }
+
     const { readSessionArchive, sessionMarkdown } = require(join(root, "dist/sessionExport"));
     const archive = await readSessionArchive(seededSessionId, connection, new AbortController().signal, 2);
     assert.equal(archive.events.filter(({ event }) => event.type === "user/message" && event.data.source?.kind === "user").length, 8);

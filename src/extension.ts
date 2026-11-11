@@ -8,6 +8,8 @@ import { AccountActions } from "./accountActions";
 import { DesktopConnectionActions } from "./desktopActions";
 import { InlineCompletionProvider } from "./inlineCompletion";
 import { ForgeReviewController } from "./forgeReview";
+import { configureBillingRate, configureChatAppearance } from "./localPreferences";
+import { managePromptTemplates } from "./editorContextActions";
 import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider, QuickTaskKind } from "./chatView";
 import {
@@ -131,6 +133,11 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         registerChatParticipant(chatView, context.extensionUri),
         vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
         vscode.commands.registerCommand("dsh.open", () => chatView.commandTarget().reveal()),
+        vscode.commands.registerCommand("dsh.configureAppearance", () => runQuietCommand(t("Chat appearance"), configureChatAppearance)),
+        vscode.commands.registerCommand("dsh.managePromptTemplates", () => runQuietCommand(t("Manage prompt templates"), managePromptTemplates)),
+        vscode.commands.registerCommand("dsh.searchCodeContext", () => runQuietCommand(t("Search code context"), () => chatView.commandTarget().searchCodeContext())),
+        vscode.commands.registerCommand("dsh.attachProjectRules", () => runQuietCommand(t("Attach project rule documents"), () => chatView.commandTarget().attachProjectRules())),
+        vscode.commands.registerCommand("dsh.configureBillingRates", () => runQuietCommand(t("Configure model cost rates"), configureBillingRate)),
         vscode.commands.registerCommand("dsh.connectDesktop", () => runQuietCommand(t("Connect to Desktop"), () => desktopActions.connect())),
         vscode.commands.registerCommand("dsh.disconnectDesktop", () => runQuietCommand(t("Disconnect Desktop"), () => desktopActions.disconnect())),
         vscode.commands.registerCommand("dsh.showWhatsNew", () =>

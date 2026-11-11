@@ -9,6 +9,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { FolderIcon } from "./components/icons";
 import { StatusBanner } from "./components/StatusBanner";
 import { SessionFeedbackDialog } from "./components/SessionFeedbackDialog";
+import { CostEstimate } from "./components/CostEstimate";
 import { t } from "./i18n";
 
 export function App(): React.JSX.Element {
@@ -17,7 +18,8 @@ export function App(): React.JSX.Element {
         .slice(-100).map(message => message.skillInvocation ? `/${message.skillInvocation} ${message.text}` : message.text), [state.messages]);
     const settingsOpen = !state.focusMode && Boolean(state.settings?.open);
     return (
-        <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}`}>
+        <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}${state.appearance?.density === "compact" ? " dsh-compact" : ""}`}
+            style={state.appearance ? { "--dsh-font-md": `${state.appearance.fontSize}px` } as React.CSSProperties : undefined}>
             <Header
                 status={state.status}
                 sessionStatus={state.sessionStatus}
@@ -36,6 +38,7 @@ export function App(): React.JSX.Element {
                 <span>{state.workingDirectory}</span>
             </div> : null}
             <SessionFeedbackDialog feedback={state.sessionFeedback} />
+            <CostEstimate value={state.costEstimate} />
             {/* Keep conversation state and attachment drafts mounted while settings are open. */}
             <div className="dsh-conversation" hidden={settingsOpen}>
                 <MessageList
