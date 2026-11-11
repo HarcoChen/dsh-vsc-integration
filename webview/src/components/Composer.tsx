@@ -37,6 +37,7 @@ interface ComposerProps {
     busy: ComposerState["busy"];
     submitting: ComposerState["submitting"];
     cancelling: ComposerState["cancelling"];
+    continuation: ComposerState["continuation"];
     sessionId: ComposerState["sessionId"];
 }
 
@@ -59,6 +60,7 @@ export const Composer = React.memo(function Composer({
     busy,
     submitting,
     cancelling,
+    continuation,
     sessionId,
 }: ComposerProps): React.JSX.Element {
     const [text, setText] = useState("");
@@ -74,6 +76,28 @@ export const Composer = React.memo(function Composer({
     const planToggleTargetRef = useRef<boolean>();
     const imageDrafts = useImageDrafts(imageLimits);
     const fileDrafts = useFileDrafts();
+    const attachmentReads = useRef(0);
+    const [preparingAttachments, setPreparingAttachments] = useState(false);
+    const [attachmentReadError, setAttachmentReadError] = useState<string>();
+    const addAttachments = async (files: readonly File[]): Promise<void> => {
+        if (!files.length) return;
+        attachmentReads.current += 1;
+        setPreparingAttachments(true);
+        setAttachmentReadError(undefined);
+        const { images, others } = splitImageFiles(files);
+        try {
+            const results = await Promise.allSettled([
+                imageDrafts.addFiles(images),
+                fileDrafts.addFiles(others),
+            ]);
+            if (results.some(result => result.status === "rejected")) {
+                setAttachmentReadError(t("Could not read an attachment. Add the file again."));
+            }
+        } finally {
+            attachmentReads.current -= 1;
+            setPreparingAttachments(attachmentReads.current > 0);
+        }
+    };
     // The projection exposes the requested state while a /plan transition is
     // pending. Fold it the same way as Harness UI: entering plan mode is
     // effective while pending, leaving it is effective immediately.
@@ -186,10 +210,15 @@ export const Composer = React.memo(function Composer({
     }, [completion.resetSlashIndex]);
 
     const send = useCallback((): void => {
-        if (submitting || access?.canSend === false) return;
+        if (submitting || attachmentReads.current > 0 || access?.canSend === false) return;
         const value = textareaRef.current?.value ?? text;
         const attached = imageDrafts.images.length > 0 || fileDrafts.files.length > 0;
-        if (!value.trim() && !attached) return;
+        if (!value.trim() && !attached) {
+            if (!busy && sessionId && continuation !== undefined) {
+                postAction({ type: "retryGeneration", sessionId, failureSeq: continuation });
+            }
+            return;
+        }
         if (!attached && completion.executeSlashCommand(value.trim())) return;
         postAction({
             type: "sendPrompt",
@@ -201,9 +230,11 @@ export const Composer = React.memo(function Composer({
         setText("");
         imageDrafts.clear();
         fileDrafts.clear();
-    }, [access?.canSend, completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text]);
+    }, [access?.canSend, completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text, sessionId, continuation]);
 
-    const sendLabel = t("Send");
+    const canContinue = !busy && continuation !== undefined && Boolean(sessionId) && !text.trim() &&
+        imageDrafts.images.length === 0 && fileDrafts.files.length === 0;
+    const sendLabel = t(canContinue ? "Continue generating" : "Send");
     const quotedReferenceMatch = text.match(/(?:^|\s)@"([^"]*)$/u);
     const plainReferenceMatch = text.match(/(?:^|\s)@([^\s@]*)$/u);
     const referenceMatch = quotedReferenceMatch ?? plainReferenceMatch;
@@ -337,6 +368,7 @@ export const Composer = React.memo(function Composer({
                 error={fileDrafts.error}
                 onRemove={fileDrafts.remove}
             />
+            {attachmentReadError ? <div className="dsh-card-error" role="alert">{attachmentReadError}</div> : null}
             <div
                 className="dsh-composer-row"
                 onDragOver={(event) => {
@@ -349,9 +381,7 @@ export const Composer = React.memo(function Composer({
                     const files = Array.from(event.dataTransfer.files);
                     if (files.length === 0) return;
                     event.preventDefault();
-                    const { images, others } = splitImageFiles(files);
-                    if (images.length) void imageDrafts.addFiles(images);
-                    if (others.length) void fileDrafts.addFiles(others);
+                    void addAttachments(files);
                 }}
             >
                 <div className="dsh-menu-anchor dsh-attachment-anchor" ref={attachmentMenuRef}>
@@ -440,7 +470,7 @@ export const Composer = React.memo(function Composer({
                         onChange={(event) => {
                             const files = Array.from(event.target.files ?? []);
                             event.target.value = "";
-                            void imageDrafts.addFiles(files);
+                            void addAttachments(files);
                         }}
                     />
                     <input
@@ -452,7 +482,7 @@ export const Composer = React.memo(function Composer({
                         onChange={(event) => {
                             const files = Array.from(event.target.files ?? []);
                             event.target.value = "";
-                            void fileDrafts.addFiles(files);
+                            void addAttachments(files);
                         }}
                     />
                 </div>
@@ -476,11 +506,10 @@ export const Composer = React.memo(function Composer({
                         const files = Array.from(event.clipboardData.files);
                         if (files.length === 0) return;
                         event.preventDefault();
-                        const { images, others } = splitImageFiles(files);
-                        if (images.length) void imageDrafts.addFiles(images);
-                        if (others.length) void fileDrafts.addFiles(others);
+                        void addAttachments(files);
                     }}
                     onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
                         // Shift+Tab toggles the public plan command when no
                         // completion popup owns Tab. Keep modified variants
                         // and native focus traversal untouched.
@@ -527,7 +556,7 @@ export const Composer = React.memo(function Composer({
                     title={access?.canSend === false && !busy ? t("Read-only Runtime access") : busy ? t("Stop") : sendLabel}
                     disabled={busy
                         ? cancelling || access?.canCancel === false
-                        : access?.canSend === false || submitting || (!text.trim() && imageDrafts.images.length === 0 && fileDrafts.files.length === 0)}
+                        : access?.canSend === false || submitting || preparingAttachments || (!canContinue && !text.trim() && imageDrafts.images.length === 0 && fileDrafts.files.length === 0)}
                     onClick={() => {
                         if (busy) {
                             postAction({ type: "cancel" });
@@ -541,7 +570,7 @@ export const Composer = React.memo(function Composer({
                         ? cancelling ? t("Stopping...") : t("Stop")
                         : sendLabel}
                 </button>
-                <span className="dsh-composer-shortcut" aria-hidden="true">{t("Ctrl / ⌘ + Enter to send")}</span>
+                <span className="dsh-composer-shortcut" aria-hidden="true">{t("Enter to send · Shift+Enter for newline")}</span>
             </div>
             <div className="dsh-composer-footer">
                 {/* Rendered in both states so the toggle stays reachable by

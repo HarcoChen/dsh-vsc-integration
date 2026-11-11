@@ -91,6 +91,7 @@ export function App(): React.JSX.Element {
                     busy={state.busy}
                     submitting={state.submitting}
                     cancelling={state.cancelling}
+                    continuation={state.continuation}
                     sessionId={state.sessionId}
                 />
             </div>

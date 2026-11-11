@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/dsh-0.2.0--rc.2-2f6feb?style=flat-square" alt="dsh 0.2.0-rc.2">
+  <img src="https://img.shields.io/badge/dsh_target-0.2.1--rc.2-2f6feb?style=flat-square" alt="dsh target 0.2.1-rc.2">
   <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-built--in-8250df?style=flat-square" alt="Laya / Jev built-in">
   <img src="https://img.shields.io/badge/setup-zero--config-1a7f37?style=flat-square" alt="Zero-config setup">
 </p>
@@ -49,7 +49,7 @@
 
 | | |
 | --- | --- |
-| **Ready for dsh `0.2.0-rc.2`** | The default Runtime and Remote contract target `dsh-v0.2.0-rc.2`. Session management, DeepSeek account sign-in and balance, default DSH Workspace initialization, and late answers to timed questions remain supported. Schedule is an optional official bundle in this release and the dock explains how to enable it when absent. Desktop-only product analytics RPCs are not used by the IDE. Any Runtime at or above `0.1.5-rc.1` still connects. |
+| **Runtime target `0.2.1-rc.2`** | Session management, account sign-in, DSH Workspaces, timed questions and Schedule use the pinned Remote contract. Newer CLI versions can connect, but feature compatibility depends on their APIs. See the [maintenance report](MAINTENANCE.md) for 0.2.2 changes and remaining checks. |
 | **Laya / Jev built in** | The IDE-neutral [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime plugin ships inside the extension. Add fast System One decisions from TypeSafe [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), or its wire-compatible open-source alternative [Laya](https://huggingface.co/convaiinnovations/laya), to the agent loop: loop guard, large-output shaping, done-gate, tool pruning, skill routing, and decision tools. Nothing extra to install. |
 | **Works out of the box** | Install the extension and the official [DeepSeek Desktop](https://www.deepseek.com/en/download/) app. The Desktop app registers the `dsh` command; the extension finds it, connects to its Web Runtime, and guides you to the download page when it is unavailable. The only setup left is your API key. |
 
@@ -64,6 +64,8 @@
 ## Quick start
 
 Requires **VS Code 1.106.0 or later** and a configured DSH model provider with credentials.
+
+The default Runtime target is `0.2.1-rc.2`. Adaptation to `0.2.2` is in progress: batched state updates and optional failed-generation continuation are supported, while Schedule and other changed APIs still need verification. Use the official Web UI for newer Schedule tasks; see the [maintenance report](MAINTENANCE.md) for scope and validation.
 
 1. **Install the extension** from the Marketplace or Open VSX links above, or search for `harcochen.dsh-vsc-integration` in Extensions.
 2. **Open chat.** Install and launch the official [DeepSeek Desktop](https://www.deepseek.com/en/download/) app, then open and trust your project folder and run `DSH: Open Chat`. The Desktop app registers `dsh`; if the command is unavailable, the extension offers the official download page.
@@ -176,7 +178,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 **How is Laya/Jev integrated?** The extension package carries the IDE-neutral `dsh-jev-integration` Runtime package and mounts it only into a Runtime started by this extension; existing or externally managed Runtimes are not modified. Laya is supported through the same System One contract by changing `dsh.jev.baseUrl` (HTTPS only). Jev is disabled by default. `dsh.jev.enabled` is the master switch; individual switches enable loop guard, result shaping, completion evidence checks, tool pruning, skill routing, decision tools and local deterministic safety checks. The endpoint and model are configurable, while numeric thresholds use built-in defaults. Configure the API key with **DSH: Configure Jev API Key**; it is encrypted in VS Code SecretStorage, with `TYPESAFE_API_KEY` and `$HOME/.dsh/.env` available as fallbacks. Enabled features may send their required samples to TypeSafe System One. Changes require a Runtime restart. This build exposes the shared Runtime subset of upstream `dsh-jev`, not its full agent-loop, dashboard, browser, or mobile bundle.
 
-**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default download and approved upgrade target is `0.2.0-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
+**Can I connect to an existing Runtime?** Yes. Set `dsh.serverUrl` to your running `dsh web` address and set `dsh.serverToken` to its launch token when the token is not already in the URL. This extension accepts valid SemVer versions at or above `dsh 0.1.5-rc.1`, including newer prereleases and stable versions. The default approved upgrade target is `0.2.1-rc.2`; a compatible local installation is reused without downgrading. The extension reads session history through the public Remote page/follow APIs. Session log storage and migration are owned by the Runtime.
 
 **Custom bind addresses and HTTPS:** set `dsh.serverUrl` to an existing Runtime's address to connect directly and avoid starting a second process on the same port. For example:
 
@@ -189,7 +191,7 @@ The bottom bar shows your current balance, including peak and off-peak pricing. 
 
 IPv4 also works, for example `http://100.64.0.1:3080` when that IP belongs to the extension host machine. Remote hosts require HTTPS. Certificates must be trusted by the extension host; certificate verification is never disabled. Bracket IPv6 addresses. Automatic discovery probes local IPv4/IPv6 interfaces, but authentication tokens for unregistered instances still need the settings above.
 
-The implemented Runtime contract targets `dsh-v0.2.0-rc.2` (`639ed015397290b3745d163aafe02ffee4aa3f84`). The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records integration results and remaining checks. Runtime workspace files have a read-only browser, permission presets use the process catalog, and Settings supports plugin enablement and Bundle selection, including read-only reasons and saved/applied/restart-required feedback. Schedule requires the optional official bundle. Jobs streams live output, resumes by byte cursor after reconnect, and supports cancellation. Timed questions claim foreground waits and restore answer drafts after reconnect or webview recreation. The Team panel shows members and tasks from the `agentTeam` projection, with addressed member history and task filtering. Runtime terminal input, resizing and screen recovery, plus plugin installation/removal, are available on the development branch. Desktop product analytics RPCs remain unused by the IDE.
+The implemented Runtime contract targets `dsh-v0.2.1-rc.2` (`687f282e8625c6b8d11ff58211a90524be2e4317`). The [maintenance report](MAINTENANCE.md) records integration results and remaining checks. Runtime workspace files have a read-only browser, permission presets use the process catalog, and Settings supports plugin enablement and Bundle selection, including read-only reasons and saved/applied/restart-required feedback. Schedule is included by default in 0.2.1; its 0.2.2 API still needs adaptation. Jobs streams live output, resumes by byte cursor after reconnect, and supports cancellation. Timed questions claim foreground waits and restore answer drafts after reconnect or webview recreation. The Team panel shows members and tasks from the `agentTeam` projection, with addressed member history and task filtering. Runtime terminal input, resizing and screen recovery, plus plugin installation/removal, are available on the development branch. Desktop product analytics RPCs remain unused by the IDE.
 
 The default `dsh.command: "auto"` probes `dsh --version` on PATH and in the npm global prefix. A compatible command registered by DeepSeek Desktop is used directly. An incompatible local CLI gets an upgrade prompt; approval upgrades only a verified older npm global installation. When no compatible command is available, the extension guides you to install DeepSeek Desktop. Diagnostics never install or download a standalone Runtime. Explicit local paths follow the same compatibility check; explicit pnpm/npx remains available for advanced users.
 
@@ -246,7 +248,7 @@ Search `dsh` in VS Code settings for the full list.
 | `dsh.serverToken` | `""` | Launch token for `dsh.serverUrl`; use it when the address and token are configured separately. |
 | `dsh.autoStart` | `true` | Automatically start or connect to dsh web when the extension activates. |
 | `dsh.installWhenMissing` | `false` | Deprecated compatibility setting; standalone Runtime downloads are no longer used. Missing `dsh` opens the official Desktop download guidance. |
-| `dsh.runtimeVersion` | `0.2.0-rc.2` | Compatibility target for approved local CLI upgrades; standalone download behavior is deprecated. |
+| `dsh.runtimeVersion` | `0.2.1-rc.2` | Compatibility target for approved local CLI upgrades; standalone download behavior is deprecated. |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | Registry mirror used as a download fallback. |
 | `dsh.npxTimeoutMs` | `120000` | Timeout while waiting for package-manager download and startup. |
 | `dsh.enableCompaction` | `true` | Enable the official `/compact` command when the extension starts its own Runtime. |
@@ -324,7 +326,7 @@ npm run package    # Compile + vsce package
 npm run release    # Test + version bump + CHANGELOG archive + tag
 ```
 
-The Remote smoke runner checks the launcher's actual version, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [RC.2 adaptation report](./RPC_0.2.0_RC2_ADAPTATION.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
+The Remote smoke runner checks the launcher's actual version, creates history through public RPCs, and exercises authentication, pagination, feedback, reconnects, streaming, Goal, commands, optional Schedule availability, and RC.2 timed-question continuation. The [maintenance report](MAINTENANCE.md) records results and remaining account, Schedule mutation, Jev, and UI checks.
 
 To run the Remote integration smoke against an installed `0.2.1-rc.2` launcher (use `--expect-version 0.2.0-rc.2` for the previous release):
 

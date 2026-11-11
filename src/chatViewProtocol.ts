@@ -20,6 +20,7 @@ export type ChatViewAction =
     | { type: "ready" }
     | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
     | { type: "retryPrompt"; id: string }
+    | { type: "retryGeneration"; sessionId: string; failureSeq: number }
     | { type: "toggleFocus" }
     | { type: "cancel" }
     | { type: "configureApiKey" }
@@ -658,6 +659,10 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
         case "retryPrompt":
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "retryPrompt", id: value.id }
+                : undefined;
+        case "retryGeneration":
+            return hasOnly(value, ["type", "sessionId", "failureSeq"]) && nonEmptyString(value.sessionId) && nonNegativeInteger(value.failureSeq)
+                ? { type: "retryGeneration", sessionId: value.sessionId, failureSeq: value.failureSeq }
                 : undefined;
         case "removeContext":
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)

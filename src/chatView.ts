@@ -9,6 +9,7 @@ import { captureAppShot as captureNativeAppShot } from "./appShot";
 import { DeepSeekBalanceService } from "./balanceService";
 import {
     highestKnownSeq,
+    continuableFailure,
     hiddenViewBadge,
     focusChatMessages,
     OptimisticPrompt,
@@ -290,6 +291,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private editorSurface: ChatViewSurface | undefined;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly optimisticPrompts: OptimisticPrompt[] = [];
+    private readonly generationRetries = new Map<string, { seq: number; requestId: string; accepted: boolean }>();
     private readonly markdownRenders = new MarkdownRenderCache();
     private readonly goalMutations = new GoalMutationGate();
     private readonly goalActivation: GoalActivationController;
@@ -456,6 +458,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }),
             runtime.onDidChange((status) => {
                 if (status.state === "stopped") {
+                    this.generationRetries.clear();
                     this.ensureJobWatch(undefined);
                     this.ensureQuestionWaits(undefined, undefined);
                     ++this.dynamicPluginsGeneration;
@@ -1458,6 +1461,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 case "retryPrompt":
                     await this.retryPrompt(message.id);
                     break;
+                case "retryGeneration":
+                    await this.retryGeneration(message.sessionId, message.failureSeq);
+                    break;
                 case "cancel":
                     await this.cancel();
                     break;
@@ -2109,6 +2115,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async sendParticipantPrompt(text: string, token?: vscode.CancellationToken): Promise<void> {
         if (token?.isCancellationRequested) return;
         await this.sendPrompt(text, "queue");
+    }
+
+    /** Empty input continues the failed generation without replaying the user's task or attachments. */
+    private async retryGeneration(sessionId: string, failureSeq: number): Promise<void> {
+        if (this.submitting || this.checkpointActionInFlight || this.sessionId !== sessionId ||
+            this.runtime.getStatus().state !== "running" || this.selectedSessionRunning()) return;
+        const session = this.runtime.getSessionCatalog().snapshot().sessions.find(item => item.sessionId === sessionId);
+        if (!session || session.origin === "subagent" ||
+            continuableFailure(this.runtime.getSessionStore().get(sessionId)) !== failureSeq) return;
+        let retry = this.generationRetries.get(sessionId);
+        if (retry?.seq !== failureSeq) {
+            retry = { seq: failureSeq, requestId: randomUUID(), accepted: false };
+            this.generationRetries.set(sessionId, retry);
+        }
+        if (retry.accepted) return;
+        this.submitting = true;
+        this.postState();
+        try {
+            // Reuse the request id after a lost response: the Host deduplicates accepted input.
+            const result = await this.runtime.prompt(sessionId, "", "queue", [], retry.requestId);
+            if (result.accepted === false) throw new Error(t("The dsh runtime rejected this retry."));
+            retry.accepted = true;
+        } catch (error) {
+            this.reportError(error);
+        } finally {
+            this.submitting = false;
+            this.postState();
+        }
     }
 
     private async retryPrompt(id: string): Promise<void> {
@@ -3983,6 +4017,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));
         const host = presentHostBaseline(this.runtime.getHostDescription());
         const busy = selected?.running === true;
+        const failureSeq = continuableFailure(session);
+        const retried = this.sessionId ? this.generationRetries.get(this.sessionId) : undefined;
+        const continuation = this.runtime.getStatus().state === "running" && !busy && !this.checkpointActionInFlight &&
+            selected && selected.origin !== "subagent" && !(retried && retried.seq === failureSeq && retried.accepted)
+            ? failureSeq : undefined;
         const parsedGoal = goalCell ? parseGoalProjection(goalCell.value) : undefined;
         const activeGoal = parsedGoal?.ok && parsedGoal.value?.goal.phase === "active"
             ? parsedGoal.value.goal : undefined;
@@ -4081,6 +4120,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                   }
                 : {}),
             sessions: presentSessionRows(catalog),
+            ...(continuation === undefined ? {} : { continuation }),
             sessionStatus: selected
                 ? {
                       running: selected.running === true,

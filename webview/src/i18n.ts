@@ -1,4 +1,7 @@
 const ZH_CN: Readonly<Record<string, string>> = {
+    "Continue generating": "继续生成",
+    "Could not read an attachment. Add the file again.": "无法读取附件，请重新添加文件。",
+    "Enter to send · Shift+Enter for newline": "Enter 发送 · Shift+Enter 换行",
     "DSH Session center": "DSH 会话中心",
     "Open Runtime terminal": "打开 Runtime 终端",
     "Attach Problems": "附加问题",

@@ -5,6 +5,8 @@
  * `687f282e8625c6b8d11ff58211a90524be2e4317`. Keep this pin next to the
  * carrier vocabulary: upgrading the managed Runtime requires an endpoint and
  * descriptor audit before changing it.
+ * Optional 0.2.2 projection batches and failed-generation continuation are
+ * handled separately; see MAINTENANCE.md for the remaining upgrade audit.
  */
 
 export const REMOTE_API_PREFIX = "/api/";

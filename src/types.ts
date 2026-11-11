@@ -1292,6 +1292,8 @@ export interface ChatViewState {
     submitting: boolean;
     cancelling: boolean;
     focusMode: boolean;
+    /** Failed turn/end sequence offered by the optional conversationContinuation projection. */
+    continuation?: number;
     workspaceName?: string;
     workingDirectory?: string;
     currentWorkspace?: {

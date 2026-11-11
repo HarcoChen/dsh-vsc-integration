@@ -20,7 +20,7 @@ export function canUseChatAction(access: RemoteAccessState, action: ChatViewActi
         return !!sessionId && access.allows(endpoint, { kind: "session", id: sessionId });
     }
     const session: Partial<Record<ChatViewAction["type"], string>> = {
-        sendPrompt: "session/prompt", retryPrompt: "session/prompt", cancel: "session/cancel",
+        sendPrompt: "session/prompt", retryPrompt: "session/prompt", retryGeneration: "session/prompt", cancel: "session/cancel",
         selectModel: "session/selectModel", selectReasoningEffort: "session/selectModel", openReasoningEffort: "session/modelCatalog",
         selectAgentPreset: "agentPresets/select", renameSession: "session/rename", forkSession: "session/fork", forkFromMessage: "session/fork",
         archiveSession: "workspace/archiveSession", killJob: "job/kill", openRuntimeTerminal: "terminal/attach",

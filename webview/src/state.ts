@@ -111,6 +111,7 @@ export type ComposerState = Pick<
     | "busy"
     | "submitting"
     | "cancelling"
+    | "continuation"
     | "sessionId"
 >;
 
