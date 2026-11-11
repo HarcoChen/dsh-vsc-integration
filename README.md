@@ -127,7 +127,7 @@ Everything is off by default. Enabled features may send the samples they need to
 
 On `0.2.2-rc.1` and newer, Schedule manages Host-wide tasks with pagination and activity filtering. Create delayed, dated, interval, daily, weekly, cron or RRULE tasks and choose their destination Session. Manage tasks to edit, pause, resume, run, delete or inspect delivery history. Edits detect concurrent changes.
 
-The chat menu provides **Export conversation** for Markdown or JSON and **Copy conversation as Markdown**. Exports read the complete paginated history at one fixed event cursor. Image references appear in Markdown, while binary attachment data needs a separate export. Each message also offers **Quote** for the message or selected text. With an empty composer, use ↑/↓ to recall sent prompts and return to your draft. Enable `dsh.completionNotification` for completion notifications while VS Code is unfocused.
+The chat menu provides **Export conversation** for Markdown, JSON or ZIP and **Copy conversation as Markdown**. Text exports read the complete paginated history at one fixed event cursor. Choose ZIP to include binary attachments. Each message also offers **Quote** for the message or selected text. With an empty composer, use ↑/↓ to recall sent prompts and return to your draft. Enable `dsh.completionNotification` for completion notifications while VS Code is unfocused.
 
 ### Runtime terminals, plugin installation, and Problems (development branch)
 
@@ -154,7 +154,23 @@ The slash menu dynamically fetches commands registered by the Runtime for the cu
 
 The sidebar provides a native conversation-outline TreeView. Trace, token usage, Todo lists, and subagents are gathered in the Activity panel. The UI supports VS Code's dark and light themes.
 
-`DSH: Open Chat in Editor Tab` mirrors the same conversation in an editor tab, so the chat can sit next to the file you are editing. Both surfaces show one session and one stream — switching between them does not restart or fork anything.
+`DSH: Open Chat in Editor Tab` opens an independent conversation tab. Each tab retains its own Session, text draft, context and navigation, while the sidebar can use another Session. Opening the same Session reveals its existing tab. Session tabs and text drafts restore after restarting VS Code. Tabs share the Runtime connection.
+
+### Repository review and Worktrees
+
+Enable the official `@deepseek-ai/dsh-experimental-forge-bundle` in Runtime plugins, then run `DSH: Review Repository and Worktrees` or use the chat menu. The command uses the current DSH Session's directory.
+
+- Compare uncommitted, staged, unstaged or branch changes in native side-by-side diffs. RC.2 adds base-branch and commit selection, review-layer filtering and change-digest progress tracking.
+- Request a Worktree before a Session starts its first task. Its first prompt creates the checkout. Controls support cancellation, stopping, retrying, restoring missing directories and returning to the source project.
+- Track PR URLs, inspect diffs and checks. RC.2 supports review threads, synced viewed marks, line comments, completed reviews and branch updates guarded by the confirmed head. Publishing and branch updates display confirmation details.
+
+### Desktop connection, ZIP and inline completion
+
+`DSH: Connect to Desktop` accepts an address copied from Desktop's `dsh-vscode-connect` plugin and stores its grant in SecretStorage. Windows local discovery can read account-encrypted records and refresh addresses through the pairing channel. Enter the exact Runtime version shown in Desktop About. `DSH: Disconnect Desktop` clears the saved grant.
+
+Conversation export also offers ZIP for the current Session or its descendants. The Runtime streams persistent logs and binary attachments into the archive, with cancellation during download.
+
+Run `DSH: Complete Code Inline` for ghost text accepted through VS Code's Tab action. Completion uses a separate minimal Session and archives it after completion or cancellation. `dsh.inlineCompletion.automatic` enables requests after a typing pause and defaults to off. Configure a dedicated provider/model or inherit the current chat route. `dsh.imageFileFallback` sends images as files when the model explicitly refuses image input.
 
 ![Trace and Activity panel](public/assets/Trace.png)
 

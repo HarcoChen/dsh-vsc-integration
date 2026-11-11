@@ -110,5 +110,16 @@
     "command.openSessionCenter.title": "打开会话中心",
     "command.exportSession.title": "导出会话",
     "command.copyConversation.title": "复制完整会话为 Markdown",
-    "config.completionNotification.description": "VS Code 不在前台时，在任务成功完成后显示通知。默认关闭。"
+    "config.completionNotification.description": "VS Code 不在前台时，在任务成功完成后显示通知。默认关闭。",
+    "command.connectDesktop.title": "连接桌面端",
+    "command.disconnectDesktop.title": "断开桌面端",
+    "command.completeInline.title": "行内代码补全",
+    "command.reviewRepository.title": "评审仓库与 Worktree",
+    "config.desktopConnection.description": "使用已保存的桌面端授权连接 Runtime。手动服务器地址优先。",
+    "config.desktopRuntimeVersion.description": "桌面端“关于”中的 Runtime 完整版本。",
+    "config.inlineCompletion.automatic.description": "输入停顿后自动请求行内补全。关闭后仍可手动触发。",
+    "config.inlineCompletion.provider.description": "行内补全 Provider，留空使用当前 DSH 会话选择。",
+    "config.inlineCompletion.model.description": "行内补全模型，留空使用当前 DSH 会话选择。",
+    "config.imageFileFallback.description": "模型明确拒绝图片输入时，将图片作为文件附加。",
+    "config.serverRuntimeVersion.description": "手动连接服务器的完整 Runtime 版本，留空使用基础契约。"
 }

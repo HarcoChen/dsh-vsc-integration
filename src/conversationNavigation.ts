@@ -155,6 +155,7 @@ export class ConversationNavigationProvider
         });
         const catalogUnsubscribe = runtime.getSessionCatalog().onDidChange(() => this.changeEmitter.fire());
         this.disposables = [
+            chatView.onDidChangeActiveSession(() => this.changeEmitter.fire()),
             new vscode.Disposable(unsubscribe),
             new vscode.Disposable(catalogUnsubscribe),
             ...(registry ? [registry.onDidChange(() => this.changeEmitter.fire())] : []),

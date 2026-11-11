@@ -102,6 +102,8 @@ export const Header = React.memo(function Header({
         { key: "archive", label: t("Archive session"), action: { type: "archiveSession" }, disabled: !hasSession },
         { key: "trace", label: t("Open session trace"), action: { type: "openTrace" }, disabled: !hasSession },
         { key: "export", label: t("Export conversation"), action: { type: "exportSession" }, disabled: !hasSession },
+        { key: "editor", label: t("Open session in editor"), action: { type: "openSessionEditor" }, disabled: !hasSession },
+        { key: "review", label: t("DSH repository review"), action: { type: "reviewRepository" }, disabled: !hasSession },
         { key: "copy", label: t("Copy conversation as Markdown"), action: { type: "copyConversation" }, disabled: !hasSession },
         { key: "terminal", label: t("Open Runtime terminal"), action: { type: "openRuntimeTerminal" }, disabled: !hasSession },
         { key: "feedback", label: t("Submit feedback"), action: { type: "openSessionFeedback" }, disabled: !hasSession },

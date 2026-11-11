@@ -1279,6 +1279,7 @@ export interface DshAssistantMessage {
 }
 
 export interface ChatViewState {
+    editorInstanceId?: string;
     access?: { available: boolean; owner: boolean; canSend: boolean; canCancel: boolean; canConfigure: boolean; canSelectModel: boolean; canRunCommands: boolean };
     messages: ChatMessage[];
     context: DshContextItem[];

@@ -28,6 +28,7 @@ import {
     readRuntimeAdvertisements, removeRuntimeAdvertisement, type RuntimeAdvertisement,
 } from "./runtimeAdvertisement";
 import { compareRuntimeVersions } from "./runtimeVersion";
+import type { DesktopGrant } from "./desktopConnection";
 import { readSubagentCatalog } from "./subagentCatalog";
 import { readSessionArchive as readArchive, type SessionArchive } from "./sessionExport";
 
@@ -1252,6 +1253,18 @@ async function discoverDsh(command: string, options: DiscoverDshOptions): Promis
 }
 
 export class DshRuntime implements vscode.Disposable {
+    private readonly backgroundSessions = new Set<string>();
+    public markBackgroundSession(id: string): void { this.backgroundSessions.add(id); }
+    public unmarkBackgroundSession(id: string): void { this.backgroundSessions.delete(id); }
+    public isBackgroundSession(id: string): boolean { return this.backgroundSessions.has(id); }
+    public followCompletion(sessionId: string, signal: AbortSignal): AsyncIterable<unknown> {
+        return this.remoteConnection.open("session/follow", { request: { address: { kind: "session", sessionId }, maxMessages: 30 } }, signal);
+    }
+    public followForge(sessionId: string, signal: AbortSignal): AsyncIterable<unknown> {
+        return this.remoteConnection.open("forgePanel/follow", { sessionId }, signal);
+    }
+    private desktopResolver?: (signal: AbortSignal) => Promise<DesktopGrant>;
+    private desktopRefresh?: Promise<void>;
     private readonly listeners = new Set<RuntimeListener>();
     private readonly harnessConnectedListeners = new Set<HarnessConnectedListener>();
     private readonly remoteEventListeners = new Set<RemoteEventListener>();
@@ -1343,7 +1356,12 @@ export class DshRuntime implements vscode.Disposable {
         this.jobs = new JobsController(this.apiClient, this.remoteConnection, message => this.output.appendLine(message));
         this.userQuestionWait = new UserQuestionWaitController(this.remoteConnection, message => this.output.appendLine(message));
         this.harnessState = new RemoteStateCoordinator(this.remoteConnection, {
-            onConnectionState: (state) => this.output.appendLine(`[dsh:remote] connection ${state}`),
+            onConnectionState: (state) => {
+                this.output.appendLine(`[dsh:remote] connection ${state}`);
+                if (state === "reconnecting" && !this.desktopRefresh && this.configuration().get<boolean>("desktopConnection", false)) {
+                    this.desktopRefresh = this.refreshDesktopConnection().finally(() => { this.desktopRefresh = undefined; });
+                }
+            },
             onHostDescription: (description) => {
                 this.hostDescription = {
                     ...description,
@@ -1430,6 +1448,35 @@ export class DshRuntime implements vscode.Disposable {
 
     public getUrl(): string | undefined {
         return this.baseUrl;
+    }
+
+    public setDesktopResolver(resolver: (signal: AbortSignal) => Promise<DesktopGrant>): void { this.desktopResolver = resolver; }
+
+    private async refreshDesktopConnection(): Promise<void> {
+        if (!this.desktopResolver || this.configuration().get<string>("serverUrl", "").trim()) return;
+        try {
+            const grant = await this.desktopResolver(AbortSignal.timeout(5000));
+            if (this.disposed || this.status.state !== "running") return;
+            const endpoint = parseRuntimeEndpoint(grant.url, true);
+            if (!endpoint) return;
+            if (endpoint.launchUrl !== this.launchUrl) {
+                this.setRuntimeEndpoint(endpoint, false);
+                this.harnessState.setRuntimeVersion(grant.runtimeVersion);
+                await this.waitForReady(endpoint.baseUrl, 5000);
+                this.remoteConnection.reconnect();
+            }
+        } catch { this.output.appendLine("[dsh] Desktop pairing refresh unavailable"); }
+    }
+
+    public async acquireDesktopPairing(): Promise<string | undefined> {
+        if (!this.baseUrl || !this.remoteAccess.snapshot.owner) return undefined;
+        const response = await fetch(new URL("/api/vscode-desktop-connect", this.baseUrl), {
+            method: "POST", headers: { ...this.requestHeaders(), "content-type": "application/json" },
+            body: JSON.stringify({ action: "pair" }), redirect: "error", signal: AbortSignal.timeout(5000),
+        });
+        if (!response.ok) return undefined;
+        const value: unknown = await response.json();
+        return isRecord(value) && value.version === 1 && typeof value.key === "string" && /^[A-Za-z0-9_-]{43}$/u.test(value.key) ? value.key : undefined;
     }
 
     /** URL suitable for opening in a browser, including the launch token. */
@@ -2098,6 +2145,20 @@ export class DshRuntime implements vscode.Disposable {
         return archive;
     }
 
+    /** The Host includes immutable image/file bytes and verifies their digests while streaming. */
+    public async downloadSessionZip(sessionId: string, includeDescendants: boolean, signal: AbortSignal): Promise<Response> {
+        if (!this.baseUrl || !this.remoteAccess.snapshot.owner) throw new Error(t("ZIP export requires Runtime owner access."));
+        const url = new URL("/api/session.export", this.baseUrl);
+        url.searchParams.set("sessionId", sessionId);
+        url.searchParams.set("includeDescendants", String(includeDescendants));
+        const response = await fetch(url, { headers: this.requestHeaders(), signal, redirect: "error" });
+        if (!response.ok || !response.body || !response.headers.get("content-type")?.includes("zip")) {
+            await response.body?.cancel();
+            throw new Error(t("The Runtime could not export the ZIP archive (HTTP {status}).", { status: response.status }));
+        }
+        return response;
+    }
+
     public async prompt(
         sessionId: string,
         text: string,
@@ -2110,7 +2171,7 @@ export class DshRuntime implements vscode.Disposable {
         for (const file of files) {
             receiptIds.push(await this.uploadFile(sessionId, file.name, Buffer.from(file.data, "base64")));
         }
-        return this.apiClient.call("session/prompt", {
+        return this.apiClient.call<DshSessionPromptResult>("session/prompt", {
             request: {
                 requestId,
                 sessionId,
@@ -2132,6 +2193,14 @@ export class DshRuntime implements vscode.Disposable {
                     ? { clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
                     : {}),
             },
+        }).catch(async error => {
+            if (!images.length || !isRemoteError(error) || error.code !== "session/attachment-invalid" ||
+                error.details.reason !== "MODEL_DOES_NOT_SUPPORT_IMAGES" || !this.configuration().get<boolean>("imageFileFallback", true)) throw error;
+            this.output.appendLine("[dsh] image input refused by the selected model; attaching images as files");
+            return this.prompt(sessionId, text, mode, [], requestId, [...files, ...images.map((image, index) => ({
+                name: image.name || `image-${index + 1}.${image.mediaType.split("/")[1]}`,
+                data: image.data,
+            }))]);
         });
     }
 
@@ -3074,8 +3143,11 @@ export class DshRuntime implements vscode.Disposable {
         const checkStarting = (): void => signal.throwIfAborted();
         checkStarting();
         const configuration = this.configuration();
-        const configuredUrl = configuration.get<string>("serverUrl", "").trim();
-        const configuredToken = configuration.get<string>("serverToken", "").trim();
+        const explicitUrl = configuration.get<string>("serverUrl", "").trim();
+        const desktop = !explicitUrl && configuration.get<boolean>("desktopConnection", false) ? await this.desktopResolver?.(signal) : undefined;
+        if (!explicitUrl && configuration.get<boolean>("desktopConnection", false) && !desktop) throw new Error(t("Connect to Desktop before enabling Desktop mode."));
+        const configuredUrl = explicitUrl || desktop?.url || "";
+        const configuredToken = desktop ? "" : configuration.get<string>("serverToken", "").trim();
         const startupTimeout = configuration.get<number>("startupTimeoutMs", 30_000);
 
         if (!vscode.workspace.isTrusted) {
@@ -3093,6 +3165,12 @@ export class DshRuntime implements vscode.Disposable {
         this.setStatus({ state: "starting", message: t("Connecting to dsh web...") });
 
         if (configuredUrl) {
+            if (desktop) this.harnessState.setRuntimeVersion(desktop.runtimeVersion);
+            const serverVersion = configuration.get<string>("serverRuntimeVersion", "").trim();
+            if (!desktop && serverVersion) {
+                if (!isSupportedRuntimeVersion(serverVersion)) throw new Error(t("Enter a supported complete Runtime version."));
+                this.harnessState.setRuntimeVersion(serverVersion);
+            }
             if (this.child && this.startedByExtension) {
                 await this.stopResources();
                 checkStarting();

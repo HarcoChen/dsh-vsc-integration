@@ -1,4 +1,6 @@
 const ZH_CN: Readonly<Record<string, string>> = {
+    "Open session in editor": "在编辑器中打开会话",
+    "DSH repository review": "DSH 仓库评审",
     "Paused and ended": "已暂停或已结束",
     "Scheduled at {time}": "计划时间 {time}",
     "Choose weekdays": "选择星期",

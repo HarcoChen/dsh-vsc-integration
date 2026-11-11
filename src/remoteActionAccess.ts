@@ -4,7 +4,7 @@ import type { RemoteAccessState } from "./remote/access";
 /** Editor actions with no Host mutation remain usable by readers. Unmapped mutations require ownership. */
 export function canUseChatAction(access: RemoteAccessState, action: ChatViewAction, sessionId?: string, modernSubagents = false): boolean {
     if (access.snapshot.owner && access.snapshot.available) return true;
-    const local = new Set(["ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
+    const local = new Set(["activateChat", "ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
         "openIdeContextPicker", "openTerminalCommandPicker", "openDiagnosticsPicker", "openPromptTemplatePicker", "removeContext", "toggleSelection",
         "fileReferenceQuery", "closeSubagent", "toggleSubagentBranch", "searchSession", "openSessionCenter", "dismissSessionFeedback",
         "stop", "cancelRecovery", "exportRecoveryDiagnostics", "restoreRecovery", "captureAppShot", "insertCode", "applyCode"]);
@@ -32,6 +32,7 @@ export function canUseChatAction(access: RemoteAccessState, action: ChatViewActi
         refreshSubagents: "session/projections", openTeamMember: "session/follow",
         toggleMessageFeedback: "messageFeedback/put", submitMessageFeedback: "messageFeedback/put", saveMessageFeedbackNote: "messageFeedback/put",
         openSessionFeedback: "sessionFeedback/record", recordSessionFeedback: "sessionFeedback/record",
+        openSessionEditor: "session/follow", reviewRepository: "forgePanel/follow",
         openTrace: "session/follow", copyMessage: "session/follow", exportSession: "session/follow", copyConversation: "session/follow", quoteMessage: "session/follow", copyCode: "session/follow", openCode: "session/follow",
         openFileLocation: "session/follow", openChangeDiff: "session/follow", openToolDiff: "session/follow", loadImage: "session/attachment",
     };

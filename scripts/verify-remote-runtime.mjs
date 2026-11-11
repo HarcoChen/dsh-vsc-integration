@@ -8,13 +8,15 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes, createCipheriv, createHmac } from "node:crypto";
+import { createServer as createNetServer } from "node:net";
 import { mkdtemp, mkdir, writeFile, rm, cp, readFile, realpath } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
+import { inflateRawSync } from "node:zlib";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -52,6 +54,9 @@ const featureControls = argv.includes("--feature-controls");
 const workflowControls = argv.includes("--workflow-controls");
 const seedOnly = argv.includes("--seed-only");
 const withJev = argv.includes("--with-jev");
+const withForge = argv.includes("--with-forge");
+const ideSmokeIndex = argv.indexOf("--ide-smoke");
+const ideSmokePath = ideSmokeIndex >= 0 ? argv[ideSmokeIndex + 1] : undefined;
 const migrationIndex = argv.indexOf("--migration-home");
 if (migrationIndex >= 0 && !argv[migrationIndex + 1]) throw new Error("--migration-home requires an isolated smoke home");
 const versionIndex = argv.indexOf("--expect-version");
@@ -81,19 +86,62 @@ if (migrationIndex >= 0) {
     await cp(fixtureHome, dshHome, { recursive: true });
 }
 await writeFile(join(dshHome, ".dsh-ide-smoke-fixture"), "isolated-runtime-smoke\n");
+const { resolveDesktopPairing, validateDesktopUrl } = require(join(root, "dist/desktopConnection"));
+const pairingKey = randomBytes(32).toString("base64url");
+const socketPath = process.platform === "win32" ? String.raw`\\.\pipe\dsh-smoke-${randomUUID()}` : join(tmpdir(), `dsh-pair-${randomUUID()}.sock`);
+let invalidPairingTag = false;
+const pairingServer = createNetServer(socket => {
+    let input = "";
+    socket.on("data", bytes => {
+        input += bytes.toString("utf8");
+        if (!input.includes("\n")) return;
+        const request = JSON.parse(input.split("\n")[0]);
+        const expected = createHmac("sha256", Buffer.from(pairingKey, "base64url")).update(`request:${request.nonce}:${request.time}`).digest("hex");
+        assert.equal(request.mac, expected);
+        const iv = randomBytes(12);
+        const cipher = createCipheriv("aes-256-gcm", Buffer.from(pairingKey, "base64url"), iv);
+        cipher.setAAD(Buffer.from(request.nonce));
+        const body = Buffer.concat([cipher.update(JSON.stringify({ nonce: request.nonce, url: "http://127.0.0.1:31337/?token=fixture" })), cipher.final()]);
+        const tag = invalidPairingTag ? randomBytes(16) : cipher.getAuthTag();
+        socket.end(JSON.stringify({ iv: iv.toString("hex"), body: body.toString("hex"), tag: tag.toString("hex") }) + "\n");
+    });
+});
+await new Promise(resolve => pairingServer.listen(socketPath, resolve));
+try {
+    assert.equal(await resolveDesktopPairing(pairingKey, AbortSignal.timeout(5000), socketPath), "http://127.0.0.1:31337/?token=fixture");
+    invalidPairingTag = true;
+    await assert.rejects(() => resolveDesktopPairing(pairingKey, AbortSignal.timeout(5000), socketPath), /authentication/);
+    assert.throws(() => validateDesktopUrl("https://example.com/?token=fixture"));
+    assert.throws(() => validateDesktopUrl("http://127.0.0.1:31337/?token=one&token=two"));
+    console.log("PASS Desktop pairing authenticates nonce/MAC, decrypts its address and rejects tampered responses");
+} finally { await new Promise(resolve => pairingServer.close(resolve)); }
+
 await mkdir(join(workspacePath, "nested"));
 await writeFile(join(workspacePath, "remote-smoke.txt"), "workspaceFiles RC.2\nsecond line\n");
 await writeFile(join(workspacePath, "remote-smoke.bin"), Buffer.from([0, 1, 2, 3, 4, 5]));
 await writeFile(join(workspacePath, "remote-large.txt"), Buffer.alloc(RUNTIME_TEXT_PREVIEW_MAX_BYTES + 1, 65));
-if (withScheduleBundle || withTeamBundle) {
+if (withScheduleBundle || withTeamBundle || withForge) {
     const profileDirectory = join(dshHome, "profiles", "web");
     await mkdir(profileDirectory, { recursive: true });
     await writeFile(join(profileDirectory, "package.json"), JSON.stringify({
         private: true, type: "module",
         dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app",
             ...(withScheduleBundle && !supports021 ? ["@deepseek-ai/dsh-experimental-schedule-bundle"] : []),
-            ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : [])] } },
+            ...(withTeamBundle ? ["@deepseek-ai/dsh-experimental-agent-team-profile"] : []),
+            ...(withForge ? ["@deepseek-ai/dsh-experimental-forge-bundle"] : [])] } },
     }, null, 2) + "\n");
+}
+if (withForge) {
+    const git = (...args) => {
+        const result = spawnSync("git", args, { cwd: workspacePath, env, encoding: "utf8" });
+        assert.equal(result.status, 0, result.stderr);
+    };
+    git("init", "-b", "main");
+    await writeFile(join(workspacePath, "diff-source.txt"), "before\n");
+    git("add", ".");
+    git("-c", "user.name=DSH smoke", "-c", "user.email=smoke@example.invalid", "commit", "-m", "fixture baseline");
+    await writeFile(join(workspacePath, "diff-source.txt"), "after\n");
+    await writeFile(join(workspacePath, "review.txt"), "Untracked review content\n");
 }
 if (timedQuestions) {
     await writeFile(join(dshHome, "cordis.patch.yml"), "- id: preset-standard\n  config:\n    id: standard\n    plugins:\n      - id: tool-ask-user\n        name: '@deepseek-ai/dsh-tool-ask-user'\n        config:\n          mode: timed\n          timeout: 1\n      - id: tool-bash\n        name: '@deepseek-ai/dsh-tool-bash'\n      - id: tool-jobs\n        name: '@deepseek-ai/dsh-tool-jobs'\n      - id: tool-fs\n        name: '@deepseek-ai/dsh-tool-fs'\n");
@@ -418,6 +466,66 @@ try {
     assert.ok(markdown.includes("Smoke prompt 1") && markdown.includes("Smoke prompt 8"));
     assert.equal(JSON.parse(JSON.stringify(archive)).cursor, archive.cursor);
     pass("Passive complete-session export pins pagination to one cut and preserves all user prompts in Markdown and JSON");
+    const zipSession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "minimal" } });
+    const uploadUrl = new URL("/api/session/uploadFileBinary", baseUrl);
+    uploadUrl.searchParams.set("sessionId", zipSession.sessionId);
+    uploadUrl.searchParams.set("name", "archive-proof.bin");
+    const proof = Buffer.from([0, 255, 1, 2, 127, 13, 10]);
+    const upload = await fetch(uploadUrl, { method: "POST", headers: { cookie, "content-type": "application/octet-stream" }, body: proof });
+    assert.equal(upload.status, 200);
+    const uploaded = await upload.json();
+    await connection.unary.call("session/prompt", { request: { sessionId: zipSession.sessionId, requestId: randomUUID(), mode: "queue", content: [
+        { type: "text", text: "Archive binary fixture" }, { type: "file", receiptId: uploaded.value.receiptId },
+    ] } });
+    const zipResponse = await fetch(`${baseUrl}/api/session.export?sessionId=${encodeURIComponent(zipSession.sessionId)}&includeDescendants=true`, { headers: { cookie } });
+    assert.equal(zipResponse.status, 200);
+    const zipPath = join(storage, "attachment-export.zip");
+    await writeFile(zipPath, Buffer.from(await zipResponse.arrayBuffer()));
+    const zipBytes = await readFile(zipPath);
+    const directoryEnd = zipBytes.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    assert.ok(directoryEnd >= 0);
+    let directoryAt = zipBytes.readUInt32LE(directoryEnd + 16);
+    const entryCount = zipBytes.readUInt16LE(directoryEnd + 10);
+    let foundProof = false;
+    for (let entry = 0; entry < entryCount; entry++) {
+        assert.equal(zipBytes.readUInt32LE(directoryAt), 0x02014b50);
+        const method = zipBytes.readUInt16LE(directoryAt + 10);
+        const compressed = zipBytes.readUInt32LE(directoryAt + 20);
+        const size = zipBytes.readUInt32LE(directoryAt + 24);
+        const localAt = zipBytes.readUInt32LE(directoryAt + 42);
+        assert.equal(zipBytes.readUInt32LE(localAt), 0x04034b50);
+        const dataAt = localAt + 30 + zipBytes.readUInt16LE(localAt + 26) + zipBytes.readUInt16LE(localAt + 28);
+        const data = zipBytes.subarray(dataAt, dataAt + compressed);
+        assert.ok(method === 0 || method === 8);
+        const decoded = method === 8 ? inflateRawSync(data) : data;
+        assert.equal(decoded.length, size);
+        foundProof ||= decoded.equals(proof);
+        directoryAt += 46 + zipBytes.readUInt16LE(directoryAt + 28) + zipBytes.readUInt16LE(directoryAt + 30) + zipBytes.readUInt16LE(directoryAt + 32);
+    }
+    assert.equal(foundProof, true);
+    pass("Native ZIP export includes verified verbatim binary attachments");
+    if (withForge) {
+        const forgeState = await first("forgePanel/follow", { sessionId: seededSessionId });
+        assert.equal(await realpath(forgeState.directory), await realpath(workspacePath));
+        const diff = await connection.unary.call("forgePanel/localDiff", { sessionId: seededSessionId, scope: { kind: "uncommitted" } });
+        assert.ok(diff.files.some(file => file.path === "review.txt" && file.status === "added"));
+        const fileText = await connection.unary.call("forgePanel/localText", { sessionId: seededSessionId, scope: { kind: "uncommitted" }, path: "review.txt" });
+        assert.equal(fileText, "Untracked review content\n");
+        const { forgeFiles, forgeBeforeText } = require(join(root, "dist/forgeDiff"));
+        const parsed = forgeFiles(diff);
+        assert.equal(forgeBeforeText("after\n", parsed.find(file => file.path === "diff-source.txt")), "before\n");
+        assert.equal(forgeBeforeText(fileText, parsed.find(file => file.path === "review.txt")), "");
+
+        const worktreeSession = await connection.unary.call("session/create", { request: { workspaceId, agentPreset: "minimal" } });
+        await connection.unary.call("forgePanel/requestWorktree", { sessionId: worktreeSession.sessionId, from: "main" });
+        await connection.unary.call("session/prompt", { request: { sessionId: worktreeSession.sessionId, requestId: randomUUID(), mode: "queue", content: [{ type: "text", text: "Worktree creation fixture" }] } });
+        await until(async () => {
+            const projection = await connection.unary.call("session/projections", { request: { sessionId: worktreeSession.sessionId } });
+            return projection.values.forgeWorktree?.path;
+        }, "worktree created before first turn", 30_000);
+        pass("Official Forge local diff, file contents and pre-turn Worktree creation");
+    }
+
 
     if (supports021 && !seedOnly) {
         const replacement = await connection.unary.call("session/create", {
@@ -1086,6 +1194,14 @@ try {
     console.log(`Observed frames: ${streamTypes.join(", ")}`);
     assert.equal(diagnostics.length, 0, diagnostics.join("\n"));
     console.log(`OK: real Runtime integration smoke passed; ${modelRequests} local mock model request(s), no external model calls.`);
+    if (ideSmokePath) {
+        await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "IDE First Session" } });
+        await connection.unary.call("session/rename", { request: { sessionId: created.sessionId, title: "IDE Second Session" } });
+        await writeFile(ideSmokePath, JSON.stringify({ launchUrl, baseUrl, runtimeVersion, workspacePath, modelUrl: `http://127.0.0.1:${model.address().port}/v1`, sessionIds: [seededSessionId, created.sessionId] }), { mode: 0o600 });
+        await until(async () => { try { return await readFile(ideSmokePath + ".done", "utf8"); } catch { return false; } }, "native IDE smoke", 180_000);
+        pass("Native IDE smoke completed");
+    }
+
   }
 } catch (error) {
     console.error(error.stack ?? error);

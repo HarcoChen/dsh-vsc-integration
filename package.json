@@ -64,6 +64,7 @@
         "onCommand:dsh.openInEditor",
         "onCommand:dsh.openTrace",
         "onWebviewPanel:dsh.traceEditor",
+        "onWebviewPanel:dsh.chatViewEditor",
         "onCommand:dsh.newSession",
         "onCommand:dsh.switchSession",
         "onCommand:dsh.manageSessions",
@@ -109,7 +110,11 @@
         "onCommand:dsh.managePlugins",
         "onCommand:dsh.openSessionCenter",
         "onCommand:dsh.exportSession",
-        "onCommand:dsh.copyConversation"
+        "onCommand:dsh.copyConversation",
+        "onCommand:dsh.connectDesktop",
+        "onCommand:dsh.disconnectDesktop",
+        "onCommand:dsh.completeInline",
+        "onCommand:dsh.reviewRepository"
     ],
     "contributes": {
         "chatParticipants": [
@@ -449,6 +454,26 @@
             {
                 "command": "dsh.copyConversation",
                 "title": "%command.copyConversation.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.connectDesktop",
+                "title": "%command.connectDesktop.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.disconnectDesktop",
+                "title": "%command.disconnectDesktop.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.completeInline",
+                "title": "%command.completeInline.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.reviewRepository",
+                "title": "%command.reviewRepository.title%",
                 "category": "DSH"
             }
         ],
@@ -809,6 +834,41 @@
                     "type": "boolean",
                     "default": false,
                     "description": "%config.completionNotification.description%"
+                },
+                "dsh.desktopConnection": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.desktopConnection.description%"
+                },
+                "dsh.desktopRuntimeVersion": {
+                    "type": "string",
+                    "default": "0.2.2-rc.1",
+                    "description": "%config.desktopRuntimeVersion.description%"
+                },
+                "dsh.inlineCompletion.automatic": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.inlineCompletion.automatic.description%"
+                },
+                "dsh.inlineCompletion.provider": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%config.inlineCompletion.provider.description%"
+                },
+                "dsh.inlineCompletion.model": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%config.inlineCompletion.model.description%"
+                },
+                "dsh.imageFileFallback": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.imageFileFallback.description%"
+                },
+                "dsh.serverRuntimeVersion": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%config.serverRuntimeVersion.description%"
                 }
             }
         }

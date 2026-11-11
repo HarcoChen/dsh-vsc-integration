@@ -76,6 +76,7 @@ export function App(): React.JSX.Element {
                 ) : null}
                 {state.access && !state.access.owner ? <div className="dsh-card-detail" role="status">{t(state.access.available ? "Shared Runtime access · actions depend on your permissions" : "Runtime permissions unavailable · waiting for access")}</div> : null}
                 <Composer
+                    key={state.sessionId ?? "__new__"}
                     promptHistory={promptHistory}
                     access={state.access}
                     visible={!settingsOpen}

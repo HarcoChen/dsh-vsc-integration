@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { DshReferenceCandidate } from "../../../src/types";
-import { postAction, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
+import { postAction, readComposerDraft, saveComposerDraft, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
 import { t } from "../i18n";
 import { canSwitchPermissions, canTogglePlan, type ComposerState } from "../state";
 import { AppShotIcon, FileIcon, ImageIcon, PlusIcon, SendIcon, StopIcon, TerminalIcon } from "./icons";
@@ -65,7 +65,8 @@ export const Composer = React.memo(function Composer({
     continuation,
     sessionId,
 }: ComposerProps): React.JSX.Element {
-    const [text, setText] = useState("");
+    const [text, setText] = useState(() => readComposerDraft(sessionId));
+    useEffect(() => { saveComposerDraft(sessionId, text); }, [sessionId, text]);
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
     const [effortVisible, setEffortVisible] = useState(false);
     const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
@@ -226,6 +227,7 @@ export const Composer = React.memo(function Composer({
             return;
         }
         if (!attached && completion.executeSlashCommand(value.trim())) return;
+        saveComposerDraft(sessionId, "");
         postAction({
             type: "sendPrompt",
             text: value,
@@ -494,6 +496,7 @@ export const Composer = React.memo(function Composer({
                     />
                 </div>
                 <textarea
+                    onFocus={() => postAction({ type: "activateChat" })}
                     ref={textareaRef}
                     className="dsh-prompt"
                     placeholder={t(planActive

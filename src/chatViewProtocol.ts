@@ -18,12 +18,15 @@ import { isImageMediaType, isRecord } from "./guards";
 
 export type ChatViewAction =
     | { type: "ready" }
+    | { type: "activateChat" }
     | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
     | { type: "retryPrompt"; id: string }
     | { type: "retryGeneration"; sessionId: string; failureSeq: number }
     | { type: "manageHostTask"; id?: string }
     | { type: "refreshHostTasks"; offset?: number; active?: boolean | null }
     | { type: "exportSession" }
+    | { type: "reviewRepository" }
+    | { type: "openSessionEditor" }
     | { type: "copyConversation" }
     | { type: "quoteMessage"; messageId: string; selection?: string }
     | { type: "toggleSubagentBranch"; childSessionId: string }
@@ -324,7 +327,10 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
     }
     switch (value.type) {
         case "ready":
+        case "activateChat":
         case "exportSession":
+        case "reviewRepository":
+        case "openSessionEditor":
         case "copyConversation":
         case "cancel":
         case "configureApiKey":

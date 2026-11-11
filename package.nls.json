@@ -110,5 +110,16 @@
     "command.openSessionCenter.title": "Open Session Center",
     "command.exportSession.title": "Export Conversation",
     "command.copyConversation.title": "Copy Conversation as Markdown",
-    "config.completionNotification.description": "Show a notification when a live task completes successfully while VS Code is unfocused. Off by default."
+    "config.completionNotification.description": "Show a notification when a live task completes successfully while VS Code is unfocused. Off by default.",
+    "command.connectDesktop.title": "Connect to Desktop",
+    "command.disconnectDesktop.title": "Disconnect Desktop",
+    "command.completeInline.title": "Complete Code Inline",
+    "command.reviewRepository.title": "Review Repository and Worktrees",
+    "config.desktopConnection.description": "Connect through the saved Desktop grant instead of starting a local Runtime. An explicit server URL takes priority.",
+    "config.desktopRuntimeVersion.description": "Exact Runtime version from Desktop About.",
+    "config.inlineCompletion.automatic.description": "Automatically request inline completions after a typing pause. Manual DSH completion remains available when disabled.",
+    "config.inlineCompletion.provider.description": "Provider for inline completion. Empty uses the selected DSH chat route.",
+    "config.inlineCompletion.model.description": "Model for inline completion. Empty uses the selected DSH chat route.",
+    "config.imageFileFallback.description": "Attach images as files when the selected model explicitly refuses image input.",
+    "config.serverRuntimeVersion.description": "Exact Runtime version of a manually configured server. Empty uses the base contract."
 }

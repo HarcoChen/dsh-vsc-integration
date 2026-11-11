@@ -126,6 +126,8 @@ export class ContextStore {
 
     public constructor(private readonly debugContextTracker?: DebugContextTracker) {}
 
+    public fork(): ContextStore { return new ContextStore(this.debugContextTracker); }
+
     public onDidChange(listener: () => void): vscode.Disposable {
         this.listeners.add(listener);
         return new vscode.Disposable(() => this.listeners.delete(listener));
