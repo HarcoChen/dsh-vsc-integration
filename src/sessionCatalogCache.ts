@@ -92,7 +92,10 @@ export class SessionCatalogCache<T> {
                 }
                 options.apply(value);
             })
-            .catch((error) => options.fail(error))
+            .catch((error) => {
+                if ((this.generations.get(sessionId) ?? 0) !== generation) return;
+                options.fail(error);
+            })
             .finally(() => {
                 this.requests.delete(sessionId);
                 if (this.refreshPending.delete(sessionId)) {

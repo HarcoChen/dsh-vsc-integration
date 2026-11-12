@@ -67,6 +67,10 @@
 
 ## 验证
 
+启动目录刷新等待 Host 版本信息就绪，连接代际变化后丢弃旧请求的失败。模型目录接入 `llm/models-updated` 通知。仅 `agentPresets/list`、`session/modelCatalog`、`schedule/list` 和旧版 `schedule/catalog` 在 HTTP 传输失败后短暂重试一次；写入请求不重试。错误保留接口及安全的底层网络错误码。Surface 事件集合补齐 RC.1 的 `developer/message`。
+
+原生 VS Code 集成检查对三个新版目录的首次 HTTP 请求注入真实 socket 断连，验证第二次读取恢复；实际 RC.1 检查验证模型更新事件转发。真实会话历史通过 wire 解码与 surface 回放，无 developer 事件误报。旧日志中的泛化 `fetch failed` 无底层错误码，不能据此判定当时断连原因。
+
 本机配置轮转备份独立于自动故障恢复，在启动前及后续文件变化时保存所选配置的 `package.json`、配置/DSH Home 的 `cordis.patch.yml`。按来源分组保留最近 10 份，内容相同时不新增。记录原路径、时间及缺失文件状态，备份位于扩展全局存储 `config-backups`，通过“打开配置备份”命令查看。保留原始内容供手动取回，不自动修改当前配置。`.env`、凭据文件、生成的 `cordis.yml` 和会话数据不在备份范围内。附加外部 Runtime 时无法可靠确定主机文件路径，不自动备份其配置。
 
 现有启动集成脚本的 `config-backups` 场景覆盖原文保存、内容去重、十份轮转、外部修改监听、删除记录、目录/文件权限，以及 Runtime 停止后继续保存；没有新增单元测试。每个来源文件上限 4 MiB，仅处理普通文件；备份失败记入日志，不阻断 Runtime 启动。

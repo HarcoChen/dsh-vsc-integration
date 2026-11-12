@@ -311,6 +311,10 @@ export function apply(ctx) {
     if (value.notify !== false) ctx.remoteAccess.invalidate();
     return Response.json({ ok: true });
   } });
+  ctx.connection.fetch.register({ path: '/api/ide-smoke-models-updated', methods: ['POST'], requestBody: 'buffered', fetch() {
+    ctx.emit('llm/models-updated', 'ide-smoke');
+    return Response.json({ ok: true });
+  } });
 }`);
     const accessPatch = join(storage, "access-smoke.patch.yml");
     await writeFile(accessPatch, JSON.stringify([{ insert: [{ id: "ide-access-smoke", name: accessPlugin }] }]));
@@ -411,6 +415,12 @@ try {
     await until(() => descriptions > 0, "coordinator baseline");
     await connection.unary.probe();
     pass("authenticated unary, mux $events, workspace and control baselines");
+    if (featureControls && supports021) {
+        const changed = await fetch(`${baseUrl}/api/ide-smoke-models-updated`, { method: "POST", headers: requestHeaders() });
+        assert.equal(changed.status, 200);
+        await until(() => remoteEvents.some(frame => frame.type === "emit" && frame.event === "llm/models-updated"), "model catalog change forwarded");
+        pass("Provider model updates pass through the actual Remote event forwarding allowlist");
+    }
     if (migrationIndex >= 0) {
         const cold = coordinator.catalog.snapshot().sessions.find(item => item.formatStatus === "migration-required");
         assert.ok(cold, "fixture must contain an old-format Session");

@@ -40,6 +40,7 @@ function queueFromInbox(value: unknown): DshQueuedInboxItem[] | undefined {
 /** Exact current Harness SurfaceEventType union from @deepseek-ai/dsh-session. */
 const SURFACE_EVENT_TYPES = new Set([
     "system/message",
+    "developer/message",
     "user/message",
     "assistant/message",
     "tool/result",

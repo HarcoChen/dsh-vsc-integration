@@ -516,6 +516,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         void this.refreshPermissionCatalog(true);
                         break;
                     case "llm/adapters-updated":
+                    case "llm/models-updated":
                     case "credentials/reference-updated":
                     case "credentials/record-updated":
                     case "deepseek-account/session-expired":
@@ -556,9 +557,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.goalActivation.reset();
                 this.commandRegistryUnavailable = false;
                 void this.refreshPermissionCatalog(true);
-                this.commandCatalogs.clear();
+                this.commandCatalogs.invalidate();
                 this.scheduleRpcUnavailable = false;
-                this.scheduleCatalogs.clear();
+                this.scheduleCatalogs.invalidate();
                 this.scheduleCatalogRpcUnavailable = false;
                 this.allSessionsScheduleCatalog.invalidate();
                 this.scheduleCatalogView = undefined;
@@ -3534,6 +3535,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     /** Pulls RC.2's host-wide active and inactive reminder catalog for read-only cross-session browsing. */
     private refreshGlobalScheduleCatalog(force = false): void {
+        if (!this.runtime.getHostDescription()) return;
         if (this.runtime.supportsHostSchedules()) {
             if (this.runtime.remoteAccess.allows("schedule/list")) this.hostSchedules.ensure();
             return;
@@ -3546,7 +3548,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         this.scheduleCatalogView = { records: retained, status: "loading" };
         void this.allSessionsScheduleCatalog.pull(ALL_SESSIONS_SCHEDULE_CATALOG_KEY, {
-            gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleCatalogRpcUnavailable,
+            gate: () => Boolean(this.runtime.getUrl()) && Boolean(this.runtime.getHostDescription()) && !this.runtime.supportsHostSchedules() && !this.scheduleCatalogRpcUnavailable,
             pull: async () => {
                 const value = await this.runtime.scheduleCatalog();
                 if (value === undefined) return undefined;
@@ -3898,7 +3900,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private refreshAgentPresetCatalog(): void {
-        if (!this.runtime.getUrl() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
+        if (!this.runtime.getUrl() || !this.runtime.getHostDescription() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
         const generation = this.agentPresetCatalogGeneration;
         const request = this.runtime.agentPresets()
             .then((catalog) => {
@@ -3908,6 +3910,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.postState();
             })
             .catch((error) => {
+                if (this.agentPresetCatalogGeneration !== generation) return;
                 this.output.appendLine(`[dsh:agent-preset] catalog refresh failed: ${errorMessage(error)}`);
             })
             .finally(() => {

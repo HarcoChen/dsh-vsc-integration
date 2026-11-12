@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
-import { RemoteHttpError, RemoteProtocolError, isRemoteError, isRemoteEndpointUnavailable } from "./remote/errors";
+import { RemoteHttpError, RemoteProtocolError, RemoteTransportError, isRemoteError, isRemoteEndpointUnavailable } from "./remote/errors";
 import { assertWebBundle, assertWebProfileCompatible, HEADLESS_BUNDLE, IncompatibleWebProfileError } from "./runtimeProfile";
 import { ConfigurationBackups } from "./configBackups";
 import { JobsController } from "./jobsController";
@@ -1615,6 +1615,19 @@ export class DshRuntime implements vscode.Disposable {
         return this.apiClient;
     }
 
+    /** Only these read-only catalogs may retry after an HTTP transport failure. */
+    private async readCatalog<T>(endpoint: "agentPresets/list" | "session/modelCatalog" | "schedule/list" | "schedule/catalog", args: Record<string, unknown>): Promise<T> {
+        const url = this.getUrl();
+        try { return await this.apiClient.call<T>(endpoint, args); }
+        catch (error) {
+            if (!(error instanceof RemoteTransportError) || this.disposed || this.getUrl() !== url) throw error;
+            await new Promise(resolve => setTimeout(resolve, 250));
+            if (this.disposed || this.getUrl() !== url) throw error;
+            this.output.appendLine(`[dsh:catalog] retrying read: ${error.message}`);
+            return this.apiClient.call<T>(endpoint, args);
+        }
+    }
+
     public getSessionStore(): RemoteStateCoordinator["sessions"] {
         return this.harnessState.sessions;
     }
@@ -2277,7 +2290,7 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async models(sessionId: string): Promise<DshSessionModelsResult> {
-        const catalog = await this.apiClient.call<{
+        const catalog = await this.readCatalog<{
             default: { provider: string; model: string; reasoningEffort?: string };
             routableProviders: string[];
             groups: DshSessionModelsResult["groups"];
@@ -2306,7 +2319,7 @@ export class DshRuntime implements vscode.Disposable {
     }
 
     public async agentPresets(): Promise<DshAgentPresetListResult> {
-        const result = await this.apiClient.call<Partial<DshAgentPresetListResult>>("agentPresets/list", {});
+        const result = await this.readCatalog<Partial<DshAgentPresetListResult>>("agentPresets/list", {});
         return {
             presets: result.presets ?? [],
             modeSelectionEnabled: result.modeSelectionEnabled !== false,
@@ -3073,13 +3086,14 @@ export class DshRuntime implements vscode.Disposable {
 
     /** Explicit Host-wide Schedule vocabulary; the Gateway authorizes each operation. */
     public hostScheduleCall(action: "list" | "view" | "create" | "edit" | "run" | "history", request: Record<string, unknown>): Promise<unknown> {
+        if (action === "list") return this.readCatalog("schedule/list", { request });
         return this.apiClient.call(`schedule/${action}`, { request });
     }
 
     /** Lists active and inactive reminders across all sessions; undefined means the optional Schedule bundle is absent. */
     public async scheduleCatalog(): Promise<unknown | undefined> {
         try {
-            return await this.apiClient.call<unknown>("schedule/catalog", {});
+            return await this.readCatalog<unknown>("schedule/catalog", {});
         } catch (error) {
             if (error instanceof RemoteHttpError && error.status === 404) return undefined;
             throw error;

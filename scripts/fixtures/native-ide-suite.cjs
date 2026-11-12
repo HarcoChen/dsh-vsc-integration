@@ -16,6 +16,7 @@ async function until(read) {
 }
 exports.run = async () => {
     let runtime;
+    let droppedCatalogServer;
     const output = vscode.window.createOutputChannel("DSH native integration");
     try {
         const data = JSON.parse(await fs.readFile(stateFile, "utf8"));
@@ -45,9 +46,28 @@ exports.run = async () => {
         await vscode.commands.executeCommand("dsh.openInEditor", data.sessionIds[0]);
         assert.equal(tabs().length, 2, "opening the same session reveals its existing tab");
         const { DshRuntime } = require(path.join(root, "dist/dshRuntime"));
-        runtime = new DshRuntime(output, path.join(scratch, "storage"));
+        droppedCatalogServer = require("node:http").createServer(request => request.socket.destroy());
+        await new Promise(resolve => droppedCatalogServer.listen(0, "127.0.0.1", resolve));
+        const originalFetch = globalThis.fetch;
+        const attempts = new Map();
+        const catalogs = ["agentPresets/list", "session/modelCatalog", "schedule/list"];
+        globalThis.fetch = (input, init) => {
+            const endpoint = catalogs.find(endpoint => String(input).endsWith(`/api/${endpoint}`));
+            if (endpoint) {
+                const count = (attempts.get(endpoint) ?? 0) + 1;
+                attempts.set(endpoint, count);
+                if (count === 1) return originalFetch(`http://127.0.0.1:${droppedCatalogServer.address().port}/drop`, init);
+            }
+            return originalFetch(input, init);
+        };
+        try { runtime = new DshRuntime(output, path.join(scratch, "storage")); }
+        finally { globalThis.fetch = originalFetch; }
         await runtime.start(data.workspacePath);
-        await until(() => runtime.getSessionCatalog().snapshot().sessions.length > 0);
+        await until(() => runtime.getHostDescription() && runtime.getSessionCatalog().snapshot().sessions.length > 0);
+        assert.ok((await runtime.agentPresets()).presets.length > 0);
+        assert.ok(Array.isArray((await runtime.models(data.sessionIds[0])).groups));
+        assert.ok(Array.isArray((await runtime.hostScheduleCall("list", { limit: 100, offset: 0 })).items));
+        for (const endpoint of catalogs) assert.equal(attempts.get(endpoint), 2, `${endpoint} retries one dropped HTTP connection`);
         const bundles = await runtime.pluginManagerBundles();
         const headless = bundles.find(bundle => bundle.name === "@deepseek-ai/dsh-headless");
         assert.equal(headless.enabled, false);
@@ -118,6 +138,7 @@ exports.run = async () => {
                 ok: true,
                 remaining: tabs()[0].label,
                 checks: [
+                    "read-only catalogs recover from a dropped HTTP connection",
                     "reject incompatible Headless bundle without changing profile",
                     "independent session tabs",
                     "reuse existing tab",
@@ -136,6 +157,7 @@ exports.run = async () => {
         throw error;
     } finally {
         if (runtime) await runtime.dispose();
+        if (droppedCatalogServer) await new Promise(resolve => droppedCatalogServer.close(resolve));
         output.dispose();
         if (process.env.DSH_NATIVE_SMOKE_PHASE === "restore") await fs.writeFile(stateFile + ".done", "done");
     }
