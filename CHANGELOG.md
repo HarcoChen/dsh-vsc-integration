@@ -9,6 +9,10 @@
 
 <!-- 在这里填写下一版本的发布说明；npm run release 会自动提升这一节。 -->
 
+### 改进
+
+- 发版 CI 接入 Visual Studio Marketplace 的 GitHub OIDC Trusted Publishing，支持正式版和纯数字预发布版本，并修复手动发布时 GitHub Release 的 tag 选择。
+
 ## [0.12.0] - 2026-11-12
 
 **好久不见各位！**

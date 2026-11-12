@@ -1,373 +1,78 @@
 <p align="center">
-  <img src="resources/dsh.png" alt="DSH IDE" width="128">
+  <img src="resources/dsh.png" alt="DSH IDE" width="96">
 </p>
 
-<h1 align="center">DeepSeek Harness for VS Code</h1>
+# DeepSeek Harness for VS Code
 
-<p align="center">
-  将 DeepSeek Harness（DSH）带进 VS Code：结合IDE的上下文完成任务，查看原生Diff，通过 Trace 和用量面板了解Agent的执行过程。
-</p>
+[English](README.md) · **简体中文**
 
-<p align="center">
-  <a href="README.md">English</a> | <strong>简体中文</strong>
-</p>
+在 VS Code 中使用 DeepSeek Harness（DSH），附加编辑器上下文、审批工具调用、查看原生 Diff，通过 Trace 和用量面板跟进任务。
 
-<p align="center">
-  <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
-  <img src="https://img.shields.io/badge/dsh目标-0.2.2--rc.1-2f6feb?style=flat-square" alt="dsh 目标 0.2.2-rc.1">
-  <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-支持-8250df?style=flat-square" alt="支持 Laya / Jev">
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
-</p>
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration) · [Open VSX](https://open-vsx.org/extension/harcochen/dsh-vsc-integration) · [下载 VSIX](https://github.com/HarcoChen/dsh-vsc-integration/releases)
 
-<p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><strong>安装到 VS Code</strong></a> ·
-  <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration">Open VSX</a> ·
-  <a href="https://github.com/HarcoChen/dsh-vsc-integration/releases">下载 VSIX</a> ·
-  <a href="CHANGELOG.md">更新日志</a>
-</p>
+![DSH 工作流演示](public/scene-intro.gif)
 
-<p align="center">
-  <em>独立社区项目，欢迎提 <a href="https://github.com/HarcoChen/dsh-vsc-integration/issues">issue</a>。</em>
-</p>
+## 开始使用
 
-<p align="center">
-  JetBrains IDE版本请见 <a href="https://github.com/HarcoChen/dsh-intellij-integration">dsh-intellij-integration</a>。
-</p>
+需要 VS Code **1.106.0+**，Runtime 兼容目标为 **dsh 0.2.2-rc.1**。
 
-<p align="center">
-  <img src="public/scene-intro.gif" alt="DSH IDE 工作流演示" width="100%">
-</p>
+1. 从上方链接安装扩展。下载 `.vsix` 后，可通过 `Extensions: Install from VSIX...` 安装。
+2. 安装并启动官方 DeepSeek Desktop，它会注册 `dsh` 命令。打开并信任项目文件夹，运行 `DSH: 打开聊天`。[Desktop 下载](https://www.deepseek.com/zh/download/)
+3. 运行 `DSH: 配置 API Key` 配置 DeepSeek 凭据。其他 Provider 可通过 `DSH: 在浏览器中打开 dsh Web UI` 配置。选择或注册 DSH Workspace，再选择模型。
+4. 发送任务，用 `@` 附加上下文，响应审批卡片，通过工具 Diff 检查改动。
 
+DSH Workspace 用于在 Harness 中组织会话，可关联项目路径。同一 Runtime 上的会话也可在 Web UI 中继续。
 
-## 为什么选择 DSH？
+## 主要功能
 
-- **看清代码改动**：在 VS Code 原生并排 Diff 中审查工具编辑，非 Git 仓库也能使用。
-- **在执行前做决定**：审批卡展示命令与目标文件，受支持的文件写入可预览拟议改动。
-- **带着上下文开始任务**：引用文件、选区、Git Diff 或暂停时的调试状态，减少来回复制粘贴。
-- **随时接着做**：恢复持久会话，在活动面板查看工具执行、子代理、Todo 与 Token 用量。
-- **更聪明的 Agent 决策，无需额外安装**：打开内置的 Laya/Jev 集成，发现循环、精简冗长输出，并用证据核对“已完成”的说法。
-
-## 快速开始
-
-需要 **VS Code 1.106.0 或更高版本**，以及已配置的 DSH 模型服务与凭据。
-
-默认 Runtime 目标为 `0.2.2-rc.1`。`0.2.2-rc.1` 已接入 Host 任务管理、projection 子代理目录、终端和插件更新。RC.2 可选功能包含继续生成和 Agent 终端接管。各版本的验证范围见 [维护记录](MAINTENANCE.md)。
-
-1. **安装扩展**：选择上方 Marketplace 或 Open VSX 入口，也可以在扩展面板搜索 `harcochen.dsh-vsc-integration`。
-2. **打开聊天**：安装并启动官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)，打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。Desktop 会注册 `dsh`；命令不可用时，扩展会提供官方下载安装页。
-3. **完成首次配置**：通过 `DSH: 配置 API Key`（`DSH: Configure API Key`）设置 DeepSeek 凭据。其他 Provider 可在 `DSH: 在浏览器中打开 dsh Web UI` 中配置。选择或注册 DSH Workspace，再选择模型。
-4. **开始一个任务**：输入 `@` 引用文件，或右键选区选择 DSH 操作。查看执行过程，在需要审批时确认操作，并通过工具卡打开 Diff 审查结果。
-5. **（可选）启用 Laya/Jev**：打开 `dsh.jev.enabled` 及需要的功能开关，运行 `DSH: 配置 Jev API Key`，按提示重启 Runtime。详见 [内置 Laya / Jev System One 决策](#内置-laya--jev-system-one-决策)。
-
-### 从这些任务开始
-
-| 你想做什么 | 可以这样开始 |
-| --- | --- |
-| 读懂一段代码 | 选中代码并右键使用 DSH 解释：“说明这段代码的执行流程和边界条件。” |
-| 审查改动 | 对 Git Diff 使用 DSH 评审：“检查这些改动是否引入回归，并标出相关位置。” |
-| 排查断点 | 调试暂停时运行 `DSH: Explain Current Debug State`，附加调用栈和局部变量等上下文。 |
-| 继续之前的工作 | 切换到历史会话，通过对话大纲定位之前的讨论。 |
-
-## 核心功能
-
-### 逐次编辑皆有原生 Diff，无需 Git
-
-`write` / `edit` 类工具调用完成后，打开目标文件即可查看 VS Code 原生并排 Diff。底层通过 Session 日志倒放 Hunks 重建历史，即使在非 Git 仓库或被 Git ignore 的文件中也能正常工作。
-
-![原生并排 Diff 预览](public/assets/diff.png)
-
-### 批准前预览
-
-审批卡片会展示真实的命令行、工作目录以及写入的目标文件，对于受支持的文件写入工具，还可以在批准前打开原生 Diff，检查拟议改动。
-
-若目标文件在编辑器中仍有未保存改动，审批不会被放行：卡片会列出这些文件并保持待处理，保存或还原后即可重新批准。
-
-### 内置 Laya / Jev System One 决策
-
-[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) 是 TypeSafe 推出的 System One 决策模型。它不生成文本，而是读取 Agent 状态，在毫秒级返回经过校准的结构化答案。[Laya](https://huggingface.co/convaiinnovations/laya) 是 Apache-2.0 协议的开源权重替代品，提供相同的 `POST /v1/systemone` 请求与响应格式。扩展随包携带 [`dsh-jev-integration`](https://github.com/HarcoChen/dsh-jev-integration) Runtime 插件（与 JetBrains 版共用），并挂载到它启动的每个 Runtime 上。不需要另装插件，也不需要改 DSH profile。
-
-| 功能 | 设置 | 作用 |
-| --- | --- | --- |
-| 循环保护 | `dsh.jev.loopGuard.enabled` | 工具执行后识别语义上的死循环，引导 Agent 跳出。 |
-| 结果整形 | `dsh.jev.resultShaper.enabled` | 对重复的大段工具输出分类折叠，保留警告与失败信息。 |
-| 完成检查 | `dsh.jev.doneGate.enabled` | 用工具证据核对“已完成”的说法，必要时追加一轮验证。 |
-| 工具裁剪 | `dsh.jev.toolPruner.enabled` | 对模型可见的工具 schema 排序，不改变 DSH 权限和工具注册。 |
-| Skill 路由 | `dsh.jev.skillRouter.enabled` | 挑选相关 skill，并在上下文中加入有长度上限的建议。 |
-| 决策工具 | `dsh.jev.decisionTools.enabled` | 向 Agent 暴露 `jev_ask`、`jev_rank`、`jev_check` 工具。 |
-| 确定性安全检查 | `dsh.jev.deterministicSafetyGuard.enabled` | 在本地检查破坏性命令、提权和凭据泄露，检查数据不出本机。 |
-
-**使用 Jev**：打开 `dsh.jev.enabled` 及需要的功能，运行 `DSH: 配置 Jev API Key`，按提示重启 Runtime。Key 加密保存在 VS Code SecretStorage。
-
-**使用 Laya**：将 `dsh.jev.baseUrl` 指向提供 Laya System One 接口的 HTTPS 地址，`dsh.jev.model` 设为该服务要求的模型名，并配置 API Key；服务端不校验 Key 时填任意占位值即可。扩展只接受 `https://` 地址，其他地址会回退到 TypeSafe 默认端点。
-
-所有功能默认关闭。启用后，相关功能可能把所需样本发送到配置的端点。已有或外部托管的 Runtime 不会被修改。
-
-### 会话、账号与定时提醒（dsh 0.2.0-rc.2）
-
-- `DSH: 管理会话` 可置顶会话、恢复已归档会话；`DSH: 归档会话` 遇到仍在运行的任务时，会先询问是否停止。没有打开 VS Code 文件夹时也能使用 DSH Workspace。
-- `DSH: 管理 DeepSeek 账号` 支持浏览器登录、登出，并查看账号资料和余额。
-- `DSH: 浏览 Runtime 工作区文件`（也可在 `/ide` 中选择）浏览当前 DSH 会话的工作区，在编辑器打开上限为 1 MiB 的 UTF-8 文本只读预览。文件变化会刷新已打开的预览；不支持监听时可运行 `DSH: 刷新 Runtime 文件预览`。
-- 启用官方 Schedule bundle 后，定时提醒面板可跨会话列出提醒、编辑规则、查看投递历史并删除提醒；未启用时面板会提示如何开启。
-
-连接 `0.2.2-rc.1` 及以上版本时，Schedule 面板提供 Host 级任务分页及活动状态筛选。可创建延迟、指定日期、间隔、每日、每周、Cron 和 RRULE 任务，选择投递会话，并执行编辑、暂停/恢复、立即执行、删除和投递历史操作。编辑会检查其他客户端的并发修改。
-
-聊天菜单的“导出会话”可选择 Markdown、JSON 或 ZIP，也可“复制完整会话为 Markdown”。文本导出固定事件切点后读取全部分页历史，ZIP 包含二进制附件。消息底部的“引用”可引用整条消息或其中选中文本。空输入框按 ↑/↓ 召回历史提示词并返回原草稿。开启 `dsh.completionNotification` 后，VS Code 失焦时会提示成功完成的任务。
-
-### Runtime 终端、插件安装与 Problems（开发分支）
-
-- `DSH: 打开 Runtime 终端` 连接当前 DSH 会话的 Host PTY，也可从聊天菜单打开。切换会话保留终端；重连恢复屏幕和输入控制权。关闭终端请求 Host 清理进程，失败时再次打开此入口重试。进程保留范围为 Host 生命周期；已有终端保留自己的工作目录。终端输入使用上游用户 Shell 权限。
-- `DSH: 安装或卸载 Runtime 插件` 使用官方插件管理器检查包来源、版本和 Bundle，安装时可取消，并查看日志和生效/需重启状态。包路径按 Runtime 主机解析；构建脚本需单独批准。Settings 和聊天菜单也提供入口。
-- 附件菜单或 `@` 候选中的“当前文件的问题”可选择诊断后附加到下一条消息。手写 `@diagnostics` 会附加当前文件诊断；附件包含位置、来源和代码，显示大小与截断状态，不自动发送。
-- `DSH: 打开会话中心` 标明会话所属 DSH Workspace，优先排列已观察到的审批、问题、错误和运行中任务，点击继续对应会话。
-- 聊天显示当前有效目录。连接 alpha.2 时，目录变更不改变原始项目归属；历史工具 Diff 和文件链接使用历史目录，同轮跨目录改动通过逐次工具 Diff 审查。
-
-### 斜杠命令
-
-斜杠菜单会动态拉取当前会话 Runtime 注册的命令（`/plan`、`/compact`、`/goal` 等），并与扩展自有的 IDE 命令合并展示。
-
-![实时下拉斜杠命令](public/assets/slash.png)
-
-### 编辑器与 Git 上下文
-
-- 右键菜单直接对当前文件、选区或 Git Diff 执行解释、修复、评审或文档生成。
-- 资源管理器中右键 `Ask about resource` 即可提问。
-- `@` 菜单补全项目文件及历史 Session。
-- `DSH: Capture AppShot`（仅 macOS）捕获窗口截图并作为草稿插入对话。
-
-### 会话、Trace 与活动面板
-
-侧栏提供原生对话大纲树视图；Trace、Token 用量、Todo 清单与子代理统一归集在活动面板。UI 适配 VS Code 深浅主题。
-
-运行 `DSH: 在编辑器标签页中打开聊天`（`DSH: Open Chat in Editor Tab`）可为会话打开独立编辑器标签。不同标签分别保留会话、输入草稿、上下文和导航，侧栏可继续使用另一个会话。重复打开会话会切回已有标签，重启 VS Code 后可恢复会话和文字草稿。Runtime 连接由各标签共享。
-
-### 仓库评审与 Worktree
-
-在 Runtime 插件管理中启用官方 `@deepseek-ai/dsh-experimental-forge-bundle`，然后运行 `DSH: 评审仓库与 Worktree`，或选择聊天菜单中的“DSH 仓库评审”。入口使用当前 DSH 会话的工作目录。
-
-- 比较未提交、已暂存、未暂存或分支改动，在原生并排 Diff 中审阅文件。RC.2 支持基础分支、单提交和接口/实现/测试分类，已审阅进度按改动摘要保存。
-- 为尚未开始任务的会话申请 Worktree，第一次发送任务时创建。也可取消、停止、重试、恢复缺失目录或回到原项目。
-- 跟踪 PR 地址并查看差异和检查结果。RC.2 可读取评审讨论、同步已审阅文件、发表行评论和完整评审，并按已确认的 head 更新分支。发布和更新前会显示确认内容。
-
-### 桌面连接、ZIP 和行内补全
-
-`DSH: 连接桌面端` 使用桌面端 `dsh-vscode-connect` 插件复制的地址，凭据保存在 SecretStorage。Windows 本机可发现账户加密的连接记录并通过配对通道刷新地址。连接时输入桌面“关于”中的 Runtime 完整版本。使用 `DSH: 断开桌面端` 清除保存的授权。
-
-“导出会话”支持 ZIP，可选择当前会话或全部后代。归档由 Runtime 生成，包含持久日志和二进制附件，下载过程中可取消。
-
-运行 `DSH: 行内代码补全` 可在当前文件请求 ghost text，按 VS Code 的 Tab 接受。补全使用独立的 minimal 会话，完成或取消后归档。开启 `dsh.inlineCompletion.automatic` 后可在输入停顿时自动请求，默认关闭。Provider 和模型可单独设置，也可继承当前 DSH 聊天选择。模型明确拒绝图片输入时，`dsh.imageFileFallback` 会改用文件附件。
-
-### 会话、外观和社区插件
-
-会话中心顶部按钮可筛选状态和 DSH Workspace、调整排序与分组，偏好会保存。归档成功后的通知可撤销归档。聊天菜单中的“聊天外观”可设置字号和紧凑布局，专注模式也会记住。
-
-启用官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle` 后，插件管理中的“搜索社区插件”可添加市场源、搜索、翻页、查看说明和安装兼容版本，安装或更新会使用市场返回的精确来源。
-
-“配置模型费用单价”接受所用 Provider/模型的每百万 Token 单价，会话中显示按请求路由计算的费用估算。多个币种分别汇总，缺少费率的请求会标明。估算使用当前自定义费率，不包含非 Token 收费。
-
-附件菜单提供模板创建/编辑、IDE 文件或符号搜索和显式规则文档附件。模板位于 IDE 项目的 `.dsh/prompts`，规则可从 `AGENTS.md`、`.dsh/rules` 和 `.agents/rules` 中选择。内容附加到下一条消息，发送由用户发起。`dsh.connectionMode=attach-only` 可限制为仅连接已运行的 Runtime。
-
-![Trace 和活动面板](public/assets/Trace.png)
-
-### 自主调试（默认关闭）
-
-开启 `dsh.autonomousDebugging` 后，扩展会在本窗口内起一个只监听回环地址的 MCP 端点，Agent 由此操作 VS Code 调试器：`debug_start` 启动工作区里已有的 launch 配置，`debug_breakpoint` 增加、删除、列出断点，`debug_control` 继续、单步并等待下一次暂停，`debug_context` 读取暂停时的调用栈、变量与源码。名字疑似密钥的变量在离开窗口前会替换为 `[redacted by dsh-ide]`。端点仅绑定 `127.0.0.1`，校验 `Host` 头与每次启动单独的令牌，也不允许模型自造 launch 配置。该能力只对本窗口自行启动的 Runtime 生效；切换设置后需重启 Runtime，扩展会在设置变更时提示。
-
-### 凭据与余额
-
-底部快速查看当前余额，支持峰谷定价显示，支持低余额采用醒目颜色警示。
-
-![余额指示器](public/assets/balance.png)
-
-## 常见问题
-
-**需要手动安装 DSH 吗？** 请安装官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)。Desktop 会注册扩展使用的 `dsh` 命令；命令不可用时，扩展会提供官方下载安装页。独立托管 Runtime 下载已弃用。
-
-**Laya/Jev 是怎么集成的？** 扩展安装包自带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Laya 走同一套 System One 接口，修改 `dsh.jev.baseUrl` 即可（仅限 HTTPS）。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
-
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；用户同意后的默认升级目标为 `0.2.2-rc.1`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
-
-**指定监听地址或 HTTPS：** 已启动的 Runtime 使用自定义地址时，设置 `dsh.serverUrl` 即可直接连接，避免再次启动造成端口冲突。例如：
-
-```json
-{
-  "dsh.serverUrl": "https://[::1]:3080",
-  "dsh.serverToken": "<Runtime 启动时提供的 token>"
-}
-```
-
-IPv4 地址也可使用，例如 `http://100.64.0.1:3080`，前提是该 IP 属于运行扩展的机器。远程地址必须使用 HTTPS；TLS 证书须受扩展宿主信任，扩展不会跳过证书校验。IPv6 地址须加方括号。自动发现会探测本机 IPv4/IPv6 网卡地址，但未登记实例的认证 Token 仍需通过上述设置提供。
-
-基础 Runtime 和 Remote 契约指向 `dsh-v0.2.2-rc.1`（`66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`），并按版本接入 0.2.2 功能。Runtime 文件支持只读浏览，Settings 支持插件启停、Bundle 选择与生效结果。Jobs 实时输出可按游标重连续读并取消。限时问答恢复等待和回答草稿。Team 与子代理面板支持成员历史、follow-up 和任务导航。Runtime 终端支持 Shell 选择、重命名、输入、resize 和画面恢复，插件管理支持安装、卸载与兼容版本更新。RC.2 增加终端实时目录和输入接管。联调与剩余人工验证范围见 [维护记录](MAINTENANCE.md)。
-
-默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。官方 Desktop 注册的兼容命令会直接使用；不兼容的本机 CLI 只对已确认的旧版 npm 全局安装提供升级确认。没有兼容命令时，扩展会引导安装官方 Desktop。诊断命令不会安装或下载独立 Runtime。显式本机路径遵循相同兼容性检查；高级用户仍可显式选择 pnpm/npx。
-
-默认应用参数为 `web --no-open`，没有保存参数覆盖时会为显式 pnpm/npx 补齐启动前缀。已有包管理器参数配置保留。auto 模式选择兼容的本机或 Desktop 注册的 `dsh`，不会再启动第二个独立 Runtime。
-
-独立 CNB Runtime 下载已弃用。没有 `dsh` 命令时，请从 [DeepSeek 官方下载页](https://www.deepseek.com/zh/download/) 安装 Desktop。编译后可执行 `node scripts/verify-runtime-discovery.mjs`，在隔离 POSIX CLI 环境中验证本机命令选择及启动参数，不请求模型。
-
-**支持多根工作区吗？** DSH 支持多个彼此独立的 Workspace，但每个 Session 只有一个工作目录（`cwd`）。VS Code 多根工作区启动 Runtime 时使用第一个 workspace folder；如果不同根目录需要不同工作目录，请分别建立 DSH Workspace 或 Session。
-
-**会自动识别密钥或个人信息吗？** 不会。上下文目前只根据用户主动选择的文件、选区和附件计算大小与截断；不会把文件内容交给额外的秘密/个人信息分类器。
-
-**启动失败怎么办？** 在命令面板运行 `DSH: Diagnose Environment` 查看诊断，再用 `DSH: Show dsh Runtime Logs` 查看日志。提交 [issue](https://github.com/HarcoChen/dsh-vsc-integration/issues) 时请附上扩展版本、操作系统和脱敏后的错误信息。
-
-如果启动报 `error: unknown option '--no-open'`，但 `dsh web --help` 列出了这个参数，请检查 `$DSH_HOME/profiles/web/package.json`（默认为 `~/.dsh/profiles/web/package.json`）。当 `dsh.profile.bundles` 同时包含 `@deepseek-ai/dsh-web-app` 和 `@deepseek-ai/dsh-headless` 时，两个应用都会解析同一组参数：Web 接受该参数，headless 随后拒绝它。备份文件，从 Web profile 中移除 headless bundle，再重启 Runtime。一次性 CLI 任务使用独立的 headless profile。
-
-**支持中文吗？** 支持。命令、聊天、活动面板和 Trace 界面会跟随 VS Code 显示语言，提供英文与简体中文。
-
-## 架构与运行机制
-
-扩展通过 RC Remote RPC 连接 Runtime，使用 HTTP 调用和多路复用 WebSocket 获取实时会话更新。
-
-多个 VS Code 窗口通过 Runtime 广告互相发现，再回退到端口 `3080` 及配置的 `dsh.serverPort`。每个候选都先做健康检查：认证及 `session/list` 调用成功才算可用，广告中低于最低要求的版本直接排除。外部服务不会归本扩展所有，断开连接不会停止它。需要认证但缺少凭据时，会提示将 `dsh.serverUrl` 设为完整启动 URL（包含 token）。
-
-广告只是发现用的元数据，任何字段都不授予也不否决启动权限。广告缺失、过期或无法读取都不会阻塞启动，最坏情况只是多做一次失败的健康探测，然后本窗口启动自己的 Runtime。
-
-每个窗口只发布自己那一份 `<ownerId>.json`，位于系统临时目录下的 `dsh-runtime-advertisements-<user>`，记录端点、启动 URL、版本、PID 和 composition hash。窗口只写自己的文件，从不回收别人的；旧的 `dsh-runtime.lock` 仅作只读提示，不再写入或删除。读取时只取最近 16 条，被遗弃的文件挤不掉仍然存活的。
-
-广告生命周期：
-
-- 只有已就绪的端点才发布。在产生 URL 之前失败的启动不留下任何文件。
-- 启动时通过回环 mutex 做短暂协调——最多等 250 ms、最多持有 500 ms——并在 spawn 前重新检查是否已有共享 Runtime。抢不到从不阻塞启动，只意味着本窗口起自己的 Runtime。
-- 显式 stop、dispose 以及启动失败都会撤回广告。
-- 启动器意外退出时放弃所有权，但只要端点仍然应答就保留广告——包管理器包装进程经常自己退出而它拉起的 Runtime 仍在服务。只有明确被拒绝的回环连接才撤回；超时或主机名有歧义时一律保留。
-- 启动固定 `--host 127.0.0.1`；未设置 `dsh.serverPort` 时使用操作系统分配的端口。指定端口在 bind 竞争中失败时，会用操作系统分配的端口重试一次。
-- 退出时先停止本扩展拥有的进程树，再撤回广告。POSIX 使用独立进程组，Windows 在根进程身份仍可确认时使用限定 PID 的 `taskkill /T`。
-
-运行 `npm run compile` 后，分别执行 `node scripts/verify-runtime-discovery.mjs`、`node scripts/verify-runtime-shutdown.mjs`，验证启动器/端口选择、广告、升级确认及退出清理；脚本仅使用隔离临时目录、子进程及回环监听器。
-
-```mermaid
-graph TD
-    A[VS Code Extension Host] <-->|RC Remote RPC| B[Standalone Harness Runtime]
-    A <-->|Typed Full-State Bridge| C[React Webview UI]
-    B <-->|官方 Desktop dsh 命令| D[DeepSeek Desktop]
-    A <-->|Process Lock| E[Multi-Window Shared Runtime]
-```
+- **原生审阅**，并排查看工具改动，审批前预览文件写入，也支持 Git 仓库以外的文件。
+- **编辑器上下文**，附加文件、选区、符号、诊断、Git Diff 和暂停时的调试状态。
+- **持久会话**，支持独立编辑器标签、对话大纲、搜索、归档及 Markdown/JSON/ZIP 导出。
+- **任务跟踪**，集中查看 Trace、活动、子代理、Todo、Token 用量和模型费用估算。
+- **Runtime 管理**，提供终端、定时任务、账户和插件安装入口。
+- **Worktree 与 PR 评审**，需启用官方可选组合包 `@deepseek-ai/dsh-experimental-forge-bundle`。
+- **行内补全与 Agent 调试**，自动补全和自主调试默认关闭。
 
 ## 配置
 
-完整列表可在 VS Code 设置界面搜索 `dsh`。
+在 VS Code 设置中搜索 `dsh` 查看全部选项，在命令面板搜索 `DSH` 查找操作。界面随 VS Code 显示语言提供英文或简体中文。
 
-| 设置项 | 默认值 | 说明 |
-| --- | --- | --- |
-| `dsh.serverUrl` | `""` | 已运行的 dsh web Runtime 地址，设置后扩展将直接连接；可在地址中附加 `?token=...`，或单独设置 `dsh.serverToken`。 |
-| `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
-| `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
-| `dsh.installWhenMissing` | `false` | 已弃用的兼容设置；不再下载独立 Runtime。没有 `dsh` 时引导安装官方 Desktop。 |
-| `dsh.runtimeVersion` | `0.2.2-rc.1` | 用户同意后的本机 CLI 升级兼容目标；独立下载行为已弃用。 |
-| `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
-| `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
-| `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
-| `dsh.jev.enabled` | `false` | 启用 Jev 总开关；受保护工具参数及已启用功能所需数据可能发送到 TypeSafe System One。请使用“DSH：配置 Jev API Key”配置密钥；修改后需重启 Runtime。 |
-| `dsh.jev.baseUrl` | `https://api.typesafe.ai/v1/systemone` | Jev endpoint；远程地址请使用 HTTPS。 |
-| `dsh.jev.model` | `jev-latest` | Jev 模型名。 |
-| `dsh.jev.loopGuard.enabled` | `false` | 启用工具执行后的语义循环检测；轨迹样本可能发送给 Jev。 |
-| `dsh.jev.resultShaper.enabled` | `false` | 启用大型工具结果重复文本的分类和整形；样本可能发送给 Jev。 |
-| `dsh.jev.doneGate.enabled` | `false` | 让 Jev 根据工具证据检查完成声明。 |
-| `dsh.jev.toolPruner.enabled` | `false` | 让 Jev 排序可见工具；不会改变 DSH 权限。 |
-| `dsh.jev.skillRouter.enabled` | `false` | 让 Jev 选择相关 skill 并追加有界建议。 |
-| `dsh.jev.decisionTools.enabled` | `false` | 暴露 Jev 提问/排序/检查工具；提交状态可能发送给 Jev。 |
-| `dsh.jev.deterministicSafetyGuard.enabled` | `true` | 在本地检查危险命令和凭据泄漏。 |
-| `dsh.autonomousDebugging` | `false` | 允许 Agent 通过本机回环 MCP 端点操作本窗口的调试器；只对本窗口自行启动的 Runtime 生效，切换后需重启 Runtime。 |
-| `dsh.maxContextBytes` | `120000` | 单次请求中 `<ide_context>` 的最大 UTF-8 字节数。 |
-| `dsh.persistSession` | `true` | 尽可能复用当前工作区上次的 Session ID。 |
-| `dsh.agentStatusLabels` | *内置“大肥鱼”状态文案* | 每轮流式输出随机展示的文本提示，支持自定义。 |
-| `dsh.agentStatusLabel` | `""` | 设置后将固定显示该提示文案。 |
-| `dsh.enableEffortKnob` | `true` | 推理强度滑块使用跑步 sprite 动画作为按钮。 |
+连接已有 Runtime 时，将 `dsh.serverUrl` 设为包含 Token 的启动地址，也可单独填写 `dsh.serverToken`。远程地址须使用 HTTPS。`dsh.connectionMode` 设为 `attach-only` 可仅连接已有进程。`DSH: 连接桌面端` 接受 Desktop 的 `dsh-vscode-connect` 插件提供的连接地址。
 
-## 其他安装方式
+内置的 Laya / Jev 集成提供循环检测、输出整形、完成检查、工具裁剪和 Skill 路由。打开 `dsh.jev.enabled` 和需要的子功能，运行 `DSH: 配置 Jev API Key`，按提示重启 Runtime。Key 加密保存在 SecretStorage，启用的功能可能将所需样本发送至配置的端点。该集成应用于本扩展启动的 Runtime。
 
-**从 GitHub Releases 安装**：下载 [Releases](https://github.com/HarcoChen/dsh-vsc-integration/releases) 里的 `.vsix`，运行 `Extensions: Install from VSIX...`。预发布版本会带 pre-release 标记发到 Open VSX，同时挂在 GitHub Releases：在 Open VSX 上只有把该扩展切换到预发布版本的用户才会收到；它们不会进 VS Code Marketplace，那边不接受带 SemVer 预发布后缀的版本号。`0.8.0` 起正式版使用偶数 minor（`0.8.x`）、预发布使用更高的奇数 minor（`0.9.x`），因此正式版不会盖过更新的预发布版本。
+使用 Laya 时，将 `dsh.jev.baseUrl` 指向兼容 System One 接口的 HTTPS 地址，设置 `dsh.jev.model` 并配置 API Key。服务端接受占位 Key 时可填写占位值。
 
-**从源码构建**：
+## 排查问题
+
+运行 `DSH: 诊断环境`，再通过 `DSH: 显示 dsh Runtime 日志` 查看错误。反馈时附上扩展版本、操作系统和脱敏后的错误信息。[提交问题](https://github.com/HarcoChen/dsh-vsc-integration/issues)
+
+扩展在启动本机 Runtime 及配置变化时创建备份，每个 DSH Home/配置保留最近 10 份。运行 `DSH: 打开配置备份` 可取回文件并手动恢复。
+
+## 开发
+
+使用 Node.js 22+，构建前初始化随包集成。
 
 ```bash
 git submodule update --init --recursive
-npm install
+npm ci
 npm run check
 npm run package
 ```
 
-随后通过 `Extensions: Install from VSIX...` 安装生成的 `.vsix`。
-
-## 扩展 API
-
-其他 VS Code 扩展可以接入 DSH 导出的 API。
+`npm test` 运行发布检查。Runtime 兼容性和联调结果见维护记录，其他扩展可接入导出的对话导航和 Agent 状态 API。[维护记录](MAINTENANCE.md) · [扩展 API](src/agentStatusPresentation.ts)
 
 <details>
-<summary><strong>对话导航 API</strong>：注册自定义节点</summary>
+<summary>发版流程</summary>
 
-```ts
-const registration = api.registerConversationNavigation([
-    { seq: 42, label: "检查 PPO 实现", detail: "训练配置" },
-]);
-context.subscriptions.push(registration);
-```
+将改动记在 `CHANGELOG.md` 的 `Unreleased` 中。补丁发布运行 `npm run release -- patch`，再用 `git push origin HEAD --follow-tags` 推送提交和 tag。正式版使用偶数 minor，预览版使用更高的奇数 minor。纯数字预览版在 Marketplace 标记为 pre-release，带 SemVer 预发布后缀的版本发布到 Open VSX 和 GitHub Releases。
+
+Marketplace 使用 GitHub OIDC 和 `vsce 4.1.0` 发布。首次发布前，在 publisher `harcochen` 下创建 Trusted Publishing 策略，owner 填 `HarcoChen`，repository 填 `dsh-vsc-integration`，workflow 填 `release.yml`，Environment 留空。[Trusted Publishing 设置](https://developer.microsoft.com/blog/trusted-publishing-visual-studio-marketplace/)
 
 </details>
 
-<details>
-<summary><strong>Agent Status Label API</strong>：自定义流式状态文案</summary>
+## 项目
 
-```ts
-const dsh = vscode.extensions.getExtension<import("dsh-vsc-integration").DshExtensionApi>(
-    "harcochen.dsh-vsc-integration",
-);
-const api = await dsh?.activate();
-context.subscriptions.push(
-    api?.registerAgentStatusPresentation({ label: "🐋 深潜中" }),
-);
-```
+本项目由社区独立维护。跑步精灵参考 `dsh-reasoning-effort`，对话大纲受 `dsh-milestone` 启发。[精灵素材来源](https://github.com/HanaAyane/dsh-reasoning-effort)
 
-</details>
-
-## 开发与测试
-
-```bash
-npm install
-npm run check      # TypeScript 检查（宿主 + webview）
-npm test           # 发布门槛：webview 检查 + 编译 + 测试套件
-npm run compile    # 构建到 dist/
-npm run package    # 编译 + vsce 打包
-npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
-```
-
-日常改动记录在 `CHANGELOG.md` 的 `Unreleased` 中；临时打包不提升版本、不归档日志、不打 tag。准备发布下一版预览版时，在当前奇数 minor 上执行 `npm run release -- patch`，由脚本统一提升版本、归档日志、提交并创建 tag；确认后使用 `git push origin HEAD --follow-tags` 触发发布。预览版手动打包使用 `npm run package -- --pre-release`。
-
-Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、完整导出、分页、评价、重连、流式输出、Goal、命令、Host 任务与限时问答。Jev、Team 和工作流结果及人工验证范围见 [维护记录](MAINTENANCE.md)。
-
-对已安装的 `0.2.2-rc.1` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
-
-```bash
-npm run compile
-node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh
-node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-schedule-bundle
-node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --timed-questions
-node scripts/verify-remote-runtime.mjs --launcher /absolute/path/to/dsh --with-team-bundle
-```
-
-脚本使用临时 DSH_HOME、独立 DSH Workspace 和回环地址上的 Messages 模拟模型，不使用现有 Session 或外部模型凭据。Node.js 版本须满足所选 Runtime 的要求（`^22.19.0 || >=24.0.0`）。`--with-schedule-bundle` 检查 0.2.0 的可选 Schedule bundle（0.2.1 默认内置 Schedule）；`--workflow-controls` 检查终端输入确认、重连、插件操作与历史目录 Diff；`--with-jev` 加载内置 overlay 并检查能力端点；`--timed-questions` 检查超时延续和延迟回答，`--expect-version <version>` 可显式指定其他验证目标，`--keep` 保留临时状态。
-
-验证本机命令发现和启动参数：
-
-```bash
-node scripts/verify-runtime-discovery.mjs              # 本机命令发现
-```
-
-## 更多信息
-
-启动本机 Runtime 时，扩展会备份所选 DSH 配置的 `package.json`、`cordis.patch.yml` 及 DSH Home 的 `cordis.patch.yml`。扩展运行期间监听文件变化，按内容去重，每个 DSH Home/配置保留最近 10 份。Runtime 退出后仍可记录手动修改。使用 **DSH：打开配置备份** 查看历史，`backup.json` 记录时间、原路径及文件是否存在；每份目录保留原始文件内容，可手动取回。备份保存在扩展全局存储的 `config-backups` 目录，采用受限文件权限。此功能不依赖 Web UI，也不自动回滚。附加远程或桌面实例时不推测其配置路径，扩展退出期间的修改不会逐次记录。
-
-- [更新日志](CHANGELOG.md)
-- [产品 TODO](TODO.md)
-- [第三方资产说明](THIRD_PARTY_NOTICES.md)
-
-## 致谢
-
-感谢 [dsh-reasoning-effort](https://github.com/HanaAyane/dsh-reasoning-effort) 提供推理强度控件的"大肥鱼跑步"参考。对话大纲受 `dsh-milestone` 项目启发。
-
-## 许可证
-
-[MIT](LICENSE)
+[更新日志](CHANGELOG.md) · [JetBrains 版](https://github.com/HarcoChen/dsh-intellij-integration) · [MIT 许可证](LICENSE)

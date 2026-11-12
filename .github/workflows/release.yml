@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -22,6 +22,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
 
     steps:
       - name: Check out repository
@@ -144,6 +147,23 @@ jobs:
           VSIX: ${{ steps.metadata.outputs.vsix }}
         run: npm run verify:package -- "${VSIX}"
 
+      - name: Publish to Visual Studio Marketplace with OIDC
+        if: ${{ !contains(steps.metadata.outputs.version, '-') }}
+        shell: bash
+        env:
+          VSIX: ${{ steps.metadata.outputs.vsix }}
+          PRERELEASE: ${{ steps.metadata.outputs.prerelease }}
+        # The publisher's Trusted Publishing policy must allow this repository
+        # and release.yml. Marketplace accepts numeric odd-minor pre-releases,
+        # but rejects versions with a SemVer pre-release suffix.
+        # Pin the CLI here as well for manual runs that check out older tags.
+        run: |
+          args=(publish --oidc --packagePath "${VSIX}" --skip-duplicate)
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            args+=(--pre-release)
+          fi
+          npx --yes --package=@vscode/vsce@4.1.0 vsce "${args[@]}"
+
       - name: Publish to Open VSX
         shell: bash
         env:
@@ -163,6 +183,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             ${{ steps.metadata.outputs.vsix }}
             ${{ steps.metadata.outputs.carts }}
