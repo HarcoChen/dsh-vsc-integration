@@ -4,7 +4,7 @@ import type { DshRuntime } from "./dshRuntime";
 import { isRecord } from "./guards";
 import { t } from "./localize";
 import { forgeFiles, forgeBeforeText, type ForgeFile } from "./forgeDiff";
-import { RemoteHttpError, isRemoteError } from "./remote/errors";
+import { isRemoteEndpointUnavailable } from "./remote/errors";
 
 export class ForgeReviewController implements vscode.Disposable {
     private readonly contents = new Map<string, string>();
@@ -123,13 +123,18 @@ export class ForgeReviewController implements vscode.Disposable {
                     await this.pullRequest(sessionId, choice.url);
             }
         } catch (error) {
-            if (
-                (error instanceof RemoteHttpError && error.status === 404) ||
-                (isRemoteError(error) && error.code === "gateway/not-found")
-            ) {
-                throw new Error(
-                    t("Enable the official Worktree / Forge bundle in Runtime plugins to use repository review.")
+            if (isRemoteEndpointUnavailable(error, "forgePanel/follow")) {
+                if (this.runtime.getUrl() !== endpoint)
+                    throw new Error(t("The connected Runtime changed. Reopen review."));
+                const manage = t("Manage Runtime plugins");
+                const selected = await vscode.window.showInformationMessage(
+                    t("Repository review requires the official Worktree / Forge bundle ({name}). Enable it in Runtime plugins, then reopen review.",
+                        { name: "@deepseek-ai/dsh-experimental-forge-bundle" }),
+                    manage
                 );
+                if (selected === manage && this.runtime.getUrl() === endpoint)
+                    await vscode.commands.executeCommand("dsh.managePlugins");
+                return;
             }
             throw error;
         } finally {

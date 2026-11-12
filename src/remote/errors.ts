@@ -67,6 +67,16 @@ export function isRemoteError(error: unknown): error is RemoteError {
         typeof value.message === "string";
 }
 
+/** An optional Remote export is absent, rather than denied or failing inside its implementation. */
+export function isRemoteEndpointUnavailable(error: unknown, endpoint?: string): boolean {
+    if (error instanceof RemoteHttpError) {
+        return error.status === 404 && (endpoint === undefined || error.endpoint === endpoint);
+    }
+    return isRemoteError(error) &&
+        (error.code === "gateway/invocation-unavailable" || error.code === "gateway/not-found") &&
+        (endpoint === undefined || error.endpoint === endpoint);
+}
+
 export function remoteErrorFromUnknown(error: unknown, endpoint?: string): RemoteError {
     if (isRemoteError(error)) return error;
     return new RemoteError(

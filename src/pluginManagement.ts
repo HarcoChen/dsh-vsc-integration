@@ -6,7 +6,7 @@ import { isRecord } from "./guards";
 import { errorMessage } from "./errors";
 import { normalizePluginChange, pluginChangeDetails } from "./pluginInventory";
 import { t } from "./localize";
-import { RemoteHttpError } from "./remote/errors";
+import { isRemoteEndpointUnavailable } from "./remote/errors";
 
 /** Install and remove bundles exclusively through the connected Host's official manager. */
 export class PluginManagementController {
@@ -26,6 +26,9 @@ export class PluginManagementController {
             const selected = await vscode.window.showQuickPick([
                 { label: `$(search) ${t("Search community plugins")}`, action: "search", name: "" },
                 { label: `$(add) ${t("Install a plugin bundle")}`, action: "install", name: "" },
+                ...bundles.filter(bundle => !bundle.enabled && (bundle.installed || bundle.optional) && !bundle.readOnlyReason && !bundle.errorCode).map(bundle => ({
+                    label: `$(play) ${bundle.name}`, description: bundle.version, detail: t("Enable bundle"), action: "enable", name: bundle.name,
+                })),
                 ...bundles.filter(bundle => bundle.installed && bundle.update && !bundle.readOnlyReason).map(bundle => ({
                     label: `$(arrow-up) ${bundle.name}`, description: bundle.version, detail: t("Update installed bundle"), action: "update", name: bundle.name,
                 })),
@@ -39,6 +42,10 @@ export class PluginManagementController {
             if (selected.action === "search") await this.search(endpoint);
             else if (selected.action === "install") await this.install(endpoint);
             else if (selected.action === "update") await this.update(endpoint, selected.name, bundles.find(bundle => bundle.name === selected.name)?.update);
+            else if (selected.action === "enable") {
+                const result = await this.runtime.setBundleEnabled(selected.name, true);
+                await this.finish(result, endpoint);
+            }
             else {
                 const remove = t("Remove bundle");
                 const confirmation = await vscode.window.showWarningMessage(t("Remove {name} from the connected Runtime profile?", { name: selected.name }),
@@ -50,7 +57,7 @@ export class PluginManagementController {
                 await this.finish(result, endpoint);
             }
         } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) {
+            if (isRemoteEndpointUnavailable(error)) {
                 throw new Error(t("This Runtime does not expose plugin management. Open its Web UI to manage plugins."));
             }
             throw error;
@@ -75,7 +82,7 @@ export class PluginManagementController {
         let indexes: unknown;
         try { indexes = await api.call("pluginMarket/listIndexes", {}); }
         catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) throw new Error(t("Enable the official Plugin Market bundle in Runtime plugins to browse community plugins."));
+            if (isRemoteEndpointUnavailable(error, "pluginMarket/listIndexes")) throw new Error(t("Enable the official Plugin Market bundle in Runtime plugins to browse community plugins."));
             throw error;
         }
         if (!Array.isArray(indexes)) throw new Error(t("The Runtime returned an invalid plugin market."));

@@ -67,6 +67,10 @@
 
 ## 验证
 
+仓库评审依赖可选的 `@deepseek-ai/dsh-experimental-forge-bundle`。未启用时，Runtime 会返回 `gateway/invocation-unavailable`。扩展提供“管理 Runtime 插件”入口，可选择该组合包的“启用组合包”项；若宿主提示需要重启，请重启所属 Runtime 后再打开评审。缺少包时使用安装入口。权限拒绝和其他评审接口错误保留原始错误，不作为依赖缺失处理。
+
+隔离 RC.1 集成检查已复现该缺失错误，验证网关错误的 endpoint 匹配，并确认通过 `setBundleEnabled` 启用官方可选组合包后，评审状态流恢复；检查结束后恢复为禁用状态。
+
 ### 产品缺口复查（2026-11-12）
 
 - 社区插件搜索使用 `pluginMarket/listIndexes|search|readEntryDetail|setIndexes`，可添加来源、翻页和选择兼容版本，安装/更新沿用市场返回的 registry 和精确 spec。需要启用官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle`。

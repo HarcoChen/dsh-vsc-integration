@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
-import { RemoteHttpError, RemoteProtocolError, isRemoteError } from "./remote/errors";
+import { RemoteHttpError, RemoteProtocolError, isRemoteError, isRemoteEndpointUnavailable } from "./remote/errors";
 import { JobsController } from "./jobsController";
 import { UserQuestionWaitController } from "./userQuestionWait";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
@@ -2337,7 +2337,7 @@ export class DshRuntime implements vscode.Disposable {
                 };
             });
         } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            if (isRemoteEndpointUnavailable(error, "pluginManager/listBundles")) return undefined;
             throw error;
         }
     }
@@ -2363,7 +2363,7 @@ export class DshRuntime implements vscode.Disposable {
                 };
             });
         } catch (error) {
-            if (error instanceof RemoteHttpError && error.status === 404) return undefined;
+            if (isRemoteEndpointUnavailable(error, "pluginManager/listPlugins")) return undefined;
             throw error;
         }
     }

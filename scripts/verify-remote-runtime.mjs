@@ -23,6 +23,7 @@ const require = createRequire(import.meta.url);
 const { RemoteConnectionController } = require(join(root, "dist/remote/connection"));
 const { RemoteStateCoordinator } = require(join(root, "dist/remote/stateCoordinator"));
 const { RemoteUnaryClient } = require(join(root, "dist/remote/unaryClient"));
+const { isRemoteEndpointUnavailable } = require(join(root, "dist/remote/errors"));
 const { compareRuntimeVersions } = require(join(root, "dist/runtimeVersion"));
 const { RUNTIME_DEFAULT_VERSION } = require(join(root, "dist/managedRuntime/types"));
 const { WorkspaceFilesClient, readRuntimeTextPreview, RUNTIME_TEXT_PREVIEW_MAX_BYTES } = require(join(root, "dist/workspaceFiles"));
@@ -541,6 +542,26 @@ try {
     }
     assert.equal(foundProof, true);
     pass("Native ZIP export includes verified verbatim binary attachments");
+    if (!withForge && supports022) {
+        await assert.rejects(() => first("forgePanel/follow", { sessionId: seededSessionId }), error => {
+            assert.equal(error.code, "gateway/invocation-unavailable");
+            assert.equal(isRemoteEndpointUnavailable(error, "forgePanel/follow"), true);
+            assert.equal(isRemoteEndpointUnavailable(error, "pluginMarket/listIndexes"), false);
+            return true;
+        });
+        const bundles = await connection.unary.call("pluginManager/listBundles", {});
+        const forgeBundle = bundles.find(bundle => bundle.name === "@deepseek-ai/dsh-experimental-forge-bundle");
+        assert.ok(forgeBundle?.optional && !forgeBundle.enabled && !forgeBundle.readOnlyReason && !forgeBundle.error);
+        try {
+            const enabled = await connection.unary.call("pluginManager/setBundleEnabled", { name: forgeBundle.name, enabled: true });
+            assert.equal(enabled.application, "applied");
+            await first("forgePanel/follow", { sessionId: seededSessionId });
+        } finally {
+            const disabled = await connection.unary.call("pluginManager/setBundleEnabled", { name: forgeBundle.name, enabled: false });
+            assert.equal(disabled.application, "applied");
+        }
+        pass("Missing Forge export is recognized and enabling the shipped optional bundle restores repository review");
+    }
     if (withForge) {
         const forgeState = await first("forgePanel/follow", { sessionId: seededSessionId });
         assert.equal(await realpath(forgeState.directory), await realpath(workspacePath));
