@@ -74,6 +74,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Working...": "处理中…",
     "Manage task": "管理任务",
     "No tasks yet.": "暂无任务。",
+    "No matching tasks.": "没有匹配的任务。",
     "Previous page": "上一页",
     "Next page": "下一页",
     "Task title": "任务标题",

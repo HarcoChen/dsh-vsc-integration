@@ -99,7 +99,7 @@ export function HostSchedulePanel({
                     );
                 })}
             </ul>
-            {!loading && page.total === 0 ? <div className="dsh-card-detail">{t("No tasks yet.")}</div> : null}
+            {!loading && !view.error && page.total === 0 ? <div className="dsh-card-detail">{t(view.active === undefined ? "No tasks yet." : "No matching tasks.")}</div> : null}
             <div className="dsh-card-actions">
                 <button
                     type="button"

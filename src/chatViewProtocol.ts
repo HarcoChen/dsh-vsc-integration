@@ -24,7 +24,7 @@ export type ChatViewAction =
     | { type: "searchCodeContext" }
     | { type: "attachProjectRules" }
     | { type: "managePromptTemplates" }
-    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
+    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[]; submissionId?: string }
     | { type: "retryPrompt"; id: string }
     | { type: "retryGeneration"; sessionId: string; failureSeq: number }
     | { type: "manageHostTask"; id?: string }
@@ -664,7 +664,8 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                   };
         }
         case "sendPrompt":
-            if (!hasOnly(value, ["type", "text", "mode", "images", "files"]) ||
+            if (!hasOnly(value, ["type", "text", "mode", "images", "files", "submissionId"]) ||
+                (value.submissionId !== undefined && (!nonEmptyString(value.submissionId) || value.submissionId.length > 128)) ||
                 typeof value.text !== "string" ||
                 (value.mode !== "queue" && value.mode !== "steer")) return undefined;
             {
@@ -674,6 +675,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 if (!value.text.trim() && images.length === 0 && files.length === 0) return undefined;
                 return {
                     type: "sendPrompt",
+                    ...(typeof value.submissionId === "string" ? { submissionId: value.submissionId } : {}),
                     text: value.text,
                     mode: value.mode,
                     ...(images.length === 0 ? {} : { images }),

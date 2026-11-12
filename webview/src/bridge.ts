@@ -148,6 +148,11 @@ export type InsertTextHandler = (text: string) => void;
 export type SetTextHandler = (text: string) => void;
 export type AddImageDraftHandler = (image: DshImageUpload) => void;
 export type RevealMessageHandler = (seq: number) => void;
+type PromptResultHandler = (id: string, accepted: boolean) => void;
+const promptResultSubscribers = new Set<PromptResultHandler>();
+export function subscribePromptResult(handler: PromptResultHandler): () => void {
+    return subscribe(promptResultSubscribers, handler);
+}
 
 const insertTextSubscribers = new Set<InsertTextHandler>();
 const setTextSubscribers = new Set<SetTextHandler>();
@@ -206,6 +211,11 @@ export function useHostState(): ChatViewState {
         const vscode = getVsCodeApi();
         const onMessage = (event: MessageEvent): void => {
             const data: unknown = event.data;
+            if (data && typeof data === "object" && "type" in data && data.type === "promptResult" &&
+                "submissionId" in data && typeof data.submissionId === "string" && "accepted" in data && typeof data.accepted === "boolean") {
+                notify(promptResultSubscribers, handler => handler(data.submissionId as string, data.accepted as boolean));
+                return;
+            }
             if (isHostStateMessage(data)) {
                 setState(data.state);
                 const previous = vscode.getState() as { questionDrafts?: unknown; composerDrafts?: unknown } | undefined;

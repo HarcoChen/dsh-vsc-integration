@@ -49,7 +49,8 @@ export function normalizeHostTask(value: unknown): HostTask | undefined {
         !["active", "paused", "ended"].includes(String(value.status)) ||
         !isRecord(value.target) ||
         !["session", "new_once", "new"].includes(String(value.target.kind)) ||
-        (value.target.kind !== "new" && typeof value.target.sessionId !== "string") ||
+        (value.target.kind === "session" && typeof value.target.sessionId !== "string") ||
+        (value.target.kind === "new_once" && value.target.sessionId !== undefined && typeof value.target.sessionId !== "string") ||
         !Array.isArray(value.involvedSessionIds) ||
         !value.involvedSessionIds.every((id) => typeof id === "string") ||
         (value.updatedAt !== undefined && typeof value.updatedAt !== "string")

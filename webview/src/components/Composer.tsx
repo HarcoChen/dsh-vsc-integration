@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { DshReferenceCandidate } from "../../../src/types";
-import { postAction, readComposerDraft, saveComposerDraft, subscribeAddImageDraft, subscribeInsertText, subscribeSetText } from "../bridge";
+import { postAction, readComposerDraft, saveComposerDraft, subscribeAddImageDraft, subscribeInsertText, subscribeSetText, subscribePromptResult } from "../bridge";
 import { t } from "../i18n";
 import { canSwitchPermissions, canTogglePlan, type ComposerState } from "../state";
 import { AppShotIcon, FileIcon, ImageIcon, PlusIcon, SendIcon, StopIcon, TerminalIcon } from "./icons";
@@ -60,13 +60,21 @@ export const Composer = React.memo(function Composer({
     imageLimits,
     plan,
     busy,
-    submitting,
+    submitting: hostSubmitting,
     cancelling,
     continuation,
     sessionId,
 }: ComposerProps): React.JSX.Element {
     const [text, setText] = useState(() => readComposerDraft(sessionId));
-    useEffect(() => { saveComposerDraft(sessionId, text); }, [sessionId, text]);
+    const draftSession = useRef(sessionId);
+    useEffect(() => {
+        if (draftSession.current === undefined && sessionId !== undefined) saveComposerDraft(undefined, "");
+        draftSession.current = sessionId;
+        saveComposerDraft(sessionId, text);
+    }, [sessionId, text]);
+    const pending = useRef<{ id: string; text: string; images: string[]; files: string[] }>();
+    const [awaitingHost, setAwaitingHost] = useState(false);
+    const submitting = hostSubmitting || awaitingHost;
     const [promptMode, setPromptMode] = useState<"queue" | "steer">("queue");
     const [effortVisible, setEffortVisible] = useState(false);
     const [attachmentMenuVisible, setAttachmentMenuVisible] = useState(false);
@@ -81,6 +89,17 @@ export const Composer = React.memo(function Composer({
     const planToggleTargetRef = useRef<boolean>();
     const imageDrafts = useImageDrafts(imageLimits);
     const fileDrafts = useFileDrafts();
+    useEffect(() => subscribePromptResult((id, accepted) => {
+        const submitted = pending.current;
+        if (!submitted || submitted.id !== id) return;
+        pending.current = undefined;
+        setAwaitingHost(false);
+        if (!accepted) return;
+        setText(current => current === submitted.text ? "" : current);
+        for (const image of submitted.images) imageDrafts.remove(image);
+        for (const file of submitted.files) fileDrafts.remove(file);
+        historyWalk.current = undefined;
+    }), [imageDrafts.remove, fileDrafts.remove]);
     const attachmentReads = useRef(0);
     const [preparingAttachments, setPreparingAttachments] = useState(false);
     const [attachmentReadError, setAttachmentReadError] = useState<string>();
@@ -217,7 +236,7 @@ export const Composer = React.memo(function Composer({
     }, [completion.resetSlashIndex]);
 
     const send = useCallback((): void => {
-        if (submitting || attachmentReads.current > 0 || access?.canSend === false) return;
+        if (submitting || pending.current || attachmentReads.current > 0 || access?.canSend === false) return;
         const value = textareaRef.current?.value ?? text;
         const attached = imageDrafts.images.length > 0 || fileDrafts.files.length > 0;
         if (!value.trim() && !attached) {
@@ -227,18 +246,17 @@ export const Composer = React.memo(function Composer({
             return;
         }
         if (!attached && completion.executeSlashCommand(value.trim())) return;
-        saveComposerDraft(sessionId, "");
+        const submissionId = crypto.randomUUID();
+        pending.current = { id: submissionId, text: value, images: imageDrafts.images.map(image => image.id), files: fileDrafts.files.map(file => file.id) };
+        setAwaitingHost(true);
         postAction({
             type: "sendPrompt",
+            submissionId,
             text: value,
             mode: busy ? promptMode : "queue",
             images: imageDrafts.images.map((image) => image.upload),
             files: fileDrafts.files.map(({ name, data }) => ({ name, data })),
         });
-        historyWalk.current = undefined;
-        setText("");
-        imageDrafts.clear();
-        fileDrafts.clear();
     }, [access?.canSend, completion.executeSlashCommand, imageDrafts, fileDrafts, busy, submitting, promptMode, text, sessionId, continuation]);
 
     const canContinue = !busy && continuation !== undefined && Boolean(sessionId) && !text.trim() &&

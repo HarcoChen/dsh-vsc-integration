@@ -57,7 +57,6 @@ export class HostScheduleController {
             ...this.state,
             loading: true,
             error: undefined,
-            active: active ?? undefined,
             canCreate: this.runtime.remoteAccess.allows("schedule/create"),
         };
         this.changed();
@@ -75,7 +74,7 @@ export class HostScheduleController {
                 await this.refresh(Math.floor((page.total - 1) / page.limit) * page.limit, active);
                 return;
             }
-            this.state = { ...this.state, page, loading: false };
+            this.state = { ...this.state, page, active: active ?? undefined, loading: false };
         } catch (error) {
             if (generation !== this.generation || this.runtime.getUrl() !== endpoint) return;
             this.state = { ...this.state, loading: false, error: errorMessage(error) };

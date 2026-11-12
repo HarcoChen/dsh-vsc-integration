@@ -11,11 +11,12 @@ import { StatusBanner } from "./components/StatusBanner";
 import { SessionFeedbackDialog } from "./components/SessionFeedbackDialog";
 import { CostEstimate } from "./components/CostEstimate";
 import { t } from "./i18n";
+import { messageText } from "../../src/messageText";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
-    const promptHistory = React.useMemo(() => state.messages.filter(message => message.role === "user" && message.state === "committed" && message.text.trim())
-        .slice(-100).map(message => message.skillInvocation ? `/${message.skillInvocation} ${message.text}` : message.text), [state.messages]);
+    const promptHistory = React.useMemo(() => state.messages.filter(message => message.role === "user" && message.state === "committed" && messageText(message).trim())
+        .slice(-100).map(messageText), [state.messages]);
     const settingsOpen = !state.focusMode && Boolean(state.settings?.open);
     return (
         <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}${state.appearance?.density === "compact" ? " dsh-compact" : ""}`}
@@ -79,7 +80,7 @@ export function App(): React.JSX.Element {
                 ) : null}
                 {state.access && !state.access.owner ? <div className="dsh-card-detail" role="status">{t(state.access.available ? "Shared Runtime access · actions depend on your permissions" : "Runtime permissions unavailable · waiting for access")}</div> : null}
                 <Composer
-                    key={state.sessionId ?? "__new__"}
+                    key={state.composerKey ?? state.sessionId ?? "__new__"}
                     promptHistory={promptHistory}
                     access={state.access}
                     visible={!settingsOpen}

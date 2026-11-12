@@ -143,7 +143,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.showWhatsNew", () =>
             runQuietCommand(t("View What's New"), () => showWhatsNew(context)),
         ),
-        vscode.commands.registerCommand("dsh.openInEditor", (sessionId?: unknown) => runQuietCommand(t("Open session in editor"), () => chatView.openInEditor(typeof sessionId === "string" ? sessionId : undefined))),
+        vscode.commands.registerCommand("dsh.openInEditor", (sessionId?: unknown) => runQuietCommand(t("Open session in editor"), async () => { await chatView.openInEditor(typeof sessionId === "string" ? sessionId : undefined); })),
         vscode.window.registerWebviewPanelSerializer(ChatViewProvider.editorViewType, { deserializeWebviewPanel: (panel, state) => chatView.restoreEditor(panel, state) }),
         vscode.commands.registerCommand("dsh.openRuntimeTerminal", () =>
             runQuietCommand(t("Open Runtime terminal"), () => chatView.commandTarget().openRuntimeTerminal()),

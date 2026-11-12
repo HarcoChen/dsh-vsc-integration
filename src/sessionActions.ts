@@ -31,6 +31,11 @@ export async function openSessionCenter(host: SessionActionsHost): Promise<void>
     const groupButton = { iconPath: new vscode.ThemeIcon("list-tree"), tooltip: t("Toggle Workspace grouping") };
     const render = (): void => {
         const catalog = host.runtime.getSessionCatalog().snapshot();
+        if (preferences.workspaceId && host.runtime.getHostDescription() && !catalog.workspaces.some(workspace => workspace.workspaceId === preferences.workspaceId)) {
+            preferences = { ...preferences, workspaceId: undefined };
+            void host.preferences?.update("sessionCenterPreferences", preferences);
+            void vscode.window.showInformationMessage(t("The saved DSH Workspace filter no longer exists and has been reset."));
+        }
         picker.buttons = mode === "sessions" ? [filterButton, workspaceButton, sortButton, groupButton] : [vscode.QuickInputButtons.Back];
         if (mode !== "sessions") {
             const choices = mode === "filter" ? [

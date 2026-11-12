@@ -1282,6 +1282,7 @@ export interface ChatViewState {
     appearance?: { fontSize: number; density: "comfortable" | "compact" };
     costEstimate?: import("./sessionCost").SessionCostView;
     editorInstanceId?: string;
+    composerKey?: string;
     access?: { available: boolean; owner: boolean; canSend: boolean; canCancel: boolean; canConfigure: boolean; canSelectModel: boolean; canRunCommands: boolean };
     messages: ChatMessage[];
     context: DshContextItem[];

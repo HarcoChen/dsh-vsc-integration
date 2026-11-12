@@ -36,7 +36,7 @@ export function estimateSessionCost(
     snapshot: SessionStateSnapshot | undefined,
     rates: readonly ModelRate[]
 ): SessionCostView | undefined {
-    if (!snapshot || !rates.length) return undefined;
+    if (!snapshot || snapshot.needsHistoryBaseline || !rates.length) return undefined;
     const requests = new Map<string, { provider?: string; model?: string; usage?: Record<string, unknown> }>();
     const active = new Map<string, string>();
     for (const stored of snapshot.events) {

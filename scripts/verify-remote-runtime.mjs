@@ -1265,7 +1265,8 @@ try {
     if (ideSmokePath) {
         await connection.unary.call("session/rename", { request: { sessionId: seededSessionId, title: "IDE First Session" } });
         await connection.unary.call("session/rename", { request: { sessionId: created.sessionId, title: "IDE Second Session" } });
-        await writeFile(ideSmokePath, JSON.stringify({ launchUrl, baseUrl, runtimeVersion, workspacePath, modelUrl: `http://127.0.0.1:${model.address().port}/v1`, sessionIds: [seededSessionId, created.sessionId] }), { mode: 0o600 });
+        await rm(ideSmokePath + ".done", { force: true });
+        await writeFile(ideSmokePath, JSON.stringify({ launchUrl, baseUrl, runtimeVersion, workspacePath, modelUrl: `http://127.0.0.1:${model.address().port}/v1`, sessionIds: [seededSessionId, created.sessionId] }), { mode: 0o600, flag: "wx" });
         await until(async () => { try { return await readFile(ideSmokePath + ".done", "utf8"); } catch { return false; } }, "native IDE smoke", 180_000);
         pass("Native IDE smoke completed");
     }

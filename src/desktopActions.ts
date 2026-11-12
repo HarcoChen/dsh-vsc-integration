@@ -87,27 +87,47 @@ export class DesktopConnectionActions {
             },
         });
         if (!version) return;
-        await this.runtime.stop();
-        await this.secrets.store(
-            DESKTOP_GRANT_SECRET,
-            JSON.stringify({ url, runtimeVersion: version.trim(), ...(key ? { key } : {}) } satisfies DesktopGrant)
-        );
         const config = vscode.workspace.getConfiguration("dsh");
-        for (const [name, value] of [
-            ["serverUrl", ""],
-            ["desktopConnection", true],
-            ["desktopRuntimeVersion", version.trim()],
-        ] as const) {
+        const changes = ([
+            ["serverUrl", ""], ["desktopConnection", true], ["desktopRuntimeVersion", version.trim()],
+        ] as const).map(([name, value]) => {
             const scoped = config.inspect(name);
-            const target =
-                scoped?.workspaceFolderValue !== undefined
-                    ? vscode.ConfigurationTarget.WorkspaceFolder
-                    : scoped?.workspaceValue !== undefined
-                      ? vscode.ConfigurationTarget.Workspace
-                      : vscode.ConfigurationTarget.Global;
-            await config.update(name, value, target);
+            const target = scoped?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+                : scoped?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+            const before = target === vscode.ConfigurationTarget.WorkspaceFolder ? scoped?.workspaceFolderValue
+                : target === vscode.ConfigurationTarget.Workspace ? scoped?.workspaceValue : scoped?.globalValue;
+            return { name, value, target, before };
+        });
+        const previousGrant = await this.secrets.get(DESKTOP_GRANT_SECRET);
+        const nextGrant = JSON.stringify({ url, runtimeVersion: version.trim(), ...(key ? { key } : {}) } satisfies DesktopGrant);
+        await this.runtime.stop();
+        try {
+            await this.secrets.store(DESKTOP_GRANT_SECRET, nextGrant);
+            for (const change of changes) await config.update(change.name, change.value, change.target);
+            await this.runtime.start();
+        } catch (error) {
+            try {
+              if (await this.secrets.get(DESKTOP_GRANT_SECRET) === nextGrant) {
+                await this.runtime.stop().catch(() => undefined);
+                const rollbackFailures: unknown[] = [];
+                for (const change of changes) {
+                    const latest = config.inspect(change.name);
+                    const current = change.target === vscode.ConfigurationTarget.WorkspaceFolder ? latest?.workspaceFolderValue
+                        : change.target === vscode.ConfigurationTarget.Workspace ? latest?.workspaceValue : latest?.globalValue;
+                    if (current === change.value) {
+                        try { await config.update(change.name, change.before, change.target); }
+                        catch (failure) { rollbackFailures.push(failure); }
+                    }
+                }
+                if (previousGrant === undefined) await this.secrets.delete(DESKTOP_GRANT_SECRET);
+                else await this.secrets.store(DESKTOP_GRANT_SECRET, previousGrant);
+                if (rollbackFailures.length) throw new Error("Configuration rollback incomplete");
+              }
+            } catch {
+                void vscode.window.showWarningMessage(t("The Desktop connection failed and some previous settings could not be restored. Check DSH connection settings."));
+            }
+            throw error;
         }
-        await this.runtime.start();
         if (process.platform === "win32" && !key) {
             const paired = await this.runtime.acquireDesktopPairing().catch(() => undefined);
             if (paired)

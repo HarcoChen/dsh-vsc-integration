@@ -43,7 +43,7 @@ export function useImageDrafts(limitsValue?: DshImageLimitsView): {
 } {
     const limits = limitsValue ?? DEFAULT_LIMITS;
     const latestLimits = useRef(limits);
-    latestLimits.current = limits;
+    React.useLayoutEffect(() => { latestLimits.current = limits; }, [limits]);
     const current = useRef<DraftImage[]>([]);
     const generation = useRef(0);
     const reserved = useRef({ count: 0, bytes: 0 });

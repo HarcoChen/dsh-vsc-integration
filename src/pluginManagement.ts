@@ -194,9 +194,17 @@ export class PluginManagementController {
         const requestId = randomUUID();
         const response = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: t("Updating {name}", { name }), cancellable: true }, async (progress, token) => {
             let cancelled = token.isCancellationRequested;
+            let settled = false;
             let cancellation: Promise<unknown> | undefined;
             const requestCancellation = (): void => {
-                cancellation = this.runtime.cancelPluginInstall(requestId)
+                if (cancellation) return;
+                cancellation = (async () => {
+                    while (!settled) {
+                        this.assertEndpoint(endpoint);
+                        if (await this.runtime.cancelPluginInstall(requestId) !== "not-running") return;
+                        await new Promise(resolve => setTimeout(resolve, 150));
+                    }
+                })()
                     .catch(error => this.output.appendLine(`[dsh:plugins] ${errorMessage(error)}`));
             };
             const events = this.runtime.onDidRemoteEvent((event, args) => {
@@ -207,10 +215,11 @@ export class PluginManagementController {
                 if (cancelled && event === "plugin-manager/install-state" && frame.phase === "installing") requestCancellation();
             });
             const cancel = token.onCancellationRequested(() => { cancelled = true; requestCancellation(); });
+            if (cancelled) requestCancellation();
             try {
                 return await this.runtime.getApiClient().call<unknown>("pluginManager/updateBundle", { name, version: version!.trim(),
                     options: { requestId, ...(registry ? { registry } : {}), ...(spec ? { spec: spec.trim() } : {}) } });
-            } finally { events.dispose(); cancel.dispose(); await cancellation; }
+            } finally { settled = true; events.dispose(); cancel.dispose(); await cancellation; }
         });
         this.assertEndpoint(endpoint);
         const result = isRecord(response) ? normalizePluginChange(response.result) : undefined;

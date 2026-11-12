@@ -1464,15 +1464,23 @@ export class DshRuntime implements vscode.Disposable {
 
     private async refreshDesktopConnection(): Promise<void> {
         if (!this.desktopResolver || this.configuration().get<string>("serverUrl", "").trim()) return;
+        const generation = this.runtimeRecoveryGeneration;
+        const baseUrl = this.baseUrl;
+        const launchUrl = this.launchUrl;
+        const desktopSettings = (): string => JSON.stringify([this.configuration().get("serverUrl"), this.configuration().get("desktopConnection"), this.configuration().get("desktopRuntimeVersion")]);
+        const settings = desktopSettings();
+        const current = (): boolean => !this.disposed && this.status.state === "running" &&
+            generation === this.runtimeRecoveryGeneration && settings === desktopSettings();
         try {
             const grant = await this.desktopResolver(AbortSignal.timeout(5000));
-            if (this.disposed || this.status.state !== "running") return;
+            if (!current() || this.baseUrl !== baseUrl || this.launchUrl !== launchUrl) return;
             const endpoint = parseRuntimeEndpoint(grant.url, true);
             if (!endpoint) return;
             if (endpoint.launchUrl !== this.launchUrl) {
                 this.setRuntimeEndpoint(endpoint, false);
                 this.harnessState.setRuntimeVersion(grant.runtimeVersion);
                 await this.waitForReady(endpoint.baseUrl, 5000);
+                if (!current() || this.baseUrl !== endpoint.baseUrl || this.launchUrl !== endpoint.launchUrl) return;
                 this.remoteConnection.reconnect();
             }
         } catch { this.output.appendLine("[dsh] Desktop pairing refresh unavailable"); }
@@ -1689,7 +1697,6 @@ export class DshRuntime implements vscode.Disposable {
             return await this.startPromise;
         } catch (error) {
             if (abort.signal.aborted) throw error;
-            if (this.configuration().get<string>("connectionMode", "auto") === "attach-only") throw error;
             if (error instanceof IncompatibleWebProfileError) this.lastRecoveryComposition = undefined;
             if (isDshWriterLockFailure(error)) {
                 this.lastRecoveryComposition = undefined;
@@ -1701,7 +1708,7 @@ export class DshRuntime implements vscode.Disposable {
                 this.lastRecoveryComposition = undefined;
                 this.output.appendLine("[dsh] startup blocked by an unusable package-manager store; bundle isolation cannot repair it.");
             }
-            if (!fromRecovery && this.recoveryEnabled() && this.lastRecoveryComposition) {
+            if (!fromRecovery && this.configuration().get<string>("connectionMode", "auto") !== "attach-only" && this.recoveryEnabled() && this.lastRecoveryComposition) {
                 try {
                     const outcome = await this.runAutomaticRecovery(
                         workspaceRoot,
@@ -3195,6 +3202,9 @@ export class DshRuntime implements vscode.Disposable {
         if (configuredUrl) {
             if (desktop) this.harnessState.setRuntimeVersion(desktop.runtimeVersion);
             const serverVersion = configuration.get<string>("serverRuntimeVersion", "").trim();
+            if (!desktop) {
+                this.harnessState.setRuntimeVersion(serverVersion || RUNTIME_DEFAULT_VERSION);
+            }
             if (!desktop && serverVersion) {
                 if (!isSupportedRuntimeVersion(serverVersion)) throw new Error(t("Enter a supported complete Runtime version."));
                 this.harnessState.setRuntimeVersion(serverVersion);

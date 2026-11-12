@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /** Real VS Code extension-host smoke with isolated profiles and a loopback mock-model Runtime. */
-import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { spawnOwnedRuntime, terminateOwnedRuntime } = createRequire(import.meta.url)(join(root, "dist/runtimeProcess"));
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
     const index = args.indexOf(name);
@@ -31,11 +32,11 @@ await writeFile(join(helper, "index.cjs"), `exports.activate = async () => {
     finally { await new Promise(resolve => setTimeout(resolve, 1000)); await require('vscode').commands.executeCommand('workbench.action.quit'); }
 };`);
 const env = Object.fromEntries(
-    ["PATH", "HOME", "SystemRoot", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TMPDIR", "DISPLAY"]
+    ["PATH", "HOME", "SystemRoot", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TMPDIR", "DISPLAY", "XAUTHORITY"]
         .filter((key) => process.env[key] !== undefined)
         .map((key) => [key, process.env[key]])
 );
-const runtime = spawn(
+const runtime = spawnOwnedRuntime(
     process.execPath,
     [
         join(root, "scripts/verify-remote-runtime.mjs"),
@@ -62,6 +63,7 @@ const runtimeDone = new Promise((resolve) => {
 });
 const deadline = Date.now() + 180_000;
 let native;
+const nativeLaunches = [];
 try {
     let metadata;
     while (Date.now() < deadline) {
@@ -95,9 +97,8 @@ try {
             await writeFile(settingsPath, JSON.stringify({ ...settings, "dsh.autoStart": true }), { mode: 0o600 });
         }
         let output = "";
-        native = spawn(
-            option("--code", "code"),
-            [
+        const codeCommand = option("--code", "code");
+        const codeArgs = [
                 "--new-window",
                 "--user-data-dir",
                 userData,
@@ -112,7 +113,15 @@ try {
                 "--skip-welcome",
                 "--skip-release-notes",
                 scratch,
-            ],
+            ];
+        const useCmd = process.platform === "win32" && !/\.(exe|com)$/iu.test(codeCommand);
+        const quoteCmd = value => {
+            if (/["\r\n%!]/u.test(value)) throw new Error("Unsupported character in Windows CLI path or argument");
+            return `"${value}"`;
+        };
+        native = spawnOwnedRuntime(
+            useCmd ? process.env.COMSPEC || "cmd.exe" : codeCommand,
+            useCmd ? ["/d", "/s", "/c", `"${[codeCommand, ...codeArgs].map(quoteCmd).join(" ")}"`] : codeArgs,
             {
                 cwd: root,
                 env: {
@@ -122,8 +131,10 @@ try {
                     DSH_NATIVE_SMOKE_PHASE: phase,
                 },
                 stdio: ["ignore", "pipe", "pipe"],
+                ...(useCmd ? { windowsVerbatimArguments: true } : {}),
             }
         );
+        nativeLaunches.push(native);
         native.stdout.on("data", (chunk) => {
             output += chunk;
         });
@@ -132,7 +143,6 @@ try {
         });
         const status = await new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
-                native.kill();
                 reject(new Error(`VS Code ${phase} timed out.\n${output}`));
             }, 60_000);
             native.on("error", (error) => {
@@ -170,9 +180,15 @@ try {
     );
 } finally {
     await writeFile(state + ".done", "done").catch(() => undefined);
-    native?.kill();
+    const cleanupFailures = [];
+    for (const launch of nativeLaunches) {
+        try { await terminateOwnedRuntime(launch); }
+        catch (error) { cleanupFailures.push(String(error)); }
+    }
     await Promise.race([runtimeDone, new Promise((resolve) => setTimeout(resolve, 2000))]);
-    if (runtime.exitCode === null) runtime.kill();
-    if (args.includes("--keep")) console.log(`Kept isolated smoke directory: ${scratch}`);
+    try { await terminateOwnedRuntime(runtime); }
+    catch (error) { cleanupFailures.push(String(error)); }
+    if (cleanupFailures.length) { console.error(`Smoke process cleanup incomplete: ${cleanupFailures.join("; ")}`); process.exitCode = 1; }
+    if (args.includes("--keep") || cleanupFailures.length) console.log(`Kept isolated smoke directory: ${scratch}`);
     else await rm(scratch, { recursive: true, force: true });
 }

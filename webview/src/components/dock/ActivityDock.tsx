@@ -99,8 +99,8 @@ export const ActivityDock = React.memo(function ActivityDock({
         (scheduleCatalog.status === "loading" || scheduleCatalog.status === "error" ||
             scheduleCatalog.status === "unavailable" || scheduleCatalog.records.length > 0);
     if (hostSchedule || schedule?.length || scheduleCatalogVisible) {
-        const count = hostSchedule?.page.total || scheduleCatalog?.records.length || schedule?.length;
-        tabs.push({ id: "schedule", label: t("Schedule"), count: count || undefined });
+        const count = hostSchedule?.page.total ?? scheduleCatalog?.records.length ?? schedule?.length;
+        tabs.push({ id: "schedule", label: t("Schedule"), count });
     }
     if (permissions) tabs.push({ id: "permissions", label: t("Permissions") });
     if (dynamicPlugins && (dynamicPlugins.loading || dynamicPlugins.error !== undefined || dynamicPlugins.rows.length > 0)) {

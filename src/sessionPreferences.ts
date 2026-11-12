@@ -9,8 +9,8 @@ export interface SessionCenterPreferences {
 export function sessionCenterPreferences(value: unknown): SessionCenterPreferences {
     const raw = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
     return {
-        filter: ["attention", "running", "pinned"].includes(String(raw.filter))
-            ? (raw.filter as SessionCenterPreferences["filter"])
+        filter: raw.filter === "attention" || raw.filter === "running" || raw.filter === "pinned"
+            ? raw.filter
             : "all",
         sort: raw.sort === "title" || raw.sort === "oldest" ? raw.sort : "recent",
         grouped: raw.grouped === true,

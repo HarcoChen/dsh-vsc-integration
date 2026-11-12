@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import { t } from "./localize";
 import { modelRates } from "./sessionCost";
 
+function target(config: vscode.WorkspaceConfiguration, name: string): vscode.ConfigurationTarget {
+    const value = config.inspect(name);
+    return value?.workspaceFolderValue !== undefined ? vscode.ConfigurationTarget.WorkspaceFolder
+        : value?.workspaceValue !== undefined ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+}
+
 export async function configureBillingRate(): Promise<void> {
     const provider = await vscode.window.showInputBox({ title: t("Provider ID"), ignoreFocusOut: true });
     if (!provider?.trim()) return;
@@ -33,7 +39,7 @@ export async function configureBillingRate(): Promise<void> {
         if (value === undefined) return;
         prices[key] = Number(value);
     }
-    const config = vscode.workspace.getConfiguration("dsh");
+    const config = vscode.workspace.getConfiguration("dsh", vscode.window.activeTextEditor?.document.uri);
     const rates = modelRates(config.get("billingRates"));
     await config.update(
         "billingRates",
@@ -41,12 +47,12 @@ export async function configureBillingRate(): Promise<void> {
             ...rates.filter((rate) => rate.provider !== provider.trim() || rate.model !== model.trim()),
             { provider: provider.trim(), model: model.trim(), currency, ...prices },
         ],
-        vscode.ConfigurationTarget.Global
+        target(config, "billingRates")
     );
 }
 
 export async function configureChatAppearance(): Promise<void> {
-    const config = vscode.workspace.getConfiguration("dsh");
+    const config = vscode.workspace.getConfiguration("dsh", vscode.window.activeTextEditor?.document.uri);
     const size = await vscode.window.showInputBox({
         title: t("Chat font size"),
         value: String(config.get<number>("chatFontSize", 13)),
@@ -64,6 +70,6 @@ export async function configureChatAppearance(): Promise<void> {
         { title: t("Chat density") }
     );
     if (!density) return;
-    await config.update("chatFontSize", Number(size), vscode.ConfigurationTarget.Global);
-    await config.update("chatDensity", density.value, vscode.ConfigurationTarget.Global);
+    await config.update("chatFontSize", Number(size), target(config, "chatFontSize"));
+    await config.update("chatDensity", density.value, target(config, "chatDensity"));
 }
