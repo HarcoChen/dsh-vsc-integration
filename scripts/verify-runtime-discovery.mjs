@@ -162,7 +162,7 @@ setInterval(() => {}, 1000);
     process.env.PATH = bin;
     const defaults = manifest.contributes.configuration.properties;
     const settings = new Map([["enableCompaction", false], ["installWhenMissing", false]]);
-    if (scenario.startsWith("config-")) settings.set("runtimeVersion", "0.1.2-rc.1");
+    if (scenario.startsWith("config-") && scenario !== "config-backups") settings.set("runtimeVersion", "0.1.2-rc.1");
     if (scenario === "config-pnpm") settings.set("command", "pnpm");
     if (scenario === "target-newer") { settings.set("command", "pnpm"); settings.set("runtimeVersion", targetVersion); }
     if (scenario === "explicit-old") settings.set("command", join(bin, "dsh"));
@@ -314,7 +314,7 @@ setInterval(() => {}, 1000);
             const profile = JSON.parse(await readFile(join(directory, "home", "profiles", "web", "package.json"), "utf8"));
             assert.ok(profile.dsh.profile.bundles.includes("@deepseek-ai/dsh-headless"), "diagnosis must not rewrite the profile");
             assert.deepEqual(await advertisements(), [], "a rejected profile must not advertise a Runtime");
-        } else if (scenario.startsWith("config-")) {
+        } else if (scenario.startsWith("config-") && scenario !== "config-backups") {
             await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.1/u);
             await assert.rejects(() => runtime.diagnoseEnvironment(directory), /dsh\.runtimeVersion/u);
             await assert.rejects(() => readFile(probeMarker), { code: "ENOENT" });
@@ -359,6 +359,7 @@ setInterval(() => {}, 1000);
                 await assert.rejects(() => readFile(join(first, "profile/.env")), { code: "ENOENT" });
                 await runtime.getConfigurationBackupsDirectory();
                 assert.deepEqual(await snapshots(), initial, "unchanged content is not backed up twice");
+                await writeFile(join(history, ".lock"), JSON.stringify({ pid: process.pid, token: "legacy-stale-lock" }));
                 for (let revision = 1; revision <= 12; revision++) {
                     await writeFile(profilePath, JSON.stringify({ ...profile, revision }));
                     await runtime.getConfigurationBackupsDirectory();
@@ -433,6 +434,7 @@ setInterval(() => {}, 1000);
                 }
                 assert.equal(saved, true, "configuration history remains available after Runtime exit");
                 assert.equal(runtime.getStatus().state, "stopped");
+                console.log("PASS configuration backup assertions executed: retention, deduplication, external edits, deletion, legacy stale lock and stopped Runtime");
             }
         }
         if (upgrading && !["upgrade-diagnose", "upgrade-prompt-stop", "upgrade-stop"].includes(scenario)) {

@@ -58,7 +58,7 @@ export class PluginManagementController {
                 await this.finish(result, endpoint);
             }
         } catch (error) {
-            if (isRemoteEndpointUnavailable(error)) {
+            if (isRemoteEndpointUnavailable(error, "pluginManager/listBundles")) {
                 throw new Error(t("This Runtime does not expose plugin management. Open its Web UI to manage plugins."));
             }
             throw error;

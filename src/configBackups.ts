@@ -1,12 +1,29 @@
 import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 
 const RETAIN = 10;
 const MAX_BYTES = 4 * 1024 * 1024;
 const SNAPSHOT = /^\d{13}-[a-f0-9-]{36}$/u;
 interface Source { home: string; profile: string; directory: string }
+
+/** The OS releases the exclusive listener on exit, including crashes and PID reuse. */
+async function acquireBackupLock(directory: string): Promise<(() => Promise<void>) | undefined> {
+    const port = 20000 + createHash("sha256").update(directory).digest().readUInt32BE(0) % 10000;
+    const server = createServer(socket => socket.destroy());
+    const acquired = await new Promise<boolean>((resolve, reject) => {
+        server.once("error", (error: NodeJS.ErrnoException) => {
+            if (error.code === "EADDRINUSE") resolve(false);
+            else reject(error);
+        });
+        server.listen({ host: "127.0.0.1", port, exclusive: true }, () => resolve(true));
+    });
+    if (!acquired) return undefined;
+    server.unref();
+    return () => new Promise<void>(resolve => server.close(() => resolve()));
+}
 
 /** Local DSH configuration history, independent of Runtime health and the recovery ledger. */
 export class ConfigurationBackups {
@@ -96,29 +113,10 @@ export class ConfigurationBackups {
         const digest = createHash("sha256").update(JSON.stringify(files.map(file => [file.file,
             file.contents === null ? null : createHash("sha256").update(file.contents).digest("hex")]))).digest("hex");
         await mkdir(source.directory, { recursive: true, mode: 0o700 });
-        const lockPath = join(source.directory, ".lock");
-        let lock;
-        try { lock = await open(lockPath, "wx", 0o600); }
-        catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-            // A dead editor must not block backups forever. A live owner always wins.
-            try {
-                const owner = JSON.parse(await readFile(lockPath, "utf8"));
-                if (Number.isSafeInteger(owner.pid) && owner.pid > 0) {
-                    try { process.kill(owner.pid, 0); }
-                    catch (cause) { if ((cause as NodeJS.ErrnoException).code === "ESRCH") await rm(lockPath, { force: true }); }
-                }
-            } catch {
-                // An editor can die between exclusive creation and writing its owner record.
-                const stat = await lstat(lockPath).catch(() => undefined);
-                if (stat && Date.now() - stat.mtimeMs > 60_000) await rm(lockPath, { force: true });
-            }
-            return;
-        }
-        const token = randomUUID();
+        const releaseLock = await acquireBackupLock(source.directory);
+        if (!releaseLock) return;
         let pending: string | undefined;
         try {
-            await lock.writeFile(JSON.stringify({ pid: process.pid, token }));
             const listing = await readdir(source.directory, { withFileTypes: true });
             for (const entry of listing) {
                 if (entry.isDirectory() && entry.name.startsWith(".pending-") && SNAPSHOT.test(entry.name.slice(9)))
@@ -154,7 +152,7 @@ export class ConfigurationBackups {
             try {
                 if (pending) await rm(pending, { recursive: true, force: true });
             } finally {
-                await lock.close().finally(() => rm(lockPath, { force: true }));
+                await releaseLock();
             }
         }
     }

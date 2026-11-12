@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import assert from "node:assert/strict";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,6 +66,35 @@ const runtimeDone = new Promise((resolve) => {
 const deadline = Date.now() + 180_000;
 let native;
 const nativeLaunches = [];
+const completedLaunches = new Set();
+
+async function cleanLaunch(launch, scope) {
+    if (process.platform !== "win32" || launch.exitCode !== 0 || !completedLaunches.has(launch)) {
+        await terminateOwnedRuntime(launch);
+        return;
+    }
+    // A successful launcher may already be gone. Verify this isolated profile's process tree
+    // without taskkill on an exited (and potentially reused) PID.
+    const command = `
+      $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+      $ids = @($all | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($env:DSH_SMOKE_PROCESS_SCOPE) } | ForEach-Object { $_.ProcessId })
+      do {
+        $before = $ids.Count
+        $ids = @($ids + @($all | Where-Object { $_.ParentProcessId -in $ids } | ForEach-Object { $_.ProcessId }) | Select-Object -Unique)
+      } while ($ids.Count -ne $before)
+      ConvertTo-Json -InputObject @($ids) -Compress
+    `;
+    const deadline = Date.now() + 5000;
+    do {
+        const { stdout } = await promisify(execFile)("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {
+            env: { ...env, DSH_SMOKE_PROCESS_SCOPE: scope }, timeout: 3000, windowsHide: true,
+        });
+        const remaining = JSON.parse(stdout.trim());
+        if (Array.isArray(remaining) && remaining.length === 0) return;
+        await new Promise(resolve => setTimeout(resolve, 200));
+    } while (Date.now() < deadline);
+    throw new Error("Isolated smoke processes are still running after successful launcher exit");
+}
 try {
     let metadata;
     while (Date.now() < deadline) {
@@ -171,10 +202,12 @@ try {
         if (!result) throw new Error(`VS Code ${phase} did not publish a result.\n${output}`);
         assert.equal(result.ok, true, result.message);
         if (phase === "restore") assert.equal(result.restored, true);
+        completedLaunches.add(native);
         console.log(`PASS native IDE ${phase}`);
     }
     await writeFile(state + ".done", "done");
     assert.equal(await runtimeDone, 0, runtimeOutput);
+    completedLaunches.add(runtime);
     console.log(
         "PASS independent tabs, existing-tab reuse, close lifetime, real inline completion, cancellation and restored session tab"
     );
@@ -182,11 +215,11 @@ try {
     await writeFile(state + ".done", "done").catch(() => undefined);
     const cleanupFailures = [];
     for (const launch of nativeLaunches) {
-        try { await terminateOwnedRuntime(launch); }
+        try { await cleanLaunch(launch, userData); }
         catch (error) { cleanupFailures.push(String(error)); }
     }
     await Promise.race([runtimeDone, new Promise((resolve) => setTimeout(resolve, 2000))]);
-    try { await terminateOwnedRuntime(runtime); }
+    try { await cleanLaunch(runtime, state); }
     catch (error) { cleanupFailures.push(String(error)); }
     if (cleanupFailures.length) { console.error(`Smoke process cleanup incomplete: ${cleanupFailures.join("; ")}`); process.exitCode = 1; }
     if (args.includes("--keep") || cleanupFailures.length) console.log(`Kept isolated smoke directory: ${scratch}`);

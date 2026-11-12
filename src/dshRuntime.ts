@@ -3203,7 +3203,7 @@ export class DshRuntime implements vscode.Disposable {
             if (desktop) this.harnessState.setRuntimeVersion(desktop.runtimeVersion);
             const serverVersion = configuration.get<string>("serverRuntimeVersion", "").trim();
             if (!desktop) {
-                this.harnessState.setRuntimeVersion(serverVersion || RUNTIME_DEFAULT_VERSION);
+                this.harnessState.setRuntimeVersion(serverVersion || "unknown");
             }
             if (!desktop && serverVersion) {
                 if (!isSupportedRuntimeVersion(serverVersion)) throw new Error(t("Enter a supported complete Runtime version."));

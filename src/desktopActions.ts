@@ -100,6 +100,7 @@ export class DesktopConnectionActions {
         });
         const previousGrant = await this.secrets.get(DESKTOP_GRANT_SECRET);
         const nextGrant = JSON.stringify({ url, runtimeVersion: version.trim(), ...(key ? { key } : {}) } satisfies DesktopGrant);
+        const wasRunning = this.runtime.getStatus().state === "running";
         await this.runtime.stop();
         try {
             await this.secrets.store(DESKTOP_GRANT_SECRET, nextGrant);
@@ -107,9 +108,11 @@ export class DesktopConnectionActions {
             await this.runtime.start();
         } catch (error) {
             try {
-              if (await this.secrets.get(DESKTOP_GRANT_SECRET) === nextGrant) {
+              const currentGrant = await this.secrets.get(DESKTOP_GRANT_SECRET);
+              if (currentGrant === nextGrant || currentGrant === previousGrant) {
                 await this.runtime.stop().catch(() => undefined);
                 const rollbackFailures: unknown[] = [];
+                let settingsUnchanged = true;
                 for (const change of changes) {
                     const latest = config.inspect(change.name);
                     const current = change.target === vscode.ConfigurationTarget.WorkspaceFolder ? latest?.workspaceFolderValue
@@ -117,11 +120,14 @@ export class DesktopConnectionActions {
                     if (current === change.value) {
                         try { await config.update(change.name, change.before, change.target); }
                         catch (failure) { rollbackFailures.push(failure); }
+                    } else if (current !== change.before) {
+                        settingsUnchanged = false;
                     }
                 }
                 if (previousGrant === undefined) await this.secrets.delete(DESKTOP_GRANT_SECRET);
                 else await this.secrets.store(DESKTOP_GRANT_SECRET, previousGrant);
                 if (rollbackFailures.length) throw new Error("Configuration rollback incomplete");
+                if (wasRunning && settingsUnchanged) await this.runtime.start();
               }
             } catch {
                 void vscode.window.showWarningMessage(t("The Desktop connection failed and some previous settings could not be restored. Check DSH connection settings."));

@@ -39,7 +39,7 @@ export async function configureBillingRate(): Promise<void> {
         if (value === undefined) return;
         prices[key] = Number(value);
     }
-    const config = vscode.workspace.getConfiguration("dsh", vscode.window.activeTextEditor?.document.uri);
+    const config = vscode.workspace.getConfiguration("dsh", vscode.workspace.workspaceFolders?.[0]?.uri);
     const rates = modelRates(config.get("billingRates"));
     await config.update(
         "billingRates",
@@ -52,7 +52,7 @@ export async function configureBillingRate(): Promise<void> {
 }
 
 export async function configureChatAppearance(): Promise<void> {
-    const config = vscode.workspace.getConfiguration("dsh", vscode.window.activeTextEditor?.document.uri);
+    const config = vscode.workspace.getConfiguration("dsh", vscode.workspace.workspaceFolders?.[0]?.uri);
     const size = await vscode.window.showInputBox({
         title: t("Chat font size"),
         value: String(config.get<number>("chatFontSize", 13)),

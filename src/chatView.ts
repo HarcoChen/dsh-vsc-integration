@@ -1590,7 +1590,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     if (!source || (source.role !== "assistant" && source.role !== "user")) break;
                     const sourceText = messageText(source);
                     const text = message.selection ?? sourceText;
-                    if (!sourceText.includes(text)) throw new Error(t("This message is no longer available."));
+                    const normalizeWhitespace = (value: string): string => value.replace(/\s+/gu, " ").trim();
+                    if (!normalizeWhitespace(sourceText).includes(normalizeWhitespace(text))) throw new Error(t("This message is no longer available."));
                     this.insertComposerText(`\n${text.split("\n").map(line => `> ${line}`).join("\n")}\n\n`);
                     break;
                 }
@@ -2920,7 +2921,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async forkSession(atSeq?: number): Promise<void> {
         if (!this.sessionId) throw new Error(t("There is no current session."));
         const forked = await this.runtime.forkSession(this.sessionId, atSeq);
-        await this.switchSession(forked.sessionId);
+        await this.openForkedSession(forked.sessionId);
     }
 
     private checkpointMessage(seq: number): { sessionId: string; turn?: number } {
@@ -2949,7 +2950,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async forkFromMessage(seq: number): Promise<void> {
         const checkpoint = this.checkpointMessage(seq);
         const forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
-        await this.switchSession(forked.sessionId);
+        await this.openForkedSession(forked.sessionId);
     }
 
     private async runCheckpointAction(action: () => Promise<void>): Promise<void> {
@@ -2996,7 +2997,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 message: errorMessage(error),
             }));
         }
-        await this.switchSession(forked.sessionId);
+        await this.openForkedSession(forked.sessionId);
+    }
+
+    private async openForkedSession(sessionId: string): Promise<void> {
+        if (this.editorContext) await this.editorContext.owner.openInEditor(sessionId);
+        else await this.switchSession(sessionId);
     }
 
     public async archiveSession(): Promise<void> {
@@ -4192,6 +4198,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         const catalog = this.runtime.getSessionCatalog().snapshot();
+        const preferences = vscode.workspace.getConfiguration("dsh", workspaceFolder?.uri);
         const currentDshWorkspace = workspaceFolder
             ? catalog.workspaces.find((workspace) => samePath(workspace.path, workspaceFolder.uri.fsPath))
             : undefined;
@@ -4296,9 +4303,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             submitting: this.submitting,
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,
-            appearance: { fontSize: Math.max(11, Math.min(24, vscode.workspace.getConfiguration("dsh").get<number>("chatFontSize", 13))),
-                density: vscode.workspace.getConfiguration("dsh").get<string>("chatDensity", "comfortable") === "compact" ? "compact" : "comfortable" },
-            costEstimate: estimateSessionCost(session, modelRates(vscode.workspace.getConfiguration("dsh").get("billingRates"))),
+            appearance: { fontSize: Math.max(11, Math.min(24, preferences.get<number>("chatFontSize", 13))),
+                density: preferences.get<string>("chatDensity", "comfortable") === "compact" ? "compact" : "comfortable" },
+            costEstimate: estimateSessionCost(session, modelRates(preferences.get("billingRates"))),
             workspaceName: workspaceFolder?.name,
             skills: this.sessionId
                 ? [...(this.skillCatalogs.get(this.sessionId) ?? [])]

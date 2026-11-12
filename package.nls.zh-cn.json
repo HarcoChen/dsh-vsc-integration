@@ -122,7 +122,7 @@
     "config.inlineCompletion.provider.description": "行内补全 Provider，留空使用当前 DSH 会话选择。",
     "config.inlineCompletion.model.description": "行内补全模型，留空使用当前 DSH 会话选择。",
     "config.imageFileFallback.description": "模型明确拒绝图片输入时，将图片作为文件附加。",
-    "config.serverRuntimeVersion.description": "手动连接服务器的完整 Runtime 版本，留空使用基础契约。",
+    "config.serverRuntimeVersion.description": "手动连接服务器的完整 Runtime 版本，留空表示版本未知，依赖版本的功能暂不启用。",
     "command.configureAppearance.title": "聊天外观",
     "command.configureBillingRates.title": "配置模型费用单价",
     "command.managePromptTemplates.title": "管理提示词模板",

@@ -122,7 +122,7 @@
     "config.inlineCompletion.provider.description": "Provider for inline completion. Empty uses the selected DSH chat route.",
     "config.inlineCompletion.model.description": "Model for inline completion. Empty uses the selected DSH chat route.",
     "config.imageFileFallback.description": "Attach images as files when the selected model explicitly refuses image input.",
-    "config.serverRuntimeVersion.description": "Exact Runtime version of a manually configured server. Empty uses the base contract.",
+    "config.serverRuntimeVersion.description": "Exact Runtime version of a manually configured server. Empty means unknown and leaves version-specific features disabled.",
     "command.configureAppearance.title": "Chat Appearance",
     "command.configureBillingRates.title": "Configure Model Cost Rates",
     "command.managePromptTemplates.title": "Manage Prompt Templates",
