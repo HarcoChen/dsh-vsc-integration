@@ -7,6 +7,7 @@ import { errorMessage } from "./errors";
 import { normalizePluginChange, pluginChangeDetails } from "./pluginInventory";
 import { t } from "./localize";
 import { isRemoteEndpointUnavailable } from "./remote/errors";
+import { assertWebBundle } from "./runtimeProfile";
 
 /** Install and remove bundles exclusively through the connected Host's official manager. */
 export class PluginManagementController {
@@ -234,6 +235,7 @@ export class PluginManagementController {
             title: t("Inspecting plugin package") }, () => this.runtime.inspectPlugin(spec.trim(), undefined, registry));
         this.assertEndpoint(endpoint);
         if (inspection.status === "refused") throw new Error(`${inspection.problem}: ${inspection.reason}`);
+        if (inspection.name) assertWebBundle(inspection.name);
         if (inspection.bundle === false) throw new Error(t("This package does not declare a DSH bundle."));
         const install = t("Install and enable");
         const source = inspection.host ?? inspection.registry ?? t("Runtime default registry");

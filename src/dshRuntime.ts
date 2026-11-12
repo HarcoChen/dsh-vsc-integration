@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
 import { RemoteHttpError, RemoteProtocolError, isRemoteError, isRemoteEndpointUnavailable } from "./remote/errors";
+import { assertWebBundle, assertWebProfileCompatible, HEADLESS_BUNDLE, IncompatibleWebProfileError } from "./runtimeProfile";
 import { JobsController } from "./jobsController";
 import { UserQuestionWaitController } from "./userQuestionWait";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
@@ -1667,6 +1668,7 @@ export class DshRuntime implements vscode.Disposable {
         } catch (error) {
             if (abort.signal.aborted) throw error;
             if (this.configuration().get<string>("connectionMode", "auto") === "attach-only") throw error;
+            if (error instanceof IncompatibleWebProfileError) this.lastRecoveryComposition = undefined;
             if (isDshWriterLockFailure(error)) {
                 this.lastRecoveryComposition = undefined;
                 this.output.appendLine("[dsh] startup blocked by a DSH writer lock; bundle isolation cannot repair this lock.");
@@ -2334,6 +2336,7 @@ export class DshRuntime implements vscode.Disposable {
                     removable: item.removable,
                     ...(typeof item.readOnlyReason === "string" ? { readOnlyReason: item.readOnlyReason } : {}),
                     ...(error === undefined ? {} : { errorCode: error }),
+                    ...(!item.enabled && item.name === HEADLESS_BUNDLE ? { readOnlyReason: "incompatible-web-profile" } : {}),
                 };
             });
         } catch (error) {
@@ -2376,6 +2379,7 @@ export class DshRuntime implements vscode.Disposable {
 
     /** Select or deselect one bundle layer through the RC.2 plugin manager. */
     public async setBundleEnabled(name: string, enabled: boolean): Promise<DshPluginChangeResult> {
+        if (enabled) assertWebBundle(name);
         const value = await this.apiClient.call<unknown>("pluginManager/setBundleEnabled", { name, enabled });
         return this.normalizePluginChange(value, "pluginManager/setBundleEnabled");
     }
@@ -3349,6 +3353,11 @@ export class DshRuntime implements vscode.Disposable {
         checkStarting();
         this.requireRuntimeVersion(launchVersion);
         this.harnessState.setRuntimeVersion(launchVersion!);
+        if (isWebProfileArgs(args)) {
+            await assertWebProfileCompatible(join(process.env.DSH_HOME || join(homedir(), ".dsh"),
+                "profiles", profileNameFromArgs(args), "package.json"));
+            checkStarting();
+        }
 
         const configuredNpxTimeout = configuration.get<number>("npxTimeoutMs", DEFAULT_NPX_TIMEOUT_MS);
         const npxTimeoutMs = Number.isFinite(configuredNpxTimeout) && configuredNpxTimeout > 0

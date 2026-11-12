@@ -48,6 +48,12 @@ exports.run = async () => {
         runtime = new DshRuntime(output, path.join(scratch, "storage"));
         await runtime.start(data.workspacePath);
         await until(() => runtime.getSessionCatalog().snapshot().sessions.length > 0);
+        const bundles = await runtime.pluginManagerBundles();
+        const headless = bundles.find(bundle => bundle.name === "@deepseek-ai/dsh-headless");
+        assert.equal(headless.enabled, false);
+        assert.equal(headless.readOnlyReason, "incompatible-web-profile");
+        await assert.rejects(() => runtime.setBundleEnabled(headless.name, true), /separate CLI profile/);
+        assert.equal((await runtime.pluginManagerBundles()).find(bundle => bundle.name === headless.name).enabled, false);
         const { InlineCompletionProvider } = require(path.join(root, "dist/inlineCompletion"));
         const provider = new InlineCompletionProvider(runtime, () => data.sessionIds[0], output);
         const uri = vscode.Uri.file(path.join(data.workspacePath, "completion.js"));
@@ -112,6 +118,7 @@ exports.run = async () => {
                 ok: true,
                 remaining: tabs()[0].label,
                 checks: [
+                    "reject incompatible Headless bundle without changing profile",
                     "independent session tabs",
                     "reuse existing tab",
                     "close tab without stopping Runtime",

@@ -71,6 +71,10 @@
 
 隔离 RC.1 集成检查已复现该缺失错误，验证网关错误的 endpoint 匹配，并确认通过 `setBundleEnabled` 启用官方可选组合包后，评审状态流恢复；检查结束后恢复为禁用状态。
 
+`--no-open` 是 Web 应用的合法参数。若 Web 配置同时选入 `@deepseek-ai/dsh-headless`，另一个命令行解析器会拒绝它；Headless 组合包还会覆盖权限、凭据和沙箱设置，不能通过删除启动参数解决。扩展禁止在 Web Runtime 中选入或安装此组合包，并在启动前诊断已有混用配置。Headless 任务应放在独立配置中运行。
+
+使用隔离的 RC.1 配置复现了完全相同的 `unknown option '--no-open'`。启动检查确认冲突在创建子进程前被拒绝且不改写配置，原生 VS Code 检查确认 Headless 的只读说明、拒绝启用以及原配置保持不变。正常会话、行内补全及重启恢复通过。
+
 ### 产品缺口复查（2026-11-12）
 
 - 社区插件搜索使用 `pluginMarket/listIndexes|search|readEntryDetail|setIndexes`，可添加来源、翻页和选择兼容版本，安装/更新沿用市场返回的 registry 和精确 spec。需要启用官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle`。

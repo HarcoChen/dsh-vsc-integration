@@ -56,6 +56,7 @@ if (!process.argv.includes("--worker")) {
     const prefix = join(directory, "prefix with spaces");
     const upgrading = scenario.startsWith("upgrade-");
     const compatibleVersions = {
+        "headless-conflict": "0.2.2-rc.1",
         "compatible-rc2": "0.1.5-rc.2", newer: "0.1.5-rc.3", "newer-numeric": "0.1.5-rc.10",
         "newer-stable": "0.1.5", "newer-major": "1.0.0", "compatible-build": "0.1.5-rc.1+local.7",
     };
@@ -66,11 +67,20 @@ if (!process.argv.includes("--worker")) {
         "npx-p-separate": ["-p", "@deepseek-ai/dsh@next", "dsh"],
     };
     const packageArgs = packageForms[scenario];
-    const targetVersion = packageArgs ? "0.2.0-rc.2" : scenario === "target-newer" ? "1.0.0" : "0.2.0-rc.2";
+    const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const targetVersion = packageArgs ? "0.2.0-rc.2" : scenario === "target-newer" ? "1.0.0"
+        : manifest.contributes.configuration.properties["dsh.runtimeVersion"].default;
     const versionFile = join(directory, "installed-version");
     const upgradeMarker = join(directory, "upgrade.json");
     if (upgrading) await writeFile(versionFile, scenario === "upgrade-prerelease" ? "0.1.5-rc.0" : "0.1.2-rc.1");
     const marker = join(directory, "launched.json");
+    if (scenario === "headless-conflict") {
+        const profile = join(directory, "home", "profiles", "web");
+        await mkdir(profile, { recursive: true });
+        await writeFile(join(profile, "package.json"), JSON.stringify({ dsh: { profile: {
+            bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@deepseek-ai/dsh-headless"],
+        } } }));
+    }
     const attempts = join(directory, "attempts.jsonl");
     const probeMarker = join(directory, "probe-started");
     await mkdir(bin);
@@ -144,7 +154,6 @@ setInterval(() => {}, 1000);
         await executable(join(bin, "npx"), "npx", packageArgs ? "0.1.5-rc.2" : "11.0.0");
     }
     process.env.PATH = bin;
-    const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const defaults = manifest.contributes.configuration.properties;
     const settings = new Map([["enableCompaction", false], ["installWhenMissing", false]]);
     if (scenario.startsWith("config-")) settings.set("runtimeVersion", "0.1.2-rc.1");
@@ -293,6 +302,12 @@ setInterval(() => {}, 1000);
             await starting;
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
             if (scenario === "upgrade-prompt-stop") await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
+        } else if (scenario === "headless-conflict") {
+            await assert.rejects(() => runtime.start(directory), /Web profile.*Headless.*package\.json/u);
+            await assert.rejects(() => readFile(marker), { code: "ENOENT" });
+            const profile = JSON.parse(await readFile(join(directory, "home", "profiles", "web", "package.json"), "utf8"));
+            assert.ok(profile.dsh.profile.bundles.includes("@deepseek-ai/dsh-headless"), "diagnosis must not rewrite the profile");
+            assert.deepEqual(await advertisements(), [], "a rejected profile must not advertise a Runtime");
         } else if (scenario.startsWith("config-")) {
             await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.1/u);
             await assert.rejects(() => runtime.diagnoseEnvironment(directory), /dsh\.runtimeVersion/u);
@@ -347,7 +362,7 @@ setInterval(() => {}, 1000);
             assert.equal(published.length, 1, "a ready Runtime must publish exactly one advertisement");
             const advertisement = JSON.parse(await readFile(join(advertisementDirectory, published[0]), "utf8"));
             const expectedAdvertisementVersion = compatibleVersions[scenario] ??
-                (["local", "prefix", "old", "newer", "upgrade-accept"].includes(scenario)
+                (["local", "prefix", "old", "newer", "upgrade-accept", "legacy-args"].includes(scenario)
                     ? "0.1.5-rc.2"
                     : scenario === "upgrade-race" ? "0.1.5-rc.2" : targetVersion);
             assert.equal(advertisement.runtimeVersion, expectedAdvertisementVersion);

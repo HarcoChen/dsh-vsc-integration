@@ -155,6 +155,7 @@ const ZH_CN: Readonly<Record<string, string>> = {
     "Open Runtime terminal": "打开 Runtime 终端",
     "Attach Problems": "附加问题",
     "Manage Runtime plugins": "管理 Runtime 插件",
+    "Headless must run in a separate CLI profile.": "Headless 必须在独立的命令行配置中运行。",
     "Install or remove plugins": "安装或卸载插件",
     "Problems from current file": "当前文件的问题",
     "Choose diagnostics to attach once": "选择诊断，附加到下一条消息",
