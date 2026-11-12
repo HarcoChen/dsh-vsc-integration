@@ -47,6 +47,8 @@ function lowestEventSeq(entries: readonly DshHistoryEntry[]): number | undefined
 export class SubagentController {
     private readonly trees = new SubagentTreeStore();
     private readonly treeAborts = new Map<string, AbortController>();
+    private readonly expanded = new Map<string, Set<string>>();
+    private readonly catalogSeqs = new Map<string, number>();
     private preview: SubagentHistoryPreview | undefined;
     private previewAbort: AbortController | undefined;
     private previewGeneration = 0;
@@ -56,6 +58,23 @@ export class SubagentController {
 
     public tree(rootSessionId: string): SubagentTreeView | undefined {
         return this.trees.get(rootSessionId);
+    }
+
+    public observeCatalog(sessionId: string, snapshot: SessionStateSnapshot): void {
+        const cell = snapshot.projections.find(item => item.key === "subagentCatalog" || item.key === "agentTeam");
+        if (cell && this.catalogSeqs.get(sessionId) !== cell.seq) {
+            this.catalogSeqs.set(sessionId, cell.seq);
+            this.scheduleSubagentRefresh();
+        }
+    }
+
+    public async toggleBranch(childSessionId: string): Promise<void> {
+        const root = this.deps.currentRootSession();
+        if (!root || !this.trees.get(root)?.nodes.some(node => node.id === childSessionId && node.hasChildren)) return;
+        const expanded = this.expanded.get(root) ?? new Set<string>();
+        if (expanded.has(childSessionId)) expanded.delete(childSessionId); else expanded.add(childSessionId);
+        this.expanded.set(root, expanded);
+        await this.refreshSubagentTree(root);
     }
 
     /** The open preview when it belongs to {@param rootSessionId}. */
@@ -108,7 +127,7 @@ export class SubagentController {
             const catalogs = new Map<string, DshSubagentCatalog>();
             // Team profiles deliberately disable subagents/list. The public
             // Team projection supplies its durable continuable-child roster.
-            const team = this.teamCatalog(rootSessionId);
+            const team = this.deps.runtime.supportsHostSchedules() ? undefined : this.teamCatalog(rootSessionId);
             if (team) catalogs.set(rootSessionId, team);
             const pending = team ? [] : [rootSessionId];
             const visited = new Set<string>();
@@ -123,7 +142,7 @@ export class SubagentController {
                 }
                 catalogs.set(parentSessionId, catalog);
                 for (const entry of catalog.entries) {
-                    if (entry.kind === "child" && entry.hasChildren && !visited.has(entry.id)) {
+                    if (entry.kind === "child" && entry.hasChildren && this.expanded.get(rootSessionId)?.has(entry.id) && !visited.has(entry.id)) {
                         pending.push(entry.id);
                     }
                 }

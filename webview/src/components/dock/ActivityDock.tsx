@@ -8,6 +8,7 @@ import { JobsPanel } from "./JobsPanel";
 import { PermissionsPanel } from "./PermissionsPanel";
 import { QueuePanel } from "./QueuePanel";
 import { SchedulePanel } from "./SchedulePanel";
+import { HostSchedulePanel } from "./HostSchedulePanel";
 import { SubagentsPanel } from "./SubagentsPanel";
 import { TodosPanel } from "./TodosPanel";
 import { TeamPanel } from "./TeamPanel";
@@ -32,6 +33,7 @@ interface ActivityDockProps {
     todos: ActivityDockState["todos"];
     schedule: ActivityDockState["schedule"];
     scheduleCatalog: ActivityDockState["scheduleCatalog"];
+    hostSchedule: ActivityDockState["hostSchedule"];
     scheduleManagementAvailable: ActivityDockState["scheduleManagementAvailable"];
     scheduleMutationPendingId: ActivityDockState["scheduleMutationPendingId"];
     scheduleMutationResult: ActivityDockState["scheduleMutationResult"];
@@ -57,6 +59,7 @@ export const ActivityDock = React.memo(function ActivityDock({
     todos,
     schedule,
     scheduleCatalog,
+    hostSchedule,
     scheduleManagementAvailable,
     scheduleMutationPendingId,
     scheduleMutationResult,
@@ -87,7 +90,7 @@ export const ActivityDock = React.memo(function ActivityDock({
         const count = changeReviews.reduce((total, review) => total + review.files.length, 0);
         tabs.push({ id: "changes", label: t("Changes"), count: count || undefined });
     }
-    if (subagents && sessionId && !team) {
+    if (subagents && sessionId) {
         tabs.push({ id: "subagents", label: t("Subagents"), count: subagents.nodes.length || undefined });
     }
     if (jobs.length) tabs.push({ id: "jobs", label: t("Jobs"), count: jobs.length });
@@ -95,9 +98,9 @@ export const ActivityDock = React.memo(function ActivityDock({
     const scheduleCatalogVisible = scheduleCatalog !== undefined &&
         (scheduleCatalog.status === "loading" || scheduleCatalog.status === "error" ||
             scheduleCatalog.status === "unavailable" || scheduleCatalog.records.length > 0);
-    if (schedule?.length || scheduleCatalogVisible) {
-        const count = scheduleCatalog?.records.length || schedule?.length;
-        tabs.push({ id: "schedule", label: t("Schedule"), count: count || undefined });
+    if (hostSchedule || schedule?.length || scheduleCatalogVisible) {
+        const count = hostSchedule?.page.total ?? scheduleCatalog?.records.length ?? schedule?.length;
+        tabs.push({ id: "schedule", label: t("Schedule"), count });
     }
     if (permissions) tabs.push({ id: "permissions", label: t("Permissions") });
     if (dynamicPlugins && (dynamicPlugins.loading || dynamicPlugins.error !== undefined || dynamicPlugins.rows.length > 0)) {
@@ -198,7 +201,7 @@ export const ActivityDock = React.memo(function ActivityDock({
                     {!collapsed && selectedTab === "jobs" && tab.id === "jobs" ? <JobsPanel jobs={jobs} /> : null}
                     {!collapsed && selectedTab === "team" && tab.id === "team" && team ? <TeamPanel team={team} currentSessionId={sessionId} preview={preview} subagents={subagents} autoOpenReasoning={autoOpenReasoning} /> : null}
                     {!collapsed && selectedTab === "schedule" && tab.id === "schedule" ? (
-                        <SchedulePanel
+                        hostSchedule ? <HostSchedulePanel view={hostSchedule} sessions={sessions} /> : <SchedulePanel
                             schedule={schedule}
                             managementAvailable={scheduleManagementAvailable === true}
                             mutationPendingId={scheduleMutationPendingId}

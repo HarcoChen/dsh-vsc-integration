@@ -215,10 +215,13 @@ export function SubagentsPanel({ tree, preview, autoOpenReasoning }: { tree: Sub
                 return (
                     <div className={`dsh-tree-row ${depthClass}`} key={node.id}>
                         <div>
-                            <div className="dsh-tree-label">{node.label || node.id}</div>
+                            {node.hasChildren ? <button type="button" className="dsh-button dsh-button-secondary" aria-expanded={node.expanded === true}
+                                onClick={() => postAction({ type: "toggleSubagentBranch", childSessionId: node.id })}>{node.expanded ? t("Collapse") : t("Expand")}</button> : null}
+                            <div className="dsh-tree-label">{node.label || node.name || node.id}</div>
+                            {node.name ? <div className="dsh-tree-meta">{node.name}</div> : null}
                             <div className="dsh-tree-meta" title={durationTitle === undefined ? undefined : t("Total active duration: {duration}", { duration: durationTitle })}>{meta}<br />{t("parent {parent}", { parent: node.parentSessionId })}</div>
                         </div>
-                        <button type="button" className="dsh-button dsh-button-secondary" onClick={() => postAction({ type: "openSubagent", childSessionId: node.id })}>{t("History")}</button>
+                        {node.mode !== "external" ? <button type="button" className="dsh-button dsh-button-secondary" onClick={() => postAction({ type: "openSubagent", childSessionId: node.id })}>{t("History")}</button> : null}
                     </div>
                 );
             })}

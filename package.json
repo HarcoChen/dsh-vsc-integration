@@ -64,6 +64,7 @@
         "onCommand:dsh.openInEditor",
         "onCommand:dsh.openTrace",
         "onWebviewPanel:dsh.traceEditor",
+        "onWebviewPanel:dsh.chatViewEditor",
         "onCommand:dsh.newSession",
         "onCommand:dsh.switchSession",
         "onCommand:dsh.manageSessions",
@@ -99,6 +100,7 @@
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
+        "onCommand:dsh.openConfigurationBackups",
         "onCommand:dsh.openInBrowser",
         "onCommand:dsh.recovery.cancel",
         "onCommand:dsh.recovery.openDiagnostics",
@@ -107,7 +109,18 @@
         "onCommand:dsh.openRuntimeTerminal",
         "onCommand:dsh.attachDiagnostics",
         "onCommand:dsh.managePlugins",
-        "onCommand:dsh.openSessionCenter"
+        "onCommand:dsh.openSessionCenter",
+        "onCommand:dsh.exportSession",
+        "onCommand:dsh.copyConversation",
+        "onCommand:dsh.connectDesktop",
+        "onCommand:dsh.disconnectDesktop",
+        "onCommand:dsh.completeInline",
+        "onCommand:dsh.reviewRepository",
+        "onCommand:dsh.configureAppearance",
+        "onCommand:dsh.configureBillingRates",
+        "onCommand:dsh.managePromptTemplates",
+        "onCommand:dsh.searchCodeContext",
+        "onCommand:dsh.attachProjectRules"
     ],
     "contributes": {
         "chatParticipants": [
@@ -245,6 +258,12 @@
                 "title": "%command.openLogs.title%",
                 "category": "DSH",
                 "icon": "$(output)"
+            },
+            {
+                "command": "dsh.openConfigurationBackups",
+                "title": "%command.openConfigurationBackups.title%",
+                "category": "DSH",
+                "icon": "$(history)"
             },
             {
                 "command": "dsh.recovery.cancel",
@@ -437,6 +456,61 @@
             {
                 "command": "dsh.openSessionCenter",
                 "title": "%command.openSessionCenter.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.exportSession",
+                "title": "%command.exportSession.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.copyConversation",
+                "title": "%command.copyConversation.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.connectDesktop",
+                "title": "%command.connectDesktop.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.disconnectDesktop",
+                "title": "%command.disconnectDesktop.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.completeInline",
+                "title": "%command.completeInline.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.reviewRepository",
+                "title": "%command.reviewRepository.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.configureAppearance",
+                "title": "%command.configureAppearance.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.configureBillingRates",
+                "title": "%command.configureBillingRates.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.managePromptTemplates",
+                "title": "%command.managePromptTemplates.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.searchCodeContext",
+                "title": "%command.searchCodeContext.title%",
+                "category": "DSH"
+            },
+            {
+                "command": "dsh.attachProjectRules",
+                "title": "%command.attachProjectRules.title%",
                 "category": "DSH"
             }
         ],
@@ -712,7 +786,7 @@
                 },
                 "dsh.runtimeVersion": {
                     "type": "string",
-                    "default": "0.2.1-rc.2",
+                    "default": "0.2.2-rc.1",
                     "pattern": "^[0-9A-Za-z.-]+$",
                     "description": "%config.runtimeVersion.description%"
                 },
@@ -792,6 +866,116 @@
                     "type": "boolean",
                     "default": true,
                     "description": "%config.autoOpenReasoning.description%"
+                },
+                "dsh.completionNotification": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.completionNotification.description%"
+                },
+                "dsh.desktopConnection": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.desktopConnection.description%"
+                },
+                "dsh.desktopRuntimeVersion": {
+                    "type": "string",
+                    "default": "0.2.2-rc.1",
+                    "description": "%config.desktopRuntimeVersion.description%"
+                },
+                "dsh.inlineCompletion.automatic": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "%config.inlineCompletion.automatic.description%"
+                },
+                "dsh.inlineCompletion.provider": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%config.inlineCompletion.provider.description%"
+                },
+                "dsh.inlineCompletion.model": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%config.inlineCompletion.model.description%"
+                },
+                "dsh.imageFileFallback": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%config.imageFileFallback.description%"
+                },
+                "dsh.serverRuntimeVersion": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%config.serverRuntimeVersion.description%"
+                },
+                "dsh.chatFontSize": {
+                    "type": "number",
+                    "default": 13,
+                    "minimum": 11,
+                    "maximum": 24,
+                    "description": "%config.chatFontSize.description%"
+                },
+                "dsh.chatDensity": {
+                    "type": "string",
+                    "enum": [
+                        "comfortable",
+                        "compact"
+                    ],
+                    "default": "comfortable",
+                    "description": "%config.chatDensity.description%"
+                },
+                "dsh.connectionMode": {
+                    "type": "string",
+                    "enum": [
+                        "auto",
+                        "attach-only"
+                    ],
+                    "default": "auto",
+                    "description": "%config.connectionMode.description%"
+                },
+                "dsh.billingRates": {
+                    "type": "array",
+                    "default": [],
+                    "description": "%config.billingRates.description%",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "provider",
+                            "model",
+                            "currency",
+                            "input",
+                            "output",
+                            "cacheRead",
+                            "cacheWrite"
+                        ],
+                        "properties": {
+                            "provider": {
+                                "type": "string"
+                            },
+                            "model": {
+                                "type": "string"
+                            },
+                            "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                            },
+                            "input": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "output": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "cacheRead": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "cacheWrite": {
+                                "type": "number",
+                                "minimum": 0
+                            }
+                        }
+                    }
                 }
             }
         }

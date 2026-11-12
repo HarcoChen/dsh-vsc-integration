@@ -5,6 +5,11 @@ import {
     DshExtensionApi,
 } from "./agentStatusPresentation";
 import { AccountActions } from "./accountActions";
+import { DesktopConnectionActions } from "./desktopActions";
+import { InlineCompletionProvider } from "./inlineCompletion";
+import { ForgeReviewController } from "./forgeReview";
+import { configureBillingRate, configureChatAppearance } from "./localPreferences";
+import { managePromptTemplates } from "./editorContextActions";
 import { DeepSeekBalanceService } from "./balanceService";
 import { ChatViewProvider, QuickTaskKind } from "./chatView";
 import {
@@ -51,6 +56,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         String(context.extension.packageJSON.version ?? ""),
         workspaceRoot,
     );
+    const desktopActions = new DesktopConnectionActions(runtime, context.secrets);
     let shutdown: Promise<void> | undefined;
     const stopRuntime = (): Promise<void> => shutdown ??= runtime.dispose().finally(() => {
         outputDisposed = true;
@@ -78,6 +84,8 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         workspaceRoot,
         context.extensionUri,
     );
+    const inlineCompletion = new InlineCompletionProvider(runtime, () => chatView.commandTarget().getCurrentSessionId(), output);
+    const forgeReview = new ForgeReviewController(runtime, context);
     const conversationNavigation = new ConversationNavigationProvider(
         runtime,
         chatView,
@@ -85,6 +93,19 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     );
 
     context.subscriptions.push(
+        inlineCompletion,
+        forgeReview,
+        vscode.commands.registerCommand("dsh.reviewRepository", () => runQuietCommand(t("DSH repository review"), async () => {
+            await runtime.start(workspaceRoot());
+            const sessionId = chatView.commandTarget().getCurrentSessionId();
+            if (!sessionId) throw new Error(t("Choose a DSH session before opening repository review."));
+            await forgeReview.open(sessionId);
+        })),
+        vscode.languages.registerInlineCompletionItemProvider({ scheme: "file" }, inlineCompletion),
+        vscode.commands.registerCommand("dsh.completeInline", () => runQuietCommand(t("Complete code inline"), async () => {
+            await runtime.start(workspaceRoot());
+            await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+        })),
         balanceService,
         accountActions,
         terminalContext,
@@ -107,34 +128,44 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             conversationNavigation,
         ),
         vscode.commands.registerCommand("dsh.revealConversationMilestone", (seq?: unknown) => {
-            if (typeof seq === "number") chatView.revealConversationMilestone(seq);
+            if (typeof seq === "number") chatView.commandTarget().revealConversationMilestone(seq);
         }),
         registerChatParticipant(chatView, context.extensionUri),
         vscode.window.registerWebviewPanelSerializer(TracePanelManager.viewType, tracePanels),
-        vscode.commands.registerCommand("dsh.open", () => chatView.reveal()),
+        vscode.commands.registerCommand("dsh.open", () => chatView.commandTarget().reveal()),
+        vscode.commands.registerCommand("dsh.configureAppearance", () => runQuietCommand(t("Chat appearance"), configureChatAppearance)),
+        vscode.commands.registerCommand("dsh.managePromptTemplates", () => runQuietCommand(t("Manage prompt templates"), managePromptTemplates)),
+        vscode.commands.registerCommand("dsh.searchCodeContext", () => runQuietCommand(t("Search code context"), () => chatView.commandTarget().searchCodeContext())),
+        vscode.commands.registerCommand("dsh.attachProjectRules", () => runQuietCommand(t("Attach project rule documents"), () => chatView.commandTarget().attachProjectRules())),
+        vscode.commands.registerCommand("dsh.configureBillingRates", () => runQuietCommand(t("Configure model cost rates"), configureBillingRate)),
+        vscode.commands.registerCommand("dsh.connectDesktop", () => runQuietCommand(t("Connect to Desktop"), () => desktopActions.connect())),
+        vscode.commands.registerCommand("dsh.disconnectDesktop", () => runQuietCommand(t("Disconnect Desktop"), () => desktopActions.disconnect())),
         vscode.commands.registerCommand("dsh.showWhatsNew", () =>
             runQuietCommand(t("View What's New"), () => showWhatsNew(context)),
         ),
-        vscode.commands.registerCommand("dsh.openInEditor", () => chatView.openInEditor()),
+        vscode.commands.registerCommand("dsh.openInEditor", (sessionId?: unknown) => runQuietCommand(t("Open session in editor"), async () => { await chatView.openInEditor(typeof sessionId === "string" ? sessionId : undefined); })),
+        vscode.window.registerWebviewPanelSerializer(ChatViewProvider.editorViewType, { deserializeWebviewPanel: (panel, state) => chatView.restoreEditor(panel, state) }),
         vscode.commands.registerCommand("dsh.openRuntimeTerminal", () =>
-            runQuietCommand(t("Open Runtime terminal"), () => chatView.openRuntimeTerminal()),
+            runQuietCommand(t("Open Runtime terminal"), () => chatView.commandTarget().openRuntimeTerminal()),
         ),
         vscode.commands.registerCommand("dsh.attachDiagnostics", () =>
-            runQuietCommand(t("Attach Problems"), () => chatView.openDiagnosticsPicker()),
+            runQuietCommand(t("Attach Problems"), () => chatView.commandTarget().openDiagnosticsPicker()),
         ),
         vscode.commands.registerCommand("dsh.managePlugins", () =>
-            runQuietCommand(t("Manage Runtime plugins"), () => chatView.managePlugins()),
+            runQuietCommand(t("Manage Runtime plugins"), () => chatView.commandTarget().managePlugins()),
         ),
         vscode.commands.registerCommand("dsh.openSessionCenter", () =>
-            runQuietCommand(t("DSH Session center"), () => chatView.openSessionCenter()),
+            runQuietCommand(t("DSH Session center"), () => chatView.commandTarget().openSessionCenter()),
         ),
+        vscode.commands.registerCommand("dsh.exportSession", () => runQuietCommand(t("Export conversation"), () => chatView.commandTarget().exportSession())),
+        vscode.commands.registerCommand("dsh.copyConversation", () => runQuietCommand(t("Copy conversation as Markdown"), () => chatView.commandTarget().exportSession(true))),
         vscode.commands.registerCommand("dsh.openTrace", async (value?: unknown) => {
             try {
                 const supplied = value === undefined ? undefined : parseTraceLocation(value);
                 if (value !== undefined && !supplied) {
                     throw new Error(t("Invalid Trace location."));
                 }
-                const sessionId = supplied?.sessionId ?? chatView.getCurrentSessionId();
+                const sessionId = supplied?.sessionId ?? chatView.commandTarget().getCurrentSessionId();
                 if (!sessionId) throw new Error(t("There is no current session to open."));
                 await tracePanels.open(supplied ?? { sessionId });
             } catch (error) {
@@ -143,33 +174,33 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             }
         }),
         vscode.commands.registerCommand("dsh.newSession", () =>
-            runCommand(t("Create session"), () => chatView.newSession()),
+            runCommand(t("Create session"), () => chatView.commandTarget().newSession()),
         ),
         vscode.commands.registerCommand("dsh.switchSession", () =>
-            runCommand(t("Switch session"), () => chatView.chooseSession()),
+            runCommand(t("Switch session"), () => chatView.commandTarget().chooseSession()),
         ),
         vscode.commands.registerCommand("dsh.manageSessions", () =>
-            runCommand(t("Manage DSH Sessions"), () => chatView.manageSessions()),
+            runCommand(t("Manage DSH Sessions"), () => chatView.commandTarget().manageSessions()),
         ),
         vscode.commands.registerCommand("dsh.searchSession", () =>
-            runCommand(t("Search sessions"), () => chatView.searchSession()),
+            runCommand(t("Search sessions"), () => chatView.commandTarget().searchSession()),
         ),
         vscode.commands.registerCommand("dsh.selectModel", () =>
-            runCommand(t("Select model"), () => chatView.selectModel()),
+            runCommand(t("Select model"), () => chatView.commandTarget().selectModel()),
         ),
         vscode.commands.registerCommand("dsh.renameSession", () =>
-            runCommand(t("Rename session"), () => chatView.renameSession()),
+            runCommand(t("Rename session"), () => chatView.commandTarget().renameSession()),
         ),
         vscode.commands.registerCommand("dsh.forkSession", () =>
-            runCommand(t("Fork session"), () => chatView.forkSession()),
+            runCommand(t("Fork session"), () => chatView.commandTarget().forkSession()),
         ),
         vscode.commands.registerCommand("dsh.archiveSession", () =>
-            runCommand(t("Archive session"), () => chatView.archiveSession()),
+            runCommand(t("Archive session"), () => chatView.commandTarget().archiveSession()),
         ),
         vscode.commands.registerCommand("dsh.start", async () => {
             await runCommand(t("Start dsh web"), async () => {
                 await runtime.start(workspaceRoot());
-                chatView.reveal();
+                chatView.commandTarget().reveal();
             });
         }),
         vscode.commands.registerCommand("dsh.stop", async () => {
@@ -178,10 +209,14 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
         vscode.commands.registerCommand("dsh.restart", async () => {
             await runCommand(t("Restart dsh web"), async () => {
                 await runtime.restart(workspaceRoot());
-                chatView.reveal();
+                chatView.commandTarget().reveal();
             });
         }),
         vscode.commands.registerCommand("dsh.openLogs", () => output.show(true)),
+        vscode.commands.registerCommand("dsh.openConfigurationBackups", () => runQuietCommand(t("Open DSH configuration backups"), async () => {
+            const directory = await runtime.getConfigurationBackupsDirectory();
+            await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(directory));
+        })),
         vscode.commands.registerCommand("dsh.recovery.cancel", () => {
             runtime.cancelRecovery();
         }),
@@ -230,35 +265,35 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             });
         }),
         vscode.commands.registerCommand("dsh.openInBrowser", async () => {
-            await runCommand(t("Open dsh Web UI"), () => chatView.openBrowser());
+            await runCommand(t("Open dsh Web UI"), () => chatView.commandTarget().openBrowser());
         }),
         vscode.commands.registerCommand("dsh.insertEditorReference", () =>
-            chatView.insertEditorReference(),
+            chatView.commandTarget().insertEditorReference(),
         ),
         vscode.commands.registerCommand("dsh.askAboutResource", (resource?: vscode.Uri) =>
-            runCommand(t("Ask about resource"), () => chatView.askAboutResource(resource)),
+            runCommand(t("Ask about resource"), () => chatView.commandTarget().askAboutResource(resource)),
         ),
         vscode.commands.registerCommand("dsh.explainDebugState", () =>
-            runQuietCommand(t("Capture Debug Context"), () => chatView.explainDebugState()),
+            runQuietCommand(t("Capture Debug Context"), () => chatView.commandTarget().explainDebugState()),
         ),
         ...registerQuickTaskCommands(chatView),
         vscode.commands.registerCommand("dsh.openIdeContextPicker", () =>
-            chatView.openIdeContextPicker(),
+            chatView.commandTarget().openIdeContextPicker(),
         ),
         vscode.commands.registerCommand("dsh.insertPromptTemplate", () =>
-            runCommand(t("Insert prompt template"), () => chatView.insertPromptTemplate()),
+            runCommand(t("Insert prompt template"), () => chatView.commandTarget().insertPromptTemplate()),
         ),
         vscode.commands.registerCommand("dsh.browseRuntimeFiles", () =>
-            runCommand(t("Runtime workspace files"), () => chatView.browseRuntimeFiles()),
+            runCommand(t("Runtime workspace files"), () => chatView.commandTarget().browseRuntimeFiles()),
         ),
         vscode.commands.registerCommand("dsh.refreshRuntimeFile", () =>
-            runCommand(t("Refresh Runtime file preview"), () => chatView.refreshRuntimeFilePreview()),
+            runCommand(t("Refresh Runtime file preview"), () => chatView.commandTarget().refreshRuntimeFilePreview()),
         ),
         vscode.commands.registerCommand("dsh.captureAppShot", () =>
-            runCommand(t("Capture AppShot"), () => chatView.captureAppShot()),
+            runCommand(t("Capture AppShot"), () => chatView.commandTarget().captureAppShot()),
         ),
         vscode.commands.registerCommand("dsh.configureApiKey", () =>
-            chatView.configureApiKey().catch((error) => {
+            chatView.commandTarget().configureApiKey().catch((error) => {
                 const message = error instanceof Error ? error.message : String(error);
                 void vscode.window.showErrorMessage(t("DSH: Failed to configure API Key: {message}", { message }));
             }),
@@ -284,13 +319,13 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             }),
         ),
         vscode.commands.registerCommand("dsh.manageProviders", () =>
-            runCommand(t("Manage providers"), () => chatView.manageProviders()),
+            runCommand(t("Manage providers"), () => chatView.commandTarget().manageProviders()),
         ),
         vscode.commands.registerCommand("dsh.manageWorkspaces", () =>
-            runCommand(t("Manage DSH Workspaces"), () => chatView.manageWorkspaces()),
+            runCommand(t("Manage DSH Workspaces"), () => chatView.commandTarget().manageWorkspaces()),
         ),
         vscode.commands.registerCommand("dsh.manageAgentPresets", () =>
-            runCommand(t("Manage Agent Presets"), () => chatView.manageAgentPresets()),
+            runCommand(t("Manage Agent Presets"), () => chatView.commandTarget().manageAgentPresets()),
         ),
         vscode.commands.registerCommand("dsh.manageAccount", () =>
             runCommand(t("Manage DeepSeek account"), () => accountActions.manage()),
@@ -332,7 +367,7 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
     const autoStart = configuration.get<boolean>("autoStart", true);
     const root = workspaceRoot();
     const configuredServerUrl = configuration.get<string>("serverUrl", "").trim();
-    if (autoStart && vscode.workspace.isTrusted && (root || configuredServerUrl)) {
+    if (autoStart && vscode.workspace.isTrusted && (root || configuredServerUrl || configuration.get<boolean>("desktopConnection", false))) {
         void runtime.start(root).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
             output.appendLine(`[dsh] automatic startup failed: ${message}`);
@@ -358,7 +393,7 @@ function registerChatParticipant(chatView: ChatViewProvider, extensionUri: vscod
             return;
         }
         response.progress(t("Sending the task to the dsh session..."));
-        await chatView.sendParticipantPrompt(prompt, token);
+        await chatView.commandTarget().sendParticipantPrompt(prompt, token);
         if (token.isCancellationRequested) return;
         response.markdown(t("Task sent to the current dsh session. Continue in the DSH view for streaming output and approvals."));
     });
@@ -379,10 +414,10 @@ function registerQuickTaskCommands(chatView: ChatViewProvider): vscode.Disposabl
 
     return tasks.flatMap(({ kind, command }) => [
         vscode.commands.registerCommand(`dsh.editorTask.${command}`, () =>
-            runQuietCommand(t("Prefill editor quick task"), () => chatView.prefillEditorTask(kind)),
+            runQuietCommand(t("Prefill editor quick task"), () => chatView.commandTarget().prefillEditorTask(kind)),
         ),
         vscode.commands.registerCommand(`dsh.gitDiffTask.${command}`, () =>
-            runQuietCommand(t("Prefill Git diff quick task"), () => chatView.prefillGitDiffTask(kind)),
+            runQuietCommand(t("Prefill Git diff quick task"), () => chatView.commandTarget().prefillGitDiffTask(kind)),
         ),
     ]);
 }

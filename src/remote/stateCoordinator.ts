@@ -321,6 +321,10 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             this.connection.access.allows("session/control") ? this.consumeControl(signal, controlReady) : Promise.resolve(controlReady.resolve()),
             this.connection.access.allows("workspace/follow") ? this.consumeWorkspace(signal, workspaceReady) : Promise.resolve(workspaceReady.resolve()),
         ];
+        // Streams can fail while the catalog baseline is still opening. Attach
+        // the rejection handler immediately; await the same result below.
+        const streams = Promise.all(tasks);
+        void streams.catch(() => undefined);
         try {
             await Promise.all([controlReady.promise, workspaceReady.promise]);
             if (signal.aborted || generation !== this.connection.currentGeneration) return;
@@ -344,7 +348,7 @@ export class RemoteStateCoordinator implements AsyncDisposable {
             for (const address of this.desiredAddresses.values()) this.startAddressFollow(address);
             this.catalog.endRemoteBaseline();
             baselinePublished = true;
-            await Promise.all(tasks);
+            await streams;
         } finally {
             if (!baselinePublished) this.catalog.endRemoteBaseline();
         }
@@ -532,10 +536,23 @@ export class RemoteStateCoordinator implements AsyncDisposable {
         } else if (value.type === "jobs" && Array.isArray(value.jobs)) {
             if (this.controlBaseline) this.controlBaseline.jobs[value.sessionId] = value.jobs;
             this.sessions.applyRemoteJobs(value.sessionId, value.jobs);
-        } else if (value.type === "projection" && typeof value.key === "string" && typeof value.seq === "number") {
-            this.sessions.applyRemoteProjection(value.sessionId, value.key, value.value, value.seq);
-            if (value.key === "title" && typeof value.value === "string") {
-                this.catalog.applyRename(value.sessionId, value.value, value.seq);
+        } else if (value.type === "projection") {
+            // 0.2.2 groups all changes caused by one event. Older Hosts send
+            // one key/value frame. Validate the whole batch before publishing.
+            const changes = Array.isArray(value.changes) ? value.changes
+                : typeof value.key === "string" ? [{ key: value.key, val: value.value }] : undefined;
+            if (!changes || !changes.every(change => isRecord(change) && typeof change.key === "string" &&
+                change.key.length > 0 && Object.hasOwn(change, "val")) ||
+                new Set(changes.map(change => change.key)).size !== changes.length ||
+                sessionCursor(value.seq) === undefined || value.seq < 0) {
+                throw new Error("Remote session projection update is malformed");
+            }
+            const block = toProjection({ asOfSeq: value.seq,
+                values: Object.fromEntries(changes.map(change => [change.key, change.val])) });
+            if (!block) throw new Error("Remote session projection update has invalid values");
+            this.sessions.applyRemoteProjections(value.sessionId, block);
+            if (typeof block.values.title === "string") {
+                this.catalog.applyRename(value.sessionId, block.values.title, block.asOfSeq);
             }
         } else {
             throw new Error(`Remote session control frame ${value.type} is malformed`);

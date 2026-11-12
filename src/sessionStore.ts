@@ -21,9 +21,26 @@ import {
 import { isRecord } from "./guards";
 import type { AssistantSettlement, AssistantStreamState } from "./assistantStream";
 
+/** Newer Hosts expose pending input as a durable projection instead of queue control frames. */
+function queueFromInbox(value: unknown): DshQueuedInboxItem[] | undefined {
+    if (!isRecord(value) || !Array.isArray(value["next-turn"]) || !Array.isArray(value["next-step"])) return undefined;
+    const items: DshQueuedInboxItem[] = [];
+    for (const target of ["next-turn", "next-step"] as const) {
+        const messages = value[target];
+        if (!Array.isArray(messages)) return undefined;
+        for (const message of messages) {
+            if (!isRecord(message) || typeof message.id !== "string" || !isRecord(message.source) || !Array.isArray(message.content)) return undefined;
+            items.push({ id: message.id, message,
+                placement: target === "next-turn" ? "queued" : message.source.kind === "user" ? "steering" : "context" });
+        }
+    }
+    return items;
+}
+
 /** Exact current Harness SurfaceEventType union from @deepseek-ai/dsh-session. */
 const SURFACE_EVENT_TYPES = new Set([
     "system/message",
+    "developer/message",
     "user/message",
     "assistant/message",
     "tool/result",
@@ -1115,13 +1132,16 @@ class SessionState {
         const interactions = [...this.interactions.values()]
             .sort((left, right) => left.receivedAt - right.receivedAt)
             .map((interaction) => ({ ...interaction }));
+        const inbox = this.projections.get("inbox");
+        const inboxItems = queueFromInbox(inbox?.value);
         return {
             sessionId: this.sessionId,
             assistantStream: this.visibleAssistantStream(),
             events: this.events.ordered(),
             surface: this.events.surface(),
             projections: this.projections.snapshot(),
-            queue: cloneSnapshot(this.queueState),
+            queue: inbox && inboxItems ? { ...cloneSnapshot(this.queueState), items: inboxItems, revision: inbox.seq }
+                : cloneSnapshot(this.queueState),
             jobs: cloneSnapshot(this.jobsState),
             interactions,
             subscribedLastSeq: this.events.subscribedWatermark,
@@ -1231,10 +1251,18 @@ export class HarnessSessionStore {
     }
 
     public applyRemoteProjection(sessionId: string, key: string, value: unknown, seq: number): void {
+        this.applyRemoteProjections(sessionId, { asOfSeq: seq, values: { [key]: value } });
+    }
+
+    /** One event's projection changes become visible together, including inbox and eligibility. */
+    public applyRemoteProjections(sessionId: string, block: DshSessionProjectionsBlock): void {
         const state = this.state(sessionId);
-        const changed = state.projections.apply(key, value, seq);
+        let changed = false;
+        for (const [key, value] of Object.entries(block.values)) {
+            changed = state.projections.apply(key, value, block.asOfSeq) || changed;
+        }
         state.reconcileUserQuestions();
-        if (changed || key === "userQuestions") {
+        if (changed || Object.hasOwn(block.values, "userQuestions")) {
             this.schedulePublish(state);
         }
     }

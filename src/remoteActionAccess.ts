@@ -2,17 +2,19 @@ import type { ChatViewAction } from "./chatViewProtocol";
 import type { RemoteAccessState } from "./remote/access";
 
 /** Editor actions with no Host mutation remain usable by readers. Unmapped mutations require ownership. */
-export function canUseChatAction(access: RemoteAccessState, action: ChatViewAction, sessionId?: string): boolean {
+export function canUseChatAction(access: RemoteAccessState, action: ChatViewAction, sessionId?: string, modernSubagents = false): boolean {
     if (access.snapshot.owner && access.snapshot.available) return true;
-    const local = new Set(["ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
+    const local = new Set(["searchCodeContext", "attachProjectRules", "managePromptTemplates", "configureAppearance", "configureBillingRates", "activateChat", "ready", "start", "newSession", "newSessionInCurrentWorkspace", "toggleFocus", "openLogs", "openExternalLink", "openBrowser", "manageSettings", "refreshPluginInventory",
         "openIdeContextPicker", "openTerminalCommandPicker", "openDiagnosticsPicker", "openPromptTemplatePicker", "removeContext", "toggleSelection",
-        "fileReferenceQuery", "closeSubagent", "searchSession", "openSessionCenter", "dismissSessionFeedback",
+        "fileReferenceQuery", "closeSubagent", "toggleSubagentBranch", "searchSession", "openSessionCenter", "dismissSessionFeedback",
         "stop", "cancelRecovery", "exportRecoveryDiagnostics", "restoreRecovery", "captureAppShot", "insertCode", "applyCode"]);
     if (local.has(action.type)) return true;
     if (action.type === "switchSession") return access.allows("session/follow", { kind: "session", id: action.sessionId });
     if (action.type === "openSubagent") return access.allows("session/follow", { kind: "session", id: action.childSessionId });
     if (action.type === "followUpSubagent" || action.type === "interruptSubagent") {
-        const endpoint = action.type === "followUpSubagent" ? "subagents/prompt" : "subagents/interruptByParent";
+        const endpoint = action.type === "followUpSubagent" ? "subagents/prompt"
+            : modernSubagents ? "subagents/interruptByUser" : "subagents/interruptByParent";
+        if (modernSubagents) return access.allows(endpoint, { kind: "session", id: action.childSessionId });
         return !!sessionId && [sessionId, action.childSessionId].every(id => access.allows(endpoint, { kind: "session", id }));
     }
     if (action.type === "updateQueue") {
@@ -20,7 +22,7 @@ export function canUseChatAction(access: RemoteAccessState, action: ChatViewActi
         return !!sessionId && access.allows(endpoint, { kind: "session", id: sessionId });
     }
     const session: Partial<Record<ChatViewAction["type"], string>> = {
-        sendPrompt: "session/prompt", retryPrompt: "session/prompt", cancel: "session/cancel",
+        sendPrompt: "session/prompt", retryPrompt: "session/prompt", retryGeneration: "session/prompt", cancel: "session/cancel",
         selectModel: "session/selectModel", selectReasoningEffort: "session/selectModel", openReasoningEffort: "session/modelCatalog",
         selectAgentPreset: "agentPresets/select", renameSession: "session/rename", forkSession: "session/fork", forkFromMessage: "session/fork",
         archiveSession: "workspace/archiveSession", killJob: "job/kill", openRuntimeTerminal: "terminal/attach",
@@ -30,10 +32,12 @@ export function canUseChatAction(access: RemoteAccessState, action: ChatViewActi
         refreshSubagents: "session/projections", openTeamMember: "session/follow",
         toggleMessageFeedback: "messageFeedback/put", submitMessageFeedback: "messageFeedback/put", saveMessageFeedbackNote: "messageFeedback/put",
         openSessionFeedback: "sessionFeedback/record", recordSessionFeedback: "sessionFeedback/record",
-        openTrace: "session/follow", copyMessage: "session/follow", copyCode: "session/follow", openCode: "session/follow",
+        openSessionEditor: "session/follow", reviewRepository: "forgePanel/follow",
+        openTrace: "session/follow", copyMessage: "session/follow", exportSession: "session/follow", copyConversation: "session/follow", quoteMessage: "session/follow", copyCode: "session/follow", openCode: "session/follow",
         openFileLocation: "session/follow", openChangeDiff: "session/follow", openToolDiff: "session/follow", loadImage: "session/attachment",
     };
     const global: Partial<Record<ChatViewAction["type"], string>> = {
+        manageHostTask: "schedule/list", refreshHostTasks: "schedule/list",
         configureWebSearch: "settings/mutate", mutateSettings: "settings/mutate", manageProviders: "settings/mutate",
         configureApiKey: "credentials/set", refreshScheduleCatalog: "schedule/catalog", openSettingsDocument: "settings/openSettingsDocument",
         setPluginEnabled: "pluginManager/setPluginEnabled", setBundleEnabled: "pluginManager/setBundleEnabled",

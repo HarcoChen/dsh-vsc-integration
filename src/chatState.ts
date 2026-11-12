@@ -11,7 +11,7 @@ import {
     DshQueuedInboxItem,
     TurnStatusView,
 } from "./types";
-import { SessionStateSnapshot, StoredSessionEvent, toolResultCallId } from "./sessionStore";
+import { SessionStateSnapshot, StoredSessionEvent, toolResultCallId, projectionValue } from "./sessionStore";
 import { safeTraceJson } from "./traceProjector";
 import { t } from "./localize";
 import { parseSafeHttpUrl } from "./safeMarkdown";
@@ -50,6 +50,17 @@ export function resolvePromptMode(
     sessionRunning: boolean,
 ): "queue" | "steer" {
     return requested === "steer" && sessionRunning ? "steer" : "queue";
+}
+
+/** The Host's complete-history eligibility is authoritative; older Hosts omit this projection. */
+export function continuableFailure(snapshot: SessionStateSnapshot | undefined): number | undefined {
+    const value = projectionValue(snapshot, "conversationContinuation");
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 ||
+        !snapshot || snapshot.needsHistoryBaseline) return undefined;
+    if (snapshot.queue.items.some(item => item.placement === "queued" ||
+        item.placement === "steering" && isRecord(item.message) && isRecord(item.message.source) && item.message.source.kind === "user")) return undefined;
+    if (snapshot.interactions.some(item => item.status === "pending" || item.status === "submitting")) return undefined;
+    return value;
 }
 
 /** Focus mode is a presentation-only projection; the underlying event store stays intact. */

@@ -101,6 +101,10 @@ export const Header = React.memo(function Header({
         { key: "fork", label: t("Fork session"), action: { type: "forkSession" }, disabled: !hasSession },
         { key: "archive", label: t("Archive session"), action: { type: "archiveSession" }, disabled: !hasSession },
         { key: "trace", label: t("Open session trace"), action: { type: "openTrace" }, disabled: !hasSession },
+        { key: "export", label: t("Export conversation"), action: { type: "exportSession" }, disabled: !hasSession },
+        { key: "editor", label: t("Open session in editor"), action: { type: "openSessionEditor" }, disabled: !hasSession },
+        { key: "review", label: t("DSH repository review"), action: { type: "reviewRepository" }, disabled: !hasSession },
+        { key: "copy", label: t("Copy conversation as Markdown"), action: { type: "copyConversation" }, disabled: !hasSession },
         { key: "terminal", label: t("Open Runtime terminal"), action: { type: "openRuntimeTerminal" }, disabled: !hasSession },
         { key: "feedback", label: t("Submit feedback"), action: { type: "openSessionFeedback" }, disabled: !hasSession },
         {
@@ -118,7 +122,9 @@ export const Header = React.memo(function Header({
         { key: "presets", label: t("Manage agent presets"), action: { type: "manageAgentPresets" } },
         { key: "providers", label: t("Manage providers"), action: { type: "manageProviders" } },
         { key: "settings", label: t("Manage plugin settings"), action: { type: "manageSettings" } },
-        { key: "plugins", label: t("Install or remove plugins"), action: { type: "managePlugins" } },
+        { key: "appearance", label: t("Chat appearance"), action: { type: "configureAppearance" } },
+        { key: "rates", label: t("Configure model cost rates"), action: { type: "configureBillingRates" } },
+        { key: "plugins", label: t("Manage Runtime plugins"), action: { type: "managePlugins" } },
         { key: "key", label: t("Configure API key"), action: { type: "configureApiKey" } },
         {
             key: "focus",

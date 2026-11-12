@@ -3,7 +3,7 @@
 // versioned advertisements and owned-child shutdown; no downloads, model calls or user data.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { access, mkdtemp, mkdir, readdir, writeFile, readFile, rm, symlink } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readdir, writeFile, readFile, rm, symlink, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -56,6 +56,8 @@ if (!process.argv.includes("--worker")) {
     const prefix = join(directory, "prefix with spaces");
     const upgrading = scenario.startsWith("upgrade-");
     const compatibleVersions = {
+        "config-backups": "0.2.2-rc.1",
+        "headless-conflict": "0.2.2-rc.1",
         "compatible-rc2": "0.1.5-rc.2", newer: "0.1.5-rc.3", "newer-numeric": "0.1.5-rc.10",
         "newer-stable": "0.1.5", "newer-major": "1.0.0", "compatible-build": "0.1.5-rc.1+local.7",
     };
@@ -66,11 +68,25 @@ if (!process.argv.includes("--worker")) {
         "npx-p-separate": ["-p", "@deepseek-ai/dsh@next", "dsh"],
     };
     const packageArgs = packageForms[scenario];
-    const targetVersion = packageArgs ? "0.2.0-rc.2" : scenario === "target-newer" ? "1.0.0" : "0.2.0-rc.2";
+    const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const targetVersion = packageArgs ? "0.2.0-rc.2" : scenario === "target-newer" ? "1.0.0"
+        : manifest.contributes.configuration.properties["dsh.runtimeVersion"].default;
     const versionFile = join(directory, "installed-version");
     const upgradeMarker = join(directory, "upgrade.json");
     if (upgrading) await writeFile(versionFile, scenario === "upgrade-prerelease" ? "0.1.5-rc.0" : "0.1.2-rc.1");
     const marker = join(directory, "launched.json");
+    if (["headless-conflict", "config-backups"].includes(scenario)) {
+        const profile = join(directory, "home", "profiles", "web");
+        await mkdir(profile, { recursive: true });
+        await writeFile(join(profile, "package.json"), JSON.stringify({ dsh: { profile: {
+            bundles: ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", ...(scenario === "headless-conflict" ? ["@deepseek-ai/dsh-headless"] : [])],
+        } }, revision: 0 }));
+        if (scenario === "config-backups") {
+            await writeFile(join(profile, "cordis.patch.yml"), "# profile settings\n");
+            await writeFile(join(directory, "home", "cordis.patch.yml"), "# home settings\n");
+            await writeFile(join(profile, ".env"), "NOT_A_REAL_KEY=fixture\n");
+        }
+    }
     const attempts = join(directory, "attempts.jsonl");
     const probeMarker = join(directory, "probe-started");
     await mkdir(bin);
@@ -144,10 +160,9 @@ setInterval(() => {}, 1000);
         await executable(join(bin, "npx"), "npx", packageArgs ? "0.1.5-rc.2" : "11.0.0");
     }
     process.env.PATH = bin;
-    const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const defaults = manifest.contributes.configuration.properties;
     const settings = new Map([["enableCompaction", false], ["installWhenMissing", false]]);
-    if (scenario.startsWith("config-")) settings.set("runtimeVersion", "0.1.2-rc.1");
+    if (scenario.startsWith("config-") && scenario !== "config-backups") settings.set("runtimeVersion", "0.1.2-rc.1");
     if (scenario === "config-pnpm") settings.set("command", "pnpm");
     if (scenario === "target-newer") { settings.set("command", "pnpm"); settings.set("runtimeVersion", targetVersion); }
     if (scenario === "explicit-old") settings.set("command", join(bin, "dsh"));
@@ -293,7 +308,13 @@ setInterval(() => {}, 1000);
             await starting;
             await assert.rejects(() => readFile(marker), { code: "ENOENT" });
             if (scenario === "upgrade-prompt-stop") await assert.rejects(() => readFile(upgradeMarker), { code: "ENOENT" });
-        } else if (scenario.startsWith("config-")) {
+        } else if (scenario === "headless-conflict") {
+            await assert.rejects(() => runtime.start(directory), /Web profile.*Headless.*package\.json/u);
+            await assert.rejects(() => readFile(marker), { code: "ENOENT" });
+            const profile = JSON.parse(await readFile(join(directory, "home", "profiles", "web", "package.json"), "utf8"));
+            assert.ok(profile.dsh.profile.bundles.includes("@deepseek-ai/dsh-headless"), "diagnosis must not rewrite the profile");
+            assert.deepEqual(await advertisements(), [], "a rejected profile must not advertise a Runtime");
+        } else if (scenario.startsWith("config-") && scenario !== "config-backups") {
             await assert.rejects(() => runtime.start(directory), /dsh\.runtimeVersion.*0\.1\.2-rc\.1.*0\.1\.5-rc\.1/u);
             await assert.rejects(() => runtime.diagnoseEnvironment(directory), /dsh\.runtimeVersion/u);
             await assert.rejects(() => readFile(probeMarker), { code: "ENOENT" });
@@ -320,6 +341,51 @@ setInterval(() => {}, 1000);
             assert.deepEqual(await advertisements(), [], "an unavailable dsh must not advertise a Runtime");
         } else {
             await runtime.start(directory);
+            if (scenario === "config-backups") {
+                const backupRoot = await runtime.getConfigurationBackupsDirectory();
+                const sources = await readdir(backupRoot);
+                assert.equal(sources.length, 1);
+                const history = join(backupRoot, sources[0]);
+                const snapshots = async () => (await readdir(history)).filter(name => /^\d{13}-/u.test(name)).sort();
+                const profilePath = join(directory, "home", "profiles", "web", "package.json");
+                const profile = JSON.parse(await readFile(profilePath, "utf8"));
+                const initial = await snapshots();
+                assert.equal(initial.length, 1);
+                const first = join(history, initial[0]);
+                assert.equal(await readFile(join(first, "profile/cordis.patch.yml"), "utf8"), "# profile settings\n");
+                assert.equal(await readFile(join(first, "home/cordis.patch.yml"), "utf8"), "# home settings\n");
+                assert.equal((await stat(join(first, "profile/package.json"))).mode & 0o777, 0o600);
+                assert.equal((await stat(first)).mode & 0o777, 0o700);
+                await assert.rejects(() => readFile(join(first, "profile/.env")), { code: "ENOENT" });
+                await runtime.getConfigurationBackupsDirectory();
+                assert.deepEqual(await snapshots(), initial, "unchanged content is not backed up twice");
+                await writeFile(join(history, ".lock"), JSON.stringify({ pid: process.pid, token: "legacy-stale-lock" }));
+                for (let revision = 1; revision <= 12; revision++) {
+                    await writeFile(profilePath, JSON.stringify({ ...profile, revision }));
+                    await runtime.getConfigurationBackupsDirectory();
+                }
+                const rotated = await snapshots();
+                assert.equal(rotated.length, 10);
+                assert.equal(JSON.parse(await readFile(join(history, rotated[0], "profile/package.json"), "utf8")).revision, 3);
+                // External Web UI edits are filesystem writes, independent of extension mutation commands.
+                await writeFile(profilePath, JSON.stringify({ ...profile, revision: 13 }));
+                const deadline = Date.now() + 6000;
+                let latest;
+                while (Date.now() < deadline) {
+                    const entries = await snapshots();
+                    latest = JSON.parse(await readFile(join(history, entries.at(-1), "profile/package.json"), "utf8"));
+                    if (latest.revision === 13) break;
+                    await pause(100);
+                }
+                assert.equal(latest.revision, 13, "external edits are captured by the directory watcher or polling fallback");
+                await rm(join(directory, "home", "cordis.patch.yml"));
+                await runtime.getConfigurationBackupsDirectory();
+                const entries = await snapshots();
+                const metadata = JSON.parse(await readFile(join(history, entries.at(-1), "backup.json"), "utf8"));
+                assert.equal(metadata.files.find(file => file.file === "home/cordis.patch.yml").present, false);
+                assert.equal(entries.length, 10);
+                assert.equal(runtime.getStatus().state, "running", "backups do not stop or roll back the Runtime");
+            }
             const launched = JSON.parse(await readFile(marker, "utf8"));
             const expected = scenario === "prefix" ? "prefix" : (packageArgs || ["explicit-npx", "npx-fallback", "cache-layout"].includes(scenario)) ? "npx"
                 : (["local", "legacy-args", "upgrade-prerelease", "upgrade-accept", "upgrade-race"].includes(scenario) || compatibleVersions[scenario]) ? "local" : "pnpm";
@@ -347,12 +413,29 @@ setInterval(() => {}, 1000);
             assert.equal(published.length, 1, "a ready Runtime must publish exactly one advertisement");
             const advertisement = JSON.parse(await readFile(join(advertisementDirectory, published[0]), "utf8"));
             const expectedAdvertisementVersion = compatibleVersions[scenario] ??
-                (["local", "prefix", "old", "newer", "upgrade-accept"].includes(scenario)
+                (["local", "prefix", "old", "newer", "upgrade-accept", "legacy-args"].includes(scenario)
                     ? "0.1.5-rc.2"
                     : scenario === "upgrade-race" ? "0.1.5-rc.2" : targetVersion);
             assert.equal(advertisement.runtimeVersion, expectedAdvertisementVersion);
             assert.equal(advertisement.runtimePid, runtime.child.pid);
             assert.equal(runtime.harnessState.runtimeVersion, advertisement.runtimeVersion, "host metadata must use the detected version");
+            if (scenario === "config-backups") {
+                const root = await runtime.getConfigurationBackupsDirectory();
+                const history = join(root, (await readdir(root))[0]);
+                await runtime.stop();
+                await writeFile(join(directory, "home", "profiles", "web", "cordis.patch.yml"), "# edit after Runtime stop\n");
+                let saved = false;
+                const deadline = Date.now() + 6000;
+                while (Date.now() < deadline) {
+                    const entries = (await readdir(history)).filter(name => /^\d{13}-/u.test(name)).sort();
+                    saved = await readFile(join(history, entries.at(-1), "profile/cordis.patch.yml"), "utf8") === "# edit after Runtime stop\n";
+                    if (saved) break;
+                    await pause(100);
+                }
+                assert.equal(saved, true, "configuration history remains available after Runtime exit");
+                assert.equal(runtime.getStatus().state, "stopped");
+                console.log("PASS configuration backup assertions executed: retention, deduplication, external edits, deletion, legacy stale lock and stopped Runtime");
+            }
         }
         if (upgrading && !["upgrade-diagnose", "upgrade-prompt-stop", "upgrade-stop"].includes(scenario)) {
             const attempted = ["upgrade-prerelease", "upgrade-accept", "upgrade-failed", "upgrade-mismatch", "upgrade-cancel"].includes(scenario);

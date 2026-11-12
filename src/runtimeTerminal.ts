@@ -78,7 +78,7 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
                 if (frame.type === "ack") continue;
                 if (frame.type !== "output") {
                     if (frame.info.id !== this.info.id) throw new Error("Runtime terminal identity changed");
-                    this.names.fire(`DSH · ${frame.info.title}${this.writable ? "" : ` (${t("Read only")})`}`);
+                    this.names.fire(`DSH · ${frame.info.title}${frame.info.control === "agent" ? ` (${t("Agent control")})` : ""}${this.writable ? "" : ` (${t("Read only")})`}`);
                 }
                 if (frame.type === "snapshot") {
                     this.output.fire(`\x1b[2J\x1b[H${frame.screen}`);
@@ -98,7 +98,7 @@ class RuntimePty implements vscode.Pseudoterminal, vscode.Disposable {
 
     public handleInput(data: string): void {
         if (!data || !this.writable || !this.available()) return;
-        if (!this.attachment?.write(data)) this.inputFull();
+        if (!this.attachment?.write(data, this.runtime.isRuntimeAtLeast("0.2.2-rc.2"))) this.inputFull();
     }
 
     public setDimensions(dimensions: vscode.TerminalDimensions): void {
@@ -158,15 +158,51 @@ export class RuntimeTerminalManager implements vscode.Disposable {
             if (this.disposed || this.runtime.getUrl() !== endpoint) return;
             const retained = await this.runtime.terminals.list(sessionId);
             if (this.disposed || this.runtime.getUrl() !== endpoint) return;
-            const selected = await vscode.window.showQuickPick([
+            const choices = (roster: RuntimeTerminalInfo[]) => [
                 { label: `$(add) ${t("New Runtime terminal")}`, info: undefined as RuntimeTerminalInfo | undefined },
-                ...retained.filter(info => !this.closing.has(this.key(endpoint, sessionId, info.id))).map(info => ({
-                    label: `$(terminal) ${info.title}`, description: `${info.state} · ${info.cwd}`, info,
+                ...roster.filter(info => !this.closing.has(this.key(endpoint, sessionId, info.id))).map(info => ({
+                    label: `$(terminal) ${info.title}`, description: [info.origin === "agent" ? t("Agent terminal") : t("User terminal"), info.state, info.cwd, info.sandboxMode].filter(Boolean).join(" · "), info,
                 })),
-            ], { title: t("Runtime terminals"), placeHolder: t("Open a retained terminal or start a new user shell") });
+            ];
+            const picker = vscode.window.createQuickPick<vscode.QuickPickItem & { info?: RuntimeTerminalInfo }>();
+            picker.title = t("Runtime terminals"); picker.placeholder = t("Open a retained terminal or start a new user shell"); picker.items = choices(retained);
+            const rosterAbort = new AbortController();
+            if (this.runtime.isRuntimeAtLeast("0.2.2-rc.2")) void (async () => {
+                for await (const roster of this.runtime.terminals.watch(sessionId, rosterAbort.signal)) {
+                    if (this.runtime.getUrl() !== endpoint) { picker.hide(); return; }
+                    const active = picker.activeItems[0]?.info?.id;
+                    picker.items = choices(roster);
+                    if (active) picker.activeItems = picker.items.filter(item => item.info?.id === active);
+                }
+            })().catch(error => { if (!rosterAbort.signal.aborted) this.output.appendLine(`[dsh:terminal] ${errorMessage(error)}`); });
+            let selected: (vscode.QuickPickItem & { info?: RuntimeTerminalInfo }) | undefined;
+            try {
+                selected = await new Promise(resolve => {
+                    const accept = picker.onDidAccept(() => { selected = picker.selectedItems[0]; picker.hide(); });
+                    const hide = picker.onDidHide(() => { accept.dispose(); hide.dispose(); resolve(selected); }); picker.show();
+                });
+            } finally { rosterAbort.abort(); picker.dispose(); }
             if (!selected || this.disposed || this.runtime.getUrl() !== endpoint) return;
+            if (selected.info && this.runtime.supportsHostSchedules()) {
+                const action = await vscode.window.showQuickPick([t("Open terminal"), t("Rename terminal")], { title: selected.info.title });
+                if (!action) return;
+                if (action === t("Rename terminal")) {
+                    const title = await vscode.window.showInputBox({ title: t("Terminal title"), value: selected.info.title,
+                        validateInput: value => !value.trim() || value.trim().length > 120 ? t("Enter a title from 1 to 120 characters.") : undefined });
+                    if (!title || this.runtime.getUrl() !== endpoint) return;
+                    await this.runtime.terminals.rename(sessionId, selected.info.id, title.trim());
+                    selected.info = { ...selected.info, title: title.trim() };
+                }
+            }
+            let shell: string | undefined;
+            if (!selected.info && this.runtime.supportsHostSchedules()) {
+                const shells = await this.runtime.terminals.shells(sessionId);
+                const choice = await vscode.window.showQuickPick(shells.map(item => ({ label: item.label, id: item.id })), { title: t("Choose terminal shell") });
+                if (!choice || this.runtime.getUrl() !== endpoint) return;
+                shell = choice.id;
+            }
             const info = selected.info ?? await this.runtime.terminals.create(sessionId, randomUUID(),
-                Math.min(100, limits.maxCols), Math.min(30, limits.maxRows));
+                Math.min(100, limits.maxCols), Math.min(30, limits.maxRows), shell);
             if (this.disposed || this.runtime.getUrl() !== endpoint) return;
             const key = this.key(endpoint, sessionId, info.id);
             const known = this.terminals.get(key);

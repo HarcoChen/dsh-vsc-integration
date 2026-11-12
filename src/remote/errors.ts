@@ -58,6 +58,23 @@ export class RemoteCarrierError extends Error {
     }
 }
 
+/** HTTP request could not reach a Remote response; preserve safe diagnostics without dumping credentials. */
+export class RemoteTransportError extends Error {
+    public constructor(public readonly endpoint: string, cause: unknown) {
+        const codes = new Set<string>();
+        const visit = (value: unknown, depth: number): void => {
+            if (!value || typeof value !== "object" || depth > 3) return;
+            const error = value as { code?: unknown; cause?: unknown; errors?: unknown };
+            if (typeof error.code === "string" && /^[A-Z0-9_]+$/u.test(error.code)) codes.add(error.code);
+            visit(error.cause, depth + 1);
+            if (Array.isArray(error.errors)) for (const nested of error.errors) visit(nested, depth + 1);
+        };
+        visit(cause, 0);
+        super(`Remote RPC ${endpoint} fetch failed${codes.size ? ` (${[...codes].join(", ")})` : ""}`, { cause });
+        this.name = "RemoteTransportError";
+    }
+}
+
 export function isRemoteError(error: unknown): error is RemoteError {
     if (error instanceof RemoteError) return true;
     if (!error || typeof error !== "object") return false;
@@ -65,6 +82,16 @@ export function isRemoteError(error: unknown): error is RemoteError {
     return value.isDSHRemoteError === true &&
         typeof value.code === "string" &&
         typeof value.message === "string";
+}
+
+/** An optional Remote export is absent, rather than denied or failing inside its implementation. */
+export function isRemoteEndpointUnavailable(error: unknown, endpoint?: string): boolean {
+    if (error instanceof RemoteHttpError) {
+        return error.status === 404 && (endpoint === undefined || error.endpoint === endpoint);
+    }
+    return isRemoteError(error) &&
+        (error.code === "gateway/invocation-unavailable" || error.code === "gateway/not-found") &&
+        (endpoint === undefined || error.endpoint === endpoint);
 }
 
 export function remoteErrorFromUnknown(error: unknown, endpoint?: string): RemoteError {

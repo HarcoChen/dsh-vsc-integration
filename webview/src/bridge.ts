@@ -55,6 +55,22 @@ export function postAction(action: ChatViewAction): void {
     getVsCodeApi().postMessage(action);
 }
 
+export function readComposerDraft(sessionId: string | undefined): string {
+    const saved = getVsCodeApi().getState() as { composerDrafts?: Record<string, unknown> } | undefined;
+    const value = saved?.composerDrafts?.[sessionId ?? "__new__"];
+    return typeof value === "string" ? value : "";
+}
+
+export function saveComposerDraft(sessionId: string | undefined, text: string): void {
+    const api = getVsCodeApi();
+    const saved = api.getState() as Record<string, unknown> | undefined;
+    const drafts = saved?.composerDrafts && typeof saved.composerDrafts === "object"
+        ? saved.composerDrafts as Record<string, unknown> : {};
+    const entries = Object.entries(drafts).filter(([key]) => key !== (sessionId ?? "__new__"));
+    entries.push([sessionId ?? "__new__", text]);
+    api.setState({ ...saved, composerDrafts: Object.fromEntries(entries.slice(-20)) });
+}
+
 /** Keep question drafts beside host state so each host push preserves them across webview recreation. */
 export function readQuestionDraft(key: string): DshQuestionAnswerItem[] {
     const saved = getVsCodeApi().getState() as { questionDrafts?: Record<string, unknown> } | undefined;
@@ -132,6 +148,11 @@ export type InsertTextHandler = (text: string) => void;
 export type SetTextHandler = (text: string) => void;
 export type AddImageDraftHandler = (image: DshImageUpload) => void;
 export type RevealMessageHandler = (seq: number) => void;
+type PromptResultHandler = (id: string, accepted: boolean) => void;
+const promptResultSubscribers = new Set<PromptResultHandler>();
+export function subscribePromptResult(handler: PromptResultHandler): () => void {
+    return subscribe(promptResultSubscribers, handler);
+}
 
 const insertTextSubscribers = new Set<InsertTextHandler>();
 const setTextSubscribers = new Set<SetTextHandler>();
@@ -190,10 +211,15 @@ export function useHostState(): ChatViewState {
         const vscode = getVsCodeApi();
         const onMessage = (event: MessageEvent): void => {
             const data: unknown = event.data;
+            if (data && typeof data === "object" && "type" in data && data.type === "promptResult" &&
+                "submissionId" in data && typeof data.submissionId === "string" && "accepted" in data && typeof data.accepted === "boolean") {
+                notify(promptResultSubscribers, handler => handler(data.submissionId as string, data.accepted as boolean));
+                return;
+            }
             if (isHostStateMessage(data)) {
                 setState(data.state);
-                const previous = vscode.getState() as { questionDrafts?: unknown } | undefined;
-                vscode.setState({ ...data.state, questionDrafts: previous?.questionDrafts });
+                const previous = vscode.getState() as { questionDrafts?: unknown; composerDrafts?: unknown } | undefined;
+                vscode.setState({ ...data.state, questionDrafts: previous?.questionDrafts, composerDrafts: previous?.composerDrafts });
                 return;
             }
             if (isInsertTextMessage(data)) {

@@ -27,6 +27,7 @@ function phaseLabel(phase: DshPluginFiberPhase): string {
 function readOnlyLabel(reason: string): string {
     if (reason === "management-required") return t("Required by plugin management");
     if (reason === "permission-denied") return t("This action is unavailable with your Runtime permissions.");
+    if (reason === "incompatible-web-profile") return t("Headless must run in a separate CLI profile.");
     if (reason === "unaddressable") return t("This row cannot be addressed by the profile patch");
     return reason;
 }

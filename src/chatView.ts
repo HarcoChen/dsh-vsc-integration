@@ -1,14 +1,21 @@
 import { randomUUID } from "node:crypto";
+import { messageText } from "./messageText";
 import { isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
 import { canUseChatAction } from "./remoteActionAccess";
 import { mergeJobHistory } from "./jobHistory";
+import { HostScheduleController } from "./hostScheduleActions";
+import { sessionMarkdown } from "./sessionExport";
+import { exportSessionZip } from "./sessionZip";
+import { estimateSessionCost, modelRates } from "./sessionCost";
+import { attachProjectRules, searchEditorContext } from "./editorContextActions";
 import { configureWebSearch } from "./webSearchSettings";
 import { AgentStatusPresentationRegistry } from "./agentStatusPresentation";
 import { captureAppShot as captureNativeAppShot } from "./appShot";
 import { DeepSeekBalanceService } from "./balanceService";
 import {
     highestKnownSeq,
+    continuableFailure,
     hiddenViewBadge,
     focusChatMessages,
     OptimisticPrompt,
@@ -288,13 +295,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private readonly surfaces = new Set<ChatViewSurface>();
     private activeSurface: ChatViewSurface | undefined;
     private editorSurface: ChatViewSurface | undefined;
+    private readonly editors = new Set<ChatViewProvider>();
+    private commandController?: ChatViewProvider;
+    private readonly activeSessionChanged = new vscode.EventEmitter<void>();
+    public readonly onDidChangeActiveSession = this.activeSessionChanged.event;
+    private disposed = false;
     private readonly disposables: vscode.Disposable[] = [];
     private readonly optimisticPrompts: OptimisticPrompt[] = [];
+    private readonly generationRetries = new Map<string, { seq: number; requestId: string; accepted: boolean }>();
     private readonly markdownRenders = new MarkdownRenderCache();
     private readonly goalMutations = new GoalMutationGate();
     private readonly goalActivation: GoalActivationController;
     private readonly subagents: SubagentController;
+    private readonly hostSchedules: HostScheduleController;
     private sessionId: string | undefined;
+    private composerSessionId?: string;
+    private composerKey = randomUUID();
     private sessionCwd: string | undefined;
     private newSessionDraft = false;
     private pendingNewSessionPreset: string | undefined;
@@ -354,7 +370,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private agentPresetCatalogGeneration = 0;
     private agentPresetCatalogRefreshPending = false;
     private pendingNewSessionSkills: DshSkillEntry[] | undefined;
-    private readonly agentPresetDocuments = new Map<string, string>();
+    private readonly agentPresetDocuments: Map<string, string>;
     private readonly imageCache = new Map<string, { src?: string; error?: string; loading?: boolean }>();
     private settingsPanel: DshSettingsPanelView | undefined;
     private readonly settingsNamespaces = new Map<string, DshSettingsNamespaceView>();
@@ -386,16 +402,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         private readonly output: vscode.OutputChannel,
         private readonly balanceService?: DeepSeekBalanceService,
         private readonly agentStatusPresentations?: AgentStatusPresentationRegistry,
+        private readonly editorContext?: { owner: ChatViewProvider; id: string; panel: vscode.WebviewPanel; sessionId?: string },
     ) {
-        this.changeReviews = new ChangeReviewStore(output);
+        this.focusMode = extensionContext.globalState.get<boolean>("focusMode", false);
+        this.sessionId = editorContext?.sessionId;
+        this.agentPresetDocuments = editorContext?.owner.agentPresetDocuments ?? new Map();
+        this.changeReviews = editorContext?.owner.changeReviews ?? new ChangeReviewStore(output);
         this.goalActivation = new GoalActivationController(
             (sessionId) => runtime.getGoalActivation(sessionId),
             () => this.schedulePostState(),
         );
-        this.toolDiffs = new ToolDiffStore(output);
-        this.runtimeWorkspaceBrowser = new RuntimeWorkspaceBrowser(runtime, output);
-        this.runtimeTerminals = new RuntimeTerminalManager(runtime, output);
+        this.toolDiffs = editorContext?.owner.toolDiffs ?? new ToolDiffStore(output);
+        this.runtimeWorkspaceBrowser = editorContext?.owner.runtimeWorkspaceBrowser ?? new RuntimeWorkspaceBrowser(runtime, output);
+        this.runtimeTerminals = editorContext?.owner.runtimeTerminals ?? new RuntimeTerminalManager(runtime, output);
         this.pluginManagement = new PluginManagementController(runtime, output, () => this.refreshPluginInventory());
+        this.hostSchedules = new HostScheduleController(runtime, () => this.postState());
         this.subagents = new SubagentController({
             runtime,
             currentRootSession: () => this.sessionId,
@@ -415,7 +436,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const catalogSession = runtime.getSessionCatalog().snapshot().sessions.find(
                 (item) => item.sessionId === sessionId,
             );
-            if (!catalogSession?.parentSessionId && catalogSession?.origin !== "subagent") {
+            if (!this.editorContext && !catalogSession?.parentSessionId && catalogSession?.origin !== "subagent") {
                 this.changeReviews.observe(
                     sessionId,
                     catalogSession?.cwd ?? (sessionId === this.sessionId ? this.sessionCwd : undefined),
@@ -424,7 +445,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }
             const subagentTimingChanged = this.subagents.observeSubagentTiming(sessionId, snapshot);
             if (sessionId === this.sessionId) {
-                if (projectionCell(snapshot, "agentTeam")) this.subagents.scheduleSubagentRefresh();
+                this.subagents.observeCatalog(sessionId, snapshot);
                 this.observeModelSelection(sessionId, snapshot);
                 this.goalMutations.observe(
                     sessionId,
@@ -442,7 +463,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.subagents.scheduleSubagentRefresh();
         });
         this.disposables.push(
-            vscode.workspace.registerTextDocumentContentProvider(
+            editorContext ? new vscode.Disposable(() => {}) : vscode.workspace.registerTextDocumentContentProvider(
                 AGENT_PRESET_DOCUMENT_SCHEME,
                 {
                     provideTextDocumentContent: (uri) =>
@@ -456,6 +477,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             }),
             runtime.onDidChange((status) => {
                 if (status.state === "stopped") {
+                    this.hostSchedules.reset();
+                    this.generationRetries.clear();
                     this.ensureJobWatch(undefined);
                     this.ensureQuestionWaits(undefined, undefined);
                     ++this.dynamicPluginsGeneration;
@@ -482,6 +505,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         this.refreshAgentPresetCatalog();
                         break;
                     case "schedule/changed":
+                        if (this.runtime.supportsHostSchedules()) { void this.hostSchedules.refresh(); break; }
                         ++this.scheduleHistoryGeneration;
                         this.scheduleHistoryView = undefined;
                         this.scheduleCatalogs.invalidate();
@@ -495,6 +519,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                         void this.refreshPermissionCatalog(true);
                         break;
                     case "llm/adapters-updated":
+                    case "llm/models-updated":
                     case "credentials/reference-updated":
                     case "credentials/record-updated":
                     case "deepseek-account/session-expired":
@@ -529,14 +554,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 }
             }),
             runtime.onDidHarnessConnect(() => {
+                this.hostSchedules.reset();
                 this.invalidateAgentPresetCatalog();
                 this.refreshAgentPresetCatalog();
                 this.goalActivation.reset();
                 this.commandRegistryUnavailable = false;
                 void this.refreshPermissionCatalog(true);
-                this.commandCatalogs.clear();
+                this.commandCatalogs.invalidate();
                 this.scheduleRpcUnavailable = false;
-                this.scheduleCatalogs.clear();
+                this.scheduleCatalogs.invalidate();
                 this.scheduleCatalogRpcUnavailable = false;
                 this.allSessionsScheduleCatalog.invalidate();
                 this.scheduleCatalogView = undefined;
@@ -547,6 +573,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 if (this.settingsPanel?.open) void this.refreshPluginInventory();
                 void this.restorePersistedSession(this.workspaceRoot()).then(() => {
                     if (this.sessionId) {
+                        if (this.editorContext) {
+                            const id = this.sessionId;
+                            void this.runtime.activateSession(id).then(() => this.runtime.syncSession(id))
+                                .catch(error => this.output.appendLine(`[dsh:editor] ${errorMessage(error)}`));
+                        }
                         this.refreshModelCatalog(this.sessionId);
                         this.refreshSkillCatalog(this.sessionId);
                         this.refreshCommandCatalog(this.sessionId);
@@ -559,7 +590,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             contextStore.onDidChange(() => this.schedulePostState()),
             terminalContext.onDidChange(() => this.schedulePostState()),
             terminalContext.onDidCapture((command) => {
-                if (command.exitCode !== undefined && command.exitCode !== 0) {
+                if ((this.editorContext?.owner ?? this).commandTarget() === this && command.exitCode !== undefined && command.exitCode !== 0) {
                     void this.offerFailedTerminalCommand(command);
                 }
             }),
@@ -578,12 +609,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             vscode.workspace.onDidChangeConfiguration((event) => {
                 if (
                     event.affectsConfiguration("dsh.enableEffortKnob") ||
-                    event.affectsConfiguration("dsh.autoOpenReasoning")
+                    event.affectsConfiguration("dsh.autoOpenReasoning") ||
+                    event.affectsConfiguration("dsh.chatFontSize") || event.affectsConfiguration("dsh.chatDensity") ||
+                    event.affectsConfiguration("dsh.billingRates")
                 ) {
                     this.schedulePostState();
                 }
             }),
             new vscode.Disposable(runtime.onDidRemoteAccessChange(() => {
+                this.hostSchedules.reset();
                 if (runtime.remoteAccess.snapshot.available && this.sessionId !== undefined && !runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId })) {
                     this.liveJobs = [];
                     this.subagents.discardSubagentPreview();
@@ -606,24 +640,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.postState();
     }
 
-    /**
-     * Shows the same chat in an editor tab.
-     *
-     * The panel mirrors the Session the sidebar already holds — one controller
-     * and one state, so opening a tab moves nothing, and a turn keeps streaming
-     * into whichever surface is open. One tab is reused rather than allowing
-     * two, because the composer draft lives in the webview and two tabs would
-     * silently fork it.
-     */
-    public openInEditor(): void {
-        const existing = this.editorSurface;
-        if (existing) {
-            this.activeSurface = existing;
-            existing.reveal();
-            this.postState();
-            return;
+    /** Commands follow the last chat the person used, including a sidebar beside editor tabs. */
+    public commandTarget(): ChatViewProvider {
+        if (this.editorContext) return this;
+        return this.commandController && !this.commandController.disposed ? this.commandController : this;
+    }
+
+    private markActive(): void {
+        const owner = this.editorContext?.owner ?? this;
+        if (owner.commandController !== this) {
+            owner.commandController = this;
+            owner.activeSessionChanged.fire();
         }
-        const panel = vscode.window.createWebviewPanel(
+    }
+
+    public async openInEditor(sessionId: string | null | undefined = this.commandTarget().sessionId, restoredPanel?: vscode.WebviewPanel, id: string = randomUUID()): Promise<ChatViewProvider | undefined> {
+        if (this.editorContext) return this.editorContext.owner.openInEditor(sessionId, restoredPanel, id);
+        const existing = sessionId ? [...this.editors].find(editor => editor.sessionId === sessionId) : undefined;
+        if (existing && !restoredPanel) {
+            existing.markActive();
+            existing.reveal();
+            return existing;
+        }
+        const panel = restoredPanel ?? vscode.window.createWebviewPanel(
             ChatViewProvider.editorViewType,
             t("DSH Chat"),
             vscode.ViewColumn.Active,
@@ -631,9 +670,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             // so hiding it for an editor switch must not tear them down.
             { enableScripts: true, retainContextWhenHidden: true },
         );
-        this.editorSurface = this.openSurface(panel);
-        this.postState();
+        const editor = new ChatViewProvider(this.extensionContext, this.extensionUri, this.runtime,
+            this.contextStore.fork(), this.terminalContext, this.output, this.balanceService, this.agentStatusPresentations,
+            { owner: this, id, panel, sessionId: sessionId ?? undefined });
+        if (!sessionId) editor.newSessionDraft = true;
+        this.editors.add(editor);
+        editor.markActive();
+        editor.editorSurface = editor.openSurface(panel);
+        editor.disposables.push(panel.onDidDispose(() => { this.editors.delete(editor); editor.dispose(); }));
+        editor.postState();
+        if (restoredPanel && !vscode.workspace.getConfiguration("dsh").get<boolean>("autoStart", true) && this.runtime.getStatus().state !== "running") return editor;
+        await this.runtime.start(this.workspaceRoot());
+        if (editor.disposed) return;
+        if (sessionId) await editor.switchSession(sessionId);
+        else editor.newSessionDraft = true;
+        editor.postState();
+        return editor;
     }
+
+    public async restoreEditor(panel: vscode.WebviewPanel, state: unknown): Promise<void> {
+        const saved = isRecord(state) ? state : {};
+        await this.openInEditor(typeof saved.sessionId === "string" ? saved.sessionId : null, panel,
+            typeof saved.editorInstanceId === "string" ? saved.editorInstanceId : randomUUID());
+    }
+
+    private sessionStorageKey(): string { return this.editorContext ? `editor-session:${this.editorContext.id}` : "session"; }
 
     private openSurface(
         view: vscode.WebviewView | vscode.WebviewPanel,
@@ -648,6 +709,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 void this.handleMessage(message, sender);
             },
             onVisibilityChange: () => {
+                if (this.editorContext?.panel.active) this.markActive();
                 if (this.anySurfaceVisible()) this.completedWhileHidden.clear();
                 this.updateViewBadge();
             },
@@ -669,6 +731,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private addSurface(surface: ChatViewSurface): void {
         this.surfaces.add(surface);
         this.activeSurface = surface;
+        this.markActive();
     }
 
     private retireSurface(surface: ChatViewSurface): void {
@@ -811,14 +874,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         return runSessionManagement({
             runtime: this.runtime,
             workspaceRoot: () => this.workspaceRoot(),
-            openSession: (sessionId) => this.switchSession(sessionId),
+            openSession: async sessionId => { if (this.editorContext) await this.editorContext.owner.openInEditor(sessionId); else await this.switchSession(sessionId); },
         });
     }
 
     public openSessionCenter(): Promise<void> {
         return openSessionCenter({ runtime: this.runtime, workspaceRoot: () => this.workspaceRoot(),
-            openSession: sessionId => this.switchSession(sessionId) });
+            preferences: this.extensionContext.globalState,
+            openSession: async sessionId => { if (this.editorContext) await this.editorContext.owner.openInEditor(sessionId); else await this.switchSession(sessionId); } });
     }
+
+    public async searchCodeContext(): Promise<void> { await searchEditorContext(this.contextStore); this.reveal(); }
+    public async attachProjectRules(): Promise<void> { await attachProjectRules(this.contextStore); this.reveal(); }
 
     public manageAgentPresets(): Promise<void> {
         return manageAgentPresets({
@@ -1279,7 +1346,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public getCurrentSessionId(): string | undefined {
-        return this.sessionId;
+        return this.commandTarget().sessionId;
     }
 
     public async openDiagnosticsPicker(): Promise<void> {
@@ -1405,6 +1472,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     public dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        if (this.editorContext && !this.editorContext.owner.disposed && this.editorContext.owner.commandController === this) {
+            this.editorContext.owner.commandController = undefined;
+            this.editorContext.owner.activeSessionChanged.fire();
+        }
+        this.activeSessionChanged.dispose();
+        for (const editor of this.editors) editor.dispose();
+        this.editors.clear();
         this.jobWatchDisposable?.dispose();
         this.jobWatchDisposable = undefined;
         for (const disposable of this.questionWaitDisposables.values()) disposable.dispose();
@@ -1416,10 +1492,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.sessionFeedback.dispose();
         this.goalActivation.dispose();
         this.fileReferenceQueryAbort?.abort();
-        this.changeReviews.dispose();
-        this.toolDiffs.dispose();
-        this.runtimeWorkspaceBrowser.dispose();
-        this.runtimeTerminals.dispose();
+        if (!this.editorContext) {
+            this.changeReviews.dispose();
+            this.toolDiffs.dispose();
+            this.runtimeWorkspaceBrowser.dispose();
+            this.runtimeTerminals.dispose();
+        }
         ++this.permissionCatalogGeneration;
         for (const disposable of this.disposables) {
             disposable.dispose();
@@ -1429,17 +1507,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async handleMessage(value: unknown, surface: ChatViewSurface): Promise<void> {
         const message = parseChatViewAction(value);
         if (!message) {
+            if (isRecord(value) && value.type === "sendPrompt" && typeof value.submissionId === "string" && value.submissionId.length <= 128)
+                surface.post({ type: "promptResult", submissionId: value.submissionId, accepted: false });
             this.output.appendLine("[dsh:webview] ignored malformed message");
             return;
         }
         // Whatever just talked to us is the view the user is working in.
         this.activeSurface = surface;
+        if (!["ready", "fileReferenceQuery", "loadImage"].includes(message.type)) this.markActive();
         try {
             const canStartRuntime = message.type === "sendPrompt" || message.type === "configureApiKey" || message.type === "manageProviders";
-            if (!(canStartRuntime && this.runtime.getStatus().state !== "running") && !canUseChatAction(this.runtime.remoteAccess, message, this.sessionId)) {
+            if (!(canStartRuntime && this.runtime.getStatus().state !== "running") && !canUseChatAction(this.runtime.remoteAccess, message, this.sessionId, this.runtime.isRuntimeAtLeast("0.2.2-rc.2"))) {
                 throw new Error(t("This action is unavailable with your Runtime permissions."));
             }
             switch (message.type) {
+                case "activateChat":
+                    break;
+                case "configureAppearance":
+                    await vscode.commands.executeCommand("dsh.configureAppearance");
+                    break;
+                case "searchCodeContext":
+                    await this.searchCodeContext();
+                    break;
+                case "attachProjectRules":
+                    await this.attachProjectRules();
+                    break;
+                case "managePromptTemplates":
+                    await vscode.commands.executeCommand("dsh.managePromptTemplates");
+                    break;
+                case "configureBillingRates":
+                    await vscode.commands.executeCommand("dsh.configureBillingRates");
+                    break;
                 case "ready":
                     surface.markReady();
                     this.postState();
@@ -1447,16 +1545,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     this.flushPendingComposerImages();
                     if (this.sessionId) void this.subagents.refreshSubagentTree(this.sessionId);
                     break;
-                case "sendPrompt":
+                case "sendPrompt": {
+                    let owned = false;
                     await this.sendPrompt(
                         message.text ?? "",
                         message.mode,
                         message.images ?? [],
                         message.files ?? [],
+                        () => {
+                            owned = true;
+                            if (message.submissionId) surface.post({ type: "promptResult", submissionId: message.submissionId, accepted: true });
+                        },
                     );
+                    if (!owned && message.submissionId) surface.post({ type: "promptResult", submissionId: message.submissionId, accepted: false });
                     break;
+                }
                 case "retryPrompt":
                     await this.retryPrompt(message.id);
+                    break;
+                case "retryGeneration":
+                    await this.retryGeneration(message.sessionId, message.failureSeq);
+                    break;
+                case "manageHostTask":
+                    await this.hostSchedules.manage(message.id, this.sessionId);
+                    break;
+                case "toggleSubagentBranch":
+                    await this.subagents.toggleBranch(message.childSessionId);
+                    break;
+                case "exportSession":
+                    await this.exportSession(false);
+                    break;
+                case "openSessionEditor":
+                    await (this.editorContext?.owner ?? this).openInEditor(this.sessionId);
+                    break;
+                case "reviewRepository":
+                    await vscode.commands.executeCommand("dsh.reviewRepository");
+                    break;
+                case "copyConversation":
+                    await this.exportSession(true);
+                    break;
+                case "quoteMessage": {
+                    const snapshot = this.sessionId ? this.runtime.getSessionStore().get(this.sessionId) : undefined;
+                    const source = projectChatMessages(snapshot, this.optimisticPrompts, this.sessionSkillNames()).find(item => item.id === message.messageId);
+                    if (!source || (source.role !== "assistant" && source.role !== "user")) break;
+                    const sourceText = messageText(source);
+                    const text = message.selection ?? sourceText;
+                    const normalizeWhitespace = (value: string): string => value.replace(/\s+/gu, " ").trim();
+                    if (!normalizeWhitespace(sourceText).includes(normalizeWhitespace(text))) throw new Error(t("This message is no longer available."));
+                    this.insertComposerText(`\n${text.split("\n").map(line => `> ${line}`).join("\n")}\n\n`);
+                    break;
+                }
+                case "refreshHostTasks":
+                    await this.hostSchedules.refresh(message.offset, message.active);
                     break;
                 case "cancel":
                     await this.cancel();
@@ -1553,6 +1693,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
                 case "toggleFocus":
                     this.focusMode = !this.focusMode;
+                    await this.extensionContext.globalState.update("focusMode", this.focusMode);
                     this.postState();
                     break;
                 case "start":
@@ -1681,7 +1822,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     await this.sessionFeedback.record(this.sessionId, message.text, message.category);
                     break;
                 case "switchSession":
-                    await this.switchSession(message.sessionId);
+                    if (this.editorContext) await this.editorContext.owner.openInEditor(message.sessionId);
+                    else await this.switchSession(message.sessionId);
                     break;
                 case "newSession":
                     await this.newSession();
@@ -1774,6 +1916,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                     break;
             }
         } catch (error) {
+            if (message.type === "sendPrompt" && message.submissionId)
+                surface.post({ type: "promptResult", submissionId: message.submissionId, accepted: false });
             this.reportError(error);
         }
     }
@@ -1965,6 +2109,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         requestedMode: "queue" | "steer",
         requestedImages: readonly DshImageUpload[] = [],
         requestedFiles: readonly DshFileDraft[] = [],
+        onOwned?: () => void,
     ): Promise<void> {
         const text = rawText.trim();
         const hasAttachments = requestedImages.length > 0 || requestedFiles.length > 0;
@@ -2007,10 +2152,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             const session = await this.getOrCreateSession(sessionRoot);
             if (!hasAttachments && /^\/feedback$/u.test(text)) {
                 this.sessionFeedback.open(session);
+                onOwned?.();
                 return;
             }
             if (!hasAttachments && /^\/ide(?:$|[\t\n\r ])/u.test(text)) {
                 await this.openIdeContextPicker();
+                onOwned?.();
                 return;
             }
 
@@ -2022,6 +2169,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 await this.ensureCommandCatalog(session);
                 if (this.hostCommandName(session, text) !== undefined) {
                     await this.runHostCommand(session, text, requestedImages);
+                    onOwned?.();
                     return;
                 }
             }
@@ -2077,6 +2225,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 createdAt: Date.now(),
             };
             this.optimisticPrompts.push(optimistic);
+            onOwned?.();
             this.postState();
             const mode = resolvePromptMode(requestedMode, this.selectedSessionRunning());
             const promptResult = await this.runtime.prompt(
@@ -2109,6 +2258,62 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async sendParticipantPrompt(text: string, token?: vscode.CancellationToken): Promise<void> {
         if (token?.isCancellationRequested) return;
         await this.sendPrompt(text, "queue");
+    }
+
+    /** Empty input continues the failed generation without replaying the user's task or attachments. */
+    private async retryGeneration(sessionId: string, failureSeq: number): Promise<void> {
+        if (this.submitting || this.checkpointActionInFlight || this.sessionId !== sessionId ||
+            this.runtime.getStatus().state !== "running" || this.selectedSessionRunning()) return;
+        const session = this.runtime.getSessionCatalog().snapshot().sessions.find(item => item.sessionId === sessionId);
+        if (!session || session.origin === "subagent" ||
+            continuableFailure(this.runtime.getSessionStore().get(sessionId)) !== failureSeq) return;
+        let retry = this.generationRetries.get(sessionId);
+        if (retry?.seq !== failureSeq) {
+            retry = { seq: failureSeq, requestId: randomUUID(), accepted: false };
+            this.generationRetries.set(sessionId, retry);
+        }
+        if (retry.accepted) return;
+        this.submitting = true;
+        this.postState();
+        try {
+            // Reuse the request id after a lost response: the Host deduplicates accepted input.
+            const result = await this.runtime.prompt(sessionId, "", "queue", [], retry.requestId);
+            if (result.accepted === false) throw new Error(t("The dsh runtime rejected this retry."));
+            retry.accepted = true;
+        } catch (error) {
+            this.reportError(error);
+        } finally {
+            this.submitting = false;
+            this.postState();
+        }
+    }
+
+    public async exportSession(copy = false): Promise<void> {
+        const sessionId = this.sessionId;
+        if (!sessionId) return;
+        const format = copy ? "markdown" : (await vscode.window.showQuickPick([
+            { label: "Markdown", format: "markdown" }, { label: "JSON", format: "json" }, { label: "ZIP", format: "zip" },
+        ].sort((a, b) => Number(b.format === this.extensionContext.globalState.get("exportFormat")) - Number(a.format === this.extensionContext.globalState.get("exportFormat"))),
+        { title: t("Export conversation") }))?.format;
+        if (!format) return;
+        if (format === "zip") {
+            await exportSessionZip(this.runtime, sessionId);
+            await this.extensionContext.globalState.update("exportFormat", format);
+            return;
+        }
+        const archive = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+            title: t("Reading complete session history"), cancellable: true }, async (_progress, token) => {
+            const abort = new AbortController();
+            const subscription = token.onCancellationRequested(() => abort.abort());
+            if (token.isCancellationRequested) abort.abort();
+            try { return await this.runtime.readSessionArchive(sessionId, abort.signal); }
+            finally { subscription.dispose(); }
+        });
+        const title = this.runtime.getSessionCatalog().snapshot().sessions.find(item => item.sessionId === sessionId)?.title ?? sessionId;
+        const content = format === "json" ? JSON.stringify({ format: "dsh-ide-session", version: 1, ...archive }, null, 2) : sessionMarkdown(archive, title);
+        if (copy) { await copyText(content); return; }
+        await this.extensionContext.globalState.update("exportFormat", format);
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: format, content }), { preview: false });
     }
 
     private async retryPrompt(id: string): Promise<void> {
@@ -2217,9 +2422,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.sessionId = created.sessionId;
             this.sessionCwd = this.pendingNewSessionWorkspacePath ?? workspaceRoot;
             if (persist) {
-                await this.extensionContext.workspaceState.update("session", {
+                await this.extensionContext.workspaceState.update(this.sessionStorageKey(), {
                     sessionId: created.sessionId,
-                    cwd: workspaceRoot,
+                    cwd: this.sessionCwd ?? workspaceRoot,
                 } satisfies PersistedSession);
             }
             void this.subagents.refreshSubagentTree(created.sessionId);
@@ -2256,7 +2461,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     private async restorePersistedSessionInternal(workspaceRoot: string | undefined): Promise<void> {
         const persist = vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true);
-        const persisted = this.extensionContext.workspaceState.get<PersistedSession>("session");
+        const persisted = this.extensionContext.workspaceState.get<PersistedSession>(this.sessionStorageKey());
         // A folderless VS Code window can still restore its saved DSH Session.
         // The persisted cwd identifies the DSH Workspace in that case.
         const sessionRoot = workspaceRoot ?? persisted?.cwd;
@@ -2267,7 +2472,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             workspaceRoot === undefined || (cwd !== undefined && samePath(cwd, workspaceRoot));
         const persistedMatches = persisted?.cwd !== undefined && matchesCurrentWorkspace(persisted.cwd);
         if (persistedMatches && persisted && archived.has(persisted.sessionId)) {
-            await this.extensionContext.workspaceState.update("session", undefined);
+            await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
         }
         const candidates = [
             ...(persisted?.cwd &&
@@ -2293,6 +2498,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
 
         try {
+            await this.runtime.activateSession(sessionId);
             await this.runtime.history(sessionId, 1);
             if (this.sessionId) {
                 return;
@@ -2302,9 +2508,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             // was loading cannot become the active conversation.
             const latestCatalog = this.runtime.getSessionCatalog().snapshot();
             if (latestCatalog.archivedSessionIds.includes(sessionId)) {
-                const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
+                const latest = this.extensionContext.workspaceState.get<PersistedSession>(this.sessionStorageKey());
                 if (latest?.sessionId === sessionId && matchesCurrentWorkspace(latest.cwd)) {
-                    await this.extensionContext.workspaceState.update("session", undefined);
+                    await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
                 }
                 return;
             }
@@ -2313,7 +2519,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 latestCatalog.workspaces.find((workspace) => workspace.sessionIds.includes(sessionId))?.path ??
                 persisted?.cwd ?? workspaceRoot;
             if (persist) {
-                await this.extensionContext.workspaceState.update("session", {
+                await this.extensionContext.workspaceState.update(this.sessionStorageKey(), {
                     sessionId,
                     cwd: this.sessionCwd ?? "",
                 } satisfies PersistedSession);
@@ -2325,9 +2531,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             this.refreshCommandCatalog(sessionId);
             void this.messageFeedback.refresh(sessionId, true);
         } catch (error) {
-            const latest = this.extensionContext.workspaceState.get<PersistedSession>("session");
+            const latest = this.extensionContext.workspaceState.get<PersistedSession>(this.sessionStorageKey());
             if (latest?.sessionId === sessionId && matchesCurrentWorkspace(latest.cwd)) {
-                await this.extensionContext.workspaceState.update("session", undefined);
+                await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
             }
             this.output.appendLine(
                 `[dsh] workspace session ${sessionId} could not be restored: ${errorMessage(error)}`,
@@ -2335,7 +2541,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
     }
 
-    public async newSession(agentPreset?: string, useCurrentWorkspace = false): Promise<void> {
+    public async newSession(agentPreset?: string, useCurrentWorkspace = false, inheritedWorkspace?: { workspaceId: string; path: string; title: string; sessionIds: readonly string[] }): Promise<void> {
+        if (this.editorContext && this.sessionId) {
+            const workspace = this.runtime.getSessionCatalog().snapshot().workspaces.find(item => item.sessionIds.includes(this.sessionId as string));
+            const editor = await this.editorContext.owner.openInEditor(null);
+            if (editor && !editor.disposed) await editor.newSession(agentPreset, useCurrentWorkspace, workspace);
+            return;
+        }
         const workspaceRoot = this.workspaceRoot();
         if (!workspaceRoot && useCurrentWorkspace) throw new Error(t("Open a VS Code folder first."));
         await this.runtime.start(workspaceRoot);
@@ -2345,7 +2557,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ? (await this.runtime.createWorkspace(workspaceRoot)).workspace
             : this.sessionId
                 ? catalog.workspaces.find((workspace) => workspace.sessionIds.includes(this.sessionId as string))
-                : undefined;
+                : inheritedWorkspace ?? catalog.workspaces.find(workspace => workspace.workspaceId === this.pendingNewSessionWorkspaceId);
         if (!workspaceRoot && !selectedWorkspace) {
             if (catalog.workspaces.length === 0 && catalog.sessions.length === 0 &&
                 catalog.archivedSessionIds.length === 0) {
@@ -2387,7 +2599,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.optimisticPrompts.length = 0;
         this.cancelRequested = false;
         this.subagents.discardSubagentPreview();
-        await this.extensionContext.workspaceState.update("session", undefined);
+        await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
         this.postState();
         this.reveal();
     }
@@ -2422,7 +2634,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 matchOnDetail: true,
             },
         );
-        if (choice) await this.switchSession(choice.sessionId);
+        if (choice) {
+            if (this.editorContext) await this.editorContext.owner.openInEditor(choice.sessionId);
+            else await this.switchSession(choice.sessionId);
+        }
     }
 
     public async selectModel(): Promise<void> {
@@ -2681,7 +2896,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 })),
             { placeHolder: t("Select a dsh session"), matchOnDescription: true, matchOnDetail: true },
         );
-        if (choice) await this.switchSession(choice.sessionId);
+        if (choice) {
+            if (this.editorContext) await this.editorContext.owner.openInEditor(choice.sessionId);
+            else await this.switchSession(choice.sessionId);
+        }
     }
 
     public async renameSession(): Promise<void> {
@@ -2703,7 +2921,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     public async forkSession(atSeq?: number): Promise<void> {
         if (!this.sessionId) throw new Error(t("There is no current session."));
         const forked = await this.runtime.forkSession(this.sessionId, atSeq);
-        await this.switchSession(forked.sessionId);
+        await this.openForkedSession(forked.sessionId);
     }
 
     private checkpointMessage(seq: number): { sessionId: string; turn?: number } {
@@ -2732,7 +2950,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     private async forkFromMessage(seq: number): Promise<void> {
         const checkpoint = this.checkpointMessage(seq);
         const forked = await this.runtime.forkSession(checkpoint.sessionId, seq);
-        await this.switchSession(forked.sessionId);
+        await this.openForkedSession(forked.sessionId);
     }
 
     private async runCheckpointAction(action: () => Promise<void>): Promise<void> {
@@ -2779,11 +2997,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 message: errorMessage(error),
             }));
         }
-        await this.switchSession(forked.sessionId);
+        await this.openForkedSession(forked.sessionId);
+    }
+
+    private async openForkedSession(sessionId: string): Promise<void> {
+        if (this.editorContext) await this.editorContext.owner.openInEditor(sessionId);
+        else await this.switchSession(sessionId);
     }
 
     public async archiveSession(): Promise<void> {
         if (!this.sessionId) throw new Error(t("There is no current session."));
+        const archived = this.sessionId;
+        const endpoint = this.runtime.getUrl();
         const archiveAction = t("Archive");
         const confirmation = await vscode.window.showWarningMessage(
             t("Archive the current session and hide it from the DSH IDE session list? Restore it from Manage Sessions or review it in the official dsh Web UI."),
@@ -2791,7 +3016,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             archiveAction,
         );
         if (confirmation !== archiveAction) return;
-        const archived = this.sessionId;
+        if (this.sessionId !== archived || this.runtime.getUrl() !== endpoint) throw new Error(t("The selected session changed. Try again."));
         try {
             await this.runtime.archiveSession(archived);
         } catch (error) {
@@ -2803,6 +3028,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 stopAndArchive,
             );
             if (stopConfirmation !== stopAndArchive) return;
+            if (this.runtime.getUrl() !== endpoint) throw new Error(t("The selected session changed. Try again."));
             await this.runtime.archiveSession(archived, true);
         }
         const next = this.runtime
@@ -2811,14 +3037,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             .sessions.find(
                 (item) =>
                     item.sessionId !== archived &&
+                    item.origin !== "subagent" && !this.runtime.isBackgroundSession(item.sessionId) &&
                     !this.runtime.getSessionCatalog().snapshot().archivedSessionIds.includes(item.sessionId),
             );
-        this.sessionId = undefined;
-        this.sessionCwd = undefined;
-        this.subagents.discardSubagentPreview();
-        await this.extensionContext.workspaceState.update("session", undefined);
-        if (next) await this.switchSession(next.sessionId);
+        if (this.runtime.getUrl() !== endpoint) return;
+        if (this.sessionId === archived || !this.sessionId && !this.newSessionDraft) {
+            this.sessionId = undefined;
+            this.sessionCwd = undefined;
+            this.subagents.discardSubagentPreview();
+            await this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
+            if (next) await this.switchSession(next.sessionId);
+        }
         this.postState();
+        const undo = t("Undo archive");
+        void vscode.window.showInformationMessage(t("Session archived."), undo).then(async choice => {
+            if (choice !== undo || this.runtime.getUrl() !== endpoint) return;
+            try { await this.runtime.unarchiveSession(archived); await this.runtime.refreshSessions(); }
+            catch (error) { this.reportError(error); }
+        });
     }
 
     private async switchSession(sessionId: string): Promise<void> {
@@ -2829,6 +3065,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         const session = catalog.sessions.find((item) => item.sessionId === sessionId);
         if (this.sessionId !== sessionId) {
+            this.composerKey = randomUUID();
+            this.composerSessionId = sessionId;
             this.subagents.discardSubagentPreview();
             ++this.scheduleHistoryGeneration;
             this.scheduleHistoryView = undefined;
@@ -2840,11 +3078,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         this.newSessionDraft = false;
         this.clearNewSessionDraft();
         if (vscode.workspace.getConfiguration("dsh").get<boolean>("persistSession", true)) {
-            await this.extensionContext.workspaceState.update("session", {
+            await this.extensionContext.workspaceState.update(this.sessionStorageKey(), {
                 sessionId,
                 cwd: this.sessionCwd ?? "",
             } satisfies PersistedSession);
         }
+        await this.runtime.activateSession(sessionId);
         await this.runtime.syncSession(sessionId);
         this.refreshModelCatalog(sessionId);
         this.refreshSkillCatalog(sessionId);
@@ -3306,6 +3545,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     /** Pulls RC.2's active durable reminders for the Activity Dock schedule view. */
     private refreshScheduleCatalog(sessionId: string): void {
+        if (this.runtime.supportsHostSchedules()) return;
         void this.scheduleCatalogs.pull(sessionId, {
             gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleRpcUnavailable,
             pull: async () => {
@@ -3332,6 +3572,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
     /** Pulls RC.2's host-wide active and inactive reminder catalog for read-only cross-session browsing. */
     private refreshGlobalScheduleCatalog(force = false): void {
+        if (!this.runtime.getHostDescription()) return;
+        if (this.runtime.supportsHostSchedules()) {
+            if (this.runtime.remoteAccess.allows("schedule/list")) this.hostSchedules.ensure();
+            return;
+        }
         if (this.scheduleCatalogRpcUnavailable || !this.runtime.getUrl()) return;
         if (!force && this.scheduleCatalogView && this.scheduleCatalogView.status !== "idle") return;
         const retained = this.scheduleCatalogView?.records ?? this.allSessionsScheduleCatalog.get(ALL_SESSIONS_SCHEDULE_CATALOG_KEY) ?? [];
@@ -3340,7 +3585,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         this.scheduleCatalogView = { records: retained, status: "loading" };
         void this.allSessionsScheduleCatalog.pull(ALL_SESSIONS_SCHEDULE_CATALOG_KEY, {
-            gate: () => Boolean(this.runtime.getUrl()) && !this.scheduleCatalogRpcUnavailable,
+            gate: () => Boolean(this.runtime.getUrl()) && Boolean(this.runtime.getHostDescription()) && !this.runtime.supportsHostSchedules() && !this.scheduleCatalogRpcUnavailable,
             pull: async () => {
                 const value = await this.runtime.scheduleCatalog();
                 if (value === undefined) return undefined;
@@ -3692,7 +3937,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
 
     private refreshAgentPresetCatalog(): void {
-        if (!this.runtime.getUrl() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
+        if (!this.runtime.getUrl() || !this.runtime.getHostDescription() || this.agentPresetCatalog || this.agentPresetCatalogRequest) return;
         const generation = this.agentPresetCatalogGeneration;
         const request = this.runtime.agentPresets()
             .then((catalog) => {
@@ -3702,6 +3947,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                 this.postState();
             })
             .catch((error) => {
+                if (this.agentPresetCatalogGeneration !== generation) return;
                 this.output.appendLine(`[dsh:agent-preset] catalog refresh failed: ${errorMessage(error)}`);
             })
             .finally(() => {
@@ -3952,6 +4198,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
 
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         const catalog = this.runtime.getSessionCatalog().snapshot();
+        const preferences = vscode.workspace.getConfiguration("dsh", workspaceFolder?.uri);
         const currentDshWorkspace = workspaceFolder
             ? catalog.workspaces.find((workspace) => samePath(workspace.path, workspaceFolder.uri.fsPath))
             : undefined;
@@ -3983,6 +4230,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         const sessionStats = sessionStatsProjection(projectionValue(session, "sessionStats"));
         const host = presentHostBaseline(this.runtime.getHostDescription());
         const busy = selected?.running === true;
+        const failureSeq = continuableFailure(session);
+        const retried = this.sessionId ? this.generationRetries.get(this.sessionId) : undefined;
+        const continuation = this.runtime.getStatus().state === "running" && !busy && !this.checkpointActionInFlight &&
+            selected && selected.origin !== "subagent" && !(retried && retried.seq === failureSeq && retried.accepted)
+            ? failureSeq : undefined;
         const parsedGoal = goalCell ? parseGoalProjection(goalCell.value) : undefined;
         const activeGoal = parsedGoal?.ok && parsedGoal.value?.goal.phase === "active"
             ? parsedGoal.value.goal : undefined;
@@ -4013,7 +4265,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         ) ?? [];
         const readableSession = !!this.sessionId && this.runtime.remoteAccess.allows("session/follow", { kind: "session", id: this.sessionId });
         const subagentPreview = readableSession ? this.subagents.previewFor(this.sessionId) : undefined;
+        if (this.composerSessionId !== this.sessionId) {
+            if (this.composerSessionId !== undefined) this.composerKey = randomUUID();
+            this.composerSessionId = this.sessionId;
+        }
         const state: ChatViewState = {
+            composerKey: this.composerKey,
             workingDirectory: this.effectiveDirectory(),
             messages: this.renderMessages(
                 feedbackMessages,
@@ -4046,6 +4303,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             submitting: this.submitting,
             cancelling: this.cancelRequested && selected?.running === true,
             focusMode: this.focusMode,
+            appearance: { fontSize: Math.max(11, Math.min(24, preferences.get<number>("chatFontSize", 13))),
+                density: preferences.get<string>("chatDensity", "comfortable") === "compact" ? "compact" : "comfortable" },
+            costEstimate: estimateSessionCost(session, modelRates(preferences.get("billingRates"))),
             workspaceName: workspaceFolder?.name,
             skills: this.sessionId
                 ? [...(this.skillCatalogs.get(this.sessionId) ?? [])]
@@ -4080,7 +4340,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
                       draftWorkspaceTitle: this.pendingNewSessionWorkspaceTitle,
                   }
                 : {}),
-            sessions: presentSessionRows(catalog),
+            sessions: presentSessionRows(catalog).filter(item => !this.runtime.isBackgroundSession(item.sessionId)),
+            ...(continuation === undefined ? {} : { continuation }),
             sessionStatus: selected
                 ? {
                       running: selected.running === true,
@@ -4110,6 +4371,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             ...(todos === undefined ? {} : { todos }),
             ...(schedule === undefined ? {} : { schedule }),
             ...(this.scheduleCatalogView === undefined ? {} : { scheduleCatalog: this.scheduleCatalogView }),
+            ...(this.runtime.supportsHostSchedules() && this.runtime.remoteAccess.allows("schedule/list") ? { hostSchedule: this.hostSchedules.view() } : {}),
             ...(this.sessionId && this.runtime.remoteAccess.allows("schedule/delete", { kind: "session", id: this.sessionId }) && this.scheduleCatalogs.has(this.sessionId)
                 ? { scheduleManagementAvailable: true }
                 : {}),
@@ -4221,6 +4483,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
             changeReviews: readableSession ? this.changeReviews.view(this.sessionId) : [],
         };
         for (const surface of this.surfaces) {
+            if (this.editorContext) {
+                state.editorInstanceId = this.editorContext.id;
+                this.editorContext.panel.title = `DSH · ${catalog.sessions.find(item => item.sessionId === this.sessionId)?.title ?? t("New conversation")}`;
+            }
             surface.post({
                 type: "state",
                 protocol: CHAT_WEBVIEW_PROTOCOL_VERSION,
@@ -4274,7 +4540,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         }
         this.subagents.discardSubagentPreview();
         if (this.agentStatusChoice?.sessionId === sessionId) this.agentStatusChoice = undefined;
-        void this.extensionContext.workspaceState.update("session", undefined);
+        void this.extensionContext.workspaceState.update(this.sessionStorageKey(), undefined);
         this.schedulePostState();
     }
 
@@ -4289,6 +4555,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         for (const session of sessions) {
             const running = session.running === true;
             const previous = this.observedRunning.get(session.sessionId);
+            if (!this.editorContext && !this.runtime.isBackgroundSession(session.sessionId) && previous === true && !running && this.runtime.getStatus().state === "running" && !vscode.window.state.focused &&
+                session.origin !== "subagent" && !session.lastAgentError &&
+                vscode.workspace.getConfiguration("dsh").get<boolean>("completionNotification", false) &&
+                projectTurnStatus(this.runtime.getSessionStore().get(session.sessionId), false).phase === "completed") {
+                const open = t("Open session");
+                void vscode.window.showInformationMessage(t("DSH finished: {title}", { title: session.title || session.sessionId }), open)
+                    .then(choice => { if (choice === open) void this.switchSession(session.sessionId).catch(error => this.reportError(error)); });
+            }
             if (previous === true && !running && this.surfaces.size > 0 && !this.anySurfaceVisible()) {
                 this.completedWhileHidden.add(session.sessionId);
             }

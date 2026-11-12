@@ -1,9 +1,5 @@
-import React, { useCallback, useState } from "react";
-import type {
-    DshImageLimitsView,
-    DshImageMediaType,
-    DshImageUpload,
-} from "../../../src/types";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { DshImageLimitsView, DshImageMediaType, DshImageUpload } from "../../../src/types";
 import { t } from "../i18n";
 import { CloseIcon } from "./icons";
 
@@ -31,8 +27,7 @@ export function toBase64(bytes: Uint8Array): string {
 }
 
 function mediaType(value: string): DshImageMediaType | undefined {
-    return value === "image/png" || value === "image/jpeg" ||
-        value === "image/webp" || value === "image/gif"
+    return value === "image/png" || value === "image/jpeg" || value === "image/webp" || value === "image/gif"
         ? value
         : undefined;
 }
@@ -47,100 +42,128 @@ export function useImageDrafts(limitsValue?: DshImageLimitsView): {
     clear: () => void;
 } {
     const limits = limitsValue ?? DEFAULT_LIMITS;
+    const latestLimits = useRef(limits);
+    React.useLayoutEffect(() => { latestLimits.current = limits; }, [limits]);
+    const current = useRef<DraftImage[]>([]);
+    const generation = useRef(0);
+    const reserved = useRef({ count: 0, bytes: 0 });
     const [images, setImages] = useState<DraftImage[]>([]);
     const [error, setError] = useState<string>();
-    const addFiles = useCallback(async (files: readonly File[]): Promise<void> => {
-        setError(undefined);
-        const remainingCount = limits.maxImagesPerMessage - images.length;
-        if (files.length > remainingCount) {
-            setError(t("A message can contain at most {count} images.", {
-                count: limits.maxImagesPerMessage,
-            }));
-            return;
+    useEffect(
+        () => () => {
+            generation.current += 1;
+        },
+        []
+    );
+
+    const validate = (
+        incoming: readonly { bytes: number; type: string; name?: string }[],
+        pending = reserved.current
+    ): boolean => {
+        const limits = latestLimits.current;
+        if (current.current.length + pending.count + incoming.length > limits.maxImagesPerMessage) {
+            setError(t("A message can contain at most {count} images.", { count: limits.maxImagesPerMessage }));
+            return false;
         }
-        const existingBytes = images.reduce((sum, image) => sum + image.bytes, 0);
-        const additions: DraftImage[] = [];
-        let addedBytes = 0;
-        for (const file of files) {
-            const type = mediaType(file.type);
+        let total = current.current.reduce((sum, image) => sum + image.bytes, pending.bytes);
+        for (const image of incoming) {
+            const type = mediaType(image.type);
             if (!type || !limits.mediaTypes.includes(type)) {
                 setError(t("Only PNG, JPEG, WebP, and GIF images are supported."));
-                return;
+                return false;
             }
-            if (file.size > limits.maxImageBytes) {
-                setError(t("Image {name} exceeds the {size} byte limit.", {
-                    name: file.name || t("image"),
-                    size: limits.maxImageBytes.toLocaleString(),
-                }));
-                return;
+            if (image.bytes > limits.maxImageBytes) {
+                setError(
+                    t("Image {name} exceeds the {size} byte limit.", {
+                        name: image.name || t("image"),
+                        size: limits.maxImageBytes.toLocaleString(),
+                    })
+                );
+                return false;
             }
-            addedBytes += file.size;
-            if (existingBytes + addedBytes > limits.maxMessageImageBytes) {
-                setError(t("Attached images exceed the {size} byte total limit.", {
-                    size: limits.maxMessageImageBytes.toLocaleString(),
-                }));
-                return;
-            }
-            const data = toBase64(new Uint8Array(await file.arrayBuffer()));
-            additions.push({
-                id: crypto.randomUUID(),
-                upload: {
-                    mediaType: type,
-                    data,
-                    ...(file.name ? { name: file.name } : {}),
-                },
-                bytes: file.size,
-                src: `data:${type};base64,${data}`,
-            });
+            total += image.bytes;
         }
-        setImages((current) => [...current, ...additions]);
-    }, [images, limits.maxImageBytes, limits.maxImagesPerMessage, limits.maxMessageImageBytes, limits.mediaTypes]);
-    const addUploads = useCallback((uploads: readonly DshImageUpload[]): void => {
+        if (total > limits.maxMessageImageBytes) {
+            setError(
+                t("Attached images exceed the {size} byte total limit.", {
+                    size: limits.maxMessageImageBytes.toLocaleString(),
+                })
+            );
+            return false;
+        }
+        return true;
+    };
+
+    const addFiles = useCallback(async (files: readonly File[]): Promise<void> => {
+        if (!files.length) return;
         setError(undefined);
-        const existingBytes = images.reduce((sum, image) => sum + image.bytes, 0);
-        const additions: DraftImage[] = [];
-        let addedBytes = 0;
-        if (images.length + uploads.length > limits.maxImagesPerMessage) {
-            setError(t("A message can contain at most {count} images.", { count: limits.maxImagesPerMessage }));
-            return;
+        const metadata = files.map((file) => ({ bytes: file.size, type: file.type, name: file.name }));
+        if (!validate(metadata)) return;
+        const currentGeneration = generation.current;
+        const bytes = files.reduce((sum, file) => sum + file.size, 0);
+        reserved.current = { count: reserved.current.count + files.length, bytes: reserved.current.bytes + bytes };
+        try {
+            const additions: DraftImage[] = [];
+            for (const file of files) {
+                const data = toBase64(new Uint8Array(await file.arrayBuffer()));
+                if (generation.current !== currentGeneration) return;
+                const type = mediaType(file.type)!;
+                additions.push({
+                    id: crypto.randomUUID(),
+                    upload: { mediaType: type, data, ...(file.name ? { name: file.name } : {}) },
+                    bytes: file.size,
+                    src: `data:${type};base64,${data}`,
+                });
+            }
+            const otherReservations = {
+                count: reserved.current.count - files.length,
+                bytes: reserved.current.bytes - bytes,
+            };
+            if (!validate(metadata, otherReservations)) return;
+            current.current = [...current.current, ...additions];
+            setImages(current.current);
+        } finally {
+            if (generation.current === currentGeneration)
+                reserved.current = {
+                    count: reserved.current.count - files.length,
+                    bytes: reserved.current.bytes - bytes,
+                };
         }
-        for (const upload of uploads) {
-            if (!limits.mediaTypes.includes(upload.mediaType)) {
-                setError(t("Only PNG, JPEG, WebP, and GIF images are supported."));
-                return;
-            }
-            const bytes = Math.floor(upload.data.length * 3 / 4);
-            if (bytes > limits.maxImageBytes) {
-                setError(t("Image {name} exceeds the {size} byte limit.", {
-                    name: upload.name || t("image"),
-                    size: limits.maxImageBytes.toLocaleString(),
-                }));
-                return;
-            }
-            addedBytes += bytes;
-            if (existingBytes + addedBytes > limits.maxMessageImageBytes) {
-                setError(t("Attached images exceed the {size} byte total limit.", {
-                    size: limits.maxMessageImageBytes.toLocaleString(),
-                }));
-                return;
-            }
-            additions.push({
-                id: crypto.randomUUID(),
-                upload,
-                bytes,
-                src: `data:${upload.mediaType};base64,${upload.data}`,
-            });
-        }
-        setImages((current) => [...current, ...additions]);
-    }, [images, limits.maxImageBytes, limits.maxImagesPerMessage, limits.maxMessageImageBytes, limits.mediaTypes]);
+    }, []);
+    const addUploads = useCallback((uploads: readonly DshImageUpload[]): void => {
+        if (!uploads.length) return;
+        setError(undefined);
+        const metadata = uploads.map((upload) => ({
+            bytes:
+                Math.floor((upload.data.length * 3) / 4) -
+                (upload.data.endsWith("==") ? 2 : upload.data.endsWith("=") ? 1 : 0),
+            type: upload.mediaType,
+            name: upload.name,
+        }));
+        if (!validate(metadata)) return;
+        const additions = uploads.map((upload, index) => ({
+            id: crypto.randomUUID(),
+            upload,
+            bytes: metadata[index].bytes,
+            src: `data:${upload.mediaType};base64,${upload.data}`,
+        }));
+        current.current = [...current.current, ...additions];
+        setImages(current.current);
+    }, []);
     return {
         images,
         error,
         accept: limits.mediaTypes.join(","),
         addFiles,
         addUploads,
-        remove: (id) => setImages((current) => current.filter((image) => image.id !== id)),
+        remove: (id) => {
+            current.current = current.current.filter((image) => image.id !== id);
+            setImages(current.current);
+        },
         clear: () => {
+            generation.current += 1;
+            reserved.current = { count: 0, bytes: 0 };
+            current.current = [];
             setImages([]);
             setError(undefined);
         },

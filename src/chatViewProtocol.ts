@@ -18,8 +18,23 @@ import { isImageMediaType, isRecord } from "./guards";
 
 export type ChatViewAction =
     | { type: "ready" }
-    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[] }
+    | { type: "activateChat" }
+    | { type: "configureAppearance" }
+    | { type: "configureBillingRates" }
+    | { type: "searchCodeContext" }
+    | { type: "attachProjectRules" }
+    | { type: "managePromptTemplates" }
+    | { type: "sendPrompt"; text: string; mode: "queue" | "steer"; images?: DshImageUpload[]; files?: DshFileDraft[]; submissionId?: string }
     | { type: "retryPrompt"; id: string }
+    | { type: "retryGeneration"; sessionId: string; failureSeq: number }
+    | { type: "manageHostTask"; id?: string }
+    | { type: "refreshHostTasks"; offset?: number; active?: boolean | null }
+    | { type: "exportSession" }
+    | { type: "reviewRepository" }
+    | { type: "openSessionEditor" }
+    | { type: "copyConversation" }
+    | { type: "quoteMessage"; messageId: string; selection?: string }
+    | { type: "toggleSubagentBranch"; childSessionId: string }
     | { type: "toggleFocus" }
     | { type: "cancel" }
     | { type: "configureApiKey" }
@@ -317,6 +332,16 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
     }
     switch (value.type) {
         case "ready":
+        case "activateChat":
+        case "configureAppearance":
+        case "configureBillingRates":
+        case "searchCodeContext":
+        case "attachProjectRules":
+        case "managePromptTemplates":
+        case "exportSession":
+        case "reviewRepository":
+        case "openSessionEditor":
+        case "copyConversation":
         case "cancel":
         case "configureApiKey":
         case "manageProviders":
@@ -639,7 +664,8 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                   };
         }
         case "sendPrompt":
-            if (!hasOnly(value, ["type", "text", "mode", "images", "files"]) ||
+            if (!hasOnly(value, ["type", "text", "mode", "images", "files", "submissionId"]) ||
+                (value.submissionId !== undefined && (!nonEmptyString(value.submissionId) || value.submissionId.length > 128)) ||
                 typeof value.text !== "string" ||
                 (value.mode !== "queue" && value.mode !== "steer")) return undefined;
             {
@@ -649,6 +675,7 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
                 if (!value.text.trim() && images.length === 0 && files.length === 0) return undefined;
                 return {
                     type: "sendPrompt",
+                    ...(typeof value.submissionId === "string" ? { submissionId: value.submissionId } : {}),
                     text: value.text,
                     mode: value.mode,
                     ...(images.length === 0 ? {} : { images }),
@@ -659,6 +686,25 @@ export function parseChatViewAction(value: unknown): ChatViewAction | undefined 
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "retryPrompt", id: value.id }
                 : undefined;
+        case "quoteMessage":
+            return hasOnly(value, ["type", "messageId", "selection"]) && nonEmptyString(value.messageId) &&
+                (value.selection === undefined || typeof value.selection === "string" && value.selection.length <= 100_000)
+                ? { type: "quoteMessage", messageId: value.messageId, ...(value.selection === undefined ? {} : { selection: value.selection }) } : undefined;
+        case "toggleSubagentBranch":
+            return hasOnly(value, ["type", "childSessionId"]) && nonEmptyString(value.childSessionId)
+                ? { type: "toggleSubagentBranch", childSessionId: value.childSessionId } : undefined;
+        case "retryGeneration":
+            return hasOnly(value, ["type", "sessionId", "failureSeq"]) && nonEmptyString(value.sessionId) && nonNegativeInteger(value.failureSeq)
+                ? { type: "retryGeneration", sessionId: value.sessionId, failureSeq: value.failureSeq }
+                : undefined;
+        case "manageHostTask":
+            return hasOnly(value, ["type", "id"]) && (value.id === undefined || nonEmptyString(value.id))
+                ? { type: "manageHostTask", ...(value.id === undefined ? {} : { id: value.id }) } : undefined;
+        case "refreshHostTasks":
+            return hasOnly(value, ["type", "offset", "active"]) && (value.offset === undefined || nonNegativeInteger(value.offset)) &&
+                (value.active === undefined || value.active === null || typeof value.active === "boolean")
+                ? { type: "refreshHostTasks", ...(value.offset === undefined ? {} : { offset: value.offset }),
+                    ...(value.active === undefined ? {} : { active: value.active }) } : undefined;
         case "removeContext":
             return hasOnly(value, ["type", "id"]) && nonEmptyString(value.id)
                 ? { type: "removeContext", id: value.id }

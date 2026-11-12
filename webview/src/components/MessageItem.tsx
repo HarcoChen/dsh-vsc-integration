@@ -6,6 +6,7 @@ import type {
     DshMessageFeedbackRating,
 } from "../../../src/types";
 import { postAction } from "../bridge";
+import { messageText } from "../../../src/messageText";
 import { t } from "../i18n";
 import { ROLE_LABELS } from "../state";
 import { MessageContent } from "./MessageContent";
@@ -388,6 +389,15 @@ function MessageFooterActions({
                 </button>
             )}
             <MessageCopyButton message={message} />
+            {canCopyMessage(message) ? <button type="button" className="dsh-message-trace" title={t("Quote message or selected text")}
+                onMouseDown={event => event.preventDefault()}
+                onClick={event => {
+                    const selected = window.getSelection();
+                    const container = event.currentTarget.closest(".dsh-message");
+                    const selection = selected?.anchorNode && selected.focusNode && container?.contains(selected.anchorNode) && container.contains(selected.focusNode)
+                        ? selected.toString().slice(0, 100_000) : undefined;
+                    postAction({ type: "quoteMessage", messageId: message.id, selection: selection || messageText(message).slice(0, 100_000) });
+                }}>{t("Quote")}</button> : null}
         </div>
     );
 }

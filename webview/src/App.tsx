@@ -9,13 +9,18 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { FolderIcon } from "./components/icons";
 import { StatusBanner } from "./components/StatusBanner";
 import { SessionFeedbackDialog } from "./components/SessionFeedbackDialog";
+import { CostEstimate } from "./components/CostEstimate";
 import { t } from "./i18n";
+import { messageText } from "../../src/messageText";
 
 export function App(): React.JSX.Element {
     const state = useHostState();
+    const promptHistory = React.useMemo(() => state.messages.filter(message => message.role === "user" && message.state === "committed" && messageText(message).trim())
+        .slice(-100).map(messageText), [state.messages]);
     const settingsOpen = !state.focusMode && Boolean(state.settings?.open);
     return (
-        <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}`}>
+        <div className={`dsh-shell${state.focusMode ? " dsh-focus-mode" : ""}${state.appearance?.density === "compact" ? " dsh-compact" : ""}`}
+            style={state.appearance ? { "--dsh-font-md": `${state.appearance.fontSize}px` } as React.CSSProperties : undefined}>
             <Header
                 status={state.status}
                 sessionStatus={state.sessionStatus}
@@ -34,6 +39,7 @@ export function App(): React.JSX.Element {
                 <span>{state.workingDirectory}</span>
             </div> : null}
             <SessionFeedbackDialog feedback={state.sessionFeedback} />
+            <CostEstimate value={state.costEstimate} />
             {/* Keep conversation state and attachment drafts mounted while settings are open. */}
             <div className="dsh-conversation" hidden={settingsOpen}>
                 <MessageList
@@ -57,6 +63,7 @@ export function App(): React.JSX.Element {
                         todos={state.todos}
                         schedule={state.schedule}
                         scheduleCatalog={state.scheduleCatalog}
+                        hostSchedule={state.hostSchedule}
                         scheduleManagementAvailable={state.scheduleManagementAvailable}
                         scheduleMutationPendingId={state.scheduleMutationPendingId}
                         scheduleMutationResult={state.scheduleMutationResult}
@@ -73,6 +80,8 @@ export function App(): React.JSX.Element {
                 ) : null}
                 {state.access && !state.access.owner ? <div className="dsh-card-detail" role="status">{t(state.access.available ? "Shared Runtime access · actions depend on your permissions" : "Runtime permissions unavailable · waiting for access")}</div> : null}
                 <Composer
+                    key={state.composerKey ?? state.sessionId ?? "__new__"}
+                    promptHistory={promptHistory}
                     access={state.access}
                     visible={!settingsOpen}
                     context={state.context}
@@ -91,6 +100,7 @@ export function App(): React.JSX.Element {
                     busy={state.busy}
                     submitting={state.submitting}
                     cancelling={state.cancelling}
+                    continuation={state.continuation}
                     sessionId={state.sessionId}
                 />
             </div>

@@ -16,7 +16,7 @@
   <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
   <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
-  <img src="https://img.shields.io/badge/dsh支持-0.2.0--rc.2-2f6feb?style=flat-square" alt="dsh 0.2.0-rc.2">
+  <img src="https://img.shields.io/badge/dsh目标-0.2.2--rc.1-2f6feb?style=flat-square" alt="dsh 目标 0.2.2-rc.1">
   <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-支持-8250df?style=flat-square" alt="支持 Laya / Jev">
   <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
 </p>
@@ -52,6 +52,8 @@
 ## 快速开始
 
 需要 **VS Code 1.106.0 或更高版本**，以及已配置的 DSH 模型服务与凭据。
+
+默认 Runtime 目标为 `0.2.2-rc.1`。`0.2.2-rc.1` 已接入 Host 任务管理、projection 子代理目录、终端和插件更新。RC.2 可选功能包含继续生成和 Agent 终端接管。各版本的验证范围见 [维护记录](MAINTENANCE.md)。
 
 1. **安装扩展**：选择上方 Marketplace 或 Open VSX 入口，也可以在扩展面板搜索 `harcochen.dsh-vsc-integration`。
 2. **打开聊天**：安装并启动官方 [DeepSeek Desktop](https://www.deepseek.com/zh/download/)，打开项目文件夹并确认信任，在命令面板运行 `DSH: 打开聊天`（`DSH: Open Chat`）。Desktop 会注册 `dsh`；命令不可用时，扩展会提供官方下载安装页。
@@ -109,6 +111,10 @@
 - `DSH: 浏览 Runtime 工作区文件`（也可在 `/ide` 中选择）浏览当前 DSH 会话的工作区，在编辑器打开上限为 1 MiB 的 UTF-8 文本只读预览。文件变化会刷新已打开的预览；不支持监听时可运行 `DSH: 刷新 Runtime 文件预览`。
 - 启用官方 Schedule bundle 后，定时提醒面板可跨会话列出提醒、编辑规则、查看投递历史并删除提醒；未启用时面板会提示如何开启。
 
+连接 `0.2.2-rc.1` 及以上版本时，Schedule 面板提供 Host 级任务分页及活动状态筛选。可创建延迟、指定日期、间隔、每日、每周、Cron 和 RRULE 任务，选择投递会话，并执行编辑、暂停/恢复、立即执行、删除和投递历史操作。编辑会检查其他客户端的并发修改。
+
+聊天菜单的“导出会话”可选择 Markdown、JSON 或 ZIP，也可“复制完整会话为 Markdown”。文本导出固定事件切点后读取全部分页历史，ZIP 包含二进制附件。消息底部的“引用”可引用整条消息或其中选中文本。空输入框按 ↑/↓ 召回历史提示词并返回原草稿。开启 `dsh.completionNotification` 后，VS Code 失焦时会提示成功完成的任务。
+
 ### Runtime 终端、插件安装与 Problems（开发分支）
 
 - `DSH: 打开 Runtime 终端` 连接当前 DSH 会话的 Host PTY，也可从聊天菜单打开。切换会话保留终端；重连恢复屏幕和输入控制权。关闭终端请求 Host 清理进程，失败时再次打开此入口重试。进程保留范围为 Host 生命周期；已有终端保留自己的工作目录。终端输入使用上游用户 Shell 权限。
@@ -134,7 +140,33 @@
 
 侧栏提供原生对话大纲树视图；Trace、Token 用量、Todo 清单与子代理统一归集在活动面板。UI 适配 VS Code 深浅主题。
 
-运行 `DSH: 在编辑器标签页中打开聊天`（`DSH: Open Chat in Editor Tab`）可以把同一份对话镜像到编辑器标签页，让聊天紧挨着正在改的文件。两个界面共用一个会话与一条流，切换不会重开或分叉。
+运行 `DSH: 在编辑器标签页中打开聊天`（`DSH: Open Chat in Editor Tab`）可为会话打开独立编辑器标签。不同标签分别保留会话、输入草稿、上下文和导航，侧栏可继续使用另一个会话。重复打开会话会切回已有标签，重启 VS Code 后可恢复会话和文字草稿。Runtime 连接由各标签共享。
+
+### 仓库评审与 Worktree
+
+在 Runtime 插件管理中启用官方 `@deepseek-ai/dsh-experimental-forge-bundle`，然后运行 `DSH: 评审仓库与 Worktree`，或选择聊天菜单中的“DSH 仓库评审”。入口使用当前 DSH 会话的工作目录。
+
+- 比较未提交、已暂存、未暂存或分支改动，在原生并排 Diff 中审阅文件。RC.2 支持基础分支、单提交和接口/实现/测试分类，已审阅进度按改动摘要保存。
+- 为尚未开始任务的会话申请 Worktree，第一次发送任务时创建。也可取消、停止、重试、恢复缺失目录或回到原项目。
+- 跟踪 PR 地址并查看差异和检查结果。RC.2 可读取评审讨论、同步已审阅文件、发表行评论和完整评审，并按已确认的 head 更新分支。发布和更新前会显示确认内容。
+
+### 桌面连接、ZIP 和行内补全
+
+`DSH: 连接桌面端` 使用桌面端 `dsh-vscode-connect` 插件复制的地址，凭据保存在 SecretStorage。Windows 本机可发现账户加密的连接记录并通过配对通道刷新地址。连接时输入桌面“关于”中的 Runtime 完整版本。使用 `DSH: 断开桌面端` 清除保存的授权。
+
+“导出会话”支持 ZIP，可选择当前会话或全部后代。归档由 Runtime 生成，包含持久日志和二进制附件，下载过程中可取消。
+
+运行 `DSH: 行内代码补全` 可在当前文件请求 ghost text，按 VS Code 的 Tab 接受。补全使用独立的 minimal 会话，完成或取消后归档。开启 `dsh.inlineCompletion.automatic` 后可在输入停顿时自动请求，默认关闭。Provider 和模型可单独设置，也可继承当前 DSH 聊天选择。模型明确拒绝图片输入时，`dsh.imageFileFallback` 会改用文件附件。
+
+### 会话、外观和社区插件
+
+会话中心顶部按钮可筛选状态和 DSH Workspace、调整排序与分组，偏好会保存。归档成功后的通知可撤销归档。聊天菜单中的“聊天外观”可设置字号和紧凑布局，专注模式也会记住。
+
+启用官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle` 后，插件管理中的“搜索社区插件”可添加市场源、搜索、翻页、查看说明和安装兼容版本，安装或更新会使用市场返回的精确来源。
+
+“配置模型费用单价”接受所用 Provider/模型的每百万 Token 单价，会话中显示按请求路由计算的费用估算。多个币种分别汇总，缺少费率的请求会标明。估算使用当前自定义费率，不包含非 Token 收费。
+
+附件菜单提供模板创建/编辑、IDE 文件或符号搜索和显式规则文档附件。模板位于 IDE 项目的 `.dsh/prompts`，规则可从 `AGENTS.md`、`.dsh/rules` 和 `.agents/rules` 中选择。内容附加到下一条消息，发送由用户发起。`dsh.connectionMode=attach-only` 可限制为仅连接已运行的 Runtime。
 
 ![Trace 和活动面板](public/assets/Trace.png)
 
@@ -154,7 +186,7 @@
 
 **Laya/Jev 是怎么集成的？** 扩展安装包自带 IDE 无关的 `dsh-jev-integration` Runtime 包，并只挂载到本扩展自行启动的 Runtime；不会修改已有或外部托管的 Runtime。Laya 走同一套 System One 接口，修改 `dsh.jev.baseUrl` 即可（仅限 HTTPS）。Jev 默认关闭，`dsh.jev.enabled` 是总开关；循环保护、结果整形、完成证据检查、工具裁剪、skill 路由、决策工具和本地确定性安全检查分别提供开关。endpoint 和模型可配置，数值阈值使用内置默认值。API Key 通过 **DSH：配置 Jev API Key** 加密保存在 VS Code SecretStorage，也可从 `TYPESAFE_API_KEY` 或 `$HOME/.dsh/.env` 读取。启用的功能可能会将所需样本发送到 TypeSafe System One。设置变更需重启 Runtime。本版本提供 upstream `dsh-jev` 的共享 Runtime 子集，不包含完整 Agent Loop、Dashboard、浏览器或移动端 bundle。
 
-**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；默认下载及用户同意后的升级目标为 `0.2.0-rc.2`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
+**可以连接已有 Runtime 吗？** 可以，将 `dsh.serverUrl` 设置为正在运行的 `dsh web` 地址；如果地址中没有 Token，再将启动 Token 填入 `dsh.serverToken`。本扩展接受所有不低于 `dsh 0.1.5-rc.1` 的合法 SemVer，包括更新的预发布版本及正式版；用户同意后的默认升级目标为 `0.2.2-rc.1`，本机已有兼容版本时直接复用，不降级。扩展通过公开 Remote 分页和 follow API 读取会话历史；日志存储格式及迁移由 Runtime 负责。
 
 **指定监听地址或 HTTPS：** 已启动的 Runtime 使用自定义地址时，设置 `dsh.serverUrl` 即可直接连接，避免再次启动造成端口冲突。例如：
 
@@ -167,7 +199,7 @@
 
 IPv4 地址也可使用，例如 `http://100.64.0.1:3080`，前提是该 IP 属于运行扩展的机器。远程地址必须使用 HTTPS；TLS 证书须受扩展宿主信任，扩展不会跳过证书校验。IPv6 地址须加方括号。自动发现会探测本机 IPv4/IPv6 网卡地址，但未登记实例的认证 Token 仍需通过上述设置提供。
 
-本扩展的默认 Runtime 和 Remote 契约指向 `dsh-v0.2.0-rc.2`（`639ed015397290b3745d163aafe02ffee4aa3f84`）。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录联调结果及验证边界。Runtime 工作区文件已有只读浏览入口，权限预设通过独立目录获取，Settings 支持插件启停与 Bundle 选择，显示只读原因、保存/生效状态和重启提示。Schedule 需启用可选官方 bundle。Jobs 可实时查看输出、按字节游标重连续读并取消任务；限时问答支持前台等待、重连和 webview 重建后的回答草稿恢复。Team 面板展示 `agentTeam` 投影中的成员与任务，支持成员历史预览和任务筛选。Runtime 终端输入、resize 和屏幕恢复，以及插件安装/卸载已在开发分支接入。IDE 不调用桌面遥测 RPC。
+基础 Runtime 和 Remote 契约指向 `dsh-v0.2.2-rc.1`（`66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`），并按版本接入 0.2.2 功能。Runtime 文件支持只读浏览，Settings 支持插件启停、Bundle 选择与生效结果。Jobs 实时输出可按游标重连续读并取消。限时问答恢复等待和回答草稿。Team 与子代理面板支持成员历史、follow-up 和任务导航。Runtime 终端支持 Shell 选择、重命名、输入、resize 和画面恢复，插件管理支持安装、卸载与兼容版本更新。RC.2 增加终端实时目录和输入接管。联调与剩余人工验证范围见 [维护记录](MAINTENANCE.md)。
 
 默认 `dsh.command: "auto"` 依次探测 PATH 和 npm 全局目录中的 `dsh --version`。官方 Desktop 注册的兼容命令会直接使用；不兼容的本机 CLI 只对已确认的旧版 npm 全局安装提供升级确认。没有兼容命令时，扩展会引导安装官方 Desktop。诊断命令不会安装或下载独立 Runtime。显式本机路径遵循相同兼容性检查；高级用户仍可显式选择 pnpm/npx。
 
@@ -224,7 +256,7 @@ graph TD
 | `dsh.serverToken` | `""` | `dsh.serverUrl` 对应的启动 Token；地址与 Token 分开配置时填写。 |
 | `dsh.autoStart` | `true` | 扩展激活时自动启动或连接 dsh web。 |
 | `dsh.installWhenMissing` | `false` | 已弃用的兼容设置；不再下载独立 Runtime。没有 `dsh` 时引导安装官方 Desktop。 |
-| `dsh.runtimeVersion` | `0.2.0-rc.2` | 用户同意后的本机 CLI 升级兼容目标；独立下载行为已弃用。 |
+| `dsh.runtimeVersion` | `0.2.2-rc.1` | 用户同意后的本机 CLI 升级兼容目标；独立下载行为已弃用。 |
 | `dsh.npmRegistry` | `https://registry.npmmirror.com` | 下载后备重试的 Registry 镜像。 |
 | `dsh.npxTimeoutMs` | `120000` | 等待包管理器下载与启动的超时时间。 |
 | `dsh.enableCompaction` | `true` | 扩展自行启动 DSH Web server 时启用官方 `/compact` command。 |
@@ -304,9 +336,9 @@ npm run release    # 测试 + 版本提升 + CHANGELOG 归档 + 打 tag
 
 日常改动记录在 `CHANGELOG.md` 的 `Unreleased` 中；临时打包不提升版本、不归档日志、不打 tag。准备发布下一版预览版时，在当前奇数 minor 上执行 `npm run release -- patch`，由脚本统一提升版本、归档日志、提交并创建 tag；确认后使用 `git push origin HEAD --follow-tags` 触发发布。预览版手动打包使用 `npm run package -- --pre-release`。
 
-Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、分页、评价、重连、流式输出、Goal、命令、可选 Schedule 以及 RC.2 timed 问题延迟回答。[RC.2 适配报告](./RPC_0.2.0_RC2_ADAPTATION.md) 记录运行结果及账号、Schedule 修改、Jev、UI 等剩余验证。
+Remote 冒烟脚本校验启动器的实际版本，通过公开 RPC 生成历史，验证鉴权、完整导出、分页、评价、重连、流式输出、Goal、命令、Host 任务与限时问答。Jev、Team 和工作流结果及人工验证范围见 [维护记录](MAINTENANCE.md)。
 
-对已安装的 `0.2.1-rc.2` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
+对已安装的 `0.2.2-rc.1` 启动器运行 Remote 冒烟（验证上一版时增加 `--expect-version 0.2.0-rc.2`）：
 
 ```bash
 npm run compile
@@ -325,6 +357,8 @@ node scripts/verify-runtime-discovery.mjs              # 本机命令发现
 ```
 
 ## 更多信息
+
+启动本机 Runtime 时，扩展会备份所选 DSH 配置的 `package.json`、`cordis.patch.yml` 及 DSH Home 的 `cordis.patch.yml`。扩展运行期间监听文件变化，按内容去重，每个 DSH Home/配置保留最近 10 份。Runtime 退出后仍可记录手动修改。使用 **DSH：打开配置备份** 查看历史，`backup.json` 记录时间、原路径及文件是否存在；每份目录保留原始文件内容，可手动取回。备份保存在扩展全局存储的 `config-backups` 目录，采用受限文件权限。此功能不依赖 Web UI，也不自动回滚。附加远程或桌面实例时不推测其配置路径，扩展退出期间的修改不会逐次记录。
 
 - [更新日志](CHANGELOG.md)
 - [产品 TODO](TODO.md)

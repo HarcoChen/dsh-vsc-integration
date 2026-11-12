@@ -6,7 +6,7 @@ import {
     remoteEndpointUrl,
     type RemoteClientRequest,
 } from "./contracts";
-import { isAbortError, RemoteError, RemoteHttpError, RemoteProtocolError } from "./errors";
+import { isAbortError, RemoteError, RemoteHttpError, RemoteProtocolError, RemoteTransportError } from "./errors";
 
 export interface RemoteUnaryClientOptions {
     baseUrl: string | (() => string | undefined);
@@ -66,6 +66,9 @@ export class RemoteUnaryClient {
                 },
                 body: JSON.stringify(request),
                 signal: controller.signal,
+            }).catch(cause => {
+                if (controller.signal.aborted) throw cause;
+                throw new RemoteTransportError(endpoint, cause);
             });
             if (!response.ok) {
                 throw new RemoteHttpError(endpoint, response.status);
