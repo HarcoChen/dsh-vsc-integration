@@ -646,6 +646,7 @@
     "Attach Problems": "附加问题",
     "Manage Runtime plugins": "管理 Runtime 插件",
     "Enable bundle": "启用组合包",
+    "Open DSH configuration backups": "打开 DSH 配置备份",
     "Headless must run in a separate CLI profile. It cannot be enabled in a Web Runtime.": "Headless 必须在独立的命令行配置中运行，不能在 Web Runtime 中启用。",
     "The Web profile selects the incompatible Headless bundle. Remove {name} from dsh.profile.bundles in {path}, then restart. Use a separate profile for Headless.": "Web 配置选入了不兼容的 Headless 组合包。请从 {path} 的 dsh.profile.bundles 中移除 {name} 后重启。Headless 请使用独立配置。",
     "Repository review requires the official Worktree / Forge bundle ({name}). Enable it in Runtime plugins, then reopen review.": "仓库评审需要官方 Worktree / Forge 组合包（{name}）。请在 Runtime 插件中启用后重新打开评审。",

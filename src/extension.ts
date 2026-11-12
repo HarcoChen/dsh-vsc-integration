@@ -213,6 +213,10 @@ export function activate(context: vscode.ExtensionContext): DshExtensionApi {
             });
         }),
         vscode.commands.registerCommand("dsh.openLogs", () => output.show(true)),
+        vscode.commands.registerCommand("dsh.openConfigurationBackups", () => runQuietCommand(t("Open DSH configuration backups"), async () => {
+            const directory = await runtime.getConfigurationBackupsDirectory();
+            await vscode.commands.executeCommand("revealFileInOS", vscode.Uri.file(directory));
+        })),
         vscode.commands.registerCommand("dsh.recovery.cancel", () => {
             runtime.cancelRecovery();
         }),

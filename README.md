@@ -378,6 +378,8 @@ node scripts/verify-runtime-discovery.mjs              # local command discovery
 
 ## More information
 
+Local Runtime launches keep rotating backups of the selected DSH profile's `package.json` and `cordis.patch.yml`, plus the DSH Home `cordis.patch.yml`. While the extension is running, file changes create content-deduplicated snapshots, retaining the latest 10 per DSH Home/profile, including edits after Runtime exit. **DSH: Open Configuration Backups** reveals the history. Each `backup.json` records timestamps, original paths and file presence alongside original file contents for manual recovery. Backups live in the extension's global storage under `config-backups` with restricted file permissions. No Web UI is required and no automatic rollback occurs. Attached remote/Desktop instances have no inferred configuration path; edits while the extension is closed are not recorded individually.
+
 - [Changelog](CHANGELOG.md)
 - [Product TODO](TODO.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)

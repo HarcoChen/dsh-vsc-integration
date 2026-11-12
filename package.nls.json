@@ -21,6 +21,7 @@
     "command.stop.title": "Stop dsh Web Runtime",
     "command.restart.title": "Restart dsh Web Runtime",
     "command.openLogs.title": "Show dsh Runtime Logs",
+    "command.openConfigurationBackups.title": "Open Configuration Backups",
     "command.recovery.cancel.title": "Cancel Automatic Recovery",
     "command.recovery.openDiagnostics.title": "Open Recovery Details",
     "command.recovery.exportDiagnostics.title": "Export Recovery Diagnostics",

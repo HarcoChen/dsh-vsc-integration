@@ -12,6 +12,7 @@ import { RemoteConnectionController } from "./remote/connection";
 import { parseRemoteServerResponse, remoteEndpointUrl } from "./remote/contracts";
 import { RemoteHttpError, RemoteProtocolError, isRemoteError, isRemoteEndpointUnavailable } from "./remote/errors";
 import { assertWebBundle, assertWebProfileCompatible, HEADLESS_BUNDLE, IncompatibleWebProfileError } from "./runtimeProfile";
+import { ConfigurationBackups } from "./configBackups";
 import { JobsController } from "./jobsController";
 import { UserQuestionWaitController } from "./userQuestionWait";
 import { RemoteStateCoordinator } from "./remote/stateCoordinator";
@@ -1307,6 +1308,7 @@ export class DshRuntime implements vscode.Disposable {
     private readonly recoverySession: RecoverySession;
     private lastRecoveryComposition: CompositionDescriptor | undefined;
     private automaticRecoveryInFlight = false;
+    private readonly configBackups: ConfigurationBackups;
 
     public constructor(
         private readonly output: vscode.OutputChannel,
@@ -1318,6 +1320,7 @@ export class DshRuntime implements vscode.Disposable {
         /** Extension-managed Jev credential, kept out of settings and launch patches. */
         private readonly jevApiKeyProvider?: () => Thenable<string | undefined>,
     ) {
+        this.configBackups = new ConfigurationBackups(storagePath, message => this.output.appendLine(`[dsh:backup] ${message}`));
         this.recoveryLedger = new RecoveryLedgerStore(storagePath);
         this.recoveryDiagnostics = new RecoveryDiagnostics(storagePath);
         this.recoveryFixes = new FixExecutor(this.recoveryLedger, output);
@@ -1419,6 +1422,12 @@ export class DshRuntime implements vscode.Disposable {
     /** Root of the per-session recovery logs (`recovery/logs/<sessionId>/`). */
     public getRecoveryLogsDirectory(): string {
         return this.recoveryDiagnostics.logsDirectory;
+    }
+
+    public async getConfigurationBackupsDirectory(): Promise<string> {
+        await this.configBackups.flush();
+        await mkdir(this.configBackups.directory, { recursive: true, mode: 0o700 });
+        return this.configBackups.directory;
     }
 
     public cancelRecovery(): void {
@@ -3140,7 +3149,7 @@ export class DshRuntime implements vscode.Disposable {
         if (this.disposePromise) return this.disposePromise;
         this.disposed = true;
         this.jobs.dispose();
-        this.disposePromise = this.stop();
+        this.disposePromise = this.stop().finally(() => this.configBackups.dispose());
         return this.disposePromise;
     }
 
@@ -3313,6 +3322,10 @@ export class DshRuntime implements vscode.Disposable {
         // commandArgs, the pnpm/npx conversion, and the discovery fallback — so
         // this is the one place the pin cannot be routed around.
         args = isPackageManagerSource(launcher.source) ? pinDshPackageArgs(launchArgs, runtimeVersion) : launchArgs;
+        if (isWebProfileArgs(args)) {
+            await this.configBackups.start(process.env.DSH_HOME || join(homedir(), ".dsh"), profileNameFromArgs(args));
+            checkStarting();
+        }
         this.output.appendLine(`[dsh] discovered executable: ${command} (${describeSource(launcher.source)})`);
         if (isPackageManagerSource(launcher.source)) {
             const packageSpec = dshPackageInvocation(args)?.spec;

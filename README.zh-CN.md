@@ -358,6 +358,8 @@ node scripts/verify-runtime-discovery.mjs              # 本机命令发现
 
 ## 更多信息
 
+启动本机 Runtime 时，扩展会备份所选 DSH 配置的 `package.json`、`cordis.patch.yml` 及 DSH Home 的 `cordis.patch.yml`。扩展运行期间监听文件变化，按内容去重，每个 DSH Home/配置保留最近 10 份。Runtime 退出后仍可记录手动修改。使用 **DSH：打开配置备份** 查看历史，`backup.json` 记录时间、原路径及文件是否存在；每份目录保留原始文件内容，可手动取回。备份保存在扩展全局存储的 `config-backups` 目录，采用受限文件权限。此功能不依赖 Web UI，也不自动回滚。附加远程或桌面实例时不推测其配置路径，扩展退出期间的修改不会逐次记录。
+
 - [更新日志](CHANGELOG.md)
 - [产品 TODO](TODO.md)
 - [第三方资产说明](THIRD_PARTY_NOTICES.md)

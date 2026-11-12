@@ -100,6 +100,7 @@
         "onCommand:dsh.refreshBalance",
         "onCommand:dsh.diagnoseEnvironment",
         "onCommand:dsh.openLogs",
+        "onCommand:dsh.openConfigurationBackups",
         "onCommand:dsh.openInBrowser",
         "onCommand:dsh.recovery.cancel",
         "onCommand:dsh.recovery.openDiagnostics",
@@ -257,6 +258,12 @@
                 "title": "%command.openLogs.title%",
                 "category": "DSH",
                 "icon": "$(output)"
+            },
+            {
+                "command": "dsh.openConfigurationBackups",
+                "title": "%command.openConfigurationBackups.title%",
+                "category": "DSH",
+                "icon": "$(history)"
             },
             {
                 "command": "dsh.recovery.cancel",

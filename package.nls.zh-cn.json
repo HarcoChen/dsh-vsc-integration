@@ -21,6 +21,7 @@
     "command.stop.title": "停止 dsh Web Runtime",
     "command.restart.title": "重启 dsh Web Runtime",
     "command.openLogs.title": "显示 dsh Runtime 日志",
+    "command.openConfigurationBackups.title": "打开配置备份",
     "command.recovery.cancel.title": "取消自动恢复",
     "command.recovery.openDiagnostics.title": "打开恢复详情",
     "command.recovery.exportDiagnostics.title": "导出恢复诊断",
