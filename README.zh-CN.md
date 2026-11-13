@@ -8,6 +8,15 @@
 
 在 VS Code 中使用 DeepSeek Harness（DSH），附加编辑器上下文、审批工具调用、查看原生 Diff，通过 Trace 和用量面板跟进任务。
 
+<p align="center">
+  <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20%E4%B8%8B%E8%BD%BD%E9%87%8F" alt="Open VSX 下载量"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
+  <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
+  <img src="https://img.shields.io/badge/dsh目标-0.2.2--rc.1-2f6feb?style=flat-square" alt="dsh 目标 0.2.2-rc.1">
+  <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-支持-8250df?style=flat-square" alt="支持 Laya / Jev">
+  <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="许可证"></a>
+</p>
+
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration) · [Open VSX](https://open-vsx.org/extension/harcochen/dsh-vsc-integration) · [下载 VSIX](https://github.com/HarcoChen/dsh-vsc-integration/releases)
 
 ![DSH 工作流演示](public/scene-intro.gif)

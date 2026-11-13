@@ -8,6 +8,19 @@
 
 Bring DeepSeek Harness (DSH) into VS Code. Work with editor context, approve tool calls, review native diffs, and follow tasks through Trace and usage insights.
 
+<p align="center">
+  <img src="https://img.shields.io/badge/dsh_target-0.2.2--rc.1-2f6feb?style=flat-square" alt="dsh target 0.2.2-rc.1">
+  <img src="https://img.shields.io/badge/Laya%20%2F%20Jev-built--in-8250df?style=flat-square" alt="Laya / Jev built-in">
+  <img src="https://img.shields.io/badge/setup-zero--config-1a7f37?style=flat-square" alt="Zero-config setup">
+</p>
+
+<p align="center">
+  <a href="https://open-vsx.org/extension/harcochen/dsh-vsc-integration"><img src="https://img.shields.io/open-vsx/dt/harcochen/dsh-vsc-integration?style=flat-square&label=Open%20VSX%20downloads" alt="Open VSX downloads"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration"><img src="https://vsmarketplacebadges.dev/installs-short/HarcoChen.dsh-vsc-integration.svg?style=flat-square" alt="VS Code Marketplace installs"></a>
+  <a href="https://github.com/HarcoChen/dsh-vsc-integration/stargazers"><img src="https://img.shields.io/github/stars/HarcoChen/dsh-vsc-integration?style=flat-square" alt="GitHub Stars"></a>
+  <a href="https://github.com/HarcoChen/dsh-vsc-integration/blob/main/LICENSE"><img src="https://img.shields.io/github/license/HarcoChen/dsh-vsc-integration?style=flat-square" alt="License"></a>
+</p>
+
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=HarcoChen.dsh-vsc-integration) · [Open VSX](https://open-vsx.org/extension/harcochen/dsh-vsc-integration) · [Download VSIX](https://github.com/HarcoChen/dsh-vsc-integration/releases)
 
 ![DSH workflow demo](public/scene-intro.gif)
